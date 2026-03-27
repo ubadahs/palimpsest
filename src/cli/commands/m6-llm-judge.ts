@@ -48,7 +48,7 @@ function parseArgs(argv: string[]): {
 
   if (!calibrationPath) {
     console.error(
-      "Usage: m6-llm-adjudicate --calibration <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
+      "Usage: m6-llm-judge --calibration <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -57,7 +57,7 @@ function parseArgs(argv: string[]): {
   return { calibrationPath, humanPath, model, thinking, output };
 }
 
-export async function runM6LlmAdjudicateCommand(argv: string[]): Promise<void> {
+export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);

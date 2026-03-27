@@ -7,7 +7,7 @@ import { runM2ExtractCommand } from "./commands/m2-extract.js";
 import { runM3ClassifyCommand } from "./commands/m3-classify.js";
 import { runM4EvidenceCommand } from "./commands/m4-evidence.js";
 import { runM5AdjudicateCommand } from "./commands/m5-adjudicate.js";
-import { runM6LlmAdjudicateCommand } from "./commands/m6-llm-adjudicate.js";
+import { runM6LlmJudgeCommand } from "./commands/m6-llm-judge.js";
 import { runPreScreenCommand } from "./commands/pre-screen.js";
 
 function printHelp(): void {
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "m6-llm-judge") {
-    await runM6LlmAdjudicateCommand(process.argv.slice(3));
+    await runM6LlmJudgeCommand(process.argv.slice(3));
     return;
   }
 

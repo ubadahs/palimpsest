@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { diffCalibrationSets } from "../../benchmark/workflow.js";
 import { benchmarkDiffResultSchema } from "../../benchmark/types.js";
 import { calibrationSetSchema } from "../../domain/types.js";
-import { toBenchmarkDiffMarkdown } from "../../reporting/benchmark-report.js";
+import { toBenchmarkDiffMarkdown } from "../../reporting/benchmark-diff-report.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
