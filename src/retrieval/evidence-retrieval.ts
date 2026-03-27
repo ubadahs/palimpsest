@@ -4,12 +4,14 @@ import { DOMParser } from "@xmldom/xmldom";
 
 import type {
   ClassifiedMention,
+  CitedPaperSource,
   EdgeWithEvidence,
   EvaluationMode,
   EvaluationTask,
   EvidenceSpan,
   FamilyClassificationResult,
   FamilyEvidenceResult,
+  TaskEvidenceRetrievalStatus,
   TaskWithEvidence,
 } from "../domain/types.js";
 import { getRubric } from "../classification/rubrics.js";
@@ -23,11 +25,8 @@ type TextChunk = {
   endOffset: number;
 };
 
-function extractTextFromXml(xml: string): string {
-  const doc = new DOMParser().parseFromString(xml, "text/xml");
-  const body = doc.getElementsByTagName("body").item(0);
-  if (!body) return "";
-  return (body.textContent ?? "").replace(/\s+/g, " ").trim();
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function isXml(text: string): boolean {
@@ -36,43 +35,183 @@ function isXml(text: string): boolean {
   );
 }
 
-function chunkByParagraphs(fullText: string): TextChunk[] {
-  const plainText = isXml(fullText) ? extractTextFromXml(fullText) : fullText;
-  const chunks: TextChunk[] = [];
-
-  const sentences = plainText.split(/(?<=[.!?])\s+/);
-  let currentChunk = "";
-  let chunkStart = 0;
-  let offset = 0;
-
-  for (const sentence of sentences) {
-    if (
-      currentChunk.length + sentence.length > 800 &&
-      currentChunk.length > 100
-    ) {
-      chunks.push({
-        text: currentChunk.trim(),
-        sectionTitle: undefined,
-        startOffset: chunkStart,
-        endOffset: offset,
-      });
-      currentChunk = "";
-      chunkStart = offset;
-    }
-    currentChunk += (currentChunk ? " " : "") + sentence;
-    offset += sentence.length + 1;
+function appendChunk(
+  chunks: TextChunk[],
+  text: string,
+  sectionTitle: string | undefined,
+  offsetRef: { value: number },
+): void {
+  const normalized = normalizeText(text);
+  if (normalized.length < 30) {
+    return;
   }
 
-  if (currentChunk.trim().length >= 30) {
-    chunks.push({
-      text: currentChunk.trim(),
-      sectionTitle: undefined,
-      startOffset: chunkStart,
-      endOffset: offset,
-    });
+  const startOffset = offsetRef.value;
+  const endOffset = startOffset + normalized.length;
+  chunks.push({
+    text: normalized,
+    sectionTitle,
+    startOffset,
+    endOffset,
+  });
+  offsetRef.value = endOffset + 2;
+}
+
+function getDirectChildElements(parent: Element, tagName: string): Element[] {
+  const children: Element[] = [];
+  for (let i = 0; i < parent.childNodes.length; i++) {
+    const node = parent.childNodes.item(i);
+    if (node?.nodeType === 1 && (node as Element).tagName === tagName) {
+      children.push(node as Element);
+    }
+  }
+  return children;
+}
+
+function getFirstDirectChild(parent: Element, tagName: string): Element | undefined {
+  return getDirectChildElements(parent, tagName)[0];
+}
+
+function walkSection(
+  section: Element,
+  inheritedTitle: string | undefined,
+  chunks: TextChunk[],
+  offsetRef: { value: number },
+): void {
+  const sectionTitle =
+    normalizeText(getFirstDirectChild(section, "title")?.textContent ?? "") ||
+    inheritedTitle;
+
+  for (let i = 0; i < section.childNodes.length; i++) {
+    const node = section.childNodes.item(i);
+    if (node?.nodeType !== 1) {
+      continue;
+    }
+
+    const element = node as Element;
+    if (element.tagName === "sec") {
+      walkSection(element, sectionTitle, chunks, offsetRef);
+      continue;
+    }
+
+    if (element.tagName === "p") {
+      appendChunk(chunks, element.textContent ?? "", sectionTitle, offsetRef);
+      continue;
+    }
+
+    if (element.tagName === "fig" || element.tagName === "table-wrap") {
+      const captionText = normalizeText(
+        getFirstDirectChild(element, "caption")?.textContent ?? "",
+      );
+      if (captionText) {
+        const captionSection = sectionTitle
+          ? `${sectionTitle} / Figure caption`
+          : "Figure caption";
+        appendChunk(chunks, captionText, captionSection, offsetRef);
+      }
+    }
+  }
+}
+
+function chunkXmlParagraphs(fullText: string): TextChunk[] {
+  const doc = new DOMParser().parseFromString(fullText, "text/xml");
+  const chunks: TextChunk[] = [];
+  const offsetRef = { value: 0 };
+
+  const abstracts = doc.getElementsByTagName("abstract");
+  for (let i = 0; i < abstracts.length; i++) {
+    const abstract = abstracts.item(i);
+    if (!abstract) continue;
+    appendChunk(chunks, abstract.textContent ?? "", "Abstract", offsetRef);
+  }
+
+  const body = doc.getElementsByTagName("body").item(0);
+  if (!body || body.nodeType !== 1) {
+    return chunks;
+  }
+
+  for (let i = 0; i < body.childNodes.length; i++) {
+    const node = body.childNodes.item(i);
+    if (node?.nodeType !== 1) {
+      continue;
+    }
+
+    const element = node as Element;
+    if (element.tagName === "sec") {
+      walkSection(element, undefined, chunks, offsetRef);
+      continue;
+    }
+
+    if (element.tagName === "p") {
+      appendChunk(chunks, element.textContent ?? "", undefined, offsetRef);
+    }
   }
 
   return chunks;
+}
+
+function chunkPlainText(fullText: string): TextChunk[] {
+  const chunks: TextChunk[] = [];
+  const paragraphs = fullText
+    .split(/\n{2,}/)
+    .map(normalizeText)
+    .filter((paragraph) => paragraph.length >= 30);
+  const sourceParagraphs =
+    paragraphs.length > 0
+      ? paragraphs
+      : fullText
+          .split(/(?<=[.!?])\s+/)
+          .map(normalizeText)
+          .filter((paragraph) => paragraph.length >= 30);
+
+  let offset = 0;
+  for (const paragraph of sourceParagraphs) {
+    if (paragraph.length <= 1000) {
+      chunks.push({
+        text: paragraph,
+        sectionTitle: undefined,
+        startOffset: offset,
+        endOffset: offset + paragraph.length,
+      });
+      offset += paragraph.length + 2;
+      continue;
+    }
+
+    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    let current = "";
+    let chunkStart = offset;
+
+    for (const sentence of sentences) {
+      if (current.length > 0 && current.length + sentence.length > 800) {
+        chunks.push({
+          text: current,
+          sectionTitle: undefined,
+          startOffset: chunkStart,
+          endOffset: chunkStart + current.length,
+        });
+        chunkStart = chunkStart + current.length + 2;
+        current = sentence;
+      } else {
+        current += current ? ` ${sentence}` : sentence;
+      }
+    }
+
+    if (current.length > 0) {
+      chunks.push({
+        text: current,
+        sectionTitle: undefined,
+        startOffset: chunkStart,
+        endOffset: chunkStart + current.length,
+      });
+      offset = chunkStart + current.length + 2;
+    }
+  }
+
+  return chunks;
+}
+
+function chunkByParagraphs(fullText: string): TextChunk[] {
+  return isXml(fullText) ? chunkXmlParagraphs(fullText) : chunkPlainText(fullText);
 }
 
 // --- Keyword extraction from citing context ---
@@ -165,6 +304,7 @@ function scoreChunk(
   entities: string[],
 ): { score: number; method: EvidenceSpan["matchMethod"] } {
   const chunkLower = chunk.text.toLowerCase();
+  const sectionLower = chunk.sectionTitle?.toLowerCase() ?? "";
 
   let entityHits = 0;
   for (const e of entities) {
@@ -184,6 +324,11 @@ function scoreChunk(
   }
   if (entityHits >= 1 && keywordHits >= 2) {
     return { score: entityHits * 2 + keywordHits, method: "claim_term" };
+  }
+
+  const sectionHits = keyTerms.filter((term) => sectionLower.includes(term)).length;
+  if (sectionHits >= 1) {
+    return { score: sectionHits, method: "section_title" };
   }
 
   return { score: 0, method: "keyword_overlap" };
@@ -243,10 +388,18 @@ function retrieveForTask(
   };
 }
 
+function isNotAttemptedMode(task: EvaluationTask): boolean {
+  return (
+    task.evaluationMode === "skip_low_information" ||
+    task.evaluationMode === "manual_review_extraction_limited"
+  );
+}
+
 // --- Public API ---
 
 export function retrieveEvidence(
   classification: FamilyClassificationResult,
+  citedPaperSource: CitedPaperSource,
   citedPaperFullText: string | undefined,
 ): FamilyEvidenceResult {
   const chunks = citedPaperFullText
@@ -259,6 +412,8 @@ export function retrieveEvidence(
   let tasksWithEvidence = 0;
   let tasksNoMatches = 0;
   let tasksNoFulltext = 0;
+  let tasksUnresolvedCitedPaper = 0;
+  let tasksNotAttempted = 0;
   let totalSpans = 0;
   const tasksByMode: Partial<Record<EvaluationMode, number>> = {};
 
@@ -272,14 +427,32 @@ export function retrieveEvidence(
       const count = tasksByMode[task.evaluationMode] ?? 0;
       tasksByMode[task.evaluationMode] = count + 1;
 
-      if (!hasFullText) {
+      if (isNotAttemptedMode(task)) {
+        const result = retrieveForTask(task, chunks);
+        tasksWithEv.push(result);
+        tasksNotAttempted++;
+        continue;
+      }
+
+      let status: TaskEvidenceRetrievalStatus | undefined;
+      if (citedPaperSource.resolutionStatus !== "resolved") {
+        status = "unresolved_cited_paper";
+      } else if (!hasFullText) {
+        status = "no_fulltext";
+      }
+
+      if (status) {
         tasksWithEv.push({
           ...task,
           rubricQuestion: getRubric(task.evaluationMode).question,
           citedPaperEvidenceSpans: [],
-          evidenceRetrievalStatus: "no_fulltext",
+          evidenceRetrievalStatus: status,
         });
-        tasksNoFulltext++;
+        if (status === "no_fulltext") {
+          tasksNoFulltext++;
+        } else if (status === "unresolved_cited_paper") {
+          tasksUnresolvedCitedPaper++;
+        }
         continue;
       }
 
@@ -299,6 +472,7 @@ export function retrieveEvidence(
       citingPaperTitle: packet.citingPaper.title,
       citedPaperTitle: packet.citedPaper.title,
       extractionState: packet.extractionState,
+      extractionOutcome: packet.extractionOutcome,
       isReviewMediated: packet.isReviewMediated,
       tasks: tasksWithEv,
     });
@@ -309,12 +483,15 @@ export function retrieveEvidence(
     resolvedSeedPaperTitle: classification.resolvedSeedPaperTitle,
     studyMode: classification.studyMode,
     citedPaperFullTextAvailable: hasFullText,
+    citedPaperSource,
     edges,
     summary: {
       totalTasks,
       tasksWithEvidence,
       tasksNoFulltext,
+      tasksUnresolvedCitedPaper,
       tasksNoMatches,
+      tasksNotAttempted,
       totalEvidenceSpans: totalSpans,
       tasksByMode,
     },

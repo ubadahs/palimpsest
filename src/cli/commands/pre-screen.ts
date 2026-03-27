@@ -1,11 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { shortlistInputSchema } from "../../domain/types.js";
 import * as openalex from "../../integrations/openalex.js";
-import * as semanticScholar from "../../integrations/semantic-scholar.js";
+import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
 import {
   runPreScreen,
   type PreScreenAdapters,
@@ -14,6 +14,10 @@ import {
   toPreScreenJson,
   toPreScreenMarkdown,
 } from "../../reporting/pre-screen-report.js";
+import {
+  loadJsonArtifact,
+  writeArtifactManifest,
+} from "../../shared/artifact-io.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): { input: string; output: string } {
@@ -46,19 +50,13 @@ function buildAdapters(config: {
   semanticScholarApiKey: string | undefined;
 }): PreScreenAdapters {
   return {
-    resolveByDoi: async (doi) => {
-      const oaResult = await openalex.resolveWorkByDoi(
-        doi,
-        config.baseUrls.openAlex,
-        config.openAlexEmail,
-      );
-      if (oaResult.ok) return oaResult;
-      return semanticScholar.resolvePaperByDoi(
-        doi,
-        config.baseUrls.semanticScholar,
-        config.semanticScholarApiKey,
-      );
-    },
+    resolveByDoi: (doi) =>
+      resolvePaperByDoi(doi, {
+        openAlexBaseUrl: config.baseUrls.openAlex,
+        semanticScholarBaseUrl: config.baseUrls.semanticScholar,
+        openAlexEmail: config.openAlexEmail,
+        semanticScholarApiKey: config.semanticScholarApiKey,
+      }),
     getCitingPapers: (openAlexId) =>
       openalex.getCitingWorks(
         openAlexId,
@@ -81,42 +79,49 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
 
-  const rawInput: unknown = JSON.parse(readFileSync(args.input, "utf8"));
-  const parseResult = shortlistInputSchema.safeParse(rawInput);
+  try {
+    const shortlist = loadJsonArtifact(
+      args.input,
+      shortlistInputSchema,
+      "shortlist input",
+    );
+    console.info(`Processing ${String(shortlist.seeds.length)} seed(s)...`);
 
-  if (!parseResult.success) {
-    console.error("Invalid shortlist input:", parseResult.error.message);
+    const adapters = buildAdapters({
+      baseUrls: config.providerBaseUrls,
+      openAlexEmail: config.openAlexEmail,
+      semanticScholarApiKey: config.semanticScholarApiKey,
+    });
+    const results = await runPreScreen(shortlist.seeds, adapters);
+
+    const outputDir = resolve(process.cwd(), args.output);
+    mkdirSync(outputDir, { recursive: true });
+
+    const stamp = nextRunStamp(outputDir);
+    const jsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
+    const mdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
+
+    writeFileSync(jsonPath, toPreScreenJson(results), "utf8");
+    writeFileSync(mdPath, toPreScreenMarkdown(results), "utf8");
+    const manifestPath = writeArtifactManifest(jsonPath, {
+      artifactType: "pre-screen-results",
+      generator: "pre-screen",
+      sourceArtifacts: [args.input],
+      relatedArtifacts: [mdPath],
+    });
+
+    console.info(`\nResults written to:`);
+    console.info(`  JSON: ${jsonPath}`);
+    console.info(`  Markdown: ${mdPath}`);
+    console.info(`  Manifest: ${manifestPath}`);
+
+    const greenlit = results.filter((r) => r.decision === "greenlight");
+    const deprioritized = results.filter((r) => r.decision === "deprioritize");
+    console.info(
+      `\n${String(greenlit.length)} greenlit, ${String(deprioritized.length)} deprioritized`,
+    );
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-    return;
   }
-
-  const shortlist = parseResult.data;
-  console.info(`Processing ${String(shortlist.seeds.length)} seed(s)...`);
-
-  const adapters = buildAdapters({
-    baseUrls: config.providerBaseUrls,
-    openAlexEmail: config.openAlexEmail,
-    semanticScholarApiKey: config.semanticScholarApiKey,
-  });
-  const results = await runPreScreen(shortlist.seeds, adapters);
-
-  const outputDir = resolve(process.cwd(), args.output);
-  mkdirSync(outputDir, { recursive: true });
-
-  const stamp = nextRunStamp(outputDir);
-  const jsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
-  const mdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
-
-  writeFileSync(jsonPath, toPreScreenJson(results), "utf8");
-  writeFileSync(mdPath, toPreScreenMarkdown(results), "utf8");
-
-  console.info(`\nResults written to:`);
-  console.info(`  JSON: ${jsonPath}`);
-  console.info(`  Markdown: ${mdPath}`);
-
-  const greenlit = results.filter((r) => r.decision === "greenlight");
-  const deprioritized = results.filter((r) => r.decision === "deprioritize");
-  console.info(
-    `\n${String(greenlit.length)} greenlit, ${String(deprioritized.length)} deprioritized`,
-  );
 }
