@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   CitationMention,
+  CitedPaperSource,
   ClassifiedMention,
   EdgeEvaluationPacket,
   EvaluationTask,
@@ -156,11 +157,44 @@ const CITED_PAPER_TEXT = [
     "including Par1b and E-cadherin mediated adhesion.",
 ].join("\n");
 
+const CITED_PAPER_XML = `<?xml version="1.0"?>
+<article>
+  <front>
+    <abstract>
+      <p>Apical bulkheads are important for hepatocyte lumen morphogenesis.</p>
+    </abstract>
+  </front>
+  <body>
+    <sec>
+      <title>Results</title>
+      <p>Silencing of Rab35 resulted in loss of apical bulkheads and cyst formation in hepatocytes.</p>
+    </sec>
+  </body>
+</article>`;
+
+function makeSource(
+  overrides: Partial<CitedPaperSource> = {},
+): CitedPaperSource {
+  return {
+    resolutionStatus: "resolved",
+    resolutionError: undefined,
+    resolvedPaper: undefined,
+    fetchStatus: "retrieved",
+    fetchError: undefined,
+    fullTextFormat: "jats_xml",
+    ...overrides,
+  };
+}
+
 describe("retrieveEvidence", () => {
   it("retrieves matching spans from cited paper text", () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(classification, CITED_PAPER_TEXT);
+    const result = retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "pdf_text" }),
+      CITED_PAPER_TEXT,
+    );
 
     expect(result.citedPaperFullTextAvailable).toBe(true);
     expect(result.summary.totalTasks).toBe(1);
@@ -175,7 +209,11 @@ describe("retrieveEvidence", () => {
   it("reports no_fulltext when cited paper text is undefined", () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(classification, undefined);
+    const result = retrieveEvidence(
+      classification,
+      makeSource({ fetchStatus: "no_fulltext", fullTextFormat: undefined }),
+      undefined,
+    );
 
     expect(result.citedPaperFullTextAvailable).toBe(false);
     expect(result.summary.tasksNoFulltext).toBe(1);
@@ -189,7 +227,11 @@ describe("retrieveEvidence", () => {
     });
     const classification = makeClassification([makePacket([methodsTask])]);
 
-    const result = retrieveEvidence(classification, CITED_PAPER_TEXT);
+    const result = retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "pdf_text" }),
+      CITED_PAPER_TEXT,
+    );
     const task = result.edges[0]!.tasks[0]!;
 
     expect(task.rubricQuestion).toContain("method");
@@ -203,9 +245,48 @@ describe("retrieveEvidence", () => {
     });
     const classification = makeClassification([makePacket([lowInfoTask])]);
 
-    const result = retrieveEvidence(classification, CITED_PAPER_TEXT);
+    const result = retrieveEvidence(
+      classification,
+      makeSource({ fetchStatus: "no_fulltext", fullTextFormat: undefined }),
+      undefined,
+    );
     const task = result.edges[0]!.tasks[0]!;
 
     expect(task.evidenceRetrievalStatus).toBe("not_attempted");
+    expect(result.summary.tasksNotAttempted).toBe(1);
+  });
+
+  it("distinguishes unresolved cited papers from missing full text", () => {
+    const classification = makeClassification([makePacket([makeTask()])]);
+
+    const result = retrieveEvidence(
+      classification,
+      makeSource({
+        resolutionStatus: "resolution_failed",
+        resolutionError: "DOI lookup failed",
+        fetchStatus: "not_attempted",
+        fullTextFormat: undefined,
+      }),
+      undefined,
+    );
+
+    expect(result.summary.tasksUnresolvedCitedPaper).toBe(1);
+    expect(result.edges[0]!.tasks[0]!.evidenceRetrievalStatus).toBe(
+      "unresolved_cited_paper",
+    );
+  });
+
+  it("preserves section labels for JATS-derived evidence spans", () => {
+    const classification = makeClassification([makePacket([makeTask()])]);
+
+    const result = retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "jats_xml" }),
+      CITED_PAPER_XML,
+    );
+
+    expect(result.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle).toBe(
+      "Results",
+    );
   });
 });
