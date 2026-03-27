@@ -1,0 +1,18 @@
+{
+  "paperId": "abc123def456",
+  "title": "A Hedged Finding About Gene X in Mouse Liver",
+  "authors": [
+    { "authorId": "100", "name": "Alice Smith" },
+    { "authorId": "200", "name": "Bob Jones" }
+  ],
+  "abstract": "We found that gene X may increase expression of protein Y.",
+  "isOpenAccess": true,
+  "openAccessPdf": {
+    "url": "https://www.biorxiv.org/content/10.1101/2024.01.15.575745v1.full.pdf"
+  },
+  "externalIds": {
+    "DOI": "10.1101/2024.01.15.575745",
+    "ArXiv": null,
+    "PubMed": null
+  }
+}
