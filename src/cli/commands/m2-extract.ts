@@ -1,0 +1,113 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { createAppConfig } from "../../config/app-config.js";
+import { loadEnvironment } from "../../config/env.js";
+import type { ClaimFamilyPreScreen } from "../../domain/types.js";
+import { runM2Extraction } from "../../pipeline/m2-extract.js";
+import {
+  toM2InspectionArtifact,
+  toM2Json,
+  toM2Markdown,
+} from "../../reporting/m2-extraction-report.js";
+import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { nextRunStamp } from "../run-stamp.js";
+
+function parseArgs(argv: string[]): {
+  preScreenPath: string;
+  seedDoi: string;
+  output: string;
+} {
+  let preScreenPath: string | undefined;
+  let seedDoi: string | undefined;
+  let output = "data/m2-extraction";
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--pre-screen" && i + 1 < argv.length) {
+      preScreenPath = argv[i + 1];
+      i++;
+    } else if (arg === "--seed-doi" && i + 1 < argv.length) {
+      seedDoi = argv[i + 1];
+      i++;
+    } else if (arg === "--output" && i + 1 < argv.length) {
+      output = argv[i + 1]!;
+      i++;
+    }
+  }
+
+  if (!preScreenPath || !seedDoi) {
+    console.error(
+      "Usage: m2-extract --pre-screen <path> --seed-doi <doi> [--output <dir>]",
+    );
+    process.exitCode = 1;
+    throw new Error("Missing required arguments");
+  }
+
+  return { preScreenPath, seedDoi, output };
+}
+
+export async function runM2ExtractCommand(argv: string[]): Promise<void> {
+  const args = parseArgs(argv);
+  const environment = loadEnvironment();
+  const config = createAppConfig(environment);
+
+  const raw: unknown = JSON.parse(readFileSync(args.preScreenPath, "utf8"));
+  const families = raw as ClaimFamilyPreScreen[];
+
+  const family = families.find(
+    (f) => f.seed.doi.toLowerCase() === args.seedDoi.toLowerCase(),
+  );
+
+  if (!family) {
+    console.error(
+      `Seed DOI "${args.seedDoi}" not found in pre-screen results.`,
+    );
+    console.error("Available DOIs:");
+    for (const f of families) {
+      console.error(`  ${f.seed.doi}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!family.resolvedSeedPaper) {
+    console.error(
+      "Seed paper was not resolved during pre-screen — cannot extract.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  console.info(`M2 extraction for: ${family.resolvedSeedPaper.title}`);
+  console.info(`  ${String(family.edges.length)} edges to process\n`);
+
+  const adapters = {
+    fullText: createDefaultAdapters(config.openAlexEmail),
+    biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+  };
+
+  const result = await runM2Extraction(family, adapters);
+
+  const outputDir = resolve(process.cwd(), args.output);
+  mkdirSync(outputDir, { recursive: true });
+
+  const stamp = nextRunStamp(outputDir);
+  const jsonPath = resolve(outputDir, `${stamp}_m2-extraction-results.json`);
+  const mdPath = resolve(outputDir, `${stamp}_m2-extraction-report.md`);
+  const inspectPath = resolve(outputDir, `${stamp}_m2-inspection.md`);
+
+  writeFileSync(jsonPath, toM2Json(result), "utf8");
+  writeFileSync(mdPath, toM2Markdown(result), "utf8");
+  writeFileSync(inspectPath, toM2InspectionArtifact(result), "utf8");
+
+  console.info(`\nResults written to:`);
+  console.info(`  JSON: ${jsonPath}`);
+  console.info(`  Markdown: ${mdPath}`);
+  console.info(`  Inspection: ${inspectPath}`);
+
+  const { summary } = result;
+  console.info(
+    `\n${String(summary.successfulEdgesRaw)} extracted (${String(summary.successfulEdgesUsable)} usable), ${String(summary.deduplicatedMentionCount)} mentions (${String(summary.usableMentionCount)} usable)`,
+  );
+}

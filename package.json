@@ -1,0 +1,54 @@
+{
+  "name": "citation-fidelity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI-first tooling for auditing citation fidelity in scientific literature.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
+    "doctor": "tsx src/cli/index.ts doctor",
+    "db:migrate": "tsx src/cli/index.ts db:migrate",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ubadahs/citation-fidelity.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bugs": {
+    "url": "https://github.com/ubadahs/citation-fidelity/issues"
+  },
+  "homepage": "https://github.com/ubadahs/citation-fidelity#readme",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@xmldom/xmldom": "^0.8.11",
+    "ai": "^6.0.138",
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^17.3.1",
+    "pdf-parse": "^2.4.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.0",
+    "@types/pdf-parse": "^1.1.5",
+    "eslint": "^10.1.0",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.57.2",
+    "vitest": "^4.1.1"
+  }
+}

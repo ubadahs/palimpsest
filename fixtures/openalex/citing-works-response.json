@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "count": 3,
+    "db_response_time_ms": 10,
+    "page": 1,
+    "per_page": 50
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W3100000001",
+      "doi": "https://doi.org/10.1101/2024.06.01.111111",
+      "display_name": "Gene X Definitively Increases Protein Y",
+      "authorships": [{ "author": { "display_name": "Carol Lee" } }],
+      "abstract_inverted_index": {
+        "Gene": [0],
+        "X": [1],
+        "increases": [2],
+        "protein": [3],
+        "Y.": [4]
+      },
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "https://www.biorxiv.org/content/10.1101/2024.06.01.111111v1"
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "bioRxiv",
+          "type": "repository"
+        },
+        "pdf_url": null,
+        "landing_page_url": "https://doi.org/10.1101/2024.06.01.111111"
+      },
+      "type": "preprint"
+    },
+    {
+      "id": "https://openalex.org/W3100000002",
+      "doi": "https://doi.org/10.1234/journal.2024.222222",
+      "display_name": "Protein Y Regulation in Mammals",
+      "authorships": [{ "author": { "display_name": "Dan Park" } }],
+      "abstract_inverted_index": null,
+      "open_access": {
+        "is_oa": false,
+        "oa_status": "closed",
+        "oa_url": null
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "Journal of Biology",
+          "type": "journal"
+        },
+        "pdf_url": null,
+        "landing_page_url": "https://doi.org/10.1234/journal.2024.222222"
+      },
+      "type": "article"
+    },
+    {
+      "id": "https://openalex.org/W3100000003",
+      "doi": "https://doi.org/10.5678/pmc.2024.333333",
+      "display_name": "Liver Cell Gene Expression Patterns",
+      "authorships": [{ "author": { "display_name": "Eve Zhang" } }],
+      "abstract_inverted_index": {
+        "Liver": [0],
+        "cells": [1],
+        "show": [2],
+        "complex": [3],
+        "expression.": [4]
+      },
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12345"
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "PubMed Central",
+          "type": "repository"
+        },
+        "pdf_url": null,
+        "landing_page_url": "https://doi.org/10.5678/pmc.2024.333333"
+      },
+      "type": "article"
+    }
+  ]
+}
