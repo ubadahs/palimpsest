@@ -1,3 +1,6 @@
+import { runBenchmarkApplyCommand } from "./commands/benchmark-apply.js";
+import { runBenchmarkBlindCommand } from "./commands/benchmark-blind.js";
+import { runBenchmarkDiffCommand } from "./commands/benchmark-diff.js";
 import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import { runM2ExtractCommand } from "./commands/m2-extract.js";
@@ -19,6 +22,9 @@ Available commands:
   m4-evidence   Retrieve evidence from cited paper for evaluation tasks
   m5-adjudicate Generate calibration worksheet for human adjudication
   m6-llm-judge  Run LLM adjudication against calibration set
+  benchmark:blind Create a blinded benchmark export from an adjudicated set
+  benchmark:diff  Compare two adjudication datasets keyed by taskId
+  benchmark:apply Apply approved adjudication deltas to a base dataset
 `);
 }
 
@@ -27,6 +33,21 @@ async function main(): Promise<void> {
 
   if (command === "doctor") {
     runDoctorCommand();
+    return;
+  }
+
+  if (command === "benchmark:blind") {
+    runBenchmarkBlindCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "benchmark:diff") {
+    runBenchmarkDiffCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "benchmark:apply") {
+    runBenchmarkApplyCommand(process.argv.slice(3));
     return;
   }
 
