@@ -4,29 +4,35 @@ import { resolve } from "node:path";
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { familyClassificationResultSchema } from "../../domain/types.js";
-import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
+import {
+  resolvePaperByDoi,
+  resolvePaperByMetadata,
+} from "../../integrations/paper-resolver.js";
 import { resolveCitedPaperSource } from "../../pipeline/m4-evidence.js";
 import {
   toEvidenceJson,
   toEvidenceMarkdown,
 } from "../../reporting/evidence-report.js";
+import { createLocalReranker } from "../../retrieval/local-reranker.js";
+import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
-import {
-  createDefaultAdapters,
-  fetchFullText,
-} from "../../retrieval/fulltext-fetch.js";
+import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
 } from "../../shared/artifact-io.js";
+import { openDatabase } from "../../storage/database.js";
+import { runMigrations } from "../../storage/migration-service.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
   classificationPath: string;
   output: string;
+  forceRefresh: boolean;
 } {
   let classificationPath: string | undefined;
   let output = "data/m4-evidence";
+  let forceRefresh = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -36,26 +42,31 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
       i++;
+    } else if (arg === "--force-refresh") {
+      forceRefresh = true;
     }
   }
 
   if (!classificationPath) {
     console.error(
-      "Usage: m4-evidence --classification <path> [--output <dir>]",
+      "Usage: m4-evidence --classification <path> [--output <dir>] [--force-refresh]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { classificationPath, output };
+  return { classificationPath, output, forceRefresh };
 }
 
 export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
+  const database = openDatabase(config.databasePath);
 
   try {
+    runMigrations(database);
+
     const classification = loadJsonArtifact(
       args.classificationPath,
       familyClassificationResultSchema,
@@ -65,20 +76,44 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
     const title = classification.resolvedSeedPaperTitle;
     console.info(`M4 evidence retrieval for: ${title}`);
 
-    const adapters = createDefaultAdapters(config.openAlexEmail);
-    const citedPaperMaterialized = await resolveCitedPaperSource(classification, {
-      resolveByDoi: (doi) =>
-        resolvePaperByDoi(doi, {
-          openAlexBaseUrl: config.providerBaseUrls.openAlex,
-          semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-          openAlexEmail: config.openAlexEmail,
-          semanticScholarApiKey: config.semanticScholarApiKey,
-        }),
-      fetchFullText: (paper) =>
-        fetchFullText(paper, config.providerBaseUrls.bioRxiv, adapters),
-    });
+    const adapters = createDefaultAdapters(
+      config.providerBaseUrls.grobid,
+      config.openAlexEmail,
+    );
+    const reranker = createLocalReranker(config.localRerankerBaseUrl);
+    const citedPaperMaterialized = await resolveCitedPaperSource(
+      classification,
+      {
+        resolveByDoi: (doi) =>
+          resolvePaperByDoi(doi, {
+            openAlexBaseUrl: config.providerBaseUrls.openAlex,
+            semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+            openAlexEmail: config.openAlexEmail,
+            semanticScholarApiKey: config.semanticScholarApiKey,
+          }),
+        resolveByMetadata: (locator) =>
+          resolvePaperByMetadata(locator, {
+            openAlexBaseUrl: config.providerBaseUrls.openAlex,
+            semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+            openAlexEmail: config.openAlexEmail,
+            semanticScholarApiKey: config.semanticScholarApiKey,
+          }),
+        materializeParsedPaper: (paper) =>
+          materializeParsedPaper(
+            paper,
+            config.providerBaseUrls.bioRxiv,
+            adapters,
+            {
+              db: database,
+              cachePolicy: args.forceRefresh ? "force_refresh" : "prefer_cache",
+            },
+          ),
+      },
+    );
 
-    if (citedPaperMaterialized.citedPaperSource.resolutionStatus !== "resolved") {
+    if (
+      citedPaperMaterialized.citedPaperSource.resolutionStatus !== "resolved"
+    ) {
       console.info(
         `  Could not resolve cited paper: ${citedPaperMaterialized.citedPaperSource.resolutionError ?? "unknown error"}`,
       );
@@ -88,16 +123,17 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
       console.info(
         `  Cited paper full text unavailable: ${citedPaperMaterialized.citedPaperSource.fetchError ?? citedPaperMaterialized.citedPaperSource.fetchStatus}`,
       );
-    } else if (citedPaperMaterialized.citedPaperFullText) {
+    } else if (citedPaperMaterialized.citedPaperParsedDocument) {
       console.info(
-        `  Retrieved ${String(citedPaperMaterialized.citedPaperFullText.length)} chars (${citedPaperMaterialized.citedPaperSource.fullTextFormat})`,
+        `  Retrieved ${String(citedPaperMaterialized.citedPaperParsedDocument.blocks.length)} parsed blocks (${citedPaperMaterialized.citedPaperSource.fullTextFormat})`,
       );
     }
 
-    const evidenceResult = retrieveEvidence(
+    const evidenceResult = await retrieveEvidence(
       classification,
       citedPaperMaterialized.citedPaperSource,
-      citedPaperMaterialized.citedPaperFullText,
+      citedPaperMaterialized.citedPaperParsedDocument,
+      reranker ? { reranker } : {},
     );
 
     const outputDir = resolve(process.cwd(), args.output);
@@ -128,5 +164,7 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
+  } finally {
+    database.close();
   }
 }

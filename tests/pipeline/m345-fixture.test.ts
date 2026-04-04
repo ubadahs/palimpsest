@@ -9,6 +9,7 @@ import {
   type FamilyExtractionResult,
 } from "../../src/domain/types.js";
 import { retrieveEvidence } from "../../src/retrieval/evidence-retrieval.js";
+import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 
 const EDGE_CLASSIFICATION: EdgeClassification = {
   isReview: false,
@@ -100,15 +101,20 @@ function makeExtraction(): FamilyExtractionResult {
 }
 
 describe("M3→M4→M5 fixture chain", () => {
-  it("produces validated, section-aware evidence and calibration outputs", () => {
+  it("produces validated, section-aware evidence and calibration outputs", async () => {
     const classification = familyClassificationResultSchema.parse(
       buildPackets(makeExtraction(), "all_functions_census", {
         "edge-1": EDGE_CLASSIFICATION,
       }),
     );
 
+    const parsed = parseParsedPaperDocument(CITED_XML, "jats_xml");
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+
     const evidence = familyEvidenceResultSchema.parse(
-      retrieveEvidence(
+      await retrieveEvidence(
         classification,
         {
           resolutionStatus: "resolved",
@@ -118,13 +124,13 @@ describe("M3→M4→M5 fixture chain", () => {
           fetchError: undefined,
           fullTextFormat: "jats_xml",
         },
-        CITED_XML,
+        parsed.data,
       ),
     );
 
-    expect(evidence.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle).toBe(
-      "Results",
-    );
+    expect(
+      evidence.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle,
+    ).toBe("Results");
 
     const calibration = sampleCalibrationSet(evidence, undefined, 10);
     expect(calibration.records).toHaveLength(1);

@@ -1,43 +1,68 @@
 import type {
   CitedPaperSource,
   FamilyClassificationResult,
+  ParsedPaperDocument,
   ResolvedPaper,
   Result,
 } from "../domain/types.js";
-import type { FullTextContent } from "../retrieval/fulltext-fetch.js";
+import type { ParsedPaperMaterialized } from "../retrieval/parsed-paper.js";
 
 export type M4EvidenceAdapters = {
   resolveByDoi: (doi: string) => Promise<Result<ResolvedPaper>>;
-  fetchFullText: (paper: ResolvedPaper) => Promise<Result<FullTextContent>>;
+  resolveByMetadata: (locator: {
+    doi?: string;
+    pmcid?: string;
+    pmid?: string;
+    title: string;
+    authors: string[];
+    publicationYear?: number;
+  }) => Promise<Result<ResolvedPaper>>;
+  materializeParsedPaper: (
+    paper: ResolvedPaper,
+  ) => Promise<Result<ParsedPaperMaterialized>>;
 };
 
 export type MaterializedCitedPaperSource = {
   citedPaperSource: CitedPaperSource;
-  citedPaperFullText: string | undefined;
+  citedPaperParsedDocument: ParsedPaperDocument | undefined;
 };
 
 export async function resolveCitedPaperSource(
   classification: FamilyClassificationResult,
   adapters: M4EvidenceAdapters,
 ): Promise<MaterializedCitedPaperSource> {
-  const seedPacket = classification.packets.find((packet) => packet.citedPaper.doi);
-  const citedPaperDoi = seedPacket?.citedPaper.doi;
+  const seedPacket = classification.packets[0];
+  const citedPaperLocator = seedPacket?.citedPaper;
 
-  if (!citedPaperDoi) {
+  if (!citedPaperLocator) {
     return {
       citedPaperSource: {
-        resolutionStatus: "missing_doi",
-        resolutionError: "Cited paper DOI is missing from the classification artifact",
+        resolutionStatus: "resolution_failed",
+        resolutionError:
+          "Cited paper metadata is missing from the classification artifact",
         resolvedPaper: undefined,
         fetchStatus: "not_attempted",
         fetchError: undefined,
         fullTextFormat: undefined,
       },
-      citedPaperFullText: undefined,
+      citedPaperParsedDocument: undefined,
     };
   }
 
-  const resolvedResult = await adapters.resolveByDoi(citedPaperDoi);
+  const metadataLocator = {
+    title: citedPaperLocator.title,
+    authors: citedPaperLocator.authors,
+    ...(citedPaperLocator.doi ? { doi: citedPaperLocator.doi } : {}),
+    ...(citedPaperLocator.pmcid ? { pmcid: citedPaperLocator.pmcid } : {}),
+    ...(citedPaperLocator.pmid ? { pmid: citedPaperLocator.pmid } : {}),
+    ...(citedPaperLocator.publicationYear
+      ? { publicationYear: citedPaperLocator.publicationYear }
+      : {}),
+  };
+
+  const resolvedResult = citedPaperLocator.doi
+    ? await adapters.resolveByDoi(citedPaperLocator.doi)
+    : await adapters.resolveByMetadata(metadataLocator);
   if (!resolvedResult.ok) {
     return {
       citedPaperSource: {
@@ -48,7 +73,7 @@ export async function resolveCitedPaperSource(
         fetchError: undefined,
         fullTextFormat: undefined,
       },
-      citedPaperFullText: undefined,
+      citedPaperParsedDocument: undefined,
     };
   }
 
@@ -68,22 +93,23 @@ export async function resolveCitedPaperSource(
         fetchError: reason,
         fullTextFormat: undefined,
       },
-      citedPaperFullText: undefined,
+      citedPaperParsedDocument: undefined,
     };
   }
 
-  const fullTextResult = await adapters.fetchFullText(resolvedPaper);
-  if (!fullTextResult.ok) {
+  const parsedPaperResult =
+    await adapters.materializeParsedPaper(resolvedPaper);
+  if (!parsedPaperResult.ok) {
     return {
       citedPaperSource: {
         resolutionStatus: "resolved",
         resolutionError: undefined,
         resolvedPaper,
         fetchStatus: "fetch_failed",
-        fetchError: fullTextResult.error,
+        fetchError: parsedPaperResult.error,
         fullTextFormat: undefined,
       },
-      citedPaperFullText: undefined,
+      citedPaperParsedDocument: undefined,
     };
   }
 
@@ -94,8 +120,8 @@ export async function resolveCitedPaperSource(
       resolvedPaper,
       fetchStatus: "retrieved",
       fetchError: undefined,
-      fullTextFormat: fullTextResult.data.format,
+      fullTextFormat: parsedPaperResult.data.fullText.format,
     },
-    citedPaperFullText: fullTextResult.data.content,
+    citedPaperParsedDocument: parsedPaperResult.data.parsedDocument,
   };
 }

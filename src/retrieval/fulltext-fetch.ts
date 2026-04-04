@@ -2,7 +2,12 @@ import { z } from "zod";
 
 import type Database from "better-sqlite3";
 
-import type { CachePolicy, ResolvedPaper, Result } from "../domain/types.js";
+import type {
+  CachePolicy,
+  FullTextFormat,
+  ResolvedPaper,
+  Result,
+} from "../domain/types.js";
 import {
   fetchJson,
   type FetchJsonOptions,
@@ -15,13 +20,13 @@ import {
 
 export type FullTextContent = {
   content: string;
-  format: "jats_xml" | "pdf_text";
+  format: FullTextFormat;
 };
 
 export type FullTextFetchAdapters = {
   fetchXml: (url: string) => Promise<Result<string>>;
   fetchPdf: (url: string) => Promise<Result<Buffer>>;
-  extractPdfText: (buffer: Buffer) => Promise<Result<string>>;
+  processPdfWithGrobid: (buffer: Buffer) => Promise<Result<string>>;
   email: string | undefined;
 };
 
@@ -83,17 +88,20 @@ async function fetchPmcXml(
 
 // --- PDF fallback: fetch and extract text ---
 
-async function fetchPdfText(
+async function fetchPdfViaGrobid(
   url: string,
   adapters: FullTextFetchAdapters,
 ): Promise<Result<FullTextContent>> {
   const pdfResult = await adapters.fetchPdf(url);
   if (!pdfResult.ok) return pdfResult;
 
-  const textResult = await adapters.extractPdfText(pdfResult.data);
-  if (!textResult.ok) return textResult;
+  const teiResult = await adapters.processPdfWithGrobid(pdfResult.data);
+  if (!teiResult.ok) return teiResult;
 
-  return { ok: true, data: { content: textResult.data, format: "pdf_text" } };
+  return {
+    ok: true,
+    data: { content: teiResult.data, format: "grobid_tei_xml" },
+  };
 }
 
 // --- Public API ---
@@ -149,7 +157,10 @@ export async function fetchFullText(
         accessStatus: "available",
         rawFullText: result.data.content,
         fullTextFormat: result.data.format,
-        fetchSourceUrl: paper.openAccessUrl,
+        fetchSourceUrl:
+          paper.openAccessPdfUrl ??
+          paper.openAccessOaUrl ??
+          paper.openAccessUrl,
         fetchStatus: "success",
         contentHash: computeContentHash(result.data.content),
         fetchedAt: new Date().toISOString(),
@@ -182,11 +193,15 @@ async function fetchFullTextFromNetwork(
     if (pmcResult.ok) return pmcResult;
   }
 
-  if (paper.openAccessUrl) {
-    return fetchPdfText(paper.openAccessUrl, adapters);
+  const directPdfUrl = paper.openAccessPdfUrl ?? paper.openAccessUrl;
+  if (directPdfUrl) {
+    return fetchPdfViaGrobid(directPdfUrl, adapters);
   }
 
-  return { ok: false, error: "No fetchable full text URL" };
+  return {
+    ok: false,
+    error: "No fetchable direct full text URL",
+  };
 }
 
 // --- Default adapter implementations using native fetch ---
@@ -231,27 +246,59 @@ async function defaultFetchPdf(url: string): Promise<Result<Buffer>> {
   }
 }
 
-async function defaultExtractPdfText(buffer: Buffer): Promise<Result<string>> {
+async function defaultProcessPdfWithGrobid(
+  buffer: Buffer,
+  grobidBaseUrl: string,
+): Promise<Result<string>> {
   try {
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
-    const result = await parser.getText();
-    return { ok: true, data: result.text };
+    const formData = new FormData();
+    const pdfBytes = Uint8Array.from(buffer).buffer;
+    formData.append(
+      "input",
+      new Blob([pdfBytes], { type: "application/pdf" }),
+      "paper.pdf",
+    );
+    formData.append("consolidateHeader", "0");
+    formData.append("consolidateCitations", "0");
+
+    const normalizedBaseUrl = grobidBaseUrl.replace(/\/+$/, "");
+    const resp = await fetch(
+      `${normalizedBaseUrl}/api/processFulltextDocument`,
+      {
+        method: "POST",
+        headers: {
+          "User-Agent": "citation-fidelity/0.1",
+        },
+        body: formData,
+        signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),
+      },
+    );
+
+    if (!resp.ok) {
+      return {
+        ok: false,
+        error: `GROBID HTTP ${String(resp.status)} from ${normalizedBaseUrl}`,
+      };
+    }
+
+    return { ok: true, data: await resp.text() };
   } catch (err) {
     return {
       ok: false,
-      error: `PDF parse error: ${err instanceof Error ? err.message : String(err)}`,
+      error: `GROBID parse error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
 
 export function createDefaultAdapters(
+  grobidBaseUrl: string,
   email: string | undefined,
 ): FullTextFetchAdapters {
   return {
     fetchXml: defaultFetchXml,
     fetchPdf: defaultFetchPdf,
-    extractPdfText: defaultExtractPdfText,
+    processPdfWithGrobid: (buffer) =>
+      defaultProcessPdfWithGrobid(buffer, grobidBaseUrl),
     email,
   };
 }

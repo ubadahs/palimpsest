@@ -23,7 +23,11 @@ describe("artifact-io", () => {
       "utf8",
     );
 
-    const result = loadJsonArtifact(path, shortlistInputSchema, "shortlist input");
+    const result = loadJsonArtifact(
+      path,
+      shortlistInputSchema,
+      "shortlist input",
+    );
     expect(result.seeds).toHaveLength(1);
 
     rmSync(dir, { recursive: true, force: true });
@@ -32,7 +36,11 @@ describe("artifact-io", () => {
   it("reports schema paths for invalid artifacts", () => {
     const dir = mkdtempSync(join(tmpdir(), "artifact-io-"));
     const path = join(dir, "bad-shortlist.json");
-    writeFileSync(path, JSON.stringify({ seeds: [{ doi: "10.1234/test" }] }), "utf8");
+    writeFileSync(
+      path,
+      JSON.stringify({ seeds: [{ doi: "10.1234/test" }] }),
+      "utf8",
+    );
 
     expect(() =>
       loadJsonArtifact(path, shortlistInputSchema, "shortlist input"),

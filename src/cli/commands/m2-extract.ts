@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
+import type { CachePolicy } from "../../domain/types.js";
 import { preScreenResultsSchema } from "../../domain/types.js";
 import { runM2Extraction } from "../../pipeline/m2-extract.js";
 import {
@@ -15,16 +16,20 @@ import {
   loadJsonArtifact,
   writeArtifactManifest,
 } from "../../shared/artifact-io.js";
+import { openDatabase } from "../../storage/database.js";
+import { runMigrations } from "../../storage/migration-service.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
   preScreenPath: string;
   seedDoi: string;
   output: string;
+  forceRefresh: boolean;
 } {
   let preScreenPath: string | undefined;
   let seedDoi: string | undefined;
   let output = "data/m2-extraction";
+  let forceRefresh = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -37,26 +42,31 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
       i++;
+    } else if (arg === "--force-refresh") {
+      forceRefresh = true;
     }
   }
 
   if (!preScreenPath || !seedDoi) {
     console.error(
-      "Usage: m2-extract --pre-screen <path> --seed-doi <doi> [--output <dir>]",
+      "Usage: m2-extract --pre-screen <path> --seed-doi <doi> [--output <dir>] [--force-refresh]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { preScreenPath, seedDoi, output };
+  return { preScreenPath, seedDoi, output, forceRefresh };
 }
 
 export async function runM2ExtractCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
+  const database = openDatabase(config.databasePath);
 
   try {
+    runMigrations(database);
+
     const families = loadJsonArtifact(
       args.preScreenPath,
       preScreenResultsSchema,
@@ -90,9 +100,19 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
     console.info(`M2 extraction for: ${family.resolvedSeedPaper.title}`);
     console.info(`  ${String(family.edges.length)} edges to process\n`);
 
+    const cachePolicy: CachePolicy = args.forceRefresh
+      ? "force_refresh"
+      : "prefer_cache";
     const adapters = {
-      fullText: createDefaultAdapters(config.openAlexEmail),
+      fullText: createDefaultAdapters(
+        config.providerBaseUrls.grobid,
+        config.openAlexEmail,
+      ),
       biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+      cache: {
+        db: database,
+        cachePolicy,
+      },
     };
 
     const result = await runM2Extraction(family, adapters);
@@ -128,5 +148,7 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
+  } finally {
+    database.close();
   }
 }

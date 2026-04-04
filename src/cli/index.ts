@@ -1,6 +1,7 @@
 import { runBenchmarkApplyCommand } from "./commands/benchmark-apply.js";
 import { runBenchmarkBlindCommand } from "./commands/benchmark-blind.js";
 import { runBenchmarkDiffCommand } from "./commands/benchmark-diff.js";
+import { runBenchmarkSummaryCommand } from "./commands/benchmark-summary.js";
 import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import { runM2ExtractCommand } from "./commands/m2-extract.js";
@@ -25,6 +26,7 @@ Available commands:
   benchmark:blind Create a blinded benchmark export from an adjudicated set
   benchmark:diff  Compare two adjudication datasets keyed by taskId
   benchmark:apply Apply approved adjudication deltas to a base dataset
+  benchmark:summary Rank one or more adjudication candidates against a base dataset
 `);
 }
 
@@ -32,7 +34,7 @@ async function main(): Promise<void> {
   const command = process.argv[2] ?? "help";
 
   if (command === "doctor") {
-    runDoctorCommand();
+    await runDoctorCommand();
     return;
   }
 
@@ -48,6 +50,11 @@ async function main(): Promise<void> {
 
   if (command === "benchmark:apply") {
     runBenchmarkApplyCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "benchmark:summary") {
+    runBenchmarkSummaryCommand(process.argv.slice(3));
     return;
   }
 
