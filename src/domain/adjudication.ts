@@ -7,7 +7,10 @@ import {
 } from "./classification.js";
 import { undefinedable } from "./common.js";
 import { confidenceSchema } from "./extraction.js";
-import { evidenceSpanSchema, taskEvidenceRetrievalStatusSchema } from "./evidence.js";
+import {
+  evidenceSpanSchema,
+  taskEvidenceRetrievalStatusSchema,
+} from "./evidence.js";
 import { seedPaperInputSchema } from "./pre-screen.js";
 
 export const adjudicationVerdictValues = [

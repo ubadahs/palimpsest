@@ -84,23 +84,69 @@ export function upsertParsedData(
 ): void {
   db.prepare(
     `
-    INSERT INTO paper_parsed (paper_id, parser_version, sections_json, refs_json, chunks_json, parsed_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO paper_parsed (
+      paper_id, parser_version, parser_kind, content_hash,
+      sections_json, refs_json, chunks_json, mentions_json, parsed_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(paper_id) DO UPDATE SET
       parser_version = excluded.parser_version,
+      parser_kind = excluded.parser_kind,
+      content_hash = excluded.content_hash,
       sections_json = excluded.sections_json,
       refs_json = excluded.refs_json,
       chunks_json = excluded.chunks_json,
+      mentions_json = excluded.mentions_json,
       parsed_at = excluded.parsed_at
   `,
   ).run(
     parsed.paperId,
     parsed.parserVersion,
+    parsed.parserKind,
+    parsed.contentHash,
     parsed.sectionsJson ?? null,
     parsed.refsJson ?? null,
     parsed.chunksJson ?? null,
+    parsed.mentionsJson ?? null,
     parsed.parsedAt,
   );
+}
+
+export function getParsedPaper(
+  db: Database.Database,
+  paperId: string,
+  parserVersion: string,
+  contentHash: string,
+): ParsedPaperData | undefined {
+  const row = db
+    .prepare("SELECT * FROM paper_parsed WHERE paper_id = ?")
+    .get(paperId) as Record<string, unknown> | undefined;
+
+  if (!row) {
+    return undefined;
+  }
+
+  const cached: ParsedPaperData = {
+    paperId: row["paper_id"] as string,
+    parserVersion: row["parser_version"] as string,
+    parserKind: row["parser_kind"] as ParsedPaperData["parserKind"],
+    contentHash: row["content_hash"] as string,
+    sectionsJson: row["sections_json"] as string | undefined,
+    refsJson: row["refs_json"] as string | undefined,
+    chunksJson: row["chunks_json"] as string | undefined,
+    mentionsJson: row["mentions_json"] as string | undefined,
+    parsedAt: row["parsed_at"] as string,
+  };
+
+  if (
+    cached.parserVersion !== parserVersion ||
+    cached.contentHash !== contentHash ||
+    !cached.parserKind
+  ) {
+    return undefined;
+  }
+
+  return cached;
 }
 
 export function storeDerivedArtifact(

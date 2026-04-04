@@ -19,11 +19,28 @@ export const blindAdjudicationRecordSchema = adjudicationRecordSchema
     telemetry: true,
   })
   .passthrough();
-export type BlindAdjudicationRecord = z.infer<typeof blindAdjudicationRecordSchema>;
+export type BlindAdjudicationRecord = z.infer<
+  typeof blindAdjudicationRecordSchema
+>;
+
+export const blindExcludedRecordSchema = adjudicationRecordSchema
+  .extend({
+    excluded: z.literal(true),
+  })
+  .passthrough();
+export type BlindExcludedRecord = z.infer<typeof blindExcludedRecordSchema>;
+
+export const blindCalibrationRecordSchema = z.union([
+  blindAdjudicationRecordSchema,
+  blindExcludedRecordSchema,
+]);
+export type BlindCalibrationRecord = z.infer<
+  typeof blindCalibrationRecordSchema
+>;
 
 export const blindCalibrationSetSchema = calibrationSetSchema
   .extend({
-    records: z.array(blindAdjudicationRecordSchema),
+    records: z.array(blindCalibrationRecordSchema),
   })
   .passthrough();
 export type BlindCalibrationSet = z.infer<typeof blindCalibrationSetSchema>;
@@ -86,3 +103,30 @@ export const benchmarkDiffResultSchema = z
   })
   .passthrough();
 export type BenchmarkDiffResult = z.infer<typeof benchmarkDiffResultSchema>;
+
+export const benchmarkSummaryEntrySchema = z
+  .object({
+    label: z.string().min(1),
+    candidatePath: z.string().min(1),
+    model: undefinedable(z.string().min(1)),
+    useExtendedThinking: undefinedable(z.boolean()),
+    activeRecords: z.number().int().nonnegative(),
+    exactAgreement: z.number().int().nonnegative(),
+    exactRate: z.number().min(0).max(1),
+    adjacentAgreement: z.number().int().nonnegative(),
+    adjacentRate: z.number().min(0).max(1),
+    verdictChanges: z.number().int().nonnegative(),
+    changedTaskIds: z.array(z.string()),
+    missingTaskIds: z.array(z.string()),
+  })
+  .passthrough();
+export type BenchmarkSummaryEntry = z.infer<typeof benchmarkSummaryEntrySchema>;
+
+export const benchmarkSummarySchema = z
+  .object({
+    generatedAt: z.string().min(1),
+    basePath: z.string().min(1),
+    entries: z.array(benchmarkSummaryEntrySchema),
+  })
+  .passthrough();
+export type BenchmarkSummary = z.infer<typeof benchmarkSummarySchema>;

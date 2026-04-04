@@ -93,7 +93,10 @@ export function toM2Markdown(result: FamilyExtractionResult): string {
   const xmlEdges = result.edgeResults.filter(
     (e) => e.sourceType === "jats_xml",
   );
-  const pdfEdges = result.edgeResults.filter(
+  const grobidEdges = result.edgeResults.filter(
+    (e) => e.sourceType === "grobid_tei",
+  );
+  const legacyPdfEdges = result.edgeResults.filter(
     (e) => e.sourceType === "pdf_text",
   );
   const skipped = result.edgeResults.filter(
@@ -107,7 +110,8 @@ export function toM2Markdown(result: FamilyExtractionResult): string {
     "| Source | Attempted | Successful | Usable |",
     "| --- | --- | --- | --- |",
     `| JATS XML | ${String(xmlEdges.length)} | ${String(xmlEdges.filter((e) => e.extractionSuccess).length)} | ${String(xmlEdges.filter((e) => e.usableForGrounding === true).length)} |`,
-    `| PDF text | ${String(pdfEdges.length)} | ${String(pdfEdges.filter((e) => e.extractionSuccess).length)} | ${String(pdfEdges.filter((e) => e.usableForGrounding === true).length)} |`,
+    `| GROBID TEI | ${String(grobidEdges.length)} | ${String(grobidEdges.filter((e) => e.extractionSuccess).length)} | ${String(grobidEdges.filter((e) => e.usableForGrounding === true).length)} |`,
+    `| Legacy PDF text | ${String(legacyPdfEdges.length)} | ${String(legacyPdfEdges.filter((e) => e.extractionSuccess).length)} | ${String(legacyPdfEdges.filter((e) => e.usableForGrounding === true).length)} |`,
     `| Skipped | ${String(skipped.length)} | — | — |`,
   );
 

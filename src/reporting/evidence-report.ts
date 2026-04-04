@@ -44,7 +44,7 @@ function renderTaskWithEvidence(
       const span = task.citedPaperEvidenceSpans[i]!;
       const section = span.sectionTitle ? ` (${span.sectionTitle})` : "";
       lines.push(
-        `${String(i + 1)}. [${span.matchMethod}, score ${String(span.relevanceScore)}]${section}`,
+        `${String(i + 1)}. [${span.matchMethod}, score ${String(span.relevanceScore)}, bm25 ${span.bm25Score}${span.rerankScore != null ? `, rerank ${span.rerankScore}` : ""}] (${span.blockKind})${section}`,
         "",
         `> ${truncate(span.text, 350)}`,
         "",
@@ -73,6 +73,7 @@ export function toEvidenceMarkdown(result: FamilyEvidenceResult): string {
     `| Total tasks | ${String(summary.totalTasks)} |`,
     `| Tasks with evidence | ${String(summary.tasksWithEvidence)} |`,
     `| Tasks no matches | ${String(summary.tasksNoMatches)} |`,
+    `| Tasks abstract-only matches | ${String(summary.tasksAbstractOnlyMatches)} |`,
     `| Tasks no full text | ${String(summary.tasksNoFulltext)} |`,
     `| Total evidence spans | ${String(summary.totalEvidenceSpans)} |`,
   ];
@@ -124,6 +125,27 @@ export function toEvidenceMarkdown(result: FamilyEvidenceResult): string {
       "| --- | --- | --- | --- |",
     );
     for (const { edge, task } of noMatches) {
+      sections.push(
+        `| ${truncate(edge.citingPaperTitle, 45)} | ${task.citationRole} | ${task.evaluationMode} | ${String(task.mentionCount)} |`,
+      );
+    }
+  }
+
+  const abstractOnly = result.edges
+    .flatMap((edge) => edge.tasks.map((task) => ({ edge, task })))
+    .filter(
+      (entry) => entry.task.evidenceRetrievalStatus === "abstract_only_matches",
+    );
+
+  if (abstractOnly.length > 0) {
+    sections.push(
+      "",
+      `## Tasks Downgraded For Abstract-Only Matches (${String(abstractOnly.length)})`,
+      "",
+      "| Paper | Role | Mode | Mentions |",
+      "| --- | --- | --- | --- |",
+    );
+    for (const { edge, task } of abstractOnly) {
       sections.push(
         `| ${truncate(edge.citingPaperTitle, 45)} | ${task.citationRole} | ${task.evaluationMode} | ${String(task.mentionCount)} |`,
       );

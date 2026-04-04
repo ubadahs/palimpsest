@@ -151,6 +151,8 @@ export function buildPackets(
       citedPaper: {
         id: edge.citedPaperId,
         doi: seedPaper.doi,
+        pmcid: seedPaper.pmcid,
+        pmid: seedPaper.pmid,
         title: seedPaper.title,
         authors: seedPaper.authors,
         publicationYear: seedPaper.publicationYear,

@@ -1,5 +1,6 @@
 import type {
   AdjudicationRecord,
+  AdjudicationVerdict,
   CalibrationSet,
 } from "../domain/types.js";
 import type {
@@ -8,10 +9,17 @@ import type {
   BenchmarkDiffEntry,
   BenchmarkDiffResult,
   BlindAdjudicationRecord,
+  BlindCalibrationRecord,
   BlindCalibrationSet,
+  BenchmarkSummary,
+  BenchmarkSummaryEntry,
 } from "./types.js";
 
-function blindRecord(record: AdjudicationRecord): BlindAdjudicationRecord {
+function blindRecord(record: AdjudicationRecord): BlindCalibrationRecord {
+  if (record.excluded === true) {
+    return { ...record };
+  }
+
   const blind = { ...record } as Record<string, unknown>;
   delete blind["verdict"];
   delete blind["rationale"];
@@ -34,8 +42,37 @@ export function createBlindCalibrationSet(
   };
 }
 
-function makeIndex(records: AdjudicationRecord[]): Map<string, AdjudicationRecord> {
+function makeIndex(
+  records: AdjudicationRecord[],
+): Map<string, AdjudicationRecord> {
   return new Map(records.map((record) => [record.taskId, record]));
+}
+
+function isExcludedRecord(record: AdjudicationRecord | undefined): boolean {
+  return record?.excluded === true;
+}
+
+function shouldIgnoreAdjudicationDiff(
+  baseRecord: AdjudicationRecord | undefined,
+  candidateRecord: AdjudicationRecord | undefined,
+): boolean {
+  return isExcludedRecord(baseRecord) || isExcludedRecord(candidateRecord);
+}
+
+function isAdjacentVerdictPair(
+  left: AdjudicationVerdict,
+  right: AdjudicationVerdict,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const adjacent = new Set<AdjudicationVerdict>([
+    "supported",
+    "partially_supported",
+  ]);
+
+  return adjacent.has(left) && adjacent.has(right);
 }
 
 export function diffCalibrationSets(
@@ -61,10 +98,19 @@ export function diffCalibrationSets(
     const candidateRecord = candidateIndex.get(taskId);
     const missingBase = !baseRecord;
     const missingCandidateRecord = !candidateRecord;
-    const verdictChanged = baseRecord?.verdict !== candidateRecord?.verdict;
-    const rationaleChanged = baseRecord?.rationale !== candidateRecord?.rationale;
-    const retrievalQualityChanged =
-      baseRecord?.retrievalQuality !== candidateRecord?.retrievalQuality;
+    const ignoreAdjudicationDiff = shouldIgnoreAdjudicationDiff(
+      baseRecord,
+      candidateRecord,
+    );
+    const verdictChanged = ignoreAdjudicationDiff
+      ? false
+      : baseRecord?.verdict !== candidateRecord?.verdict;
+    const rationaleChanged = ignoreAdjudicationDiff
+      ? false
+      : baseRecord?.rationale !== candidateRecord?.rationale;
+    const retrievalQualityChanged = ignoreAdjudicationDiff
+      ? false
+      : baseRecord?.retrievalQuality !== candidateRecord?.retrievalQuality;
     const exclusionChanged =
       baseRecord?.excluded !== candidateRecord?.excluded ||
       baseRecord?.excludeReason !== candidateRecord?.excludeReason;
@@ -75,7 +121,9 @@ export function diffCalibrationSets(
     if (missingBase) missingInBase++;
     if (missingCandidateRecord) missingInCandidate++;
 
-    const baseOrder = base.records.findIndex((record) => record.taskId === taskId);
+    const baseOrder = base.records.findIndex(
+      (record) => record.taskId === taskId,
+    );
     const candidateOrder = candidate.records.findIndex(
       (record) => record.taskId === taskId,
     );
@@ -87,11 +135,7 @@ export function diffCalibrationSets(
         candidateRecord?.citingPaperTitle ??
         taskId,
       recordOrder:
-        baseOrder >= 0
-          ? baseOrder
-          : candidateOrder >= 0
-            ? candidateOrder
-            : 0,
+        baseOrder >= 0 ? baseOrder : candidateOrder >= 0 ? candidateOrder : 0,
       baseVerdict: baseRecord?.verdict,
       candidateVerdict: candidateRecord?.verdict,
       verdictChanged,
@@ -119,7 +163,101 @@ export function diffCalibrationSets(
   };
 }
 
-function indexDeltas(deltas: AdjudicationDelta[]): Map<string, AdjudicationDelta> {
+export type BenchmarkCandidateInput = {
+  label: string;
+  path: string;
+  set: CalibrationSet;
+};
+
+function summarizeCandidate(
+  base: CalibrationSet,
+  candidate: BenchmarkCandidateInput,
+): BenchmarkSummaryEntry {
+  const baseActive = base.records.filter(
+    (record) => !record.excluded && record.verdict !== undefined,
+  );
+  const candidateIndex = makeIndex(candidate.set.records);
+
+  let exactAgreement = 0;
+  let adjacentAgreement = 0;
+  const changedTaskIds: string[] = [];
+  const missingTaskIds: string[] = [];
+
+  for (const baseRecord of baseActive) {
+    const baseVerdict = baseRecord.verdict;
+    if (baseVerdict === undefined) {
+      continue;
+    }
+
+    const candidateRecord = candidateIndex.get(baseRecord.taskId);
+    const candidateVerdict = candidateRecord?.verdict;
+
+    if (candidateVerdict === undefined) {
+      changedTaskIds.push(baseRecord.taskId);
+      if (!candidateRecord) {
+        missingTaskIds.push(baseRecord.taskId);
+      }
+      continue;
+    }
+
+    if (candidateVerdict === baseVerdict) {
+      exactAgreement++;
+    } else {
+      changedTaskIds.push(baseRecord.taskId);
+    }
+
+    if (isAdjacentVerdictPair(baseVerdict, candidateVerdict)) {
+      adjacentAgreement++;
+    }
+  }
+
+  const activeRecords = baseActive.length;
+
+  return {
+    label: candidate.label,
+    candidatePath: candidate.path,
+    model: candidate.set.runTelemetry?.model,
+    useExtendedThinking: candidate.set.runTelemetry?.useExtendedThinking,
+    activeRecords,
+    exactAgreement,
+    exactRate: activeRecords > 0 ? exactAgreement / activeRecords : 0,
+    adjacentAgreement,
+    adjacentRate: activeRecords > 0 ? adjacentAgreement / activeRecords : 0,
+    verdictChanges: changedTaskIds.length,
+    changedTaskIds,
+    missingTaskIds,
+  };
+}
+
+export function summarizeBenchmarkCandidates(
+  basePath: string,
+  base: CalibrationSet,
+  candidates: BenchmarkCandidateInput[],
+): BenchmarkSummary {
+  const entries = candidates.map((candidate) =>
+    summarizeCandidate(base, candidate),
+  );
+
+  entries.sort((left, right) => {
+    if (right.exactRate !== left.exactRate) {
+      return right.exactRate - left.exactRate;
+    }
+    if (right.adjacentRate !== left.adjacentRate) {
+      return right.adjacentRate - left.adjacentRate;
+    }
+    return left.verdictChanges - right.verdictChanges;
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    basePath,
+    entries,
+  };
+}
+
+function indexDeltas(
+  deltas: AdjudicationDelta[],
+): Map<string, AdjudicationDelta> {
   const index = new Map<string, AdjudicationDelta>();
   for (const delta of deltas) {
     if (index.has(delta.taskId)) {
@@ -137,7 +275,10 @@ function applyDelta(
   const targetsExcludedRecord = record.excluded === true;
   const changesExclusion =
     delta.excluded !== undefined || delta.excludeReason !== undefined;
-  if ((targetsExcludedRecord || changesExclusion) && delta.allowExcludedChange !== true) {
+  if (
+    (targetsExcludedRecord || changesExclusion) &&
+    delta.allowExcludedChange !== true
+  ) {
     throw new Error(
       `Delta for taskId ${delta.taskId} touches an excluded record or exclusion fields without allowExcludedChange`,
     );

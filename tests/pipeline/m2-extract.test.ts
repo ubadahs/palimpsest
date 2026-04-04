@@ -7,6 +7,31 @@ import type {
 import { runM2Extraction } from "../../src/pipeline/m2-extract.js";
 import type { ExtractionAdapters } from "../../src/retrieval/citation-context.js";
 
+const GROBID_TEI = `<?xml version="1.0" encoding="UTF-8"?>
+<TEI>
+  <text>
+    <body>
+      <div>
+        <head>Results</head>
+        <p><ref type="bibr" target="#b1">Seed Author et al. 2020</ref> provided the foundational result used here.</p>
+      </div>
+    </body>
+  </text>
+  <back>
+    <listBibl>
+      <biblStruct xml:id="b1">
+        <analytic>
+          <title level="a">The Seed Paper</title>
+          <author><persName><surname>Seed</surname></persName></author>
+        </analytic>
+        <monogr>
+          <imprint><date when="2020"/></imprint>
+        </monogr>
+      </biblStruct>
+    </listBibl>
+  </back>
+</TEI>`;
+
 function makeSeedPaper(): ResolvedPaper {
   return {
     id: "seed-1",
@@ -31,6 +56,7 @@ function makeCitingPaper(id: string, available: boolean): ResolvedPaper {
     authors: ["Author A"],
     abstract: undefined,
     source: "openalex",
+    openAccessPdfUrl: available ? `https://example.com/${id}.pdf` : undefined,
     openAccessUrl: available ? `https://example.com/${id}.pdf` : undefined,
     fullTextStatus: available
       ? { status: "available" as const, source: "publisher_pdf" }
@@ -129,10 +155,6 @@ function makeFamily(
   };
 }
 
-const PDF_TEXT =
-  "This is a long enough paragraph that mentions Seed Author et al. 2020 " +
-  "in the context of a test to verify regex matching.";
-
 function makeTestAdapters(): ExtractionAdapters {
   return {
     fullText: {
@@ -140,8 +162,8 @@ function makeTestAdapters(): ExtractionAdapters {
         Promise.resolve({ ok: false as const, error: "no xml" }),
       fetchPdf: async () =>
         Promise.resolve({ ok: true as const, data: Buffer.from("pdf") }),
-      extractPdfText: async () =>
-        Promise.resolve({ ok: true as const, data: PDF_TEXT }),
+      processPdfWithGrobid: async () =>
+        Promise.resolve({ ok: true as const, data: GROBID_TEI }),
       email: undefined,
     },
     biorxivBaseUrl: "https://api.biorxiv.org",
@@ -178,7 +200,8 @@ describe("runM2Extraction", () => {
     const result = await runM2Extraction(family, makeTestAdapters());
 
     const edge = result.edgeResults[0]!;
-    expect(edge.extractionOutcome).toBe("success_pdf");
+    expect(edge.extractionOutcome).toBe("success_grobid");
+    expect(edge.sourceType).toBe("grobid_tei");
     expect(edge.extractionSuccess).toBe(true);
     expect(edge.deduplicatedMentionCount).toBeGreaterThanOrEqual(1);
     expect(typeof edge.usableForGrounding).not.toBe("undefined");
