@@ -17,7 +17,7 @@ These verdicts are the canonical machine outputs for:
 - calibration worksheets
 - LLM adjudication runs
 - agreement reports
-- benchmark blind/diff/apply workflows
+- benchmark blind/diff/summary/apply workflows
 
 ## Relationship To The PRD Taxonomy
 
@@ -30,6 +30,13 @@ Conceptual alignment is:
 - `overstated_or_generalized` is usually closest to PRD `D`
 - `not_supported` is usually closest to PRD `E`
 - `cannot_determine` is closest to PRD `U`
+
+Operationally, `cannot_determine` also covers retrieval failures that are informative but not adjudicable, especially:
+
+- abstract-only retrieval downgrades
+- unresolved cited-paper metadata
+- missing cited full text
+- other ungrounded retrieval paths where no non-abstract evidence span can be surfaced
 
 This mapping is intentionally approximate, not lossless. In particular:
 

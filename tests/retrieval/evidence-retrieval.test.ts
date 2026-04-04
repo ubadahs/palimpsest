@@ -6,9 +6,12 @@ import type {
   ClassifiedMention,
   EdgeEvaluationPacket,
   EvaluationTask,
+  FullTextFormat,
   FamilyClassificationResult,
+  ParsedPaperDocument,
 } from "../../src/domain/types.js";
 import { retrieveEvidence } from "../../src/retrieval/evidence-retrieval.js";
+import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 
 function makeMention(
   overrides: Partial<CitationMention> = {},
@@ -186,14 +189,25 @@ function makeSource(
   };
 }
 
+function parseDocumentOrThrow(
+  fullText: string,
+  format: FullTextFormat,
+): ParsedPaperDocument {
+  const parsed = parseParsedPaperDocument(fullText, format);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  return parsed.data;
+}
+
 describe("retrieveEvidence", () => {
-  it("retrieves matching spans from cited paper text", () => {
+  it("retrieves matching spans from cited paper text", async () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({ fullTextFormat: "pdf_text" }),
-      CITED_PAPER_TEXT,
+      parseDocumentOrThrow(CITED_PAPER_TEXT, "pdf_text"),
     );
 
     expect(result.citedPaperFullTextAvailable).toBe(true);
@@ -206,10 +220,10 @@ describe("retrieveEvidence", () => {
     expect(task.rubricQuestion).toContain("cited paper");
   });
 
-  it("reports no_fulltext when cited paper text is undefined", () => {
+  it("reports no_fulltext when cited paper text is undefined", async () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({ fetchStatus: "no_fulltext", fullTextFormat: undefined }),
       undefined,
@@ -219,7 +233,7 @@ describe("retrieveEvidence", () => {
     expect(result.summary.tasksNoFulltext).toBe(1);
   });
 
-  it("assigns correct rubric question per evaluation mode", () => {
+  it("assigns correct rubric question per evaluation mode", async () => {
     const methodsTask = makeTask({
       taskId: "task-methods",
       evaluationMode: "fidelity_methods_use",
@@ -227,17 +241,17 @@ describe("retrieveEvidence", () => {
     });
     const classification = makeClassification([makePacket([methodsTask])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({ fullTextFormat: "pdf_text" }),
-      CITED_PAPER_TEXT,
+      parseDocumentOrThrow(CITED_PAPER_TEXT, "pdf_text"),
     );
     const task = result.edges[0]!.tasks[0]!;
 
     expect(task.rubricQuestion).toContain("method");
   });
 
-  it("skips evidence retrieval for low-information tasks", () => {
+  it("skips evidence retrieval for low-information tasks", async () => {
     const lowInfoTask = makeTask({
       taskId: "task-low",
       evaluationMode: "skip_low_information",
@@ -245,7 +259,7 @@ describe("retrieveEvidence", () => {
     });
     const classification = makeClassification([makePacket([lowInfoTask])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({ fetchStatus: "no_fulltext", fullTextFormat: undefined }),
       undefined,
@@ -256,10 +270,10 @@ describe("retrieveEvidence", () => {
     expect(result.summary.tasksNotAttempted).toBe(1);
   });
 
-  it("distinguishes unresolved cited papers from missing full text", () => {
+  it("distinguishes unresolved cited papers from missing full text", async () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({
         resolutionStatus: "resolution_failed",
@@ -276,17 +290,100 @@ describe("retrieveEvidence", () => {
     );
   });
 
-  it("preserves section labels for JATS-derived evidence spans", () => {
+  it("preserves section labels for JATS-derived evidence spans", async () => {
     const classification = makeClassification([makePacket([makeTask()])]);
 
-    const result = retrieveEvidence(
+    const result = await retrieveEvidence(
       classification,
       makeSource({ fullTextFormat: "jats_xml" }),
-      CITED_PAPER_XML,
+      parseDocumentOrThrow(CITED_PAPER_XML, "jats_xml"),
     );
 
-    expect(result.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle).toBe(
-      "Results",
+    expect(
+      result.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle,
+    ).toBe("Results");
+  });
+
+  it("downgrades abstract-only matches instead of emitting evidence spans", async () => {
+    const classification = makeClassification([makePacket([makeTask()])]);
+    const abstractOnlyXml = `<?xml version="1.0"?>
+<article>
+  <front>
+    <abstract>
+      <p>Silencing of Rab35 resulted in loss of apical bulkheads and cyst formation in hepatocytes.</p>
+    </abstract>
+  </front>
+  <body>
+    <sec>
+      <title>Results</title>
+      <p>Unrelated body text about lumen morphology and tissue organization.</p>
+    </sec>
+  </body>
+</article>`;
+
+    const result = await retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "jats_xml" }),
+      parseDocumentOrThrow(abstractOnlyXml, "jats_xml"),
     );
+
+    expect(result.summary.tasksAbstractOnlyMatches).toBe(1);
+    expect(result.edges[0]!.tasks[0]!.evidenceRetrievalStatus).toBe(
+      "abstract_only_matches",
+    );
+    expect(result.edges[0]!.tasks[0]!.citedPaperEvidenceSpans).toHaveLength(0);
+  });
+
+  it("uses reranker results when available and falls back cleanly on reranker errors", async () => {
+    const classification = makeClassification([makePacket([makeTask()])]);
+    const parsedDocument = parseDocumentOrThrow(CITED_PAPER_XML, "jats_xml");
+
+    const reranked = await retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "jats_xml" }),
+      parsedDocument,
+      {
+        reranker: {
+          healthCheck: () => Promise.resolve({ ok: true as const, data: "ok" }),
+          rerank: () =>
+            Promise.resolve({
+              ok: true as const,
+              data: {
+                results: [
+                  {
+                    id: parsedDocument.blocks[0]!.blockId,
+                    score: 42,
+                    rank: 1,
+                  },
+                ],
+              },
+            }),
+        },
+      },
+    );
+
+    expect(
+      reranked.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.matchMethod,
+    ).toBe("bm25_reranked");
+    expect(
+      reranked.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.rerankScore,
+    ).toBe(42);
+
+    const fallback = await retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "jats_xml" }),
+      parsedDocument,
+      {
+        reranker: {
+          healthCheck: () => Promise.resolve({ ok: true as const, data: "ok" }),
+          rerank: () =>
+            Promise.resolve({ ok: false as const, error: "timeout" }),
+        },
+      },
+    );
+
+    expect(
+      fallback.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.matchMethod,
+    ).toBe("bm25");
   });
 });

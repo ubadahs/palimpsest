@@ -95,7 +95,7 @@ Prefer specific, paraphraseable claims with likely certainty or scope drift. Dep
 
 - Input: one bioRxiv DOI or URL
 - Preferred source: bioRxiv JATS XML
-- Fallback: PDF parsing only if XML is unavailable
+- Fallback: GROBID TEI parsing only if XML is unavailable
 - Extract:
   - paper metadata
   - sectioned full text
@@ -124,6 +124,10 @@ If the answer is no, mark the citation as out of scope and stop processing it.
 
 - Resolve DOI and metadata with OpenAlex first
 - Use Semantic Scholar as fallback metadata and open-access link source
+- If DOI is missing, allow conservative fallback resolution by:
+  - PMCID
+  - PMID
+  - exact normalized title + author-surname overlap + publication year window
 - Retrieve open-access full text where possible
 - Prefer structured text sources over PDFs
 - Cache cited-paper metadata, parsed text, and chunked representations locally
@@ -133,14 +137,16 @@ If the cited paper cannot be retrieved in usable full-text form, mark the edge a
 
 ### 5. Retrieve candidate spans from the cited paper
 
-For the POC, keep retrieval simple:
+For the POC, retrieval should stay narrow but structured:
 
-- chunk by section and paragraph
-- focus on abstract, results, discussion, and figure-caption text
-- rank paragraphs using simple lexical retrieval or BM25 for the POC
-- pass only the top candidate spans to the LLM
+- normalize full text into blocks with section labels and block kinds
+- rank blocks with BM25
+- optionally rerank the BM25 shortlist with a local open reranker
+- keep only the top candidate evidence blocks for downstream judgment
 
 If no candidate span is plausibly relevant beyond the abstract, mark the edge as `partially_auditable` or `not_auditable` and return `U` rather than guessing.
+
+This should be surfaced explicitly as an abstract-only downgrade, not silently folded into ordinary retrieval success.
 
 ### 6. LLM analysis
 

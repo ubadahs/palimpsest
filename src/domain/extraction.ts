@@ -1,14 +1,17 @@
 import { z } from "zod";
 
 import { resolvedPaperSchema, undefinedable } from "./common.js";
+import { parsedCitationMentionSchema } from "./parsing.js";
 import { seedPaperInputSchema } from "./pre-screen.js";
 
 export const extractionOutcomeValues = [
   "success_structured",
   "success_pdf",
+  "success_grobid",
   "skipped_not_auditable",
   "fail_http_403",
   "fail_pdf_parse_error",
+  "fail_grobid_parse_error",
   "fail_no_reference_match",
   "fail_ref_list_empty",
   "fail_ref_found_but_no_in_text_xref",
@@ -55,22 +58,14 @@ export type BundlePattern = z.infer<typeof bundlePatternSchema>;
 
 export const citationMentionSchema = z
   .object({
-    mentionIndex: z.number().int().nonnegative(),
-    rawContext: z.string(),
-    citationMarker: z.string(),
-    sectionTitle: undefinedable(z.string()),
     isDuplicate: z.boolean(),
     contextLength: z.number().int().nonnegative(),
     markerStyle: markerStyleSchema,
     contextType: contextTypeSchema,
     confidence: confidenceSchema,
-    isBundledCitation: z.boolean(),
-    bundleSize: z.number().int().positive(),
-    bundleRefIds: z.array(z.string()),
-    bundlePattern: bundlePatternSchema,
     provenance: z
       .object({
-        sourceType: z.enum(["jats_xml", "pdf_text"]),
+        sourceType: z.enum(["jats_xml", "grobid_tei", "pdf_text"]),
         parser: z.string().min(1),
         refId: undefinedable(z.string()),
         charOffsetStart: undefinedable(z.number().int().nonnegative()),
@@ -78,6 +73,15 @@ export const citationMentionSchema = z
       })
       .passthrough(),
   })
+  .extend(
+    parsedCitationMentionSchema.omit({
+      sourceType: true,
+      parser: true,
+      refId: true,
+      charOffsetStart: true,
+      charOffsetEnd: true,
+    }).shape,
+  )
   .passthrough();
 export type CitationMention = z.infer<typeof citationMentionSchema>;
 
@@ -86,7 +90,7 @@ export const edgeExtractionResultSchema = z
     citingPaperId: z.string().min(1),
     citedPaperId: z.string().min(1),
     citingPaperTitle: z.string().min(1),
-    sourceType: z.enum(["jats_xml", "pdf_text", "not_attempted"]),
+    sourceType: z.enum(["jats_xml", "grobid_tei", "pdf_text", "not_attempted"]),
     extractionOutcome: extractionOutcomeSchema,
     extractionSuccess: z.boolean(),
     usableForGrounding: z.union([z.boolean(), z.literal("unknown")]),
@@ -123,4 +127,6 @@ export const familyExtractionResultSchema = z
     summary: extractionSummarySchema,
   })
   .passthrough();
-export type FamilyExtractionResult = z.infer<typeof familyExtractionResultSchema>;
+export type FamilyExtractionResult = z.infer<
+  typeof familyExtractionResultSchema
+>;

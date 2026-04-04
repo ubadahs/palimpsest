@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { undefinedable } from "./common.js";
 import { confidenceSchema } from "./extraction.js";
+import { parsedPaperParserKindSchema } from "./parsing.js";
 
 export const cachedPaperSchema = z
   .object({
@@ -27,9 +28,12 @@ export const parsedPaperDataSchema = z
   .object({
     paperId: z.string().min(1),
     parserVersion: z.string().min(1),
+    parserKind: parsedPaperParserKindSchema,
+    contentHash: z.string().min(1),
     sectionsJson: undefinedable(z.string()),
     refsJson: undefinedable(z.string()),
     chunksJson: undefinedable(z.string()),
+    mentionsJson: undefinedable(z.string()),
     parsedAt: z.string().min(1),
   })
   .passthrough();

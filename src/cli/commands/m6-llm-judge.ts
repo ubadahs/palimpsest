@@ -23,7 +23,7 @@ function parseArgs(argv: string[]): {
 } {
   let calibrationPath: string | undefined;
   let humanPath: string | undefined;
-  let model = "claude-sonnet-4-20250514";
+  let model = "claude-opus-4-6";
   let thinking = false;
   let output = "data/m6-llm-adjudication";
 

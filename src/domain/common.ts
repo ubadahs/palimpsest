@@ -1,8 +1,6 @@
 import { z } from "zod";
 
-export function undefinedable<T extends z.ZodTypeAny>(
-  schema: T,
-) {
+export function undefinedable<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((value) => value, schema.optional());
 }
 
@@ -16,6 +14,16 @@ export const paperSourceValues = [
 
 export const paperSourceSchema = z.enum(paperSourceValues);
 export type PaperSource = z.infer<typeof paperSourceSchema>;
+
+export const paperResolutionProvenanceSchema = z
+  .object({
+    method: z.enum(["doi", "pmcid", "pmid", "title_author_year"]),
+    confidence: z.enum(["exact", "high"]),
+  })
+  .passthrough();
+export type PaperResolutionProvenance = z.infer<
+  typeof paperResolutionProvenanceSchema
+>;
 
 export const fullTextAvailableSchema = z
   .object({
@@ -48,15 +56,21 @@ export const resolvedPaperSchema = z
   .object({
     id: z.string().min(1),
     doi: undefinedable(z.string().min(1)),
+    pmcid: undefinedable(z.string().min(1)),
+    pmid: undefinedable(z.string().min(1)),
     title: z.string().min(1),
     authors: z.array(z.string()),
     abstract: undefinedable(z.string()),
     source: paperSourceSchema,
     openAccessUrl: undefinedable(z.string().min(1)),
+    openAccessPdfUrl: undefinedable(z.string().min(1)),
+    openAccessLandingPageUrl: undefinedable(z.string().min(1)),
+    openAccessOaUrl: undefinedable(z.string().min(1)),
     fullTextStatus: fullTextStatusSchema,
     paperType: undefinedable(z.string().min(1)),
     referencedWorksCount: undefinedable(z.number().int()),
     publicationYear: undefinedable(z.number().int()),
+    resolutionProvenance: undefinedable(paperResolutionProvenanceSchema),
   })
   .passthrough();
 export type ResolvedPaper = z.infer<typeof resolvedPaperSchema>;
