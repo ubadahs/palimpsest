@@ -110,6 +110,8 @@ export const edgeEvaluationPacketSchema = z
       .object({
         id: z.string().min(1),
         doi: undefinedable(z.string()),
+        pmcid: undefinedable(z.string()),
+        pmid: undefinedable(z.string()),
         title: z.string().min(1),
         authors: z.array(z.string()),
         publicationYear: undefinedable(z.number().int()),
@@ -118,7 +120,7 @@ export const edgeEvaluationPacketSchema = z
     extractionState: extractionStateSchema,
     extractionOutcome: extractionOutcomeSchema,
     auditabilityStatus: auditabilityStatusSchema,
-    sourceType: z.enum(["jats_xml", "pdf_text", "not_attempted"]),
+    sourceType: z.enum(["jats_xml", "grobid_tei", "pdf_text", "not_attempted"]),
     extractionConfidence: confidenceSchema,
     usableForGrounding: z.union([z.boolean(), z.literal("unknown")]),
     failureReason: undefinedable(z.string()),
@@ -153,7 +155,9 @@ export const extractionStateSummarySchema = z
     ),
   })
   .passthrough();
-export type ExtractionStateSummary = z.infer<typeof extractionStateSummarySchema>;
+export type ExtractionStateSummary = z.infer<
+  typeof extractionStateSummarySchema
+>;
 
 export const literatureStructureSummarySchema = z
   .object({
@@ -203,7 +207,4 @@ export const rubricQuestionSchema = z
   .passthrough();
 export type RubricQuestion = z.infer<typeof rubricQuestionSchema>;
 
-export {
-  edgeExtractionResultSchema,
-  familyExtractionResultSchema,
-};
+export { edgeExtractionResultSchema, familyExtractionResultSchema };

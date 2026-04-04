@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { resolvedPaperSchema, undefinedable } from "./common.js";
+import { fullTextFormatSchema, parsedBlockKindSchema } from "./parsing.js";
 import {
   evaluationModeSchema,
   evaluationTaskSchema,
@@ -16,13 +17,18 @@ export const evidenceSpanSchema = z
     spanId: z.string().min(1),
     text: z.string(),
     sectionTitle: undefinedable(z.string()),
+    blockKind: parsedBlockKindSchema,
     matchMethod: z.enum([
       "keyword_overlap",
       "entity_overlap",
       "claim_term",
       "section_title",
+      "bm25",
+      "bm25_reranked",
     ]),
     relevanceScore: z.number(),
+    bm25Score: z.number(),
+    rerankScore: undefinedable(z.number()),
     charOffsetStart: undefinedable(z.number().int().nonnegative()),
     charOffsetEnd: undefinedable(z.number().int().nonnegative()),
   })
@@ -59,7 +65,7 @@ export const citedPaperSourceSchema = z
     resolvedPaper: undefinedable(resolvedPaperSchema),
     fetchStatus: citedPaperFetchStatusSchema,
     fetchError: undefinedable(z.string()),
-    fullTextFormat: undefinedable(z.enum(["jats_xml", "pdf_text"])),
+    fullTextFormat: undefinedable(fullTextFormatSchema),
   })
   .passthrough();
 export type CitedPaperSource = z.infer<typeof citedPaperSourceSchema>;
@@ -68,6 +74,7 @@ export const taskEvidenceRetrievalStatusValues = [
   "retrieved",
   "no_fulltext",
   "no_matches",
+  "abstract_only_matches",
   "not_attempted",
   "unresolved_cited_paper",
 ] as const;
@@ -108,6 +115,7 @@ export const evidenceSummarySchema = z
     tasksNoFulltext: z.number().int().nonnegative(),
     tasksUnresolvedCitedPaper: z.number().int().nonnegative(),
     tasksNoMatches: z.number().int().nonnegative(),
+    tasksAbstractOnlyMatches: z.number().int().nonnegative(),
     tasksNotAttempted: z.number().int().nonnegative(),
     totalEvidenceSpans: z.number().int().nonnegative(),
     tasksByMode: z.partialRecord(evaluationModeSchema, z.number().int()),

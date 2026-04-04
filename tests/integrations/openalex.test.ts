@@ -59,6 +59,107 @@ describe("resolveWorkByDoi", () => {
       status: "available",
       source: "biorxiv_xml",
     });
+    expect(result.data.openAccessPdfUrl).toContain(".pdf");
+    expect(result.data.openAccessLandingPageUrl).toBe(
+      "https://doi.org/10.1101/2024.01.15.575745",
+    );
+    expect(result.data.openAccessOaUrl).toContain("biorxiv.org");
+    expect(result.data.resolutionProvenance).toEqual({
+      method: "doi",
+      confidence: "exact",
+    });
+
+    vi.restoreAllMocks();
+  });
+
+  it("keeps direct PDF URLs separate from landing pages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: "https://openalex.org/W999",
+            doi: "https://doi.org/10.1234/direct-pdf",
+            display_name: "Direct PDF Paper",
+            authorships: [],
+            open_access: {
+              is_oa: true,
+              oa_url: "https://example.com/landing",
+            },
+            primary_location: {
+              landing_page_url: "https://example.com/landing",
+              pdf_url: "https://example.com/paper.pdf",
+              source: {
+                display_name: "Example Publisher",
+                type: "journal",
+              },
+            },
+          }),
+      }),
+    );
+
+    const result = await resolveWorkByDoi(
+      "10.1234/direct-pdf",
+      "https://api.openalex.org",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.openAccessPdfUrl).toBe("https://example.com/paper.pdf");
+    expect(result.data.openAccessLandingPageUrl).toBe(
+      "https://example.com/landing",
+    );
+    expect(result.data.openAccessUrl).toBe("https://example.com/paper.pdf");
+
+    vi.restoreAllMocks();
+  });
+
+  it("does not promote landing pages to direct PDF URLs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: "https://openalex.org/W998",
+            doi: "https://doi.org/10.1234/landing-only",
+            display_name: "Landing Page Only",
+            authorships: [],
+            open_access: {
+              is_oa: true,
+              oa_url: "https://example.com/landing",
+            },
+            primary_location: {
+              landing_page_url: "https://example.com/landing",
+              pdf_url: null,
+              source: {
+                display_name: "Example Publisher",
+                type: "journal",
+              },
+            },
+          }),
+      }),
+    );
+
+    const result = await resolveWorkByDoi(
+      "10.1234/landing-only",
+      "https://api.openalex.org",
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.openAccessPdfUrl).toBeUndefined();
+    expect(result.data.openAccessLandingPageUrl).toBe(
+      "https://example.com/landing",
+    );
+    expect(result.data.openAccessUrl).toBe("https://example.com/landing");
+    expect(result.data.fullTextStatus).toEqual({
+      status: "available",
+      source: "oa_link",
+    });
 
     vi.restoreAllMocks();
   });

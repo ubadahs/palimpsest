@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { DOMParser } from "@xmldom/xmldom";
-
 import type {
-  ClassifiedMention,
   CitedPaperSource,
   EdgeWithEvidence,
   EvaluationMode,
@@ -11,381 +8,116 @@ import type {
   EvidenceSpan,
   FamilyClassificationResult,
   FamilyEvidenceResult,
+  ParsedPaperBlock,
+  ParsedPaperDocument,
   TaskEvidenceRetrievalStatus,
   TaskWithEvidence,
 } from "../domain/types.js";
 import { getRubric } from "../classification/rubrics.js";
+import { buildRetrievalQuery, rankDocumentsByBm25 } from "./bm25.js";
+import type { LocalReranker } from "./local-reranker.js";
 
-// --- Text chunking ---
-
-type TextChunk = {
-  text: string;
-  sectionTitle: string | undefined;
-  startOffset: number;
-  endOffset: number;
+export type EvidenceRetrievalAdapters = {
+  reranker?: LocalReranker;
 };
 
-function normalizeText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
+type RankedBlock = {
+  block: ParsedPaperBlock;
+  bm25Score: number;
+  rerankScore?: number;
+  matchMethod: EvidenceSpan["matchMethod"];
+  relevanceScore: number;
+};
 
-function isXml(text: string): boolean {
-  return (
-    text.trimStart().startsWith("<?xml") || text.trimStart().startsWith("<")
-  );
-}
-
-function appendChunk(
-  chunks: TextChunk[],
-  text: string,
-  sectionTitle: string | undefined,
-  offsetRef: { value: number },
-): void {
-  const normalized = normalizeText(text);
-  if (normalized.length < 30) {
-    return;
-  }
-
-  const startOffset = offsetRef.value;
-  const endOffset = startOffset + normalized.length;
-  chunks.push({
-    text: normalized,
-    sectionTitle,
-    startOffset,
-    endOffset,
-  });
-  offsetRef.value = endOffset + 2;
-}
-
-function getDirectChildElements(parent: Element, tagName: string): Element[] {
-  const children: Element[] = [];
-  for (let i = 0; i < parent.childNodes.length; i++) {
-    const node = parent.childNodes.item(i);
-    if (node?.nodeType === 1 && (node as Element).tagName === tagName) {
-      children.push(node as Element);
-    }
-  }
-  return children;
-}
-
-function getFirstDirectChild(parent: Element, tagName: string): Element | undefined {
-  return getDirectChildElements(parent, tagName)[0];
-}
-
-function walkSection(
-  section: Element,
-  inheritedTitle: string | undefined,
-  chunks: TextChunk[],
-  offsetRef: { value: number },
-): void {
-  const sectionTitle =
-    normalizeText(getFirstDirectChild(section, "title")?.textContent ?? "") ||
-    inheritedTitle;
-
-  for (let i = 0; i < section.childNodes.length; i++) {
-    const node = section.childNodes.item(i);
-    if (node?.nodeType !== 1) {
-      continue;
-    }
-
-    const element = node as Element;
-    if (element.tagName === "sec") {
-      walkSection(element, sectionTitle, chunks, offsetRef);
-      continue;
-    }
-
-    if (element.tagName === "p") {
-      appendChunk(chunks, element.textContent ?? "", sectionTitle, offsetRef);
-      continue;
-    }
-
-    if (element.tagName === "fig" || element.tagName === "table-wrap") {
-      const captionText = normalizeText(
-        getFirstDirectChild(element, "caption")?.textContent ?? "",
-      );
-      if (captionText) {
-        const captionSection = sectionTitle
-          ? `${sectionTitle} / Figure caption`
-          : "Figure caption";
-        appendChunk(chunks, captionText, captionSection, offsetRef);
-      }
-    }
-  }
-}
-
-function chunkXmlParagraphs(fullText: string): TextChunk[] {
-  const doc = new DOMParser().parseFromString(fullText, "text/xml");
-  const chunks: TextChunk[] = [];
-  const offsetRef = { value: 0 };
-
-  const abstracts = doc.getElementsByTagName("abstract");
-  for (let i = 0; i < abstracts.length; i++) {
-    const abstract = abstracts.item(i);
-    if (!abstract) continue;
-    appendChunk(chunks, abstract.textContent ?? "", "Abstract", offsetRef);
-  }
-
-  const body = doc.getElementsByTagName("body").item(0);
-  if (!body || body.nodeType !== 1) {
-    return chunks;
-  }
-
-  for (let i = 0; i < body.childNodes.length; i++) {
-    const node = body.childNodes.item(i);
-    if (node?.nodeType !== 1) {
-      continue;
-    }
-
-    const element = node as Element;
-    if (element.tagName === "sec") {
-      walkSection(element, undefined, chunks, offsetRef);
-      continue;
-    }
-
-    if (element.tagName === "p") {
-      appendChunk(chunks, element.textContent ?? "", undefined, offsetRef);
-    }
-  }
-
-  return chunks;
-}
-
-function chunkPlainText(fullText: string): TextChunk[] {
-  const chunks: TextChunk[] = [];
-  const paragraphs = fullText
-    .split(/\n{2,}/)
-    .map(normalizeText)
-    .filter((paragraph) => paragraph.length >= 30);
-  const sourceParagraphs =
-    paragraphs.length > 0
-      ? paragraphs
-      : fullText
-          .split(/(?<=[.!?])\s+/)
-          .map(normalizeText)
-          .filter((paragraph) => paragraph.length >= 30);
-
-  let offset = 0;
-  for (const paragraph of sourceParagraphs) {
-    if (paragraph.length <= 1000) {
-      chunks.push({
-        text: paragraph,
-        sectionTitle: undefined,
-        startOffset: offset,
-        endOffset: offset + paragraph.length,
-      });
-      offset += paragraph.length + 2;
-      continue;
-    }
-
-    const sentences = paragraph.split(/(?<=[.!?])\s+/);
-    let current = "";
-    let chunkStart = offset;
-
-    for (const sentence of sentences) {
-      if (current.length > 0 && current.length + sentence.length > 800) {
-        chunks.push({
-          text: current,
-          sectionTitle: undefined,
-          startOffset: chunkStart,
-          endOffset: chunkStart + current.length,
-        });
-        chunkStart = chunkStart + current.length + 2;
-        current = sentence;
-      } else {
-        current += current ? ` ${sentence}` : sentence;
-      }
-    }
-
-    if (current.length > 0) {
-      chunks.push({
-        text: current,
-        sectionTitle: undefined,
-        startOffset: chunkStart,
-        endOffset: chunkStart + current.length,
-      });
-      offset = chunkStart + current.length + 2;
-    }
-  }
-
-  return chunks;
-}
-
-function chunkByParagraphs(fullText: string): TextChunk[] {
-  return isXml(fullText) ? chunkXmlParagraphs(fullText) : chunkPlainText(fullText);
-}
-
-// --- Keyword extraction from citing context ---
-
-const STOP_WORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "and",
-  "or",
-  "but",
-  "in",
-  "on",
-  "at",
-  "to",
-  "for",
-  "of",
-  "with",
-  "by",
-  "from",
-  "is",
-  "are",
-  "was",
-  "were",
-  "be",
-  "been",
-  "being",
-  "have",
-  "has",
-  "had",
-  "do",
-  "does",
-  "did",
-  "will",
-  "would",
-  "could",
-  "should",
-  "may",
-  "might",
-  "shall",
-  "can",
-  "this",
-  "that",
-  "these",
-  "those",
-  "it",
-  "its",
-  "we",
-  "our",
-  "they",
-  "their",
-  "not",
-  "also",
-  "et",
-  "al",
-  "fig",
-  "figure",
-  "table",
-  "as",
-  "such",
-]);
-
-function extractKeyTerms(text: string): string[] {
-  const words = text.toLowerCase().match(/\b[a-z][a-z0-9-]{2,}\b/g) ?? [];
-  const unique = [...new Set(words.filter((w) => !STOP_WORDS.has(w)))];
-  return unique.slice(0, 30);
-}
-
-function extractEntities(text: string): string[] {
-  const entities: string[] = [];
-
-  const geneProtein = text.match(
-    /\b(?:Rab\d+|ACAP\d*|Par\d+[a-z]?|HNF4[αα]|Sox\d+|MARK\d+|Rab35|ICAM-\d+)\b/gi,
-  );
-  if (geneProtein) entities.push(...geneProtein.map((e) => e.toLowerCase()));
-
-  const structures = text.match(
-    /\b(?:bile\s+canalicul[ia]|apical\s+bulkhead|lumen|cyst|hepatocyte|hepatoblast|epithelial|polarity)\b/gi,
-  );
-  if (structures) entities.push(...structures.map((e) => e.toLowerCase()));
-
-  return [...new Set(entities)];
-}
-
-// --- Scoring ---
-
-function scoreChunk(
-  chunk: TextChunk,
-  keyTerms: string[],
-  entities: string[],
-): { score: number; method: EvidenceSpan["matchMethod"] } {
-  const chunkLower = chunk.text.toLowerCase();
-  const sectionLower = chunk.sectionTitle?.toLowerCase() ?? "";
-
-  let entityHits = 0;
-  for (const e of entities) {
-    if (chunkLower.includes(e)) entityHits++;
-  }
-
-  let keywordHits = 0;
-  for (const k of keyTerms) {
-    if (chunkLower.includes(k)) keywordHits++;
-  }
-
-  if (entityHits >= 2 && keywordHits >= 3) {
-    return { score: entityHits * 3 + keywordHits, method: "entity_overlap" };
-  }
-  if (keywordHits >= 4) {
-    return { score: keywordHits, method: "keyword_overlap" };
-  }
-  if (entityHits >= 1 && keywordHits >= 2) {
-    return { score: entityHits * 2 + keywordHits, method: "claim_term" };
-  }
-
-  const sectionHits = keyTerms.filter((term) => sectionLower.includes(term)).length;
-  if (sectionHits >= 1) {
-    return { score: sectionHits, method: "section_title" };
-  }
-
-  return { score: 0, method: "keyword_overlap" };
-}
-
-// --- Per-task evidence retrieval ---
-
-function retrieveForTask(
+function buildTaskQuery(
   task: EvaluationTask,
-  chunks: TextChunk[],
-): TaskWithEvidence {
-  const rubric = getRubric(task.evaluationMode);
+  citedPaperSource: CitedPaperSource,
+): string {
+  const queryParts = [
+    ...task.mentions.map((mention) => mention.rawContext),
+    ...task.mentions.map((mention) => mention.citationMarker),
+  ];
 
-  if (
-    rubric.mode === "skip_low_information" ||
-    rubric.mode === "manual_review_extraction_limited"
-  ) {
-    return {
-      ...task,
-      rubricQuestion: rubric.question,
-      citedPaperEvidenceSpans: [],
-      evidenceRetrievalStatus: "not_attempted",
-    };
+  const resolvedPaper = citedPaperSource.resolvedPaper;
+  if (resolvedPaper?.title) {
+    queryParts.push(resolvedPaper.title);
   }
 
-  const combinedContext = task.mentions
-    .map((m: ClassifiedMention) => m.rawContext)
-    .join(" ");
+  return buildRetrievalQuery(queryParts);
+}
 
-  const keyTerms = extractKeyTerms(combinedContext);
-  const entities = extractEntities(combinedContext);
+async function rerankBlocks(
+  query: string,
+  rankedBlocks: RankedBlock[],
+  reranker: LocalReranker | undefined,
+): Promise<RankedBlock[]> {
+  if (!reranker || rankedBlocks.length === 0) {
+    return rankedBlocks.slice(0, 5);
+  }
 
-  const scored = chunks
-    .map((chunk) => {
-      const { score, method } = scoreChunk(chunk, keyTerms, entities);
-      return { chunk, score, method };
-    })
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+  const rerankResult = await reranker.rerank(
+    query,
+    rankedBlocks.map((rankedBlock) => ({
+      id: rankedBlock.block.blockId,
+      text: rankedBlock.block.text,
+    })),
+    5,
+  );
 
-  const spans: EvidenceSpan[] = scored.map((s) => ({
+  if (!rerankResult.ok) {
+    return rankedBlocks.slice(0, 5);
+  }
+
+  const byId = new Map<string, RankedBlock>();
+  for (const rankedBlock of rankedBlocks) {
+    byId.set(rankedBlock.block.blockId, rankedBlock);
+  }
+
+  const reranked: RankedBlock[] = [];
+  for (const result of rerankResult.data.results) {
+    const rankedBlock = byId.get(result.id);
+    if (!rankedBlock) {
+      continue;
+    }
+
+    reranked.push({
+      ...rankedBlock,
+      rerankScore: result.score,
+      matchMethod: "bm25_reranked",
+      relevanceScore: result.score,
+    });
+  }
+
+  reranked.sort((left, right) => {
+    const leftScore = left.rerankScore ?? 0;
+    const rightScore = right.rerankScore ?? 0;
+    if (leftScore === rightScore) {
+      return right.bm25Score - left.bm25Score;
+    }
+    return rightScore - leftScore;
+  });
+
+  return reranked;
+}
+
+function toEvidenceSpan(rankedBlock: RankedBlock): EvidenceSpan {
+  const span: EvidenceSpan = {
     spanId: randomUUID(),
-    text: s.chunk.text.substring(0, 600),
-    sectionTitle: s.chunk.sectionTitle,
-    matchMethod: s.method,
-    relevanceScore: s.score,
-    charOffsetStart: s.chunk.startOffset,
-    charOffsetEnd: s.chunk.endOffset,
-  }));
-
-  return {
-    ...task,
-    rubricQuestion: rubric.question,
-    citedPaperEvidenceSpans: spans,
-    evidenceRetrievalStatus: spans.length > 0 ? "retrieved" : "no_matches",
+    text: rankedBlock.block.text.substring(0, 600),
+    sectionTitle: rankedBlock.block.sectionTitle,
+    blockKind: rankedBlock.block.blockKind,
+    matchMethod: rankedBlock.matchMethod,
+    relevanceScore: rankedBlock.relevanceScore,
+    bm25Score: rankedBlock.bm25Score,
+    charOffsetStart: rankedBlock.block.charOffsetStart,
+    charOffsetEnd: rankedBlock.block.charOffsetEnd,
   };
+
+  if (rankedBlock.rerankScore != null) {
+    span.rerankScore = rankedBlock.rerankScore;
+  }
+
+  return span;
 }
 
 function isNotAttemptedMode(task: EvaluationTask): boolean {
@@ -395,22 +127,83 @@ function isNotAttemptedMode(task: EvaluationTask): boolean {
   );
 }
 
-// --- Public API ---
+async function retrieveForTask(
+  task: EvaluationTask,
+  citedPaperSource: CitedPaperSource,
+  blocks: ParsedPaperBlock[],
+  reranker: LocalReranker | undefined,
+): Promise<TaskWithEvidence> {
+  const rubric = getRubric(task.evaluationMode);
 
-export function retrieveEvidence(
+  if (isNotAttemptedMode(task)) {
+    return {
+      ...task,
+      rubricQuestion: rubric.question,
+      citedPaperEvidenceSpans: [],
+      evidenceRetrievalStatus: "not_attempted",
+    };
+  }
+
+  const query = buildTaskQuery(task, citedPaperSource);
+  const bm25Ranked = rankDocumentsByBm25(
+    query,
+    blocks,
+    (block) => block.text,
+    20,
+  ).map((rankedDocument) => ({
+    block: rankedDocument.document,
+    bm25Score: rankedDocument.score,
+    matchMethod: "bm25" as const,
+    relevanceScore: rankedDocument.score,
+  }));
+
+  if (bm25Ranked.length === 0) {
+    return {
+      ...task,
+      rubricQuestion: rubric.question,
+      citedPaperEvidenceSpans: [],
+      evidenceRetrievalStatus: "no_matches",
+    };
+  }
+
+  if (
+    bm25Ranked.every(
+      (rankedBlock) => rankedBlock.block.blockKind === "abstract",
+    )
+  ) {
+    return {
+      ...task,
+      rubricQuestion: rubric.question,
+      citedPaperEvidenceSpans: [],
+      evidenceRetrievalStatus: "abstract_only_matches",
+    };
+  }
+
+  const reranked = await rerankBlocks(query, bm25Ranked, reranker);
+  const spans = reranked.slice(0, 5).map(toEvidenceSpan);
+
+  return {
+    ...task,
+    rubricQuestion: rubric.question,
+    citedPaperEvidenceSpans: spans,
+    evidenceRetrievalStatus: spans.length > 0 ? "retrieved" : "no_matches",
+  };
+}
+
+export async function retrieveEvidence(
   classification: FamilyClassificationResult,
   citedPaperSource: CitedPaperSource,
-  citedPaperFullText: string | undefined,
-): FamilyEvidenceResult {
-  const chunks = citedPaperFullText
-    ? chunkByParagraphs(citedPaperFullText)
-    : [];
-  const hasFullText = chunks.length > 0;
+  parsedDocument: ParsedPaperDocument | undefined,
+  adapters: EvidenceRetrievalAdapters = {},
+): Promise<FamilyEvidenceResult> {
+  const blocks = parsedDocument?.blocks ?? [];
+  const hasFullText = blocks.length > 0;
 
   const edges: EdgeWithEvidence[] = [];
   let totalTasks = 0;
   let tasksWithEvidence = 0;
   let tasksNoMatches = 0;
+  let tasksAbstractOnlyMatches = 0;
   let tasksNoFulltext = 0;
   let tasksUnresolvedCitedPaper = 0;
   let tasksNotAttempted = 0;
@@ -418,18 +211,25 @@ export function retrieveEvidence(
   const tasksByMode: Partial<Record<EvaluationMode, number>> = {};
 
   for (const packet of classification.packets) {
-    if (packet.tasks.length === 0) continue;
+    if (packet.tasks.length === 0) {
+      continue;
+    }
 
-    const tasksWithEv: TaskWithEvidence[] = [];
+    const tasksWithEvidenceForPacket: TaskWithEvidence[] = [];
 
     for (const task of packet.tasks) {
       totalTasks++;
-      const count = tasksByMode[task.evaluationMode] ?? 0;
-      tasksByMode[task.evaluationMode] = count + 1;
+      tasksByMode[task.evaluationMode] =
+        (tasksByMode[task.evaluationMode] ?? 0) + 1;
 
       if (isNotAttemptedMode(task)) {
-        const result = retrieveForTask(task, chunks);
-        tasksWithEv.push(result);
+        const result = await retrieveForTask(
+          task,
+          citedPaperSource,
+          blocks,
+          adapters.reranker,
+        );
+        tasksWithEvidenceForPacket.push(result);
         tasksNotAttempted++;
         continue;
       }
@@ -442,7 +242,7 @@ export function retrieveEvidence(
       }
 
       if (status) {
-        tasksWithEv.push({
+        tasksWithEvidenceForPacket.push({
           ...task,
           rubricQuestion: getRubric(task.evaluationMode).question,
           citedPaperEvidenceSpans: [],
@@ -450,20 +250,27 @@ export function retrieveEvidence(
         });
         if (status === "no_fulltext") {
           tasksNoFulltext++;
-        } else if (status === "unresolved_cited_paper") {
+        } else {
           tasksUnresolvedCitedPaper++;
         }
         continue;
       }
 
-      const result = retrieveForTask(task, chunks);
-      tasksWithEv.push(result);
+      const result = await retrieveForTask(
+        task,
+        citedPaperSource,
+        blocks,
+        adapters.reranker,
+      );
+      tasksWithEvidenceForPacket.push(result);
 
       if (result.evidenceRetrievalStatus === "retrieved") {
         tasksWithEvidence++;
         totalSpans += result.citedPaperEvidenceSpans.length;
       } else if (result.evidenceRetrievalStatus === "no_matches") {
         tasksNoMatches++;
+      } else if (result.evidenceRetrievalStatus === "abstract_only_matches") {
+        tasksAbstractOnlyMatches++;
       }
     }
 
@@ -474,7 +281,7 @@ export function retrieveEvidence(
       extractionState: packet.extractionState,
       extractionOutcome: packet.extractionOutcome,
       isReviewMediated: packet.isReviewMediated,
-      tasks: tasksWithEv,
+      tasks: tasksWithEvidenceForPacket,
     });
   }
 
@@ -491,6 +298,7 @@ export function retrieveEvidence(
       tasksNoFulltext,
       tasksUnresolvedCitedPaper,
       tasksNoMatches,
+      tasksAbstractOnlyMatches,
       tasksNotAttempted,
       totalEvidenceSpans: totalSpans,
       tasksByMode,

@@ -15,6 +15,8 @@ const environmentSchema = z.object({
     .url()
     .default("https://api.semanticscholar.org/graph/v1"),
   BIORXIV_BASE_URL: z.string().url().default("https://api.biorxiv.org"),
+  GROBID_BASE_URL: z.string().url(),
+  LOCAL_RERANKER_BASE_URL: z.string().url().optional(),
   OPENALEX_EMAIL: z.string().email().optional(),
   SEMANTIC_SCHOLAR_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),

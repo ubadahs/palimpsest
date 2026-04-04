@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import type { FullTextStatus, ResolvedPaper, Result } from "../domain/types.js";
+import type {
+  FullTextStatus,
+  PaperResolutionProvenance,
+  ResolvedPaper,
+  Result,
+} from "../domain/types.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schemas for the OpenAlex Works API subset we use ---
@@ -35,6 +40,13 @@ const openAlexWorkSchema = z
   .object({
     id: z.string(),
     doi: z.string().nullable().optional(),
+    ids: z
+      .object({
+        pmid: z.string().nullable().optional(),
+        pmcid: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
     display_name: z.string(),
     authorships: z.array(openAlexAuthorshipSchema).optional(),
     abstract_inverted_index: z
@@ -112,19 +124,98 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
     work.abstract_inverted_index != null
       ? reconstructAbstract(work.abstract_inverted_index)
       : undefined;
+  const pdfUrl = work.primary_location?.pdf_url ?? undefined;
+  const landingPageUrl = work.primary_location?.landing_page_url ?? undefined;
+  const oaUrl = work.open_access?.oa_url ?? undefined;
 
   return {
     id: work.id,
     doi: rawDoi ? stripDoiPrefix(rawDoi) : undefined,
+    pmcid: work.ids?.pmcid ?? undefined,
+    pmid:
+      work.ids?.pmid?.replace(
+        /^https?:\/\/pubmed\.ncbi\.nlm\.nih\.gov\//i,
+        "",
+      ) ?? undefined,
     title: work.display_name,
     authors: (work.authorships ?? []).map((a) => a.author.display_name),
     abstract,
     source: "openalex",
-    openAccessUrl: work.open_access?.oa_url ?? undefined,
+    openAccessUrl: pdfUrl ?? oaUrl ?? landingPageUrl,
+    openAccessPdfUrl: pdfUrl,
+    openAccessLandingPageUrl: landingPageUrl,
+    openAccessOaUrl: oaUrl,
     fullTextStatus: inferFullTextStatus(work),
     paperType: work.type ?? undefined,
     referencedWorksCount: work.referenced_works_count,
     publicationYear: work.publication_year ?? undefined,
+    resolutionProvenance: undefined,
+  };
+}
+
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasAuthorOverlap(work: OpenAlexWork, authors: string[]): boolean {
+  if (authors.length === 0) {
+    return true;
+  }
+
+  const expectedSurnames = new Set(
+    authors
+      .map((author) => author.trim().split(/\s+/).at(-1)?.toLowerCase())
+      .filter((author): author is string => Boolean(author)),
+  );
+  if (expectedSurnames.size === 0) {
+    return true;
+  }
+
+  const workSurnames = new Set(
+    (work.authorships ?? [])
+      .map((authorship) =>
+        authorship.author.display_name
+          .trim()
+          .split(/\s+/)
+          .at(-1)
+          ?.toLowerCase(),
+      )
+      .filter((surname): surname is string => Boolean(surname)),
+  );
+
+  for (const surname of expectedSurnames) {
+    if (workSurnames.has(surname)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matchesPublicationYear(
+  work: OpenAlexWork,
+  publicationYear: number | undefined,
+): boolean {
+  if (!publicationYear || !work.publication_year) {
+    return true;
+  }
+  return Math.abs(work.publication_year - publicationYear) <= 1;
+}
+
+function withResolutionProvenance(
+  paper: ResolvedPaper,
+  method: PaperResolutionProvenance["method"],
+  confidence: PaperResolutionProvenance["confidence"],
+): ResolvedPaper {
+  return {
+    ...paper,
+    resolutionProvenance: {
+      method,
+      confidence,
+    },
   };
 }
 
@@ -146,7 +237,117 @@ export async function resolveWorkByDoi(
   const result = await fetchJson(url, openAlexWorkSchema);
 
   if (!result.ok) return result;
-  return { ok: true, data: toResolvedPaper(result.data) };
+  return {
+    ok: true,
+    data: withResolutionProvenance(
+      toResolvedPaper(result.data),
+      "doi",
+      "exact",
+    ),
+  };
+}
+
+async function resolveWorkByFilter(
+  filter: string,
+  baseUrl: string,
+  email?: string,
+): Promise<Result<ResolvedPaper>> {
+  const url = appendEmail(
+    `${baseUrl}/works?filter=${encodeURIComponent(filter)}&per_page=5`,
+    email,
+  );
+  const result = await fetchJson(url, openAlexWorksListSchema);
+  if (!result.ok) {
+    return result;
+  }
+
+  if (result.data.results.length !== 1) {
+    return {
+      ok: false,
+      error:
+        result.data.results.length === 0
+          ? `No OpenAlex match for ${filter}`
+          : `Ambiguous OpenAlex match for ${filter}`,
+    };
+  }
+
+  return { ok: true, data: toResolvedPaper(result.data.results[0]!) };
+}
+
+export async function resolveWorkByPmid(
+  pmid: string,
+  baseUrl: string,
+  email?: string,
+): Promise<Result<ResolvedPaper>> {
+  const result = await resolveWorkByFilter(`pmid:${pmid}`, baseUrl, email);
+  if (!result.ok) {
+    return result;
+  }
+  return {
+    ok: true,
+    data: withResolutionProvenance(result.data, "pmid", "exact"),
+  };
+}
+
+export async function resolveWorkByPmcid(
+  pmcid: string,
+  baseUrl: string,
+  email?: string,
+): Promise<Result<ResolvedPaper>> {
+  const result = await resolveWorkByFilter(`pmcid:${pmcid}`, baseUrl, email);
+  if (!result.ok) {
+    return result;
+  }
+  return {
+    ok: true,
+    data: withResolutionProvenance(result.data, "pmcid", "exact"),
+  };
+}
+
+export async function resolveWorkByMetadata(
+  locator: {
+    title: string;
+    authors: string[];
+    publicationYear?: number;
+  },
+  baseUrl: string,
+  email?: string,
+): Promise<Result<ResolvedPaper>> {
+  const query = encodeURIComponent(`"${locator.title}"`);
+  const url = appendEmail(
+    `${baseUrl}/works?search=${query}&per_page=10`,
+    email,
+  );
+  const result = await fetchJson(url, openAlexWorksListSchema);
+
+  if (!result.ok) {
+    return result;
+  }
+
+  const normalizedTitle = normalizeTitle(locator.title);
+  const candidates = result.data.results.filter(
+    (work) =>
+      normalizeTitle(work.display_name) === normalizedTitle &&
+      matchesPublicationYear(work, locator.publicationYear) &&
+      hasAuthorOverlap(work, locator.authors),
+  );
+
+  if (candidates.length === 0) {
+    return { ok: false, error: "No high-confidence OpenAlex metadata match" };
+  }
+
+  if (candidates.length > 1) {
+    return { ok: false, error: "Ambiguous OpenAlex metadata match" };
+  }
+
+  return {
+    ok: true,
+    data: withResolutionProvenance(
+      toResolvedPaper(candidates[0]!),
+      "title_author_year",
+      "high",
+    ),
+  };
 }
 
 export async function getCitingWorks(

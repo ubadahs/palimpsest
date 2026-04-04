@@ -214,7 +214,7 @@ async function callLLM(
   telemetry: LLMCallTelemetry;
 }> {
   const anthropic = createAnthropic({ apiKey: options.apiKey });
-  const modelId = options.model ?? "claude-sonnet-4-6";
+  const modelId = options.model ?? "claude-opus-4-6";
 
   if (options.useExtendedThinking) {
     return callLLMWithThinking(record, options, anthropic, modelId);
@@ -266,7 +266,7 @@ export async function adjudicateCalibrationSet(
   options: AdjudicatorOptions,
   onProgress?: (index: number, total: number) => void,
 ): Promise<CalibrationSet> {
-  const modelId = options.model ?? "claude-sonnet-4-20250514";
+  const modelId = options.model ?? "claude-opus-4-6";
   const records: AdjudicationRecord[] = [];
   const active = set.records.filter((r) => !r.excluded);
   const excluded = set.records.filter((r) => r.excluded);

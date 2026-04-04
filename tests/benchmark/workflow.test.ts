@@ -5,6 +5,7 @@ import {
   applyCalibrationDeltas,
   createBlindCalibrationSet,
   diffCalibrationSets,
+  summarizeBenchmarkCandidates,
 } from "../../src/benchmark/workflow.js";
 
 function makeCalibrationSet(): CalibrationSet {
@@ -75,11 +76,18 @@ function makeCalibrationSet(): CalibrationSet {
 }
 
 describe("benchmark workflow", () => {
-  it("creates blind calibration sets without adjudication fields", () => {
+  it("creates blind calibration sets without adjudication fields on active records", () => {
     const blind = createBlindCalibrationSet(makeCalibrationSet());
 
     expect(blind.records[0]).not.toHaveProperty("verdict");
     expect(blind.records[0]).not.toHaveProperty("adjudicator");
+    expect(blind.records[1]).toMatchObject({
+      taskId: "task-2",
+      verdict: "cannot_determine",
+      adjudicator: "human",
+      excluded: true,
+      excludeReason: "Reference block",
+    });
     expect(blind.version).toBe("v2-blind");
   });
 
@@ -97,6 +105,103 @@ describe("benchmark workflow", () => {
 
     expect(diff.summary.changedVerdicts).toBe(1);
     expect(diff.entries[0]!.verdictChanged).toBe(true);
+  });
+
+  it("ignores adjudication-only diffs on excluded records", () => {
+    const base = makeCalibrationSet();
+    const candidate: CalibrationSet = {
+      ...base,
+      records: [
+        base.records[0]!,
+        {
+          ...base.records[1]!,
+          verdict: "supported",
+          rationale: "Should be ignored in diff scoring",
+          retrievalQuality: "high",
+        },
+      ],
+    };
+
+    const diff = diffCalibrationSets(base, candidate);
+
+    expect(diff.summary.changedVerdicts).toBe(0);
+    expect(diff.summary.changedRationales).toBe(0);
+    expect(diff.entries[1]!.verdictChanged).toBe(false);
+    expect(diff.entries[1]!.rationaleChanged).toBe(false);
+    expect(diff.entries[1]!.retrievalQualityChanged).toBe(false);
+  });
+
+  it("summarizes benchmark candidates against active adjudicated records only", () => {
+    const base = makeCalibrationSet();
+    const exactCandidate: CalibrationSet = {
+      ...base,
+      runTelemetry: {
+        model: "claude-opus-4-6",
+        useExtendedThinking: false,
+        totalCalls: 1,
+        successfulCalls: 1,
+        failedCalls: 0,
+        totalInputTokens: 100,
+        totalOutputTokens: 20,
+        totalReasoningTokens: 0,
+        totalTokens: 120,
+        totalLatencyMs: 300,
+        averageLatencyMs: 300,
+        estimatedCostUsd: 0.01,
+        calls: [],
+      },
+    };
+    const changedCandidate: CalibrationSet = {
+      ...base,
+      runTelemetry: {
+        model: "claude-sonnet-4-6",
+        useExtendedThinking: true,
+        totalCalls: 1,
+        successfulCalls: 1,
+        failedCalls: 0,
+        totalInputTokens: 100,
+        totalOutputTokens: 20,
+        totalReasoningTokens: 10,
+        totalTokens: 130,
+        totalLatencyMs: 400,
+        averageLatencyMs: 400,
+        estimatedCostUsd: 0.01,
+        calls: [],
+      },
+      records: [
+        { ...base.records[0]!, verdict: "partially_supported" },
+        base.records[1]!,
+      ],
+    };
+
+    const summary = summarizeBenchmarkCandidates("/tmp/base.json", base, [
+      { label: "changed", path: "/tmp/changed.json", set: changedCandidate },
+      { label: "exact", path: "/tmp/exact.json", set: exactCandidate },
+    ]);
+
+    expect(summary.basePath).toBe("/tmp/base.json");
+    expect(summary.entries.map((entry) => entry.label)).toEqual([
+      "exact",
+      "changed",
+    ]);
+    expect(summary.entries[0]).toMatchObject({
+      label: "exact",
+      activeRecords: 1,
+      exactAgreement: 1,
+      adjacentAgreement: 1,
+      verdictChanges: 0,
+      model: "claude-opus-4-6",
+      useExtendedThinking: false,
+    });
+    expect(summary.entries[1]).toMatchObject({
+      label: "changed",
+      exactAgreement: 0,
+      adjacentAgreement: 1,
+      verdictChanges: 1,
+      changedTaskIds: ["task-1"],
+      model: "claude-sonnet-4-6",
+      useExtendedThinking: true,
+    });
   });
 
   it("applies deltas while preserving record order", () => {

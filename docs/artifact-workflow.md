@@ -59,6 +59,46 @@ This validation applies to:
 
 Historical artifacts remain loadable as long as their payload shape is still compatible with the current schema.
 
+## Parsing and Evidence Artifacts
+
+The M2 and M4 artifacts now carry more structured parsing and retrieval metadata.
+
+### Parsed full text
+
+New runs normalize JATS XML and GROBID TEI into one internal parsed-document shape with:
+
+- `parserKind`
+- `fullTextFormat`
+- `blocks`
+- `references`
+- `mentions`
+
+Historical artifacts that still reference legacy `pdf_text` content remain loadable. New PDF-backed runs should emit `grobid_tei_xml`.
+
+### Evidence spans
+
+Evidence spans now include retrieval metadata needed for auditability and debugging:
+
+- `blockKind`
+- `bm25Score`
+- optional `rerankScore`
+- `matchMethod`
+
+`matchMethod` distinguishes BM25-only retrieval from reranked retrieval.
+
+### Retrieval statuses
+
+Task-level evidence retrieval statuses now distinguish:
+
+- `retrieved`
+- `no_matches`
+- `abstract_only_matches`
+- `no_fulltext`
+- `unresolved_cited_paper`
+- `not_attempted`
+
+`abstract_only_matches` is deliberate. It means lexical matching only surfaced abstract material, so the task is treated as ungrounded rather than silently upgraded to normal retrieved evidence.
+
 ## Benchmark Workflow
 
 The benchmark workflow is intentionally append-only and artifact-driven.
@@ -71,7 +111,9 @@ Use:
 npm run dev -- benchmark:blind --input path/to/calibration.json
 ```
 
-This removes adjudication outcome fields from records while preserving record order and task identity.
+This removes adjudication outcome fields from active records while preserving record order and task identity.
+
+Excluded records are carried through unchanged so benchmark exports do not erase existing exclusion decisions.
 
 ### 2. Collect an external or independent pass
 
@@ -98,7 +140,33 @@ The diff compares:
 - exclusion changes
 - missing or extra records
 
-### 4. Apply approved deltas
+Adjudication-field differences on excluded records are ignored in diff scoring. Exclusion-state changes are still reported.
+
+### 4. Summarize multiple benchmark candidates
+
+Use:
+
+```bash
+npm run dev -- benchmark:summary \
+  --base path/to/base.json \
+  --candidate opus-no-thinking=path/to/opus.json \
+  --candidate sonnet-thinking=path/to/sonnet.json
+```
+
+This produces:
+
+- a machine-readable benchmark summary JSON
+- a Markdown ranking table plus per-candidate detail
+
+The summary scores only active, non-excluded base records with adjudicated verdicts. It reports:
+
+- exact agreement
+- adjacent agreement with `supported` and `partially_supported` collapsed
+- verdict-change count
+- changed task IDs
+- missing task IDs
+
+### 5. Apply approved deltas
 
 Use:
 
