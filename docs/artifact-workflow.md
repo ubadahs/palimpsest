@@ -40,6 +40,21 @@ The local UI stores run-scoped output under:
 
 The UI does not rename or reshape canonical artifact filenames. It points each stage row at the latest successful primary/report/manifest artifact already emitted by the CLI.
 
+## Stage keys and directories (stable mapping)
+
+Use this table when adding stages or documentation; the **canonical program** definition is `stageDefinitions` in [src/ui-contract/stages.ts](../src/ui-contract/stages.ts) (SQLite `analysis_run_stages.stage_key` uses the **key** column).
+
+| Order | CLI command | Stage key (DB / API) | Run directory under `data/runs/<runId>/` |
+|------|-------------|----------------------|------------------------------------------|
+| 1 | `pre-screen` | `pre-screen` | `01-pre-screen/` |
+| 2 | `m2-extract` | `m2-extract` | `02-m2-extract/` |
+| 3 | `m3-classify` | `m3-classify` | `03-m3-classify/` |
+| 4 | `m4-evidence` | `m4-evidence` | `04-m4-evidence/` |
+| 5 | `m5-adjudicate` | `m5-adjudicate` | `05-m5-adjudicate/` |
+| 6 | `m6-llm-judge` | `m6-llm-judge` | `06-m6-llm-judge/` |
+
+Per-stage log files live under `data/runs/<runId>/logs/` (see [ui-architecture.md](./ui-architecture.md)).
+
 ## Stage Pointer Semantics
 
 - reruns append new files in the same stage directory

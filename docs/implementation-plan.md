@@ -41,7 +41,7 @@ Default choices:
 - Storage: SQLite
 - Validation: runtime schemas at all external boundaries
 - Testing: lightweight unit and fixture-based integration tests
-- Interface: CLI scripts, not a web app
+- Interface: CLI scripts as the canonical surface; no hosted multi-user web product. A **local-only** UI may orchestrate CLI subprocesses and inspect artifacts (see [ui-architecture.md](./ui-architecture.md)).
 
 If the stack changes later, keep the same architectural rules and module boundaries.
 
@@ -418,7 +418,7 @@ After implementing:
 
 Do not optimize early for:
 
-- a web application
+- a hosted or product-facing web application (multi-user, network-served product UI)
 - distributed processing
 - multi-tenant storage
 - benchmark infrastructure
@@ -426,3 +426,5 @@ Do not optimize early for:
 - highly abstract plugin systems
 
 The codebase should earn complexity only after the narrow POC works on real claim families.
+
+**Local dev UI:** A thin local-only orchestration layer (subprocess CLI, SQLite, artifact I/O) is allowed and is not the same as the non-goals above. It must not become the canonical definition of pipeline behavior; CLI commands and artifacts remain authoritative.

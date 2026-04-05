@@ -8,7 +8,12 @@ import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type GenericRecord = Record<string, unknown>;
@@ -323,9 +328,11 @@ function M6Inspector({ payload }: { payload: GenericRecord }) {
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
                         Verdict detail
                       </p>
-                      <h3 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
-                        {String(row.original["verdict"] ?? "No verdict")}
-                      </h3>
+                      <DialogTitle asChild>
+                        <h3 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
+                          {String(row.original["verdict"] ?? "No verdict")}
+                        </h3>
+                      </DialogTitle>
                     </div>
                     <div className="rounded-[24px] border border-[var(--border)] bg-white/70 p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
