@@ -14,13 +14,15 @@
     "./ui-contract/server": "./src/ui-contract/server.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
     "cli": "tsx src/cli/index.ts",
     "dev": "tsx src/cli/index.ts",
     "doctor": "tsx src/cli/index.ts doctor",
     "db:migrate": "tsx src/cli/index.ts db:migrate",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
+    "lint:all": "npm run lint && npm --workspace @citation-fidelity/ui run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
