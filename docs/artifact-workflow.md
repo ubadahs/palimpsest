@@ -25,6 +25,29 @@ Each primary JSON artifact also gets:
 
 - `*_manifest.json`
 
+## UI Run Layout
+
+The local UI stores run-scoped output under:
+
+- `data/runs/<runId>/inputs/`
+- `data/runs/<runId>/01-pre-screen/`
+- `data/runs/<runId>/02-m2-extract/`
+- `data/runs/<runId>/03-m3-classify/`
+- `data/runs/<runId>/04-m4-evidence/`
+- `data/runs/<runId>/05-m5-adjudicate/`
+- `data/runs/<runId>/06-m6-llm-judge/`
+- `data/runs/<runId>/logs/`
+
+The UI does not rename or reshape canonical artifact filenames. It points each stage row at the latest successful primary/report/manifest artifact already emitted by the CLI.
+
+## Stage Pointer Semantics
+
+- reruns append new files in the same stage directory
+- prior artifacts are retained in place
+- the stage registry row points at the latest attempt only
+- when an upstream stage reruns successfully, downstream `succeeded` stages are marked `stale`
+- stale downstream stages clear their current artifact pointers so the UI does not present them as current output
+
 ## Manifest Files
 
 Manifest files record reproducibility metadata without changing the main payload shape.

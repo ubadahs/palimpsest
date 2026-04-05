@@ -8,6 +8,7 @@ import {
   type PreScreenEdge,
   type StudyMode,
 } from "../../domain/types.js";
+import { createTrackedCliProgressReporter } from "../progress.js";
 import { buildPackets } from "../../classification/build-packets.js";
 import {
   toClassificationJson,
@@ -60,8 +61,13 @@ function parseArgs(argv: string[]): {
 
 export function runM3ClassifyCommand(argv: string[]): void {
   const args = parseArgs(argv);
+  const { progress, reportCliFailure } =
+    createTrackedCliProgressReporter("m3-classify");
 
   try {
+    progress.startStep("load_extracted_mentions", {
+      detail: "Loading extraction and pre-screen artifacts.",
+    });
     const extraction = loadJsonArtifact(
       args.extractionPath,
       familyExtractionResultSchema,
@@ -73,6 +79,9 @@ export function runM3ClassifyCommand(argv: string[]): void {
       preScreenResultsSchema,
       "pre-screen results",
     );
+    progress.completeStep("load_extracted_mentions", {
+      detail: `${String(extraction.edgeResults.length)} extracted edges loaded`,
+    });
 
     const family = preScreenFamilies.find(
       (f) => f.seed.doi.toLowerCase() === extraction.seed.doi.toLowerCase(),
@@ -91,12 +100,36 @@ export function runM3ClassifyCommand(argv: string[]): void {
     console.info(`M3 classification for: ${title}`);
     console.info(`  Study mode: ${args.studyMode}`);
 
+    progress.startStep("classify_citation_roles", {
+      detail: "Classifying citation roles from extracted mentions.",
+    });
     const result = buildPackets(
       extraction,
       args.studyMode,
       edgeClassifications,
       preScreenEdges,
     );
+    progress.completeStep("classify_citation_roles", {
+      detail: `${String(result.summary.literatureStructure.totalMentions)} mentions classified`,
+    });
+    progress.startStep("derive_evaluation_modes", {
+      detail: "Deriving evaluation modes from citation roles and modifiers.",
+    });
+    progress.completeStep("derive_evaluation_modes", {
+      detail: `${String(result.summary.literatureStructure.totalTasks)} evaluation tasks derived`,
+    });
+    progress.startStep("assemble_task_packets", {
+      detail: "Assembling task packets for downstream evidence retrieval.",
+    });
+    progress.completeStep("assemble_task_packets", {
+      detail: `${String(result.packets.length)} packets assembled`,
+    });
+    progress.startStep("summarize_literature_structure", {
+      detail: "Summarizing task structure and manual-review cases.",
+    });
+    progress.completeStep("summarize_literature_structure", {
+      detail: `${String(result.summary.literatureStructure.manualReviewTaskCount)} manual-review tasks identified`,
+    });
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
@@ -128,6 +161,7 @@ export function runM3ClassifyCommand(argv: string[]): void {
       `Structure: ${String(ls.totalTasks)} tasks from ${String(ls.edgesWithMentions)} edges (${String(ls.totalMentions)} mentions)`,
     );
   } catch (error) {
+    reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }

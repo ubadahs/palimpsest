@@ -28,6 +28,19 @@ export type PreScreenOptions = {
   minAuditableEdges: number;
 };
 
+export type PreScreenProgressEvent = {
+  step:
+    | "resolve_seed_paper"
+    | "gather_citing_papers"
+    | "collapse_duplicates"
+    | "assess_auditability"
+    | "summarize_family_viability";
+  status: "running" | "completed";
+  detail?: string;
+  current?: number;
+  total?: number;
+};
+
 const DEFAULT_OPTIONS: PreScreenOptions = {
   minAuditableCoverage: 0.3,
   minAuditableEdges: 3,
@@ -216,12 +229,28 @@ async function processOneSeed(
   adapters: PreScreenAdapters,
   paperCache: Map<string, ResolvedPaper>,
   options: PreScreenOptions,
+  onProgress?: (event: PreScreenProgressEvent) => void,
 ): Promise<ClaimFamilyPreScreen> {
   const emptyMetrics = computeMetrics([], 0);
 
+  onProgress?.({
+    step: "resolve_seed_paper",
+    status: "running",
+    detail: `Resolving ${seed.doi}`,
+  });
   const seedResult = await adapters.resolveByDoi(seed.doi);
 
   if (!seedResult.ok) {
+    onProgress?.({
+      step: "resolve_seed_paper",
+      status: "completed",
+      detail: `Seed could not be resolved: ${seedResult.error}`,
+    });
+    onProgress?.({
+      step: "summarize_family_viability",
+      status: "completed",
+      detail: "Family deprioritized because the seed paper could not be resolved.",
+    });
     return {
       seed,
       resolvedSeedPaper: undefined,
@@ -238,7 +267,17 @@ async function processOneSeed(
 
   let seedPaper = seedResult.data;
   paperCache.set(seedPaper.id, seedPaper);
+  onProgress?.({
+    step: "resolve_seed_paper",
+    status: "completed",
+    detail: seedPaper.title,
+  });
 
+  onProgress?.({
+    step: "gather_citing_papers",
+    status: "running",
+    detail: "Gathering citing papers around the seed.",
+  });
   let citingResult = await adapters.getCitingPapers(seedPaper.id);
   let citingPapers = citingResult.ok ? citingResult.data : [];
 
@@ -254,15 +293,35 @@ async function processOneSeed(
       citingPapers = citingResult.ok ? citingResult.data : [];
     }
   }
+  onProgress?.({
+    step: "gather_citing_papers",
+    status: "completed",
+    detail: `${String(citingPapers.length)} citing papers gathered`,
+  });
 
   const totalBeforeDedup = citingPapers.length;
+  onProgress?.({
+    step: "collapse_duplicates",
+    status: "running",
+    detail: "Collapsing duplicate paper records.",
+  });
   const { uniquePapers, duplicateGroups } = deduplicatePapers(citingPapers);
+  onProgress?.({
+    step: "collapse_duplicates",
+    status: "completed",
+    detail: `${String(uniquePapers.length)} unique papers after collapsing ${String(duplicateGroups.length)} duplicate groups`,
+  });
 
   const edges: PreScreenEdge[] = [];
   const resolvedPapers: Record<string, ResolvedPaper> = {
     [seedPaper.id]: seedPaper,
   };
 
+  onProgress?.({
+    step: "assess_auditability",
+    status: "running",
+    detail: "Checking auditability and paper types.",
+  });
   for (const citing of uniquePapers) {
     paperCache.set(citing.id, citing);
     resolvedPapers[citing.id] = citing;
@@ -291,9 +350,24 @@ async function processOneSeed(
   }
 
   const metrics = computeMetrics(edges, totalBeforeDedup);
+  onProgress?.({
+    step: "assess_auditability",
+    status: "completed",
+    detail: `${String(metrics.auditableStructuredEdges + metrics.auditablePdfEdges)} auditable edges across ${String(metrics.uniqueEdges)} unique papers`,
+  });
   const { decision, reason } = makeDecision(metrics, true, options);
   const familyUseProfile = computeFamilyUseProfile(metrics);
   const m2Priority = computeM2Priority(metrics, decision);
+  onProgress?.({
+    step: "summarize_family_viability",
+    status: "running",
+    detail: "Summarizing family viability.",
+  });
+  onProgress?.({
+    step: "summarize_family_viability",
+    status: "completed",
+    detail: reason,
+  });
 
   return {
     seed,
@@ -351,6 +425,7 @@ export async function runPreScreen(
   seeds: SeedPaperInput[],
   adapters: PreScreenAdapters,
   options: Partial<PreScreenOptions> = {},
+  onProgress?: (event: PreScreenProgressEvent) => void,
 ): Promise<ClaimFamilyPreScreen[]> {
   const mergedOptions: PreScreenOptions = { ...DEFAULT_OPTIONS, ...options };
   const paperCache = new Map<string, ResolvedPaper>();
@@ -358,7 +433,7 @@ export async function runPreScreen(
   const results: ClaimFamilyPreScreen[] = [];
   for (const seed of seeds) {
     results.push(
-      await processOneSeed(seed, adapters, paperCache, mergedOptions),
+      await processOneSeed(seed, adapters, paperCache, mergedOptions, onProgress),
     );
   }
 

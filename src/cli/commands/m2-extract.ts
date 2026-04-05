@@ -5,6 +5,7 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type { CachePolicy } from "../../domain/types.js";
 import { preScreenResultsSchema } from "../../domain/types.js";
+import { createTrackedCliProgressReporter } from "../progress.js";
 import { runM2Extraction } from "../../pipeline/m2-extract.js";
 import {
   toM2InspectionArtifact,
@@ -63,6 +64,8 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
   const database = openDatabase(config.databasePath);
+  const { progress, reportCliFailure } =
+    createTrackedCliProgressReporter("m2-extract");
 
   try {
     runMigrations(database);
@@ -115,7 +118,19 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
       },
     };
 
-    const result = await runM2Extraction(family, adapters);
+    const result = await runM2Extraction(family, adapters, (event) => {
+      const payload = {
+        ...(event.detail ? { detail: event.detail } : {}),
+        ...(event.current != null && event.total != null
+          ? { current: event.current, total: event.total }
+          : {}),
+      };
+      if (event.status === "running") {
+        progress.startStep(event.step, payload);
+      } else {
+        progress.completeStep(event.step, payload);
+      }
+    });
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
@@ -146,6 +161,7 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
       `\n${String(summary.successfulEdgesRaw)} extracted (${String(summary.successfulEdgesUsable)} usable), ${String(summary.deduplicatedMentionCount)} mentions (${String(summary.usableMentionCount)} usable)`,
     );
   } catch (error) {
+    reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {

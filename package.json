@@ -2,17 +2,31 @@
   "name": "citation-fidelity",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
   "description": "CLI-first tooling for auditing citation fidelity in scientific literature.",
+  "exports": {
+    "./config": "./src/config/index.ts",
+    "./shared": "./src/shared/index.ts",
+    "./storage": "./src/storage/index.ts",
+    "./ui-contract": "./src/ui-contract/index.ts",
+    "./ui-contract/server": "./src/ui-contract/server.ts"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "cli": "tsx src/cli/index.ts",
     "dev": "tsx src/cli/index.ts",
     "doctor": "tsx src/cli/index.ts doctor",
     "db:migrate": "tsx src/cli/index.ts db:migrate",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint src tests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ui:dev": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run dev",
+    "ui:build": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run build",
+    "ui:start": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run start"
   },
   "repository": {
     "type": "git",

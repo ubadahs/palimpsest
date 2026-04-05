@@ -6,6 +6,7 @@ import { loadEnvironment } from "../../config/env.js";
 import { shortlistInputSchema } from "../../domain/types.js";
 import * as openalex from "../../integrations/openalex.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
+import { createTrackedCliProgressReporter } from "../progress.js";
 import {
   runPreScreen,
   type PreScreenAdapters,
@@ -78,6 +79,8 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
+  const { progress, reportCliFailure } =
+    createTrackedCliProgressReporter("pre-screen");
 
   try {
     const shortlist = loadJsonArtifact(
@@ -92,7 +95,28 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
       openAlexEmail: config.openAlexEmail,
       semanticScholarApiKey: config.semanticScholarApiKey,
     });
-    const results = await runPreScreen(shortlist.seeds, adapters);
+    const results = await runPreScreen(
+      shortlist.seeds,
+      adapters,
+      {},
+      (event) => {
+        if (event.status === "running") {
+          progress.startStep(event.step, {
+            detail: event.detail,
+            ...(event.current != null && event.total != null
+              ? { current: event.current, total: event.total }
+              : {}),
+          });
+        } else {
+          progress.completeStep(event.step, {
+            detail: event.detail,
+            ...(event.current != null && event.total != null
+              ? { current: event.current, total: event.total }
+              : {}),
+          });
+        }
+      },
+    );
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
@@ -121,6 +145,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
       `\n${String(greenlit.length)} greenlit, ${String(deprioritized.length)} deprioritized`,
     );
   } catch (error) {
+    reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }

@@ -9,6 +9,7 @@ import {
   resolvePaperByMetadata,
 } from "../../integrations/paper-resolver.js";
 import { resolveCitedPaperSource } from "../../pipeline/m4-evidence.js";
+import { createTrackedCliProgressReporter } from "../progress.js";
 import {
   toEvidenceJson,
   toEvidenceMarkdown,
@@ -63,6 +64,8 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
   const database = openDatabase(config.databasePath);
+  const { progress, reportCliFailure } =
+    createTrackedCliProgressReporter("m4-evidence");
 
   try {
     runMigrations(database);
@@ -72,7 +75,6 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
       familyClassificationResultSchema,
       "m3 classification results",
     );
-
     const title = classification.resolvedSeedPaperTitle;
     console.info(`M4 evidence retrieval for: ${title}`);
 
@@ -109,6 +111,17 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
             },
           ),
       },
+      (event) => {
+        if (event.status === "running") {
+          progress.startStep(event.step, {
+            ...(event.detail ? { detail: event.detail } : {}),
+          });
+        } else {
+          progress.completeStep(event.step, {
+            ...(event.detail ? { detail: event.detail } : {}),
+          });
+        }
+      },
     );
 
     if (
@@ -129,12 +142,34 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
       );
     }
 
+    progress.startStep("retrieve_candidate_evidence", {
+      detail: "Searching the cited paper for supporting evidence blocks.",
+    });
     const evidenceResult = await retrieveEvidence(
       classification,
       citedPaperMaterialized.citedPaperSource,
       citedPaperMaterialized.citedPaperParsedDocument,
       reranker ? { reranker } : {},
     );
+    progress.completeStep("retrieve_candidate_evidence", {
+      detail: `${String(evidenceResult.summary.totalTasks)} tasks searched for evidence`,
+    });
+    progress.startStep("rerank_and_attach_evidence", {
+      detail: reranker
+        ? "Reranking candidate blocks and attaching evidence spans."
+        : "Attaching evidence spans from BM25-ranked blocks.",
+    });
+    progress.completeStep("rerank_and_attach_evidence", {
+      detail: reranker
+        ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received reranked evidence`
+        : `${String(evidenceResult.summary.tasksWithEvidence)} tasks received BM25 evidence`,
+    });
+    progress.startStep("summarize_grounded_coverage", {
+      detail: "Summarizing grounded evidence coverage.",
+    });
+    progress.completeStep("summarize_grounded_coverage", {
+      detail: `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
+    });
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
@@ -162,6 +197,7 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
       `\n${String(s.tasksWithEvidence)}/${String(s.totalTasks)} tasks matched evidence (${String(s.totalEvidenceSpans)} spans)`,
     );
   } catch (error) {
+    reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
