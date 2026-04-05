@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-04-03
+**Last updated:** 2026-04-04
 
 This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). Naming here follows **CLI commands** (`m2-extract`, …), which do not map 1:1 to milestone numbers in the original plan.
 
@@ -18,6 +18,14 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | LLM adjudication | `m6-llm-judge` | Done | Anthropic via AI SDK, telemetry, agreement reports; default is `claude-opus-4-6` without extended thinking |
 | Benchmark workflow | `benchmark:*` | Done | Blind export, keyed diff, candidate summary, and approved-delta apply for adjudication datasets; excluded-only adjudication diffs are ignored |
 
+## Local UI
+
+| Area | Surface | Status | Notes |
+|------|---------|--------|--------|
+| Run orchestration UI | `apps/ui` | Done | Local-only Next.js App Router workspace for run creation, orchestration, live logs, and stage inspection |
+| Run registry | SQLite `analysis_runs`, `analysis_run_stages` | Done | Durable run/stage status, pointers to latest artifacts, log paths, stale downstream tracking |
+| Local supervisor | UI server runtime | Done | One active subprocess pipeline at a time, startup reconciliation to `interrupted`, per-stage cancel/rerun/continue |
+
 ## Cross-cutting
 
 | Area | Status | Notes |
@@ -29,6 +37,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into M2/M4 |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
+| UI workspace tests | Partial | Targeted command-builder coverage in `apps/ui/tests`; broader component/E2E coverage not added yet |
 
 ## Retrieval and Parsing Notes
 
