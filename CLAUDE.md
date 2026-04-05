@@ -1,42 +1,52 @@
 # CLAUDE.md
 
+Keep this file in sync with [AGENTS.md](./AGENTS.md).
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What This Project Is
 
-CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers, focused on empirical-attribution citations in bioRxiv preprints. Local SQLite storage, no web app.
+CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers, focused on empirical-attribution citations in bioRxiv preprints. Local SQLite storage. **CLI and JSON/Markdown artifacts are canonical; there is no hosted multi-user product. A local-only Next.js app in `apps/ui` may orchestrate CLI subprocesses and inspect artifacts.**
 
 The project follows a milestone-based implementation plan in `docs/implementation-plan.md`. **What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). The canonical design documents live in `docs/` (PRD, build spec, evaluation protocol, concept memo). Do not build infrastructure for later milestones early.
 
 ## Commands
 
 ```bash
-npm run build          # tsc compile to dist/
-npm run typecheck      # tsc --noEmit
-npm run lint           # eslint
+npm run build          # clears dist/, then tsc compile src/ only (tsconfig.build.json)
+npm run typecheck      # tsc --noEmit (src + tests)
+npm run lint           # eslint src tests (UI has its own lint in apps/ui)
+npm run lint:all       # root lint + UI workspace lint
 npm run format         # prettier --write
 npm run format:check   # prettier --check
-npm run test           # vitest run (all tests)
+npm run test           # vitest run (root tests/**/*.ts only)
 npx vitest run tests/domain/taxonomy.test.ts  # single test file
 npm run dev            # run CLI: tsx src/cli/index.ts
 npm run dev -- doctor  # check config and taxonomy
 npm run dev -- db:migrate  # apply pending SQLite migrations
 npm run dev -- pre-screen --input shortlist.json  # pre-screen claim families
+npm run ui:dev         # local Next.js UI (orchestration + inspection)
+npm run ui:build
+npm run ui:start
+npm --workspace @citation-fidelity/ui run test   # UI workspace tests
 ```
 
 ## Architecture
 
 ```
+apps/ui/      Local-only Next.js (App Router pages + Pages API); depends on root via workspace
 src/
   cli/          Command entrypoints (index.ts dispatches to commands/)
   config/       Env loading (Zod-validated) and AppConfig construction
   domain/       Core taxonomy types and decision logic (pure)
+  health/       Health checks shared by CLI (doctor) and UI
   integrations/ External provider adapters (bioRxiv, OpenAlex, Semantic Scholar, LLM)
   pipeline/     Pre-screen and full-analysis orchestration
   retrieval/    Chunking, ranking, cited-span selection
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
+  ui-contract/  Shared stage/run types; package exports: citation-fidelity/ui-contract (+ /server)
 tests/          Mirrors src/ structure
 ```
 

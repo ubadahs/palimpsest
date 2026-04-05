@@ -7,7 +7,6 @@ import {
   getEnvironmentHealthSummary,
   getStageDefinition,
   listStageArtifacts,
-  type AnalysisRun,
   type AnalysisRunStage,
   type RunDetail,
   type RunStageDetail,
@@ -26,7 +25,6 @@ import {
 import { getDatabase } from "./database";
 import { ensureRunDirectories, getStageDirectory } from "./run-files";
 import { getRepoRoot } from "./root-path";
-import { resolveFocusStage } from "./run-focus-stage";
 
 function buildHealthSummary(stages: AnalysisRunStage[]): string {
   const failed = stages.find((stage) =>

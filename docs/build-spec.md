@@ -25,11 +25,13 @@ Given a shortlist of candidate seed papers, first pre-screen local claim familie
 
 This build does not include:
 
-- a web app
+- a hosted or multi-user web application (product-facing UI or SaaS)
 - large-scale orchestration
 - review-article handling
 - citation-chain inference beyond the selected local cluster
 - automatic scoring of all papers in a corpus
+
+**In-scope exception:** a **local-only** orchestration UI (for example Next.js under `apps/ui`) that runs the same CLI, reads/writes the same SQLite database and artifact layout, and does not replace CLI or artifact semantics. See [ui-architecture.md](./ui-architecture.md).
 
 ## System Boundary
 
