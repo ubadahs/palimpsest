@@ -1,8 +1,8 @@
 # Implementation status
 
-**Last updated:** 2026-04-04
+**Last updated:** 2026-04-05
 
-This file tracks **what exists in the codebase today**. Naming here follows **CLI commands** (`m2-extract`, …), which do not map 1:1 to milestone numbers in the original plan.
+This file tracks **what exists in the codebase today**. For a map of all docs, see [README.md](./README.md). Naming here follows **CLI commands** (`m2-extract`, …), which do not map 1:1 to milestone numbers in the original plan.
 
 ## Pipeline (CLI)
 
@@ -64,3 +64,7 @@ This file tracks **what exists in the codebase today**. Naming here follows **CL
 ## How to update this file
 
 Edit the tables when a command’s behavior materially ships or when scope changes. Bump **Last updated** to the change date.
+
+When the **local UI** or **workspace layout** changes, verify [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) still match the repo. When **artifact paths** or **stage keys** change, update [artifact-workflow.md](./artifact-workflow.md) and [ui-architecture.md](./ui-architecture.md) in the same change when possible.
+
+Before a release or large merge, use the checklist in [README.md](./README.md) (release / large-change section) to avoid stale documentation.
