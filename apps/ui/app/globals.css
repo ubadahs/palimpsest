@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f0e8;
+  --panel: rgba(255, 252, 247, 0.88);
+  --panel-strong: rgba(248, 242, 234, 0.98);
+  --panel-muted: rgba(240, 232, 221, 0.7);
+  --text: #1d1914;
+  --text-muted: #6d6256;
+  --border: rgba(111, 94, 77, 0.18);
+  --border-strong: rgba(111, 94, 77, 0.28);
+  --accent: #9b5c41;
+  --accent-soft: rgba(155, 92, 65, 0.12);
+  --success: #2f6f4f;
+  --warning: #97642c;
+  --danger: #9a4036;
+  --shadow: 0 22px 48px rgba(58, 45, 31, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(211, 169, 126, 0.1), transparent 32%),
+    linear-gradient(180deg, #fbf8f3 0%, #f4ede4 100%);
+  min-height: 100%;
+}
+
+body {
+  color: var(--text);
+  font-family: var(--font-manrope), sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(155, 92, 65, 0.18);
+}
+
+.surface {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(22px);
+}
+
+.surface-strong {
+  background: var(--panel-strong);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+.paper-grid {
+  background-image:
+    linear-gradient(rgba(111, 94, 77, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(111, 94, 77, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.scroll-fade {
+  mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
+}
