@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type Database from "better-sqlite3";
 
-const migrationsDirectoryPath = fileURLToPath(
-  new URL("./migrations", import.meta.url),
+const migrationsDirectoryPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "migrations",
 );
 
 type MigrationFile = {

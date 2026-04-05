@@ -27,9 +27,16 @@ export type MaterializedCitedPaperSource = {
   citedPaperParsedDocument: ParsedPaperDocument | undefined;
 };
 
+export type M4ResolveProgressEvent = {
+  step: "resolve_cited_paper" | "fetch_and_parse_cited_full_text";
+  status: "running" | "completed";
+  detail?: string;
+};
+
 export async function resolveCitedPaperSource(
   classification: FamilyClassificationResult,
   adapters: M4EvidenceAdapters,
+  onProgress?: (event: M4ResolveProgressEvent) => void,
 ): Promise<MaterializedCitedPaperSource> {
   const seedPacket = classification.packets[0];
   const citedPaperLocator = seedPacket?.citedPaper;
@@ -49,6 +56,11 @@ export async function resolveCitedPaperSource(
     };
   }
 
+  onProgress?.({
+    step: "resolve_cited_paper",
+    status: "running",
+    detail: citedPaperLocator.title,
+  });
   const metadataLocator = {
     title: citedPaperLocator.title,
     authors: citedPaperLocator.authors,
@@ -64,6 +76,11 @@ export async function resolveCitedPaperSource(
     ? await adapters.resolveByDoi(citedPaperLocator.doi)
     : await adapters.resolveByMetadata(metadataLocator);
   if (!resolvedResult.ok) {
+    onProgress?.({
+      step: "resolve_cited_paper",
+      status: "completed",
+      detail: `Resolution failed: ${resolvedResult.error}`,
+    });
     return {
       citedPaperSource: {
         resolutionStatus: "resolution_failed",
@@ -78,12 +95,22 @@ export async function resolveCitedPaperSource(
   }
 
   const resolvedPaper = resolvedResult.data;
+  onProgress?.({
+    step: "resolve_cited_paper",
+    status: "completed",
+    detail: resolvedPaper.title,
+  });
   if (resolvedPaper.fullTextStatus.status !== "available") {
     const reason =
       resolvedPaper.fullTextStatus.status === "unavailable"
         ? resolvedPaper.fullTextStatus.reason
         : "Only abstract text is available";
 
+    onProgress?.({
+      step: "fetch_and_parse_cited_full_text",
+      status: "completed",
+      detail: `Full text unavailable: ${reason}`,
+    });
     return {
       citedPaperSource: {
         resolutionStatus: "resolved",
@@ -97,9 +124,19 @@ export async function resolveCitedPaperSource(
     };
   }
 
+  onProgress?.({
+    step: "fetch_and_parse_cited_full_text",
+    status: "running",
+    detail: "Fetching and parsing cited full text.",
+  });
   const parsedPaperResult =
     await adapters.materializeParsedPaper(resolvedPaper);
   if (!parsedPaperResult.ok) {
+    onProgress?.({
+      step: "fetch_and_parse_cited_full_text",
+      status: "completed",
+      detail: `Parsing failed: ${parsedPaperResult.error}`,
+    });
     return {
       citedPaperSource: {
         resolutionStatus: "resolved",
@@ -112,6 +149,12 @@ export async function resolveCitedPaperSource(
       citedPaperParsedDocument: undefined,
     };
   }
+
+  onProgress?.({
+    step: "fetch_and_parse_cited_full_text",
+    status: "completed",
+    detail: `${String(parsedPaperResult.data.parsedDocument.blocks.length)} parsed blocks ready for retrieval`,
+  });
 
   return {
     citedPaperSource: {

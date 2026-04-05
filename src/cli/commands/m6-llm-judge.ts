@@ -5,6 +5,7 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { calibrationSetSchema } from "../../domain/types.js";
 import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
+import { createTrackedCliProgressReporter } from "../progress.js";
 import { toCalibrationJson } from "../../reporting/adjudication-report.js";
 import { toCalibrationSummaryMarkdown } from "../../reporting/calibration-summary.js";
 import { toAgreementMarkdown } from "../../reporting/agreement-report.js";
@@ -70,7 +71,13 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
     return;
   }
 
+  const { progress, reportCliFailure } =
+    createTrackedCliProgressReporter("m6-llm-judge");
+
   try {
+    progress.startStep("load_active_records", {
+      detail: "Loading active calibration records for adjudication.",
+    });
     const calibration = loadJsonArtifact(
       args.calibrationPath,
       calibrationSetSchema,
@@ -78,6 +85,9 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
     );
 
     const activeCount = calibration.records.filter((r) => !r.excluded).length;
+    progress.completeStep("load_active_records", {
+      detail: `${String(activeCount)} active records ready for adjudication`,
+    });
     console.info(
       `M6 LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`,
     );
@@ -86,6 +96,10 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
     );
     console.info(`  Records: ${String(activeCount)} active\n`);
 
+    progress.startStep("adjudicate_records", {
+      detail: "Adjudicating calibration records with the configured model.",
+      ...(activeCount > 0 ? { current: 0, total: activeCount } : {}),
+    });
     const llmResult = await adjudicateCalibrationSet(
       calibration,
       {
@@ -95,8 +109,23 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
       },
       (i, total) => {
         console.info(`  [${String(i)}/${String(total)}] adjudicating...`);
+        progress.updateStep("adjudicate_records", {
+          detail: `Adjudicating record ${String(i)} of ${String(total)}`,
+          current: i,
+          total,
+        });
       },
     );
+    progress.completeStep("adjudicate_records", {
+      detail: `${String(activeCount)} records adjudicated`,
+      ...(activeCount > 0 ? { current: activeCount, total: activeCount } : {}),
+    });
+    progress.startStep("capture_verdicts_and_rationales", {
+      detail: "Capturing verdicts and rationales in the calibration dataset.",
+    });
+    progress.completeStep("capture_verdicts_and_rationales", {
+      detail: `${String(llmResult.records.filter((record) => !record.excluded && record.verdict != null).length)} records now carry verdicts`,
+    });
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
@@ -105,8 +134,26 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
     const jsonPath = resolve(outputDir, `${stamp}_llm-calibration.json`);
     const summaryPath = resolve(outputDir, `${stamp}_llm-summary.md`);
 
+    const verdicts = llmResult.records.filter((r) => !r.excluded && r.verdict);
+    const supported = verdicts.filter((r) => r.verdict === "supported").length;
+    const partial = verdicts.filter(
+      (r) => r.verdict === "partially_supported",
+    ).length;
+    const notSupported = verdicts.filter(
+      (r) => r.verdict === "not_supported",
+    ).length;
+    progress.startStep("summarize_verdict_distribution", {
+      detail: "Summarizing the verdict distribution.",
+    });
+    progress.completeStep("summarize_verdict_distribution", {
+      detail: `${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
+    });
+
     writeFileSync(jsonPath, toCalibrationJson(llmResult), "utf8");
     writeFileSync(summaryPath, toCalibrationSummaryMarkdown(llmResult), "utf8");
+    progress.startStep("write_final_outputs", {
+      detail: "Writing final adjudication outputs.",
+    });
 
     const relatedArtifacts = [summaryPath];
 
@@ -141,20 +188,15 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
       model: args.model,
     });
     console.info(`  Manifest: ${manifestPath}`);
-
-    const verdicts = llmResult.records.filter((r) => !r.excluded && r.verdict);
-    const supported = verdicts.filter((r) => r.verdict === "supported").length;
-    const partial = verdicts.filter(
-      (r) => r.verdict === "partially_supported",
-    ).length;
-    const notSupported = verdicts.filter(
-      (r) => r.verdict === "not_supported",
-    ).length;
+    progress.completeStep("write_final_outputs", {
+      detail: "Final JSON, summary, and manifest written.",
+    });
 
     console.info(
       `\n${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
     );
   } catch (error) {
+    reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
