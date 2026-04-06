@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-06
 
-This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md). Naming here follows **CLI commands** (`m2-extract`, …), which do not map 1:1 to milestone numbers in the original plan.
+This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md).
 
 ## Pipeline (CLI)
 
@@ -10,12 +10,12 @@ This file tracks **what exists in the codebase today**. For product intent and p
 |------|---------|--------|--------|
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
-| Claim-family pre-screen | `pre-screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); GROBID for seed full text; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
-| Citation context extraction | `m2-extract` | Done | JATS-first parsing, GROBID-backed PDF parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
-| Citation function + packets | `m3-classify` | Done | Roles, evaluation modes, `EdgeEvaluationPacket`, classification reports |
-| Cited-paper evidence | `m4-evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, BM25 retrieval, optional local reranker, abstract-only downgrade, parsed-paper cache reuse |
-| Human adjudication set | `m5-adjudicate` | Done | Samples calibration worksheet + JSON from evidence results |
-| LLM adjudication | `m6-llm-judge` | Done | Anthropic via AI SDK, telemetry, agreement reports; default is `claude-opus-4-6` without extended thinking |
+| Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); GROBID for seed full text; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
+| Citation context extraction | `extract` | Done | JATS-first parsing, GROBID-backed PDF parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
+| Citation function + packets | `classify` | Done | Roles, evaluation modes, `EdgeEvaluationPacket`, classification reports |
+| Cited-paper evidence | `evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, BM25 retrieval, optional local reranker, abstract-only downgrade, parsed-paper cache reuse |
+| Human adjudication set | `curate` | Done | Samples calibration worksheet + JSON from evidence results |
+| LLM adjudication | `adjudicate` | Done | Anthropic via AI SDK, telemetry, agreement reports; default is `claude-opus-4-6` without extended thinking |
 | Benchmark workflow | `benchmark:*` | Done | Blind export, keyed diff, candidate summary, and approved-delta apply for adjudication datasets; excluded-only adjudication diffs are ignored |
 
 ## Local UI
@@ -34,7 +34,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Artifact schemas + validated loaders | Done | Stage artifacts are schema-validated on load |
 | Artifact manifests | Done | Primary JSON outputs get adjacent manifest files |
 | OpenAlex + Semantic Scholar adapters | Done | `src/integrations/`; separate PDF vs landing-page URLs and conservative metadata fallback |
-| SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into M2/M4 |
+| SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence` |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
 | UI workspace tests | Partial | Targeted command-builder coverage in `apps/ui/tests`; broader component/E2E coverage not added yet |

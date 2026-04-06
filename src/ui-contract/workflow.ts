@@ -19,6 +19,7 @@ export const stageWorkflowStepStatusValues = [
   "running",
   "completed",
   "failed",
+  "skipped",
 ] as const;
 export const stageWorkflowStepStatusSchema = z.enum(
   stageWorkflowStepStatusValues,
@@ -67,7 +68,7 @@ export const stageProgressEventSchema = z
   .object({
     stage: stageKeySchema,
     step: z.string().min(1),
-    status: z.enum(["running", "completed", "failed"]),
+    status: z.enum(["running", "completed", "failed", "skipped"]),
     detail: z.string().optional(),
     current: z.number().int().nonnegative().optional(),
     total: z.number().int().positive().optional(),
@@ -103,12 +104,12 @@ type StageWorkflowDefinition = {
 
 const workflowDefinitions = [
   {
-    stageKey: "pre-screen",
+    stageKey: "screen",
     title: "Current work",
     pendingSummary: "Family viability has not been evaluated yet.",
     completedSummary: "Family viability and auditability checks are complete.",
     failedSummary:
-      "Pre-screen stopped before family viability could be finalized.",
+      "Screening stopped before family viability could be finalized.",
     steps: [
       {
         id: "resolve_seed_paper",
@@ -138,7 +139,7 @@ const workflowDefinitions = [
         id: "filter_claim_family",
         label: "Filter claim-scoped family",
         description:
-          "Keep citing papers whose title and abstract align with the grounded seed claim; others stay in the report but are excluded from M2+.",
+          "Keep citing papers whose title and abstract align with the grounded seed claim; others stay in the report but are excluded from later stages.",
       },
       {
         id: "assess_auditability",
@@ -155,7 +156,7 @@ const workflowDefinitions = [
     ],
   },
   {
-    stageKey: "m2-extract",
+    stageKey: "extract",
     title: "Current work",
     pendingSummary: "Citation extraction has not started yet.",
     completedSummary:
@@ -196,7 +197,7 @@ const workflowDefinitions = [
     ],
   },
   {
-    stageKey: "m3-classify",
+    stageKey: "classify",
     title: "Current work",
     pendingSummary:
       "Citation roles and evaluation tasks have not been assembled yet.",
@@ -237,7 +238,7 @@ const workflowDefinitions = [
     ],
   },
   {
-    stageKey: "m4-evidence",
+    stageKey: "evidence",
     title: "Current work",
     pendingSummary: "Evidence retrieval has not started yet.",
     completedSummary:
@@ -278,7 +279,7 @@ const workflowDefinitions = [
     ],
   },
   {
-    stageKey: "m5-adjudicate",
+    stageKey: "curate",
     title: "Current work",
     pendingSummary: "Calibration sampling has not started yet.",
     completedSummary:
@@ -319,7 +320,7 @@ const workflowDefinitions = [
     ],
   },
   {
-    stageKey: "m6-llm-judge",
+    stageKey: "adjudicate",
     title: "Current work",
     pendingSummary: "LLM adjudication has not started yet.",
     completedSummary: "Verdicts and rationales have been generated.",
@@ -564,9 +565,9 @@ export function buildStageWorkflowSnapshot(input: {
         current: event.current,
         total: event.total,
         label:
-          input.stageKey === "m6-llm-judge"
+          input.stageKey === "adjudicate"
             ? "records"
-            : input.stageKey === "m2-extract"
+            : input.stageKey === "extract"
               ? "edges"
               : "items",
       };
@@ -576,10 +577,14 @@ export function buildStageWorkflowSnapshot(input: {
 
   if (
     input.stageStatus === "succeeded" &&
-    steps.some((step) => step.status !== "completed")
+    steps.some(
+      (step) => step.status !== "completed" && step.status !== "skipped",
+    )
   ) {
     for (const step of steps) {
-      step.status = "completed";
+      if (step.status !== "skipped") {
+        step.status = "completed";
+      }
     }
   }
 

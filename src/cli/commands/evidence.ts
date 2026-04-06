@@ -8,7 +8,7 @@ import {
   resolvePaperByDoi,
   resolvePaperByMetadata,
 } from "../../integrations/paper-resolver.js";
-import { resolveCitedPaperSource } from "../../pipeline/m4-evidence.js";
+import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import {
   toEvidenceJson,
@@ -32,7 +32,7 @@ function parseArgs(argv: string[]): {
   forceRefresh: boolean;
 } {
   let classificationPath: string | undefined;
-  let output = "data/m4-evidence";
+  let output = "data/evidence";
   let forceRefresh = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): {
 
   if (!classificationPath) {
     console.error(
-      "Usage: m4-evidence --classification <path> [--output <dir>] [--force-refresh]",
+      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -59,13 +59,13 @@ function parseArgs(argv: string[]): {
   return { classificationPath, output, forceRefresh };
 }
 
-export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
+export async function runEvidenceCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
   const database = openDatabase(config.databasePath);
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("m4-evidence");
+    createTrackedCliProgressReporter("evidence");
 
   try {
     runMigrations(database);
@@ -73,10 +73,10 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
     const classification = loadJsonArtifact(
       args.classificationPath,
       familyClassificationResultSchema,
-      "m3 classification results",
+      "classification results",
     );
     const title = classification.resolvedSeedPaperTitle;
-    console.info(`M4 evidence retrieval for: ${title}`);
+    console.info(`Evidence retrieval for: ${title}`);
 
     const adapters = createDefaultAdapters(
       config.providerBaseUrls.grobid,
@@ -181,8 +181,8 @@ export async function runM4EvidenceCommand(argv: string[]): Promise<void> {
     writeFileSync(jsonPath, toEvidenceJson(evidenceResult), "utf8");
     writeFileSync(mdPath, toEvidenceMarkdown(evidenceResult), "utf8");
     const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "m4-evidence-results",
-      generator: "m4-evidence",
+      artifactType: "evidence-results",
+      generator: "evidence",
       sourceArtifacts: [args.classificationPath],
       relatedArtifacts: [mdPath],
     });

@@ -26,7 +26,7 @@ function parseArgs(argv: string[]): {
   let humanPath: string | undefined;
   let model = "claude-opus-4-6";
   let thinking = false;
-  let output = "data/m6-llm-adjudication";
+  let output = "data/adjudication";
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -49,7 +49,7 @@ function parseArgs(argv: string[]): {
 
   if (!calibrationPath) {
     console.error(
-      "Usage: m6-llm-judge --calibration <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
+      "Usage: adjudicate --calibration <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -58,7 +58,7 @@ function parseArgs(argv: string[]): {
   return { calibrationPath, humanPath, model, thinking, output };
 }
 
-export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
+export async function runAdjudicateCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
@@ -72,7 +72,7 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
   }
 
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("m6-llm-judge");
+    createTrackedCliProgressReporter("adjudicate");
 
   try {
     progress.startStep("load_active_records", {
@@ -89,7 +89,7 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
       detail: `${String(activeCount)} active records ready for adjudication`,
     });
     console.info(
-      `M6 LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`,
+      `LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`,
     );
     console.info(
       `  Model: ${args.model}${args.thinking ? " (extended thinking)" : ""}`,
@@ -179,8 +179,8 @@ export async function runM6LlmJudgeCommand(argv: string[]): Promise<void> {
     }
 
     const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "m6-llm-calibration",
-      generator: "m6-llm-judge",
+      artifactType: "llm-calibration",
+      generator: "adjudicate",
       sourceArtifacts: args.humanPath
         ? [args.calibrationPath, args.humanPath]
         : [args.calibrationPath],

@@ -30,36 +30,36 @@ function stage(
 describe("resolveFocusStage", () => {
   it("prefers the running stage", () => {
     const stages = [
-      stage("pre-screen", 1, "succeeded"),
-      stage("m2-extract", 2, "running"),
-      stage("m3-classify", 3, "not_started"),
+      stage("screen", 1, "succeeded"),
+      stage("extract", 2, "running"),
+      stage("classify", 3, "not_started"),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("m2-extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
   });
 
   it("uses the earliest terminal failure in pipeline order", () => {
     const stages = [
-      stage("pre-screen", 1, "succeeded"),
-      stage("m2-extract", 2, "failed"),
-      stage("m3-classify", 3, "not_started"),
+      stage("screen", 1, "succeeded"),
+      stage("extract", 2, "failed"),
+      stage("classify", 3, "not_started"),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("m2-extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
   });
 
   it("uses the last succeeded stage when idle", () => {
     const stages = [
-      stage("pre-screen", 1, "succeeded"),
-      stage("m2-extract", 2, "succeeded"),
-      stage("m3-classify", 3, "not_started"),
+      stage("screen", 1, "succeeded"),
+      stage("extract", 2, "succeeded"),
+      stage("classify", 3, "not_started"),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("m2-extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
   });
 
   it("falls back to the first stage when nothing has started", () => {
     const stages = [
-      stage("pre-screen", 1, "not_started"),
-      stage("m2-extract", 2, "not_started"),
+      stage("screen", 1, "not_started"),
+      stage("extract", 2, "not_started"),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("pre-screen");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("screen");
   });
 });

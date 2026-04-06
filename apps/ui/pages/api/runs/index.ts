@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
   analysisRunConfigSchema,
+  analysisRunConfigObjectSchema,
   stageKeySchema,
 } from "citation-fidelity/ui-contract";
 import { z } from "zod";
@@ -14,8 +15,8 @@ import { allowMethods, handleApiError } from "@/lib/api-route";
 const createRunSchema = z.object({
   seedDoi: z.string().min(1),
   trackedClaim: z.string().min(1),
-  targetStage: stageKeySchema.default("m6-llm-judge"),
-  config: analysisRunConfigSchema.partial().optional(),
+  targetStage: stageKeySchema.default("adjudicate"),
+  config: analysisRunConfigObjectSchema.partial().optional(),
 });
 
 export default async function handler(
@@ -44,9 +45,9 @@ export default async function handler(
       config: analysisRunConfigSchema.parse({
         stopAfterStage: payload.targetStage,
         forceRefresh: false,
-        m5TargetSize: 40,
-        m6Model: "claude-opus-4-6",
-        m6Thinking: false,
+        curateTargetSize: 40,
+        adjudicateModel: "claude-opus-4-6",
+        adjudicateThinking: false,
         ...payload.config,
       }),
     });

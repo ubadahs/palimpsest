@@ -32,22 +32,22 @@ describe("analysis runs repository", () => {
         id: "run-1",
         seedDoi: "10.1234/seed",
         trackedClaim: "Rab35 claim",
-        targetStage: "m6-llm-judge",
+        targetStage: "adjudicate",
         runRoot: join(tempDirectory, "data", "runs", "run-1"),
         config: {
-          stopAfterStage: "m6-llm-judge",
+          stopAfterStage: "adjudicate",
           forceRefresh: false,
-          m5TargetSize: 40,
-          m6Model: "claude-opus-4-6",
-          m6Thinking: false,
+          curateTargetSize: 40,
+          adjudicateModel: "claude-opus-4-6",
+          adjudicateThinking: false,
         },
       });
 
       const stages = listRunStages(database, run.id);
       expect(run.seedDoi).toBe("10.1234/seed");
       expect(stages).toHaveLength(6);
-      expect(stages[0]?.stageKey).toBe("pre-screen");
-      expect(stages[5]?.stageKey).toBe("m6-llm-judge");
+      expect(stages[0]?.stageKey).toBe("screen");
+      expect(stages[5]?.stageKey).toBe("adjudicate");
     } finally {
       database.close();
     }
@@ -62,14 +62,14 @@ describe("analysis runs repository", () => {
         id: "run-2",
         seedDoi: "10.1234/seed",
         trackedClaim: "Rab35 claim",
-        targetStage: "m6-llm-judge",
+        targetStage: "adjudicate",
         runRoot: join(tempDirectory, "data", "runs", "run-2"),
         config: {
-          stopAfterStage: "m6-llm-judge",
+          stopAfterStage: "adjudicate",
           forceRefresh: false,
-          m5TargetSize: 40,
-          m6Model: "claude-opus-4-6",
-          m6Thinking: false,
+          curateTargetSize: 40,
+          adjudicateModel: "claude-opus-4-6",
+          adjudicateThinking: false,
         },
       });
 
@@ -82,23 +82,23 @@ describe("analysis runs repository", () => {
             report_artifact_path = '/tmp/fake.md',
             manifest_path = '/tmp/fake_manifest.json',
             summary_json = '{"headline":"done","metrics":[],"artifacts":[]}'
-        WHERE run_id = 'run-2' AND stage_key IN ('m3-classify', 'm4-evidence')
+        WHERE run_id = 'run-2' AND stage_key IN ('classify', 'evidence')
       `,
         )
         .run();
 
-      markDownstreamStagesStale(database, "run-2", "m2-extract");
+      markDownstreamStagesStale(database, "run-2", "extract");
 
       const stages = listRunStages(database, "run-2");
       expect(
-        stages.find((stage) => stage.stageKey === "m3-classify")?.status,
+        stages.find((stage) => stage.stageKey === "classify")?.status,
       ).toBe("stale");
       expect(
-        stages.find((stage) => stage.stageKey === "m3-classify")
+        stages.find((stage) => stage.stageKey === "classify")
           ?.primaryArtifactPath,
       ).toBeUndefined();
       expect(
-        stages.find((stage) => stage.stageKey === "m4-evidence")?.status,
+        stages.find((stage) => stage.stageKey === "evidence")?.status,
       ).toBe("stale");
     } finally {
       database.close();

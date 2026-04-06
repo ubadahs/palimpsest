@@ -12,7 +12,7 @@ const pendingTail = [
     id: "capture_verdicts_and_rationales",
     label: "Capture verdicts and rationales",
     description:
-      "Persist the model’s outputs into the calibration dataset so each record becomes inspectable in the UI.",
+      "Persist the model's outputs into the calibration dataset so each record becomes inspectable in the UI.",
     status: "pending" as const,
   },
   {
@@ -33,7 +33,7 @@ const pendingTail = [
 
 function buildWorkflow(detail: string, current: number): StageWorkflowSnapshot {
   return {
-    stageKey: "m6-llm-judge",
+    stageKey: "adjudicate",
     title: "Current work",
     summary: "Adjudicating calibration records.",
     source: "telemetry",
@@ -66,7 +66,7 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     primaryArtifactPath: undefined,
     reportArtifactPath: undefined,
     manifestPath: undefined,
-    logPath: "/tmp/run-smoke/m6.log",
+    logPath: "/tmp/run-smoke/adjudicate.log",
     errorMessage: undefined,
     startedAt: new Date().toISOString(),
     finishedAt: undefined,
@@ -77,46 +77,42 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
   const stages = [
     {
       ...stageBase,
-      stageKey: "pre-screen" as const,
+      stageKey: "screen" as const,
       stageOrder: 1,
       status: "succeeded" as const,
-      summary: {
-        headline: "Done",
-        metrics: [],
-        artifacts: [],
-      },
+      summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "m2-extract" as const,
+      stageKey: "extract" as const,
       stageOrder: 2,
       status: "succeeded" as const,
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "m3-classify" as const,
+      stageKey: "classify" as const,
       stageOrder: 3,
       status: "succeeded" as const,
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "m4-evidence" as const,
+      stageKey: "evidence" as const,
       stageOrder: 4,
       status: "succeeded" as const,
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "m5-adjudicate" as const,
+      stageKey: "curate" as const,
       stageOrder: 5,
       status: "succeeded" as const,
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "m6-llm-judge" as const,
+      stageKey: "adjudicate" as const,
       stageOrder: 6,
       status: "running" as const,
       summary: {
@@ -138,16 +134,16 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     id: "run-smoke",
     seedDoi: "10.1234/smoke",
     trackedClaim: "Fixture claim for smoke coverage.",
-    targetStage: "m6-llm-judge",
+    targetStage: "adjudicate",
     status: "running",
-    currentStage: "m6-llm-judge",
+    currentStage: "adjudicate",
     runRoot: "/tmp/run-smoke",
     config: {
-      stopAfterStage: "m6-llm-judge",
+      stopAfterStage: "adjudicate",
       forceRefresh: false,
-      m5TargetSize: 40,
-      m6Model: "claude-opus-4-6",
-      m6Thinking: false,
+      curateTargetSize: 40,
+      adjudicateModel: "claude-opus-4-6",
+      adjudicateThinking: false,
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -180,7 +176,7 @@ describe("Run detail smoke (fixture)", () => {
           return new Response(
             JSON.stringify({
               content:
-                'CF_PROGRESS {"stage":"m6-llm-judge","step":"adjudicate_records","status":"running","detail":"fixture log line"}\nstderr-style line',
+                'CF_PROGRESS {"stage":"adjudicate","step":"adjudicate_records","status":"running","detail":"fixture log line"}\nstderr-style line',
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
@@ -209,7 +205,7 @@ describe("Run detail smoke (fixture)", () => {
     render(<RunDetailClient initialRun={buildRunDetail(workflowV1)} />);
 
     expect(screen.getByText("Stage log")).toBeTruthy();
-    expect(screen.getByText("M6 LLM Judge output")).toBeTruthy();
+    expect(screen.getByText("Adjudicate output")).toBeTruthy();
     expect(screen.getByText("Raw Artifacts")).toBeTruthy();
     expect(screen.getByText("Adjudicating record 1 of 5")).toBeTruthy();
 

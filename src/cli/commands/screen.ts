@@ -117,7 +117,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("pre-screen");
+    createTrackedCliProgressReporter("screen");
 
   try {
     const shortlist = loadJsonArtifact(
@@ -129,7 +129,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
 
     if (!config.anthropicApiKey?.trim()) {
       console.error(
-        "pre-screen requires ANTHROPIC_API_KEY for LLM claim grounding.",
+        "screen requires ANTHROPIC_API_KEY for LLM claim grounding.",
       );
       process.exitCode = 1;
       return;

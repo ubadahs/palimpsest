@@ -26,11 +26,11 @@ describe("stage workflow definitions", () => {
 describe("parseProgressEventLine", () => {
   it("parses valid telemetry lines", () => {
     const event = parseProgressEventLine(
-      `${progressLogPrefix}{"stage":"m2-extract","step":"fetch_and_parse_full_text","status":"running","current":2,"total":6}`,
+      `${progressLogPrefix}{"stage":"extract","step":"fetch_and_parse_full_text","status":"running","current":2,"total":6}`,
     );
 
     expect(event).toMatchObject({
-      stage: "m2-extract",
+      stage: "extract",
       step: "fetch_and_parse_full_text",
       status: "running",
       current: 2,
@@ -41,7 +41,7 @@ describe("parseProgressEventLine", () => {
   it("ignores malformed telemetry lines safely", () => {
     expect(
       parseProgressEventLine(
-        `${progressLogPrefix}{"stage":"m2-extract","step":true}`,
+        `${progressLogPrefix}{"stage":"extract","step":true}`,
       ),
     ).toBeUndefined();
     expect(parseProgressEventLine("plain log line")).toBeUndefined();
@@ -51,11 +51,11 @@ describe("parseProgressEventLine", () => {
 describe("buildStageWorkflowSnapshot", () => {
   it("builds a telemetry-backed running snapshot with counters", () => {
     const snapshot = buildStageWorkflowSnapshot({
-      stageKey: "m6-llm-judge",
+      stageKey: "adjudicate",
       stageStatus: "running",
       logContent: [
-        `${progressLogPrefix}{"stage":"m6-llm-judge","step":"load_active_records","status":"completed","detail":"31 active records ready"}`,
-        `${progressLogPrefix}{"stage":"m6-llm-judge","step":"adjudicate_records","status":"running","detail":"Adjudicating record 6 of 31","current":6,"total":31}`,
+        `${progressLogPrefix}{"stage":"adjudicate","step":"load_active_records","status":"completed","detail":"31 active records ready"}`,
+        `${progressLogPrefix}{"stage":"adjudicate","step":"adjudicate_records","status":"running","detail":"Adjudicating record 6 of 31","current":6,"total":31}`,
       ].join("\n"),
     });
 
@@ -72,12 +72,12 @@ describe("buildStageWorkflowSnapshot", () => {
 
   it("marks a step failed when telemetry reports failure", () => {
     const snapshot = buildStageWorkflowSnapshot({
-      stageKey: "m4-evidence",
+      stageKey: "evidence",
       stageStatus: "failed",
       errorMessage: "Command exited with code 1.",
       logContent: [
-        `${progressLogPrefix}{"stage":"m4-evidence","step":"resolve_cited_paper","status":"completed","detail":"Resolved cited paper"}`,
-        `${progressLogPrefix}{"stage":"m4-evidence","step":"fetch_and_parse_cited_full_text","status":"failed","detail":"Parsing failed"}`,
+        `${progressLogPrefix}{"stage":"evidence","step":"resolve_cited_paper","status":"completed","detail":"Resolved cited paper"}`,
+        `${progressLogPrefix}{"stage":"evidence","step":"fetch_and_parse_cited_full_text","status":"failed","detail":"Parsing failed"}`,
       ].join("\n"),
     });
 
@@ -93,19 +93,19 @@ describe("buildStageWorkflowSnapshot", () => {
 describe("buildFallbackStageWorkflowSnapshot", () => {
   it("infers honest fallback states for old runs without telemetry", () => {
     const pending = buildFallbackStageWorkflowSnapshot({
-      stageKey: "pre-screen",
+      stageKey: "screen",
       stageStatus: "not_started",
     });
     const running = buildFallbackStageWorkflowSnapshot({
-      stageKey: "pre-screen",
+      stageKey: "screen",
       stageStatus: "running",
     });
     const succeeded = buildFallbackStageWorkflowSnapshot({
-      stageKey: "pre-screen",
+      stageKey: "screen",
       stageStatus: "succeeded",
     });
     const failed = buildFallbackStageWorkflowSnapshot({
-      stageKey: "pre-screen",
+      stageKey: "screen",
       stageStatus: "interrupted",
       errorMessage: "Interrupted during startup reconciliation.",
     });

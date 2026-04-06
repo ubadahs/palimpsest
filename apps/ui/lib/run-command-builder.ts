@@ -36,11 +36,11 @@ export function buildStageCommand(
   const config = run.config;
   const outputDirectory = getStageDirectory(run.id, stageKey);
 
-  if (stageKey === "pre-screen") {
+  if (stageKey === "screen") {
     return {
       command: getStageDefinition(stageKey).command,
       args: [
-        "pre-screen",
+        "screen",
         "--input",
         getShortlistPath(run.id),
         "--output",
@@ -51,13 +51,13 @@ export function buildStageCommand(
     };
   }
 
-  if (stageKey === "m2-extract") {
+  if (stageKey === "extract") {
     return {
-      command: "m2-extract",
+      command: "extract",
       args: [
-        "m2-extract",
+        "extract",
         "--pre-screen",
-        getStageArtifactPath(stages, "pre-screen"),
+        getStageArtifactPath(stages, "screen"),
         "--seed-doi",
         run.seedDoi,
         "--output",
@@ -65,74 +65,74 @@ export function buildStageCommand(
         ...(config.forceRefresh ? ["--force-refresh"] : []),
       ],
       outputDirectory,
-      inputArtifactPath: getStageArtifactPath(stages, "pre-screen"),
+      inputArtifactPath: getStageArtifactPath(stages, "screen"),
     };
   }
 
-  if (stageKey === "m3-classify") {
+  if (stageKey === "classify") {
     return {
-      command: "m3-classify",
+      command: "classify",
       args: [
-        "m3-classify",
+        "classify",
         "--extraction",
-        getStageArtifactPath(stages, "m2-extract"),
+        getStageArtifactPath(stages, "extract"),
         "--pre-screen",
-        getStageArtifactPath(stages, "pre-screen"),
+        getStageArtifactPath(stages, "screen"),
         "--output",
         outputDirectory,
       ],
       outputDirectory,
-      inputArtifactPath: getStageArtifactPath(stages, "m2-extract"),
+      inputArtifactPath: getStageArtifactPath(stages, "extract"),
     };
   }
 
-  if (stageKey === "m4-evidence") {
+  if (stageKey === "evidence") {
     return {
-      command: "m4-evidence",
+      command: "evidence",
       args: [
-        "m4-evidence",
+        "evidence",
         "--classification",
-        getStageArtifactPath(stages, "m3-classify"),
+        getStageArtifactPath(stages, "classify"),
         "--output",
         outputDirectory,
         ...(config.forceRefresh ? ["--force-refresh"] : []),
       ],
       outputDirectory,
-      inputArtifactPath: getStageArtifactPath(stages, "m3-classify"),
+      inputArtifactPath: getStageArtifactPath(stages, "classify"),
     };
   }
 
-  if (stageKey === "m5-adjudicate") {
+  if (stageKey === "curate") {
     return {
-      command: "m5-adjudicate",
+      command: "curate",
       args: [
-        "m5-adjudicate",
+        "curate",
         "--evidence",
-        getStageArtifactPath(stages, "m4-evidence"),
+        getStageArtifactPath(stages, "evidence"),
         "--target-size",
-        String(config.m5TargetSize),
+        String(config.curateTargetSize),
         "--output",
         outputDirectory,
       ],
       outputDirectory,
-      inputArtifactPath: getStageArtifactPath(stages, "m4-evidence"),
+      inputArtifactPath: getStageArtifactPath(stages, "evidence"),
     };
   }
 
   return {
-    command: "m6-llm-judge",
+    command: "adjudicate",
     args: [
-      "m6-llm-judge",
+      "adjudicate",
       "--calibration",
-      getStageArtifactPath(stages, "m5-adjudicate"),
+      getStageArtifactPath(stages, "curate"),
       "--model",
-      config.m6Model,
-      ...(config.m6Thinking ? ["--thinking"] : []),
+      config.adjudicateModel,
+      ...(config.adjudicateThinking ? ["--thinking"] : []),
       "--output",
       outputDirectory,
     ],
     outputDirectory,
-    inputArtifactPath: getStageArtifactPath(stages, "m5-adjudicate"),
+    inputArtifactPath: getStageArtifactPath(stages, "curate"),
   };
 }
 

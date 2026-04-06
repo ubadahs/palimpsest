@@ -29,7 +29,7 @@ function parseArgs(argv: string[]): {
   let extractionPath: string | undefined;
   let preScreenPath: string | undefined;
   let studyMode: StudyMode = "all_functions_census";
-  let output = "data/m3-classification";
+  let output = "data/classification";
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): {
 
   if (!extractionPath || !preScreenPath) {
     console.error(
-      "Usage: m3-classify --extraction <path> --pre-screen <path> [--study-mode <mode>] [--output <dir>]",
+      "Usage: classify --extraction <path> --pre-screen <path> [--study-mode <mode>] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -59,10 +59,10 @@ function parseArgs(argv: string[]): {
   return { extractionPath, preScreenPath, studyMode, output };
 }
 
-export function runM3ClassifyCommand(argv: string[]): void {
+export function runClassifyCommand(argv: string[]): void {
   const args = parseArgs(argv);
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("m3-classify");
+    createTrackedCliProgressReporter("classify");
 
   try {
     progress.startStep("load_extracted_mentions", {
@@ -71,7 +71,7 @@ export function runM3ClassifyCommand(argv: string[]): void {
     const extraction = loadJsonArtifact(
       args.extractionPath,
       familyExtractionResultSchema,
-      "m2 extraction results",
+      "extraction results",
     );
 
     const preScreenFamilies = loadJsonArtifact(
@@ -97,7 +97,7 @@ export function runM3ClassifyCommand(argv: string[]): void {
     }
 
     const title = extraction.resolvedSeedPaper?.title ?? extraction.seed.doi;
-    console.info(`M3 classification for: ${title}`);
+    console.info(`Classification for: ${title}`);
     console.info(`  Study mode: ${args.studyMode}`);
 
     progress.startStep("classify_citation_roles", {
@@ -141,8 +141,8 @@ export function runM3ClassifyCommand(argv: string[]): void {
     writeFileSync(jsonPath, toClassificationJson(result), "utf8");
     writeFileSync(mdPath, toClassificationMarkdown(result), "utf8");
     const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "m3-classification-results",
-      generator: "m3-classify",
+      artifactType: "classification-results",
+      generator: "classify",
       sourceArtifacts: [args.extractionPath, args.preScreenPath],
       relatedArtifacts: [mdPath],
     });

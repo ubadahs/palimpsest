@@ -4,7 +4,7 @@ import type {
   ClaimFamilyPreScreen,
   ResolvedPaper,
 } from "../../src/domain/types.js";
-import { runM2Extraction } from "../../src/pipeline/m2-extract.js";
+import { runM2Extraction } from "../../src/pipeline/extract.js";
 import type { ExtractionAdapters } from "../../src/retrieval/citation-context.js";
 
 const GROBID_TEI = `<?xml version="1.0" encoding="UTF-8"?>

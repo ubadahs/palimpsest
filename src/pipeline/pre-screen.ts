@@ -60,7 +60,7 @@ export type PreScreenProgressEvent = {
     | "filter_claim_family"
     | "assess_auditability"
     | "summarize_family_viability";
-  status: "running" | "completed";
+  status: "running" | "completed" | "skipped";
   detail?: string;
   current?: number;
   total?: number;
@@ -468,6 +468,46 @@ async function processOneSeed(
     status: "completed",
     detail: claimGrounding.detailReason,
   });
+
+  // Early exit: if the claim cannot be grounded, skip the remaining steps
+  // and deprioritize immediately — no point hitting OpenAlex or assessing edges.
+  if (claimGroundingBlocksAnalysis(claimGrounding)) {
+    const skipReason = "Skipped — claim not grounded in seed paper.";
+    const skippedSteps = [
+      "gather_citing_papers",
+      "collapse_duplicates",
+      "assess_auditability",
+      "filter_claim_family",
+      "summarize_family_viability",
+    ] as const;
+    for (const step of skippedSteps) {
+      onProgress?.({ step, status: "skipped", detail: skipReason });
+    }
+
+    const { decision, reason } = makeDecision(
+      emptyMetrics,
+      true,
+      options,
+      claimGrounding,
+    );
+    return {
+      family: {
+        seed,
+        resolvedSeedPaper: seedPaper,
+        edges: [],
+        resolvedPapers: { [seedPaper.id]: seedPaper },
+        duplicateGroups: [],
+        metrics: emptyMetrics,
+        neighborhoodMetrics: emptyMetrics,
+        claimGrounding,
+        familyUseProfile: [],
+        m2Priority: "not_now",
+        decision,
+        decisionReason: reason,
+      },
+      traceRecord,
+    };
+  }
 
   onProgress?.({
     step: "gather_citing_papers",
