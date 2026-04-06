@@ -74,6 +74,7 @@ function taskToRecord(
   task: TaskWithEvidence,
   citingPaperTitle: string,
   citedPaperTitle: string,
+  groundedSeedClaimText: string | undefined,
 ): AdjudicationRecord {
   const bestMention = task.mentions[0];
 
@@ -86,6 +87,7 @@ function taskToRecord(
 
     citingPaperTitle,
     citedPaperTitle,
+    groundedSeedClaimText,
 
     citingSpan: bestMention?.rawContext ?? "",
     citingSpanSection: bestMention?.sectionTitle,
@@ -161,7 +163,12 @@ export function sampleCalibrationSet(
 
       selectedIds.add(st.task.taskId);
       records.push(
-        taskToRecord(st.task, st.citingPaperTitle, st.citedPaperTitle),
+        taskToRecord(
+          st.task,
+          st.citingPaperTitle,
+          st.citedPaperTitle,
+          evidence.groundedSeedClaimText,
+        ),
       );
       if (st.oversampled.length > 0) oversampled.push(...st.oversampled);
       taken++;
@@ -177,7 +184,12 @@ export function sampleCalibrationSet(
       if (records.length >= totalTarget) break;
       selectedIds.add(st.task.taskId);
       records.push(
-        taskToRecord(st.task, st.citingPaperTitle, st.citedPaperTitle),
+        taskToRecord(
+          st.task,
+          st.citingPaperTitle,
+          st.citedPaperTitle,
+          evidence.groundedSeedClaimText,
+        ),
       );
       if (st.oversampled.length > 0) oversampled.push(...st.oversampled);
     }

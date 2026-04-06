@@ -29,6 +29,8 @@ const sampleResult: ClaimFamilyPreScreen = {
     {
       citingPaperId: "citing-1",
       citedPaperId: "seed-id",
+      inClaimFamily: true,
+      claimRelevanceScore: 1,
       auditabilityStatus: "auditable_structured",
       auditabilityReason: "Structured full text from biorxiv_xml",
       classification: {
@@ -47,6 +49,8 @@ const sampleResult: ClaimFamilyPreScreen = {
     {
       citingPaperId: "citing-2",
       citedPaperId: "seed-id",
+      inClaimFamily: true,
+      claimRelevanceScore: 0.5,
       auditabilityStatus: "not_auditable",
       auditabilityReason: "No open-access URL available",
       classification: {
@@ -80,9 +84,9 @@ const sampleResult: ClaimFamilyPreScreen = {
     "citing-1": {
       id: "citing-1",
       doi: "10.1234/c1",
-      title: "Citing Paper One",
+      title: "Citing Paper One Gene X protein Y",
       authors: ["Bob"],
-      abstract: undefined,
+      abstract: "Gene X increases protein Y in cells.",
       source: "openalex",
       openAccessUrl: "https://example.com/c1",
       fullTextStatus: { status: "available", source: "biorxiv_xml" },
@@ -93,9 +97,9 @@ const sampleResult: ClaimFamilyPreScreen = {
     "citing-2": {
       id: "citing-2",
       doi: "10.1234/c2",
-      title: "Citing Paper Two",
+      title: "Citing Paper Two Gene X",
       authors: ["Carol"],
-      abstract: undefined,
+      abstract: "Gene X and protein Y signaling.",
       source: "openalex",
       openAccessUrl: undefined,
       fullTextStatus: { status: "unavailable", reason: "No OA" },
@@ -129,6 +133,45 @@ const sampleResult: ClaimFamilyPreScreen = {
     preprintEdgeCount: 0,
     preprintEdgeRate: 0,
   },
+  neighborhoodMetrics: {
+    totalEdges: 2,
+    uniqueEdges: 2,
+    collapsedDuplicates: 0,
+    auditableStructuredEdges: 1,
+    auditablePdfEdges: 0,
+    partiallyAuditableEdges: 0,
+    notAuditableEdges: 1,
+    auditableCoverage: 0.5,
+    primaryLikeEdgeCount: 2,
+    primaryLikeEdgeRate: 1,
+    reviewEdgeCount: 0,
+    reviewEdgeRate: 0,
+    commentaryEdgeCount: 0,
+    commentaryEdgeRate: 0,
+    letterEdgeCount: 0,
+    letterEdgeRate: 0,
+    bookChapterEdgeCount: 0,
+    bookChapterEdgeRate: 0,
+    articleEdgeCount: 2,
+    articleEdgeRate: 1,
+    preprintEdgeCount: 0,
+    preprintEdgeRate: 0,
+  },
+  claimGrounding: {
+    status: "grounded",
+    analystClaim: "Gene X increases protein Y",
+    normalizedClaim: "Gene X increases protein Y",
+    supportSpans: [
+      {
+        text: "Gene X increases protein Y in the assay.",
+        sectionTitle: "Results",
+        blockKind: "body_paragraph",
+        bm25Score: 2.1,
+      },
+    ],
+    blocksDownstream: false,
+    detailReason: "Claim grounded in one seed passage(s).",
+  },
   familyUseProfile: ["primary_empirical_heavy"],
   m2Priority: "not_now",
   decision: "deprioritize",
@@ -156,6 +199,9 @@ describe("toPreScreenMarkdown", () => {
     expect(md).toContain("## Summary");
     expect(md).toContain("Seed Paper Title");
     expect(md).toContain("Gene X increases protein Y");
+    expect(md).toContain("Claim grounding (LLM):");
+    expect(md).toContain("Neighborhood auditability");
+    expect(md).toContain("Claim-scoped auditability");
     expect(md).toContain("DEPRIORITIZE");
     expect(md).toContain("Citing Paper One");
     expect(md).toContain("auditable");
@@ -193,6 +239,8 @@ describe("toPreScreenMarkdown", () => {
     expect(md).toContain("Primary-like");
     expect(md).toContain("Profile");
     expect(md).toContain("M2");
+    expect(md).toContain("Grounding");
+    expect(md).toContain("Claim edges");
   });
 
   it("includes dedup metrics in per-seed section", () => {
@@ -205,5 +253,13 @@ describe("toPreScreenMarkdown", () => {
     const md = toPreScreenMarkdown([sampleResult]);
     expect(md).toContain("Tags");
     expect(md).toContain("primary");
+  });
+
+  it("mentions the grounding trace sidecar when a basename is provided", () => {
+    const md = toPreScreenMarkdown([sampleResult], {
+      groundingTraceFileName: "2026-04-05_001_pre-screen-grounding-trace.json",
+    });
+    expect(md).toContain("LLM grounding trace");
+    expect(md).toContain("2026-04-05_001_pre-screen-grounding-trace.json");
   });
 });

@@ -117,37 +117,61 @@ function makeFamily(
     });
   }
 
+  const metrics = {
+    totalEdges: auditableCount + notAuditableCount,
+    uniqueEdges: auditableCount + notAuditableCount,
+    collapsedDuplicates: 0,
+    auditableStructuredEdges: auditableCount,
+    auditablePdfEdges: 0,
+    partiallyAuditableEdges: 0,
+    notAuditableEdges: notAuditableCount,
+    auditableCoverage:
+      auditableCount / (auditableCount + notAuditableCount || 1),
+    primaryLikeEdgeCount: auditableCount + notAuditableCount,
+    primaryLikeEdgeRate: 1,
+    reviewEdgeCount: 0,
+    reviewEdgeRate: 0,
+    commentaryEdgeCount: 0,
+    commentaryEdgeRate: 0,
+    letterEdgeCount: 0,
+    letterEdgeRate: 0,
+    bookChapterEdgeCount: 0,
+    bookChapterEdgeRate: 0,
+    articleEdgeCount: auditableCount + notAuditableCount,
+    articleEdgeRate: 1,
+    preprintEdgeCount: 0,
+    preprintEdgeRate: 0,
+  };
+
+  const claimGrounding = {
+    status: "grounded" as const,
+    analystClaim: "Test claim",
+    normalizedClaim: "Test claim",
+    supportSpans: [
+      {
+        text: "Test claim is supported in results.",
+        sectionTitle: "Results",
+        blockKind: "body_paragraph" as const,
+        bm25Score: 2.5,
+      },
+    ],
+    blocksDownstream: false,
+    detailReason: "Fixture grounding.",
+  };
+
   return {
     seed: { doi: "10.1234/seed", trackedClaim: "Test claim" },
     resolvedSeedPaper: seedPaper,
-    edges,
+    edges: edges.map((e) => ({
+      ...e,
+      inClaimFamily: true,
+      claimRelevanceScore: 1,
+    })),
     resolvedPapers,
     duplicateGroups: [],
-    metrics: {
-      totalEdges: auditableCount + notAuditableCount,
-      uniqueEdges: auditableCount + notAuditableCount,
-      collapsedDuplicates: 0,
-      auditableStructuredEdges: auditableCount,
-      auditablePdfEdges: 0,
-      partiallyAuditableEdges: 0,
-      notAuditableEdges: notAuditableCount,
-      auditableCoverage:
-        auditableCount / (auditableCount + notAuditableCount || 1),
-      primaryLikeEdgeCount: auditableCount + notAuditableCount,
-      primaryLikeEdgeRate: 1,
-      reviewEdgeCount: 0,
-      reviewEdgeRate: 0,
-      commentaryEdgeCount: 0,
-      commentaryEdgeRate: 0,
-      letterEdgeCount: 0,
-      letterEdgeRate: 0,
-      bookChapterEdgeCount: 0,
-      bookChapterEdgeRate: 0,
-      articleEdgeCount: auditableCount + notAuditableCount,
-      articleEdgeRate: 1,
-      preprintEdgeCount: 0,
-      preprintEdgeRate: 0,
-    },
+    metrics,
+    neighborhoodMetrics: metrics,
+    claimGrounding,
     familyUseProfile: [],
     m2Priority: "first",
     decision: "greenlight",
@@ -175,6 +199,7 @@ describe("runM2Extraction", () => {
     const family = makeFamily(1, 2);
     const result = await runM2Extraction(family, makeTestAdapters());
 
+    expect(result.groundedSeedClaimText).toBe("Test claim");
     expect(result.summary.totalEdges).toBe(3);
     expect(result.summary.attemptedEdges).toBe(1);
 

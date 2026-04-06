@@ -192,6 +192,7 @@ export function buildPackets(
     seed: extraction.seed,
     resolvedSeedPaperTitle: seedPaper?.title ?? extraction.seed.doi,
     studyMode,
+    groundedSeedClaimText: extraction.groundedSeedClaimText,
     packets,
     summary,
   };

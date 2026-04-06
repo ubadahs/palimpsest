@@ -72,6 +72,8 @@ export const adjudicationRecordSchema = z
     modifiers: transmissionModifiersSchema,
     citingPaperTitle: z.string().min(1),
     citedPaperTitle: z.string().min(1),
+    /** Seed claim anchored in the cited (seed) paper during pre-screen. */
+    groundedSeedClaimText: undefinedable(z.string().min(1)),
     citingSpan: z.string(),
     citingSpanSection: undefinedable(z.string()),
     citingMarker: z.string(),

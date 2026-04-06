@@ -17,7 +17,7 @@ function printHelp(): void {
 Available commands:
   doctor        Print resolved configuration and taxonomy summary
   db:migrate    Apply pending SQLite migrations
-  pre-screen    Pre-screen candidate claim families for auditability
+  pre-screen    Pre-screen claim families (LLM full-doc claim grounding + trace sidecar; needs ANTHROPIC_API_KEY)
   m2-extract    Extract citation contexts for a single claim family
   m3-classify   Classify citation functions and build edge evaluation packets
   m4-evidence   Retrieve evidence from cited paper for evaluation tasks

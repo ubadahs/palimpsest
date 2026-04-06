@@ -14,7 +14,7 @@ The CLI writes JSON artifacts as the canonical machine outputs for each stage. T
 
 Each command writes a primary JSON artifact plus one or more human-readable companions:
 
-- `pre-screen` → `*_pre-screen-results.json` + Markdown report
+- `pre-screen` → `*_pre-screen-results.json` + Markdown report + `*_pre-screen-grounding-trace.json` sidecar. Primary JSON includes compact `claimGrounding` (authoritative for gating/M2), `neighborhoodMetrics`, and per-edge `inClaimFamily` / `claimRelevanceScore`. The trace file holds exact LLM prompt, raw response text, parsed JSON, quote verification, and token/cost metadata per seed. Requires `ANTHROPIC_API_KEY`, SQLite paper cache, and GROBID (or equivalent) for seed full text. Older runs may lack the trace file; loaders should tolerate its absence.
 - `m2-extract` → `*_m2-extraction-results.json` + report + inspection artifact
 - `m3-classify` → `*_classification-results.json` + report
 - `m4-evidence` → `*_evidence-results.json` + report

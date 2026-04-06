@@ -13,8 +13,11 @@ npm run dev -- db:migrate
 Run a stage from the repo root (example):
 
 ```bash
+# Requires ANTHROPIC_API_KEY in the environment for LLM claim grounding.
 npm run dev -- pre-screen --input path/to/shortlist.json
 ```
+
+Pre-screen writes `*_pre-screen-results.json`, a Markdown report, and `*_pre-screen-grounding-trace.json` (full LLM prompt/response audit trail). See [docs/artifact-workflow.md](docs/artifact-workflow.md).
 
 **Local UI:** see [docs/ui-setup.md](docs/ui-setup.md) (`npm run ui:dev`).
 
