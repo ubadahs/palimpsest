@@ -8,6 +8,8 @@ import type {
   LLMCallTelemetry,
   RunTelemetry,
 } from "../domain/types.js";
+import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
+import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
 const verdictSchema = z.object({
   verdict: z.enum([
@@ -40,6 +42,10 @@ function buildPrompt(record: AdjudicationRecord): string {
   const modifierStr =
     modifiers.length > 0 ? `\nModifiers: ${modifiers.join(", ")}` : "";
 
+  const seedClaimBlock = record.groundedSeedClaimText
+    ? `\nTracked seed claim (grounded in the cited/seed paper during pre-screen): "${record.groundedSeedClaimText}"\nUse this as the analyst's anchor for what the citation family is about, while still judging the citing span on its own terms.\n`
+    : "";
+
   return `You are a citation fidelity adjudicator for a metascience project.
 
 Your task: determine whether a citing paper's use of a cited paper is faithful to what the cited paper actually says.
@@ -50,6 +56,7 @@ Citation role: ${record.citationRole}
 Evaluation mode: ${record.evaluationMode}${modifierStr}
 Citing paper: "${record.citingPaperTitle}"
 Cited paper: "${record.citedPaperTitle}"
+${seedClaimBlock}
 
 ## Rubric question
 
@@ -89,35 +96,6 @@ export type AdjudicatorOptions = {
   useExtendedThinking?: boolean;
 };
 
-// --- Pricing per million tokens (approximate, Anthropic 2025) ---
-
-const PRICING: Record<string, { input: number; output: number }> = {
-  "claude-opus-4-6": { input: 5, output: 25 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-opus-4-20250514": { input: 15, output: 75 },
-  "claude-sonnet-4-20250514": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 1, output: 5 },
-};
-
-function estimateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
-  const price = PRICING[model] ?? { input: 3, output: 15 };
-  return (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
-}
-
-function extractJson(text: string): string {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced?.[1]) return fenced[1].trim();
-
-  const braced = text.match(/\{[\s\S]*\}/);
-  if (braced?.[0]) return braced[0];
-
-  return text;
-}
-
 async function callLLMWithThinking(
   record: AdjudicationRecord,
   _options: AdjudicatorOptions,
@@ -154,7 +132,9 @@ Respond with a JSON object (no markdown fencing needed) with exactly these field
   });
 
   const latencyMs = Date.now() - startMs;
-  const parsed = verdictSchema.parse(JSON.parse(extractJson(result.text)));
+  const parsed = verdictSchema.parse(
+    JSON.parse(extractJsonFromModelText(result.text)),
+  );
 
   const telemetry: LLMCallTelemetry = {
     model: modelId,
@@ -256,7 +236,7 @@ function buildRunTelemetry(
     totalLatencyMs: totalLatency,
     averageLatencyMs:
       calls.length > 0 ? Math.round(totalLatency / calls.length) : 0,
-    estimatedCostUsd: estimateCost(model, totalInput, totalOutput),
+    estimatedCostUsd: estimateAnthropicUsd(model, totalInput, totalOutput),
     calls,
   };
 }

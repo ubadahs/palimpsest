@@ -128,6 +128,7 @@ export const familyEvidenceResultSchema = z
     seed: seedPaperInputSchema,
     resolvedSeedPaperTitle: z.string().min(1),
     studyMode: studyModeSchema,
+    groundedSeedClaimText: undefinedable(z.string().min(1)),
     citedPaperFullTextAvailable: z.boolean(),
     citedPaperSource: citedPaperSourceSchema,
     edges: z.array(edgeWithEvidenceSchema),

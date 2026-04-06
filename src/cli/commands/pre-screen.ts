@@ -1,29 +1,37 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
+import type { CachePolicy } from "../../domain/types.js";
 import { shortlistInputSchema } from "../../domain/types.js";
 import * as openalex from "../../integrations/openalex.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
+import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
+import { openDatabase } from "../../storage/database.js";
+import { runMigrations } from "../../storage/migration-service.js";
 import {
   runPreScreen,
   type PreScreenAdapters,
 } from "../../pipeline/pre-screen.js";
-import {
-  toPreScreenJson,
-  toPreScreenMarkdown,
-} from "../../reporting/pre-screen-report.js";
+import { toPreScreenMarkdown } from "../../reporting/pre-screen-report.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
+  writeJsonArtifact,
 } from "../../shared/artifact-io.js";
 import { nextRunStamp } from "../run-stamp.js";
 
-function parseArgs(argv: string[]): { input: string; output: string } {
+function parseArgs(argv: string[]): {
+  input: string;
+  output: string;
+  llmGroundingModel: string | undefined;
+} {
   let input: string | undefined;
   let output = "data/pre-screen";
+  let llmGroundingModel: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -32,6 +40,9 @@ function parseArgs(argv: string[]): { input: string; output: string } {
       i++;
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
+      i++;
+    } else if (arg === "--llm-grounding-model" && i + 1 < argv.length) {
+      llmGroundingModel = argv[i + 1]!;
       i++;
     }
   }
@@ -42,14 +53,31 @@ function parseArgs(argv: string[]): { input: string; output: string } {
     throw new Error("Missing --input");
   }
 
-  return { input, output };
+  return {
+    input,
+    output,
+    llmGroundingModel,
+  };
 }
 
-function buildAdapters(config: {
-  baseUrls: { openAlex: string; semanticScholar: string };
-  openAlexEmail: string | undefined;
-  semanticScholarApiKey: string | undefined;
-}): PreScreenAdapters {
+function buildAdapters(
+  config: {
+    baseUrls: {
+      openAlex: string;
+      semanticScholar: string;
+      bioRxiv: string;
+      grobid: string;
+    };
+    openAlexEmail: string | undefined;
+    semanticScholarApiKey: string | undefined;
+  },
+  database: ReturnType<typeof openDatabase>,
+  cachePolicy: CachePolicy,
+): PreScreenAdapters {
+  const fullTextAdapters = createDefaultAdapters(
+    config.baseUrls.grobid,
+    config.openAlexEmail,
+  );
   return {
     resolveByDoi: (doi) =>
       resolvePaperByDoi(doi, {
@@ -72,6 +100,15 @@ function buildAdapters(config: {
         config.baseUrls.openAlex,
         config.openAlexEmail,
       ),
+    seedClaimGrounding: {
+      materializeSeedPaper: (paper) =>
+        materializeParsedPaper(
+          paper,
+          config.baseUrls.bioRxiv,
+          fullTextAdapters,
+          { db: database, cachePolicy },
+        ),
+    },
   };
 }
 
@@ -90,60 +127,129 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
     );
     console.info(`Processing ${String(shortlist.seeds.length)} seed(s)...`);
 
-    const adapters = buildAdapters({
-      baseUrls: config.providerBaseUrls,
-      openAlexEmail: config.openAlexEmail,
-      semanticScholarApiKey: config.semanticScholarApiKey,
-    });
-    const results = await runPreScreen(
-      shortlist.seeds,
-      adapters,
-      {},
-      (event) => {
-        if (event.status === "running") {
-          progress.startStep(event.step, {
-            detail: event.detail,
-            ...(event.current != null && event.total != null
-              ? { current: event.current, total: event.total }
+    if (!config.anthropicApiKey?.trim()) {
+      console.error(
+        "pre-screen requires ANTHROPIC_API_KEY for LLM claim grounding.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const database = openDatabase(config.databasePath);
+    try {
+      runMigrations(database);
+      const adapters = buildAdapters(
+        {
+          baseUrls: config.providerBaseUrls,
+          openAlexEmail: config.openAlexEmail,
+          semanticScholarApiKey: config.semanticScholarApiKey,
+        },
+        database,
+        "prefer_cache",
+      );
+
+      const { families, groundingTrace } = await runPreScreen(
+        shortlist.seeds,
+        adapters,
+        {
+          llmGrounding: {
+            anthropicApiKey: config.anthropicApiKey,
+            ...(args.llmGroundingModel != null
+              ? { model: args.llmGroundingModel }
               : {}),
-          });
-        } else {
-          progress.completeStep(event.step, {
-            detail: event.detail,
-            ...(event.current != null && event.total != null
-              ? { current: event.current, total: event.total }
-              : {}),
-          });
+          },
+        },
+        (event) => {
+          if (event.status === "running") {
+            progress.startStep(event.step, {
+              detail: event.detail,
+              ...(event.current != null && event.total != null
+                ? { current: event.current, total: event.total }
+                : {}),
+            });
+          } else {
+            progress.completeStep(event.step, {
+              detail: event.detail,
+              ...(event.current != null && event.total != null
+                ? { current: event.current, total: event.total }
+                : {}),
+            });
+          }
+        },
+      );
+
+      const outputDir = resolve(process.cwd(), args.output);
+      mkdirSync(outputDir, { recursive: true });
+
+      const stamp = nextRunStamp(outputDir);
+      const jsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
+      const mdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
+      const tracePath = resolve(
+        outputDir,
+        `${stamp}_pre-screen-grounding-trace.json`,
+      );
+
+      writeJsonArtifact(jsonPath, families);
+      writeJsonArtifact(tracePath, groundingTrace);
+
+      const traceBasename = basename(tracePath);
+      writeFileSync(
+        mdPath,
+        toPreScreenMarkdown(families, {
+          groundingTraceFileName: traceBasename,
+        }),
+        "utf8",
+      );
+
+      const manifestPath = writeArtifactManifest(jsonPath, {
+        artifactType: "pre-screen-results",
+        generator: "pre-screen",
+        sourceArtifacts: [args.input],
+        relatedArtifacts: [mdPath, tracePath],
+      });
+
+      const traceManifestPath = writeArtifactManifest(tracePath, {
+        artifactType: "pre-screen-grounding-trace",
+        generator: "pre-screen",
+        sourceArtifacts: [args.input, jsonPath],
+        relatedArtifacts: [jsonPath, mdPath],
+      });
+
+      console.info(`\nResults written to:`);
+      console.info(`  JSON: ${jsonPath}`);
+      console.info(`  Markdown: ${mdPath}`);
+      console.info(`  Grounding trace: ${tracePath}`);
+      console.info(`  Manifest: ${manifestPath}`);
+      console.info(`  Trace manifest: ${traceManifestPath}`);
+
+      const greenlit = families.filter((r) => r.decision === "greenlight");
+      const deprioritized = families.filter(
+        (r) => r.decision === "deprioritize",
+      );
+      console.info(
+        `\n${String(greenlit.length)} greenlit, ${String(deprioritized.length)} deprioritized`,
+      );
+
+      let totalInput = 0;
+      let totalOutput = 0;
+      let totalUsd = 0;
+      for (const rec of Object.values(groundingTrace.recordsBySeedDoi)) {
+        const c = rec.llmCall;
+        if (!c) {
+          continue;
         }
-      },
-    );
-
-    const outputDir = resolve(process.cwd(), args.output);
-    mkdirSync(outputDir, { recursive: true });
-
-    const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
-    const mdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
-
-    writeFileSync(jsonPath, toPreScreenJson(results), "utf8");
-    writeFileSync(mdPath, toPreScreenMarkdown(results), "utf8");
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "pre-screen-results",
-      generator: "pre-screen",
-      sourceArtifacts: [args.input],
-      relatedArtifacts: [mdPath],
-    });
-
-    console.info(`\nResults written to:`);
-    console.info(`  JSON: ${jsonPath}`);
-    console.info(`  Markdown: ${mdPath}`);
-    console.info(`  Manifest: ${manifestPath}`);
-
-    const greenlit = results.filter((r) => r.decision === "greenlight");
-    const deprioritized = results.filter((r) => r.decision === "deprioritize");
-    console.info(
-      `\n${String(greenlit.length)} greenlit, ${String(deprioritized.length)} deprioritized`,
-    );
+        totalInput += c.inputTokens ?? 0;
+        totalOutput += c.outputTokens ?? 0;
+        totalUsd += c.estimatedCostUsd ?? 0;
+      }
+      if (totalInput > 0 || totalOutput > 0) {
+        console.info(
+          `\nLLM grounding (this run): ~${totalInput.toLocaleString()} input + ~${totalOutput.toLocaleString()} output tokens; est. $${totalUsd.toFixed(4)} USD (list-price heuristic; per-seed detail in trace artifact).`,
+        );
+      }
+    } finally {
+      database.close();
+    }
   } catch (error) {
     reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));

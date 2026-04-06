@@ -1,9 +1,13 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type Database from "better-sqlite3";
 
-import { shortlistInputSchema } from "../domain/pre-screen.js";
+import {
+  claimFamilyBlocksDownstream,
+  preScreenResultsSchema,
+  shortlistInputSchema,
+} from "../domain/pre-screen.js";
 import {
   analysisRunConfigSchema,
   analysisRunSchema,
@@ -167,7 +171,9 @@ export function createAnalysisRun(
 
 export function listAnalysisRuns(database: Database.Database): AnalysisRun[] {
   const rows = database
-    .prepare("SELECT * FROM analysis_runs ORDER BY updated_at DESC, created_at DESC")
+    .prepare(
+      "SELECT * FROM analysis_runs ORDER BY updated_at DESC, created_at DESC",
+    )
     .all() as RunRow[];
 
   return rows.map(toRun);
@@ -328,11 +334,25 @@ export function markDownstreamStagesStale(
       WHERE run_id = ? AND stage_order > ?
     `,
     )
-    .run(order, order, order, order, order, order, order, order, order, runId, order);
+    .run(
+      order,
+      order,
+      order,
+      order,
+      order,
+      order,
+      order,
+      order,
+      order,
+      runId,
+      order,
+    );
   updateRunTimestamp(database, runId);
 }
 
-export function findActiveRun(database: Database.Database): AnalysisRun | undefined {
+export function findActiveRun(
+  database: Database.Database,
+): AnalysisRun | undefined {
   const row = database
     .prepare(
       `
@@ -348,7 +368,9 @@ export function findActiveRun(database: Database.Database): AnalysisRun | undefi
   return row ? toRun(row) : undefined;
 }
 
-export function listRunningStages(database: Database.Database): AnalysisRunStage[] {
+export function listRunningStages(
+  database: Database.Database,
+): AnalysisRunStage[] {
   const rows = database
     .prepare(
       `
@@ -398,6 +420,39 @@ export function canRunFromStage(
   }
 
   return { ok: true };
+}
+
+/**
+ * When pre-screen succeeded but claim grounding blocks M2+, return a human-readable reason.
+ * Legacy artifacts without `claimGrounding` do not block.
+ */
+export function getClaimGateBlockReasonForRun(
+  preScreenPrimaryArtifactPath: string | undefined,
+  seedDoi: string,
+): string | undefined {
+  if (
+    !preScreenPrimaryArtifactPath ||
+    !existsSync(preScreenPrimaryArtifactPath)
+  ) {
+    return undefined;
+  }
+
+  try {
+    const raw: unknown = JSON.parse(
+      readFileSync(preScreenPrimaryArtifactPath, "utf8"),
+    );
+    const families = preScreenResultsSchema.parse(raw);
+    const family = families.find(
+      (f) => f.seed.doi.toLowerCase() === seedDoi.trim().toLowerCase(),
+    );
+    if (!family || !claimFamilyBlocksDownstream(family)) {
+      return undefined;
+    }
+    const cg = family.claimGrounding;
+    return `Claim grounding blocks downstream stages (${cg?.status ?? "unknown"}): ${cg?.detailReason ?? "see pre-screen report"}`;
+  } catch {
+    return undefined;
+  }
 }
 
 export function getPreviousStageKey(stageKey: StageKey): StageKey | undefined {

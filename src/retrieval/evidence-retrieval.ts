@@ -32,6 +32,7 @@ type RankedBlock = {
 function buildTaskQuery(
   task: EvaluationTask,
   citedPaperSource: CitedPaperSource,
+  seedClaimBoost: string | undefined,
 ): string {
   const queryParts = [
     ...task.mentions.map((mention) => mention.rawContext),
@@ -41,6 +42,11 @@ function buildTaskQuery(
   const resolvedPaper = citedPaperSource.resolvedPaper;
   if (resolvedPaper?.title) {
     queryParts.push(resolvedPaper.title);
+  }
+
+  const boost = seedClaimBoost?.trim() || undefined;
+  if (boost) {
+    queryParts.push(boost);
   }
 
   return buildRetrievalQuery(queryParts);
@@ -132,6 +138,7 @@ async function retrieveForTask(
   citedPaperSource: CitedPaperSource,
   blocks: ParsedPaperBlock[],
   reranker: LocalReranker | undefined,
+  seedClaimBoost: string | undefined,
 ): Promise<TaskWithEvidence> {
   const rubric = getRubric(task.evaluationMode);
 
@@ -144,7 +151,7 @@ async function retrieveForTask(
     };
   }
 
-  const query = buildTaskQuery(task, citedPaperSource);
+  const query = buildTaskQuery(task, citedPaperSource, seedClaimBoost);
   const bm25Ranked = rankDocumentsByBm25(
     query,
     blocks,
@@ -196,6 +203,10 @@ export async function retrieveEvidence(
   parsedDocument: ParsedPaperDocument | undefined,
   adapters: EvidenceRetrievalAdapters = {},
 ): Promise<FamilyEvidenceResult> {
+  const seedClaimBoost =
+    classification.groundedSeedClaimText?.trim() ||
+    classification.seed.trackedClaim.trim();
+
   const blocks = parsedDocument?.blocks ?? [];
   const hasFullText = blocks.length > 0;
 
@@ -228,6 +239,7 @@ export async function retrieveEvidence(
           citedPaperSource,
           blocks,
           adapters.reranker,
+          seedClaimBoost,
         );
         tasksWithEvidenceForPacket.push(result);
         tasksNotAttempted++;
@@ -261,6 +273,7 @@ export async function retrieveEvidence(
         citedPaperSource,
         blocks,
         adapters.reranker,
+        seedClaimBoost,
       );
       tasksWithEvidenceForPacket.push(result);
 
@@ -289,6 +302,7 @@ export async function retrieveEvidence(
     seed: classification.seed,
     resolvedSeedPaperTitle: classification.resolvedSeedPaperTitle,
     studyMode: classification.studyMode,
+    groundedSeedClaimText: classification.groundedSeedClaimText,
     citedPaperFullTextAvailable: hasFullText,
     citedPaperSource,
     edges,

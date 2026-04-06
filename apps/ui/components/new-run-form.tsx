@@ -96,7 +96,7 @@ export function NewRunForm() {
           Run Creation
         </p>
         <h2 className="mt-2 font-[var(--font-instrument)] text-4xl tracking-[-0.03em]">
-          One seed DOI, one tracked claim
+          One seed DOI, one claim to ground
         </h2>
       </CardHeader>
       <CardContent>
@@ -115,10 +115,10 @@ export function NewRunForm() {
             </label>
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-[var(--text)]">
-                Tracked claim
+                Tracked claim (analyst hypothesis)
               </span>
               <Textarea
-                placeholder="State the exact claim family you want the run to track."
+                placeholder="State the empirical claim you want to track. Pre-screen will verify it appears in the seed paper’s full text before M2+ runs."
                 value={state.trackedClaim}
                 onChange={(event) => update("trackedClaim", event.target.value)}
               />

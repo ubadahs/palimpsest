@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-04-05
+**Last updated:** 2026-04-06
 
 This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md). Naming here follows **CLI commands** (`m2-extract`, …), which do not map 1:1 to milestone numbers in the original plan.
 
@@ -10,7 +10,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 |------|---------|--------|--------|
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
-| Claim-family pre-screen | `pre-screen` | Done | OpenAlex/S2, dedup, auditability, JSON + Markdown reports |
+| Claim-family pre-screen | `pre-screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); GROBID for seed full text; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
 | Citation context extraction | `m2-extract` | Done | JATS-first parsing, GROBID-backed PDF parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
 | Citation function + packets | `m3-classify` | Done | Roles, evaluation modes, `EdgeEvaluationPacket`, classification reports |
 | Cited-paper evidence | `m4-evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, BM25 retrieval, optional local reranker, abstract-only downgrade, parsed-paper cache reuse |

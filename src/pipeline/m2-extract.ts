@@ -1,10 +1,12 @@
 import { isAuditableForPreScreen } from "../domain/auditability.js";
-import type {
-  ClaimFamilyPreScreen,
-  EdgeExtractionResult,
-  ExtractionOutcome,
-  ExtractionSummary,
-  FamilyExtractionResult,
+import {
+  claimFamilyBlocksDownstream,
+  type ClaimFamilyPreScreen,
+  type EdgeExtractionResult,
+  type ExtractionOutcome,
+  type ExtractionSummary,
+  type FamilyExtractionResult,
+  type PreScreenEdge,
 } from "../domain/types.js";
 import {
   extractEdgeContext,
@@ -93,12 +95,23 @@ export async function runM2Extraction(
     return {
       seed: family.seed,
       resolvedSeedPaper: undefined as never,
+      groundedSeedClaimText: undefined,
       edgeResults: [],
       summary: emptySummary(),
     };
   }
 
+  function edgeExcludedByClaimGate(edge: PreScreenEdge): boolean {
+    if (claimFamilyBlocksDownstream(family)) {
+      return true;
+    }
+    return edge.inClaimFamily === false;
+  }
+
   const auditableEdges = family.edges.filter((edge) => {
+    if (edgeExcludedByClaimGate(edge)) {
+      return false;
+    }
     const citingPaper = family.resolvedPapers[edge.citingPaperId];
     return citingPaper && isAuditableForPreScreen(edge.auditabilityStatus);
   });
@@ -126,6 +139,25 @@ export async function runM2Extraction(
 
   for (const edge of family.edges) {
     const citingPaper = family.resolvedPapers[edge.citingPaperId];
+
+    if (edgeExcludedByClaimGate(edge)) {
+      edgeResults.push({
+        citingPaperId: edge.citingPaperId,
+        citedPaperId: edge.citedPaperId,
+        citingPaperTitle: citingPaper?.title ?? edge.citingPaperId,
+        sourceType: "not_attempted",
+        extractionOutcome: "skipped_not_auditable",
+        extractionSuccess: false,
+        usableForGrounding: false,
+        rawMentionCount: 0,
+        deduplicatedMentionCount: 0,
+        mentions: [],
+        failureReason: claimFamilyBlocksDownstream(family)
+          ? "Claim not grounded in seed paper — pre-screen blocked downstream stages"
+          : "Outside claim-scoped citing family from pre-screen",
+      });
+      continue;
+    }
 
     if (!citingPaper || !isAuditableForPreScreen(edge.auditabilityStatus)) {
       edgeResults.push({
@@ -189,7 +221,8 @@ export async function runM2Extraction(
   onProgress?.({
     step: "deduplicate_and_filter_mentions",
     status: "running",
-    detail: "Deduplicating repeated mentions and filtering for grounding quality.",
+    detail:
+      "Deduplicating repeated mentions and filtering for grounding quality.",
   });
   onProgress?.({
     step: "deduplicate_and_filter_mentions",
@@ -207,9 +240,18 @@ export async function runM2Extraction(
     detail: `${String(summary.successfulEdgesUsable)} usable edges with ${String(summary.usableMentionCount)} usable mentions`,
   });
 
+  const cg = family.claimGrounding;
+  const groundedSeedClaimText =
+    cg &&
+    !claimFamilyBlocksDownstream(family) &&
+    (cg.status === "grounded" || cg.status === "ambiguous")
+      ? cg.normalizedClaim
+      : undefined;
+
   return {
     seed: family.seed,
     resolvedSeedPaper: seedPaper,
+    groundedSeedClaimText,
     edgeResults,
     summary,
   };

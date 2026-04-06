@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type { CachePolicy } from "../../domain/types.js";
-import { preScreenResultsSchema } from "../../domain/types.js";
+import {
+  claimFamilyBlocksDownstream,
+  preScreenResultsSchema,
+} from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { runM2Extraction } from "../../pipeline/m2-extract.js";
 import {
@@ -95,6 +98,17 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
     if (!family.resolvedSeedPaper) {
       console.error(
         "Seed paper was not resolved during pre-screen — cannot extract.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    if (claimFamilyBlocksDownstream(family)) {
+      console.error(
+        "Pre-screen claim grounding blocks M2+ for this family. Revise the tracked claim or fix seed full text, then re-run pre-screen.",
+      );
+      console.error(
+        `  Status: ${family.claimGrounding?.status ?? "unknown"} — ${family.claimGrounding?.detailReason ?? ""}`,
       );
       process.exitCode = 1;
       return;

@@ -107,13 +107,20 @@ const workflowDefinitions = [
     title: "Current work",
     pendingSummary: "Family viability has not been evaluated yet.",
     completedSummary: "Family viability and auditability checks are complete.",
-    failedSummary: "Pre-screen stopped before family viability could be finalized.",
+    failedSummary:
+      "Pre-screen stopped before family viability could be finalized.",
     steps: [
       {
         id: "resolve_seed_paper",
         label: "Resolve the seed paper",
         description:
           "Find the seed paper metadata and establish the canonical paper record for the run.",
+      },
+      {
+        id: "ground_tracked_claim",
+        label: "Ground the tracked claim (LLM)",
+        description:
+          "Fetch and parse seed full text, send the full manuscript to the LLM for structured grounding, verify quoted spans, and write claimGrounding plus a trace sidecar.",
       },
       {
         id: "gather_citing_papers",
@@ -126,6 +133,12 @@ const workflowDefinitions = [
         label: "Collapse duplicates",
         description:
           "Merge duplicate or overlapping paper records so downstream counts reflect unique citing papers.",
+      },
+      {
+        id: "filter_claim_family",
+        label: "Filter claim-scoped family",
+        description:
+          "Keep citing papers whose title and abstract align with the grounded seed claim; others stay in the report but are excluded from M2+.",
       },
       {
         id: "assess_auditability",
@@ -145,8 +158,10 @@ const workflowDefinitions = [
     stageKey: "m2-extract",
     title: "Current work",
     pendingSummary: "Citation extraction has not started yet.",
-    completedSummary: "Citation mentions and grounding contexts have been extracted.",
-    failedSummary: "Citation extraction stopped before usable grounding contexts were finalized.",
+    completedSummary:
+      "Citation mentions and grounding contexts have been extracted.",
+    failedSummary:
+      "Citation extraction stopped before usable grounding contexts were finalized.",
     steps: [
       {
         id: "select_auditable_papers",
@@ -183,8 +198,10 @@ const workflowDefinitions = [
   {
     stageKey: "m3-classify",
     title: "Current work",
-    pendingSummary: "Citation roles and evaluation tasks have not been assembled yet.",
-    completedSummary: "Citation roles and evaluation tasks are ready for evidence retrieval.",
+    pendingSummary:
+      "Citation roles and evaluation tasks have not been assembled yet.",
+    completedSummary:
+      "Citation roles and evaluation tasks are ready for evidence retrieval.",
     failedSummary: "Classification stopped before task packets were finalized.",
     steps: [
       {
@@ -223,8 +240,10 @@ const workflowDefinitions = [
     stageKey: "m4-evidence",
     title: "Current work",
     pendingSummary: "Evidence retrieval has not started yet.",
-    completedSummary: "Grounding evidence has been retrieved and attached to tasks.",
-    failedSummary: "Evidence retrieval stopped before grounded coverage was finalized.",
+    completedSummary:
+      "Grounding evidence has been retrieved and attached to tasks.",
+    failedSummary:
+      "Evidence retrieval stopped before grounded coverage was finalized.",
     steps: [
       {
         id: "resolve_cited_paper",
@@ -262,8 +281,10 @@ const workflowDefinitions = [
     stageKey: "m5-adjudicate",
     title: "Current work",
     pendingSummary: "Calibration sampling has not started yet.",
-    completedSummary: "The calibration set and worksheet are ready for inspection.",
-    failedSummary: "Calibration sampling stopped before the worksheet was finalized.",
+    completedSummary:
+      "The calibration set and worksheet are ready for inspection.",
+    failedSummary:
+      "Calibration sampling stopped before the worksheet was finalized.",
     steps: [
       {
         id: "collect_eligible_tasks",
@@ -302,7 +323,8 @@ const workflowDefinitions = [
     title: "Current work",
     pendingSummary: "LLM adjudication has not started yet.",
     completedSummary: "Verdicts and rationales have been generated.",
-    failedSummary: "LLM adjudication stopped before verdict outputs were finalized.",
+    failedSummary:
+      "LLM adjudication stopped before verdict outputs were finalized.",
     steps: [
       {
         id: "load_active_records",
@@ -404,8 +426,10 @@ function fallbackSummary(
   }
 
   if (stageStatus === "running") {
-    return definition.steps[inferRunningStepIndex(buildPendingSteps(stageKey))]?.label ??
-      definition.pendingSummary;
+    return (
+      definition.steps[inferRunningStepIndex(buildPendingSteps(stageKey))]
+        ?.label ?? definition.pendingSummary
+    );
   }
 
   return definition.pendingSummary;
@@ -491,13 +515,18 @@ export function buildStageWorkflowSnapshot(input: {
   let lastStepIndex = -1;
 
   for (const event of events) {
-    const stepIndex = definition.steps.findIndex((step) => step.id === event.step);
+    const stepIndex = definition.steps.findIndex(
+      (step) => step.id === event.step,
+    );
     if (stepIndex < 0) {
       continue;
     }
 
     for (let index = 0; index < stepIndex; index++) {
-      if (steps[index]?.status === "pending" || steps[index]?.status === "running") {
+      if (
+        steps[index]?.status === "pending" ||
+        steps[index]?.status === "running"
+      ) {
         steps[index] = {
           ...steps[index]!,
           status: "completed",
@@ -575,9 +604,9 @@ export function buildStageWorkflowSnapshot(input: {
       : input.stageStatus === "failed" ||
           input.stageStatus === "cancelled" ||
           input.stageStatus === "interrupted"
-        ? input.errorMessage ?? definition.failedSummary
-        : steps.find((step) => step.status === "running")?.label ??
-          definition.pendingSummary;
+        ? (input.errorMessage ?? definition.failedSummary)
+        : (steps.find((step) => step.status === "running")?.label ??
+          definition.pendingSummary);
 
   return {
     stageKey: input.stageKey,
