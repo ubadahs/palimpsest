@@ -10,15 +10,39 @@ import type {
 
 type SamplingTarget = Partial<Record<EvaluationMode, number>>;
 
-const DEFAULT_TARGETS: SamplingTarget = {
-  fidelity_specific_claim: 12,
-  fidelity_background_framing: 8,
-  fidelity_methods_use: 6,
-  fidelity_bundled_use: 8,
-  review_transmission: 6,
+/** Proportions per mode — must sum to 1. */
+const MODE_PROPORTIONS: SamplingTarget = {
+  fidelity_specific_claim: 0.3,
+  fidelity_background_framing: 0.2,
+  fidelity_methods_use: 0.15,
+  fidelity_bundled_use: 0.2,
+  review_transmission: 0.15,
 };
 
 const DEFAULT_TOTAL = 40;
+
+function scaleTargets(
+  proportions: SamplingTarget,
+  totalTarget: number,
+): SamplingTarget {
+  const entries = Object.entries(proportions) as [EvaluationMode, number][];
+  const scaled: SamplingTarget = {};
+  let assigned = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const [mode, proportion] = entries[i]!;
+    if (i === entries.length - 1) {
+      // Last mode gets the remainder to avoid rounding drift
+      scaled[mode] = totalTarget - assigned;
+    } else {
+      const count = Math.round(proportion * totalTarget);
+      scaled[mode] = count;
+      assigned += count;
+    }
+  }
+
+  return scaled;
+}
 
 type ScoredTask = {
   task: TaskWithEvidence;
@@ -111,9 +135,10 @@ function taskToRecord(
 
 export function sampleCalibrationSet(
   evidence: FamilyEvidenceResult,
-  targets: SamplingTarget = DEFAULT_TARGETS,
+  targets?: SamplingTarget,
   totalTarget: number = DEFAULT_TOTAL,
 ): CalibrationSet {
+  const effectiveTargets = targets ?? scaleTargets(MODE_PROPORTIONS, totalTarget);
   const allTasks: ScoredTask[] = [];
 
   for (const edge of evidence.edges) {
@@ -150,7 +175,7 @@ export function sampleCalibrationSet(
     tasks.sort((a, b) => b.priority - a.priority);
   }
 
-  for (const [targetMode, target] of Object.entries(targets) as [
+  for (const [targetMode, target] of Object.entries(effectiveTargets) as [
     EvaluationMode,
     number,
   ][]) {
@@ -203,7 +228,7 @@ export function sampleCalibrationSet(
     targetSize: totalTarget,
     records,
     samplingStrategy: {
-      targetByMode: targets,
+      targetByMode: effectiveTargets,
       oversampled: [...new Set(oversampled)],
     },
     runTelemetry: undefined,
