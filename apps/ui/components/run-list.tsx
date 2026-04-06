@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { fetchJson, formatDateTime } from "@/lib/utils";
 
-function variantForStatus(status: RunSummary["status"]): "neutral" | "running" | "success" | "failed" {
+function variantForStatus(
+  status: RunSummary["status"],
+): "neutral" | "running" | "success" | "failed" {
   if (status === "running") {
     return "running";
   }
@@ -60,7 +62,9 @@ export function RunList({ initialRuns }: { initialRuns: RunSummary[] }) {
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
-                    <Badge variant={variantForStatus(run.status)}>{run.status}</Badge>
+                    <Badge variant={variantForStatus(run.status)}>
+                      {run.status}
+                    </Badge>
                     <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
                       {run.currentStage ?? "not started"}
                     </span>
@@ -75,7 +79,9 @@ export function RunList({ initialRuns }: { initialRuns: RunSummary[] }) {
                 <div className="grid gap-3 text-sm text-[var(--text-muted)] md:min-w-[260px]">
                   <div className="flex items-center justify-between gap-4">
                     <span>Health</span>
-                    <span className="text-right text-[var(--text)]">{run.healthSummary}</span>
+                    <span className="text-right text-[var(--text)]">
+                      {run.healthSummary}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <span>Updated</span>

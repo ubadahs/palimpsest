@@ -16,10 +16,17 @@ import {
 import type { ArtifactManifest } from "../shared/artifact-io.js";
 import type { CalibrationSet } from "../domain/types.js";
 import { getStageDefinition } from "./stages.js";
-import type { AnalysisStageSummary, StageArtifactPointer, StageKey } from "./run-types.js";
+import type {
+  AnalysisStageSummary,
+  StageArtifactPointer,
+  StageKey,
+} from "./run-types.js";
 
 type ArtifactLoadResult =
-  | { kind: "pre-screen"; data: ReturnType<typeof preScreenResultsSchema.parse> }
+  | {
+      kind: "pre-screen";
+      data: ReturnType<typeof preScreenResultsSchema.parse>;
+    }
   | {
       kind: "m2-extract";
       data: ReturnType<typeof familyExtractionResultSchema.parse>;
@@ -48,7 +55,10 @@ export type StageArtifactSet = {
   extraArtifacts: StageArtifactPointer[];
 };
 
-function metric(label: string, value: string | number): {
+function metric(
+  label: string,
+  value: string | number,
+): {
   label: string;
   value: string;
 } {
@@ -108,7 +118,9 @@ function loadArtifactForStage(
     data: loadJsonArtifact(
       artifactPath,
       calibrationSetSchema,
-      stageKey === "m5-adjudicate" ? "m5 calibration set" : "m6 llm calibration",
+      stageKey === "m5-adjudicate"
+        ? "m5 calibration set"
+        : "m6 llm calibration",
     ),
   };
 }
@@ -127,7 +139,9 @@ export function listStageArtifacts(
       .at(-1);
   }
 
-  const primaryName = findLatestBySuffix(definition.artifactGlobs.primarySuffix);
+  const primaryName = findLatestBySuffix(
+    definition.artifactGlobs.primarySuffix,
+  );
   const reportName = findLatestBySuffix(definition.artifactGlobs.reportSuffix);
   const primaryArtifactPath = primaryName
     ? resolve(stageDirectory, primaryName)
@@ -136,7 +150,8 @@ export function listStageArtifacts(
     ? resolve(stageDirectory, reportName)
     : undefined;
   const manifestPath =
-    primaryArtifactPath && existsSync(manifestPathForArtifact(primaryArtifactPath))
+    primaryArtifactPath &&
+    existsSync(manifestPathForArtifact(primaryArtifactPath))
       ? manifestPathForArtifact(primaryArtifactPath)
       : undefined;
   const extraArtifacts = definition.artifactGlobs.extraSuffixes
@@ -214,8 +229,13 @@ export function deriveStageSummary(
   const artifact = loadArtifactForStage(stageKey, artifactPath);
 
   if (artifact.kind === "pre-screen") {
-    const greenlit = artifact.data.filter((entry) => entry.decision === "greenlight");
-    const edges = artifact.data.reduce((count, entry) => count + entry.edges.length, 0);
+    const greenlit = artifact.data.filter(
+      (entry) => entry.decision === "greenlight",
+    );
+    const edges = artifact.data.reduce(
+      (count, entry) => count + entry.edges.length,
+      0,
+    );
 
     return {
       headline: "Family viability and auditability",
@@ -427,8 +447,9 @@ export function buildStageInspectorPayload(
     runTelemetry: artifact.data.runTelemetry,
     defaultVerdictFilter: "partially_supported",
     verdictCounts: {
-      supported: artifact.data.records.filter((record) => record.verdict === "supported")
-        .length,
+      supported: artifact.data.records.filter(
+        (record) => record.verdict === "supported",
+      ).length,
       partially_supported: partiallySupported.length,
       overstated_or_generalized: artifact.data.records.filter(
         (record) => record.verdict === "overstated_or_generalized",

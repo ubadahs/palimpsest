@@ -1,7 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { getStageDefinition, stageDefinitions, type StageKey } from "citation-fidelity/ui-contract";
+import {
+  getStageDefinition,
+  stageDefinitions,
+  type StageKey,
+} from "citation-fidelity/ui-contract";
 
 import { getRepoRoot } from "./root-path";
 
@@ -34,5 +38,9 @@ export function getStageDirectory(runId: string, stageKey: StageKey): string {
 }
 
 export function getStageLogPath(runId: string, stageKey: StageKey): string {
-  return resolve(getRunRoot(runId), "logs", `${getStageDefinition(stageKey).slug}.log`);
+  return resolve(
+    getRunRoot(runId),
+    "logs",
+    `${getStageDefinition(stageKey).slug}.log`,
+  );
 }

@@ -24,7 +24,7 @@ npx vitest run tests/domain/taxonomy.test.ts  # single test file
 npm run dev            # run CLI: tsx src/cli/index.ts
 npm run dev -- doctor  # check config and taxonomy
 npm run dev -- db:migrate  # apply pending SQLite migrations
-npm run dev -- pre-screen --input shortlist.json  # pre-screen claim families
+npm run dev -- pre-screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_KEY; writes *_pre-screen-grounding-trace.json)
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
 npm run ui:start

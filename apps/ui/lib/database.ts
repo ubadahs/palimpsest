@@ -1,5 +1,9 @@
 import { loadEnvironmentLenient } from "citation-fidelity/config";
-import { openDatabase, runMigrations, type DatabaseConnection } from "citation-fidelity/storage";
+import {
+  openDatabase,
+  runMigrations,
+  type DatabaseConnection,
+} from "citation-fidelity/storage";
 import { resolve } from "node:path";
 
 import { getRepoRoot } from "./root-path";

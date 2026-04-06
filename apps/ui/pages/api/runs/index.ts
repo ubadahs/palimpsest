@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import type { NextApiRequest, NextApiResponse } from "next";
-import { analysisRunConfigSchema, stageKeySchema } from "citation-fidelity/ui-contract";
+import {
+  analysisRunConfigSchema,
+  stageKeySchema,
+} from "citation-fidelity/ui-contract";
 import { z } from "zod";
 
 import { createRun, getDashboardData } from "@/lib/run-queries";

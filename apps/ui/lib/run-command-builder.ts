@@ -39,7 +39,13 @@ export function buildStageCommand(
   if (stageKey === "pre-screen") {
     return {
       command: getStageDefinition(stageKey).command,
-      args: ["pre-screen", "--input", getShortlistPath(run.id), "--output", outputDirectory],
+      args: [
+        "pre-screen",
+        "--input",
+        getShortlistPath(run.id),
+        "--output",
+        outputDirectory,
+      ],
       outputDirectory,
       inputArtifactPath: getShortlistPath(run.id),
     };

@@ -15,7 +15,10 @@ export default async function StageDetailPage({
   const { runId, stageKey } = await params;
   return (
     <StageDetailClient
-      initialDetail={getStageDetailOrThrow(runId, stageKeySchema.parse(stageKey))}
+      initialDetail={getStageDetailOrThrow(
+        runId,
+        stageKeySchema.parse(stageKey),
+      )}
       initialRun={getRunDetailOrThrow(runId)}
     />
   );

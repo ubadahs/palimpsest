@@ -18,7 +18,8 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: "Citation Fidelity UI",
-  description: "Local orchestration and artifact inspection for citation-fidelity.",
+  description:
+    "Local orchestration and artifact inspection for citation-fidelity.",
 };
 
 export default function RootLayout({

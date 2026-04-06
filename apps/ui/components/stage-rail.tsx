@@ -5,11 +5,17 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDuration } from "@/lib/utils";
 
-function badgeVariant(status: string): "neutral" | "running" | "success" | "failed" | "stale" {
+function badgeVariant(
+  status: string,
+): "neutral" | "running" | "success" | "failed" | "stale" {
   if (status === "running") return "running";
   if (status === "succeeded") return "success";
   if (status === "stale") return "stale";
-  if (status === "failed" || status === "cancelled" || status === "interrupted") {
+  if (
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "interrupted"
+  ) {
     return "failed";
   }
   return "neutral";

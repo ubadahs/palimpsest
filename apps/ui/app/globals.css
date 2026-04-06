@@ -23,7 +23,11 @@
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(211, 169, 126, 0.1), transparent 32%),
+    radial-gradient(
+      circle at top left,
+      rgba(211, 169, 126, 0.1),
+      transparent 32%
+    ),
     linear-gradient(180deg, #fbf8f3 0%, #f4ede4 100%);
   min-height: 100%;
 }
@@ -64,5 +68,11 @@ a {
 }
 
 .scroll-fade {
-  mask-image: linear-gradient(180deg, transparent, black 10%, black 90%, transparent);
+  mask-image: linear-gradient(
+    180deg,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
 }
