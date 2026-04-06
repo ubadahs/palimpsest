@@ -59,9 +59,54 @@ export const preScreenEdgeSchema = z
     classification: edgeClassificationSchema,
     paperType: undefinedable(z.string()),
     referencedWorksCount: undefinedable(z.number().int()),
+    /** BM25(title+abstract, claim query). Omitted on legacy artifacts. */
+    claimRelevanceScore: undefinedable(z.number()),
+    /** When false, this edge is outside the claim-scoped family. Omitted on legacy artifacts (treated as true). */
+    inClaimFamily: undefinedable(z.boolean()),
   })
   .passthrough();
 export type PreScreenEdge = z.infer<typeof preScreenEdgeSchema>;
+
+/** Grounding the analyst's `trackedClaim` in the seed paper's full text. */
+export const claimGroundingStatusValues = [
+  "not_attempted",
+  "grounded",
+  "ambiguous",
+  "not_found",
+  "no_seed_fulltext",
+  "materialize_failed",
+] as const;
+
+export const claimGroundingStatusSchema = z.enum(claimGroundingStatusValues);
+export type ClaimGroundingStatus = z.infer<typeof claimGroundingStatusSchema>;
+
+export const seedClaimSupportSpanSchema = z
+  .object({
+    text: z.string().min(1),
+    sectionTitle: undefinedable(z.string()),
+    blockKind: undefinedable(
+      z.enum(["abstract", "body_paragraph", "figure_caption", "table_caption"]),
+    ),
+    /** Lexical rank score when present (e.g. legacy artifacts); omitted for LLM-quoted passages. */
+    bm25Score: z.number().optional(),
+  })
+  .passthrough();
+export type SeedClaimSupportSpan = z.infer<typeof seedClaimSupportSpanSchema>;
+
+export const claimGroundingSchema = z
+  .object({
+    status: claimGroundingStatusSchema,
+    /** Original analyst text from the shortlist. */
+    analystClaim: z.string().min(1),
+    /** Canonical wording used for claim-family retrieval (from LLM grounding). */
+    normalizedClaim: z.string().min(1),
+    supportSpans: z.array(seedClaimSupportSpanSchema),
+    /** When true, M2+ must not run for this family until the claim is revised or grounding is fixed. Ignored for status `ambiguous` (see {@link claimFamilyBlocksDownstream}). */
+    blocksDownstream: z.boolean(),
+    detailReason: z.string().min(1),
+  })
+  .passthrough();
+export type ClaimGrounding = z.infer<typeof claimGroundingSchema>;
 
 export const preScreenMetricsSchema = z
   .object({
@@ -108,7 +153,11 @@ export const claimFamilyPreScreenSchema = z
     edges: z.array(preScreenEdgeSchema),
     resolvedPapers: z.record(z.string(), resolvedPaperSchema),
     duplicateGroups: z.array(duplicateGroupSchema),
+    /** Metrics over citing papers that pass claim-relevance filtering. Drives greenlight. */
     metrics: preScreenMetricsSchema,
+    /** Full seed neighborhood before claim filtering (auditability composition). */
+    neighborhoodMetrics: undefinedable(preScreenMetricsSchema),
+    claimGrounding: undefinedable(claimGroundingSchema),
     familyUseProfile: z.array(familyUseProfileSchema),
     m2Priority: m2PrioritySchema,
     decision: preScreenDecisionSchema,
@@ -118,3 +167,25 @@ export const claimFamilyPreScreenSchema = z
 export type ClaimFamilyPreScreen = z.infer<typeof claimFamilyPreScreenSchema>;
 
 export const preScreenResultsSchema = z.array(claimFamilyPreScreenSchema);
+
+/**
+ * Whether this grounding outcome should block M2+ and claim-scoped pre-screen metrics.
+ * `ambiguous` never blocks: several strong matches still mean the claim is present in the seed text.
+ */
+export function claimGroundingBlocksAnalysis(g: ClaimGrounding): boolean {
+  if (g.status === "ambiguous") {
+    return false;
+  }
+  return g.blocksDownstream;
+}
+
+/** True when pre-screen requires revising the claim or grounding before M2+. */
+export function claimFamilyBlocksDownstream(
+  family: ClaimFamilyPreScreen,
+): boolean {
+  const g = family.claimGrounding;
+  if (!g) {
+    return false;
+  }
+  return claimGroundingBlocksAnalysis(g);
+}

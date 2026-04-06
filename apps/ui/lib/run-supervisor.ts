@@ -5,6 +5,7 @@ import {
   canRunFromStage,
   findActiveRun,
   getAnalysisRun,
+  getClaimGateBlockReasonForRun,
   getRunStage,
   listRunningStages,
   listRunStages,
@@ -33,6 +34,26 @@ import {
 } from "./run-command-builder";
 import { getRepoRoot } from "./root-path";
 import { getStageDirectory, getStageLogPath } from "./run-files";
+
+function assertClaimGateAllowsDownstream(
+  run: AnalysisRun,
+  stages: { stageKey: StageKey; primaryArtifactPath?: string }[],
+  startStage: StageKey,
+): void {
+  const preOrder = getStageDefinition("pre-screen").order;
+  const startOrder = getStageDefinition(startStage).order;
+  if (startOrder <= preOrder) {
+    return;
+  }
+  const preStage = stages.find((s) => s.stageKey === "pre-screen");
+  const blockReason = getClaimGateBlockReasonForRun(
+    preStage?.primaryArtifactPath,
+    run.seedDoi,
+  );
+  if (blockReason) {
+    throw new Error(blockReason);
+  }
+}
 
 type ActiveChild = {
   runId: string;
@@ -130,7 +151,11 @@ async function runStage(
     cancelRequested: false,
   };
   getState().activeChildren.set(run.id, activeChild);
-  const activeOptions: { inputArtifactPath?: string; startedAt: string; processId?: number } = {
+  const activeOptions: {
+    inputArtifactPath?: string;
+    startedAt: string;
+    processId?: number;
+  } = {
     startedAt,
   };
   if (spec.inputArtifactPath) {
@@ -169,7 +194,13 @@ async function runStage(
     if (spec.inputArtifactPath) {
       cancelledOptions.inputArtifactPath = spec.inputArtifactPath;
     }
-    updateStageStatus(database, run.id, stageKey, "cancelled", cancelledOptions);
+    updateStageStatus(
+      database,
+      run.id,
+      stageKey,
+      "cancelled",
+      cancelledOptions,
+    );
     setRunStatus(database, run.id, "cancelled", stageKey);
     return "cancelled";
   }
@@ -193,7 +224,10 @@ async function runStage(
     return "failed";
   }
 
-  const artifactSet = listStageArtifacts(stageKey, getStageDirectory(run.id, stageKey));
+  const artifactSet = listStageArtifacts(
+    stageKey,
+    getStageDirectory(run.id, stageKey),
+  );
   const artifactPointers = [
     ...(artifactSet.primaryArtifactPath
       ? [{ kind: "primary", path: artifactSet.primaryArtifactPath }]
@@ -315,10 +349,15 @@ export async function startRun(runId: string): Promise<void> {
     throw new Error(gate.reason);
   }
 
+  assertClaimGateAllowsDownstream(run, stages, startStage);
+
   void runSequentially(run, startStage, run.targetStage, false);
 }
 
-export async function rerunStage(runId: string, stageKey: StageKey): Promise<void> {
+export async function rerunStage(
+  runId: string,
+  stageKey: StageKey,
+): Promise<void> {
   ensureRunSupervisorReady();
   const database = getDatabase();
   const run = getAnalysisRun(database, runId);
@@ -333,8 +372,12 @@ export async function rerunStage(runId: string, stageKey: StageKey): Promise<voi
 
   const stages = listRunStages(database, runId);
   if (!canRerunStage(stages, stageKey)) {
-    throw new Error(`Cannot rerun ${stageKey} before its upstream stage succeeds.`);
+    throw new Error(
+      `Cannot rerun ${stageKey} before its upstream stage succeeds.`,
+    );
   }
+
+  assertClaimGateAllowsDownstream(run, stages, stageKey);
 
   void runSequentially(run, stageKey, stageKey, true);
 }

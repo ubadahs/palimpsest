@@ -190,6 +190,7 @@ export const familyClassificationResultSchema = z
     seed: seedPaperInputSchema,
     resolvedSeedPaperTitle: z.string().min(1),
     studyMode: studyModeSchema,
+    groundedSeedClaimText: undefinedable(z.string().min(1)),
     packets: z.array(edgeEvaluationPacketSchema),
     summary: classificationSummarySchema,
   })

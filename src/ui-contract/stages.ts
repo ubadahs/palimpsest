@@ -34,7 +34,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
     artifactGlobs: {
       primarySuffix: "_pre-screen-results.json",
       reportSuffix: "_pre-screen-report.md",
-      extraSuffixes: [],
+      extraSuffixes: ["_pre-screen-grounding-trace.json"],
     },
   },
   {
@@ -105,10 +105,9 @@ export const stageDefinitions: readonly StageDefinition[] = [
 ] as const;
 
 export const stageDefinitionByKey: Record<StageKey, StageDefinition> =
-  Object.fromEntries(stageDefinitions.map((stage) => [stage.key, stage])) as Record<
-    StageKey,
-    StageDefinition
-  >;
+  Object.fromEntries(
+    stageDefinitions.map((stage) => [stage.key, stage]),
+  ) as Record<StageKey, StageDefinition>;
 
 export function getStageDefinition(stageKey: StageKey): StageDefinition {
   return stageDefinitionByKey[stageKey];

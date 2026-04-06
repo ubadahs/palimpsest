@@ -1,16 +1,27 @@
 import { classifyEdge } from "../domain/attribution-signal.js";
 import { assessAuditability } from "../domain/auditability.js";
+import { claimGroundingBlocksAnalysis } from "../domain/pre-screen.js";
 import type {
   ClaimFamilyPreScreen,
+  ClaimGrounding,
   FamilyUseProfileTag,
   M2Priority,
   PreScreenEdge,
+  PreScreenGroundingTraceFile,
+  PreScreenGroundingTraceRecord,
   PreScreenMetrics,
   ResolvedPaper,
   Result,
   SeedPaperInput,
 } from "../domain/types.js";
+import {
+  PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
+  normalizeSeedDoiForTraceKey,
+} from "../domain/pre-screen-grounding-trace.js";
+import { buildRetrievalQuery, rankDocumentsByBm25 } from "../retrieval/bm25.js";
 import { deduplicatePapers } from "./dedup.js";
+import { runLlmFullDocumentClaimGrounding } from "./seed-claim-grounding-llm.js";
+import type { SeedClaimGroundingAdapters } from "./seed-claim-grounding.js";
 
 // --- Adapter interface for dependency injection ---
 
@@ -21,18 +32,32 @@ export type PreScreenAdapters = {
     title: string,
     excludeId: string,
   ) => Promise<Result<ResolvedPaper>>;
+  /** Required for claim grounding in the seed paper (fetch + parse full text). */
+  seedClaimGrounding: SeedClaimGroundingAdapters;
 };
 
 export type PreScreenOptions = {
   minAuditableCoverage: number;
   minAuditableEdges: number;
+  /** Full-manuscript LLM claim grounding (canonical). */
+  llmGrounding: {
+    anthropicApiKey: string;
+    model?: string;
+  };
+};
+
+export type PreScreenRunResult = {
+  families: ClaimFamilyPreScreen[];
+  groundingTrace: PreScreenGroundingTraceFile;
 };
 
 export type PreScreenProgressEvent = {
   step:
     | "resolve_seed_paper"
+    | "ground_tracked_claim"
     | "gather_citing_papers"
     | "collapse_duplicates"
+    | "filter_claim_family"
     | "assess_auditability"
     | "summarize_family_viability";
   status: "running" | "completed";
@@ -41,10 +66,10 @@ export type PreScreenProgressEvent = {
   total?: number;
 };
 
-const DEFAULT_OPTIONS: PreScreenOptions = {
+const DEFAULT_NUMERIC_OPTIONS = {
   minAuditableCoverage: 0.3,
   minAuditableEdges: 3,
-};
+} as const;
 
 // --- Metrics: describes citation population composition ---
 
@@ -117,6 +142,7 @@ function makeDecision(
   metrics: PreScreenMetrics,
   seedResolved: boolean,
   options: PreScreenOptions,
+  claimGrounding?: ClaimGrounding,
 ): { decision: ClaimFamilyPreScreen["decision"]; reason: string } {
   if (!seedResolved) {
     return {
@@ -125,8 +151,19 @@ function makeDecision(
     };
   }
 
+  if (claimGrounding && claimGroundingBlocksAnalysis(claimGrounding)) {
+    return {
+      decision: "deprioritize",
+      reason: `Claim not grounded in seed paper (${claimGrounding.status}): ${claimGrounding.detailReason}`,
+    };
+  }
+
   if (metrics.uniqueEdges === 0) {
-    return { decision: "deprioritize", reason: "No citing papers found" };
+    return {
+      decision: "deprioritize",
+      reason:
+        "No citing papers in the claim-scoped family (title/abstract do not match the grounded claim strongly enough), or no citing papers found",
+    };
   }
 
   const totalAuditable =
@@ -198,6 +235,85 @@ function computeFamilyUseProfile(
   return PROFILE_DISPLAY_ORDER.filter((t) => tags.has(t));
 }
 
+function notAttemptedGrounding(
+  seed: SeedPaperInput,
+  detailReason: string,
+): ClaimGrounding {
+  const text = seed.trackedClaim.trim();
+  return {
+    status: "not_attempted",
+    analystClaim: text,
+    normalizedClaim: text,
+    supportSpans: [],
+    blocksDownstream: true,
+    detailReason,
+  };
+}
+
+/** Minimum BM25 score as a fraction of the best citing-paper score to stay in the claim family. */
+const CLAIM_RELEVANCE_MIN_FRACTION = 0.22;
+
+function annotateClaimFamilyMembership(
+  edges: PreScreenEdge[],
+  resolvedPapers: Record<string, ResolvedPaper>,
+  claimQuery: string,
+): void {
+  type Doc = { edge: PreScreenEdge; text: string };
+  const docs: Doc[] = [];
+  for (const edge of edges) {
+    const paper = resolvedPapers[edge.citingPaperId];
+    if (!paper) {
+      continue;
+    }
+    const text = buildRetrievalQuery([paper.title, paper.abstract ?? ""]);
+    docs.push({ edge, text });
+  }
+
+  if (docs.length === 0) {
+    return;
+  }
+
+  const ranked = rankDocumentsByBm25(
+    claimQuery,
+    docs,
+    (d) => d.text,
+    docs.length,
+  );
+  const scoreByEdgeId = new Map<string, number>();
+  for (const r of ranked) {
+    scoreByEdgeId.set(r.document.edge.citingPaperId, r.score);
+  }
+
+  let maxScore = 0;
+  for (const d of docs) {
+    const s = scoreByEdgeId.get(d.edge.citingPaperId) ?? 0;
+    if (s > maxScore) {
+      maxScore = s;
+    }
+  }
+
+  const threshold = maxScore > 0 ? maxScore * CLAIM_RELEVANCE_MIN_FRACTION : 0;
+
+  for (const d of docs) {
+    const s = scoreByEdgeId.get(d.edge.citingPaperId) ?? 0;
+    d.edge.claimRelevanceScore = s;
+    d.edge.inClaimFamily = maxScore > 0 && s >= threshold;
+  }
+}
+
+function mergeClaimFamilyMetrics(
+  neighborhood: PreScreenMetrics,
+  familyEdges: PreScreenEdge[],
+): PreScreenMetrics {
+  const inner = computeMetrics(familyEdges, familyEdges.length);
+  return {
+    ...inner,
+    totalEdges: neighborhood.totalEdges,
+    uniqueEdges: familyEdges.length,
+    collapsedDuplicates: neighborhood.collapsedDuplicates,
+  };
+}
+
 // --- M2 priority: advisory recommendation, does not affect greenlight ---
 
 function computeM2Priority(
@@ -230,7 +346,10 @@ async function processOneSeed(
   paperCache: Map<string, ResolvedPaper>,
   options: PreScreenOptions,
   onProgress?: (event: PreScreenProgressEvent) => void,
-): Promise<ClaimFamilyPreScreen> {
+): Promise<{
+  family: ClaimFamilyPreScreen;
+  traceRecord: PreScreenGroundingTraceRecord;
+}> {
   const emptyMetrics = computeMetrics([], 0);
 
   onProgress?.({
@@ -249,19 +368,34 @@ async function processOneSeed(
     onProgress?.({
       step: "summarize_family_viability",
       status: "completed",
-      detail: "Family deprioritized because the seed paper could not be resolved.",
+      detail:
+        "Family deprioritized because the seed paper could not be resolved.",
     });
-    return {
+    const cg = notAttemptedGrounding(
       seed,
-      resolvedSeedPaper: undefined,
-      edges: [],
-      resolvedPapers: {},
-      duplicateGroups: [],
-      metrics: emptyMetrics,
-      familyUseProfile: [],
-      m2Priority: "not_now",
-      decision: "deprioritize",
-      decisionReason: `Failed to resolve seed: ${seedResult.error}`,
+      `Seed could not be resolved: ${seedResult.error}`,
+    );
+    return {
+      family: {
+        seed,
+        resolvedSeedPaper: undefined,
+        edges: [],
+        resolvedPapers: {},
+        duplicateGroups: [],
+        metrics: emptyMetrics,
+        neighborhoodMetrics: emptyMetrics,
+        claimGrounding: cg,
+        familyUseProfile: [],
+        m2Priority: "not_now",
+        decision: "deprioritize",
+        decisionReason: `Failed to resolve seed: ${seedResult.error}`,
+      },
+      traceRecord: {
+        seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+        seedResolutionOk: false,
+        seedResolutionError: seedResult.error,
+        finalClaimGrounding: cg,
+      },
     };
   }
 
@@ -271,6 +405,68 @@ async function processOneSeed(
     step: "resolve_seed_paper",
     status: "completed",
     detail: seedPaper.title,
+  });
+
+  onProgress?.({
+    step: "ground_tracked_claim",
+    status: "running",
+    detail: "Grounding tracked claim via full-manuscript LLM.",
+  });
+
+  const materialized =
+    await adapters.seedClaimGrounding.materializeSeedPaper(seedPaper);
+
+  let claimGrounding: ClaimGrounding;
+  let traceRecord: PreScreenGroundingTraceRecord;
+
+  if (!materialized.ok) {
+    const analystClaim = seed.trackedClaim.trim();
+    claimGrounding = {
+      status: "materialize_failed",
+      analystClaim,
+      normalizedClaim: analystClaim,
+      supportSpans: [],
+      blocksDownstream: true,
+      detailReason: `Could not fetch or parse seed full text: ${materialized.error}`,
+    };
+    traceRecord = {
+      seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+      seedResolutionOk: true,
+      resolvedSeedPaperId: seedPaper.id,
+      resolvedSeedTitle: seedPaper.title,
+      materializationOk: false,
+      materializationError: materialized.error,
+      finalClaimGrounding: claimGrounding,
+    };
+  } else {
+    const llmOpts = {
+      apiKey: options.llmGrounding.anthropicApiKey,
+      ...(options.llmGrounding.model != null
+        ? { model: options.llmGrounding.model }
+        : {}),
+    };
+    const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding({
+      seed,
+      seedPaper,
+      parsedDocument: materialized.data.parsedDocument,
+      options: llmOpts,
+    });
+    claimGrounding = grounding;
+    traceRecord = {
+      seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+      seedResolutionOk: true,
+      resolvedSeedPaperId: seedPaper.id,
+      resolvedSeedTitle: seedPaper.title,
+      materializationOk: true,
+      llmCall,
+      finalClaimGrounding: claimGrounding,
+    };
+  }
+
+  onProgress?.({
+    step: "ground_tracked_claim",
+    status: "completed",
+    detail: claimGrounding.detailReason,
   });
 
   onProgress?.({
@@ -349,13 +545,48 @@ async function processOneSeed(
     }
   }
 
-  const metrics = computeMetrics(edges, totalBeforeDedup);
+  const neighborhoodMetrics = computeMetrics(edges, totalBeforeDedup);
   onProgress?.({
     step: "assess_auditability",
     status: "completed",
-    detail: `${String(metrics.auditableStructuredEdges + metrics.auditablePdfEdges)} auditable edges across ${String(metrics.uniqueEdges)} unique papers`,
+    detail: `${String(neighborhoodMetrics.auditableStructuredEdges + neighborhoodMetrics.auditablePdfEdges)} auditable edges across ${String(neighborhoodMetrics.uniqueEdges)} unique papers`,
   });
-  const { decision, reason } = makeDecision(metrics, true, options);
+
+  onProgress?.({
+    step: "filter_claim_family",
+    status: "running",
+    detail: "Scoping citing papers to the grounded claim.",
+  });
+  if (claimGroundingBlocksAnalysis(claimGrounding)) {
+    for (const edge of edges) {
+      edge.inClaimFamily = false;
+      edge.claimRelevanceScore = 0;
+    }
+  } else {
+    const claimQuery = buildRetrievalQuery([
+      claimGrounding.normalizedClaim,
+      seedPaper.title,
+    ]);
+    annotateClaimFamilyMembership(edges, resolvedPapers, claimQuery);
+  }
+
+  const claimFamilyEdges = edges.filter((edge) => edge.inClaimFamily === true);
+  onProgress?.({
+    step: "filter_claim_family",
+    status: "completed",
+    detail: `${String(claimFamilyEdges.length)} of ${String(edges.length)} edges in claim-scoped family`,
+  });
+
+  const metrics = mergeClaimFamilyMetrics(
+    neighborhoodMetrics,
+    claimFamilyEdges,
+  );
+  const { decision, reason } = makeDecision(
+    metrics,
+    true,
+    options,
+    claimGrounding,
+  );
   const familyUseProfile = computeFamilyUseProfile(metrics);
   const m2Priority = computeM2Priority(metrics, decision);
   onProgress?.({
@@ -370,16 +601,21 @@ async function processOneSeed(
   });
 
   return {
-    seed,
-    resolvedSeedPaper: seedPaper,
-    edges,
-    resolvedPapers,
-    duplicateGroups,
-    metrics,
-    familyUseProfile,
-    m2Priority,
-    decision,
-    decisionReason: reason,
+    family: {
+      seed,
+      resolvedSeedPaper: seedPaper,
+      edges,
+      resolvedPapers,
+      duplicateGroups,
+      metrics,
+      neighborhoodMetrics,
+      claimGrounding,
+      familyUseProfile,
+      m2Priority,
+      decision,
+      decisionReason: reason,
+    },
+    traceRecord,
   };
 }
 
@@ -426,18 +662,52 @@ export async function runPreScreen(
   adapters: PreScreenAdapters,
   options: Partial<PreScreenOptions> = {},
   onProgress?: (event: PreScreenProgressEvent) => void,
-): Promise<ClaimFamilyPreScreen[]> {
-  const mergedOptions: PreScreenOptions = { ...DEFAULT_OPTIONS, ...options };
+): Promise<PreScreenRunResult> {
+  const apiKey = options.llmGrounding?.anthropicApiKey?.trim();
+  if (!apiKey) {
+    throw new Error(
+      "runPreScreen requires options.llmGrounding.anthropicApiKey (non-empty).",
+    );
+  }
+  const mergedOptions: PreScreenOptions = {
+    minAuditableCoverage:
+      options.minAuditableCoverage ??
+      DEFAULT_NUMERIC_OPTIONS.minAuditableCoverage,
+    minAuditableEdges:
+      options.minAuditableEdges ?? DEFAULT_NUMERIC_OPTIONS.minAuditableEdges,
+    llmGrounding: {
+      anthropicApiKey: apiKey,
+      ...(options.llmGrounding?.model != null
+        ? { model: options.llmGrounding.model }
+        : {}),
+    },
+  };
   const paperCache = new Map<string, ResolvedPaper>();
 
   const results: ClaimFamilyPreScreen[] = [];
+  const recordsBySeedDoi: PreScreenGroundingTraceFile["recordsBySeedDoi"] = {};
+
   for (const seed of seeds) {
-    results.push(
-      await processOneSeed(seed, adapters, paperCache, mergedOptions, onProgress),
+    const { family, traceRecord } = await processOneSeed(
+      seed,
+      adapters,
+      paperCache,
+      mergedOptions,
+      onProgress,
     );
+    results.push(family);
+    recordsBySeedDoi[normalizeSeedDoiForTraceKey(seed.doi)] = traceRecord;
   }
 
   assignM2Priorities(results);
 
-  return results;
+  return {
+    families: results,
+    groundingTrace: {
+      artifactKind: "pre-screen-grounding-trace",
+      schemaVersion: PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      recordsBySeedDoi,
+    },
+  };
 }
