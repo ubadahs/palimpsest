@@ -40,7 +40,7 @@ Any equivalent deployment is fine as long as `GROBID_BASE_URL` exposes:
 ### Failure behavior
 
 - `doctor` fails if GROBID is unreachable
-- PDF-backed M2 and M4 runs fail fast with a GROBID parse/fetch error
+- PDF-backed `extract` and `evidence` runs fail fast with a GROBID parse/fetch error
 - JATS-backed paths do not require GROBID at runtime
 
 ## Local reranker sidecar
@@ -91,13 +91,13 @@ Response body:
 ### Failure behavior
 
 - `doctor` reports reranker health as optional and non-fatal
-- M4 falls back to BM25 if reranking errors or times out
+- `evidence` falls back to BM25 if reranking errors or times out
 
 ## Cache behavior
 
-M2 and M4 now reuse:
+`extract` and `evidence` now reuse:
 
 - raw full-text cache entries
 - parsed-paper cache entries keyed by paper id and content hash
 
-Use `--force-refresh` on `m2-extract` or `m4-evidence` to bypass both raw and parsed cache reuse.
+Use `--force-refresh` on `extract` or `evidence` to bypass both raw and parsed cache reuse.

@@ -35,15 +35,46 @@ export type AnalysisRunStageStatus = z.infer<
   typeof analysisRunStageStatusSchema
 >;
 
-export const analysisRunConfigSchema = z
+export const analysisRunConfigObjectSchema = z
   .object({
-    stopAfterStage: stageKeySchema.default("m6-llm-judge"),
+    stopAfterStage: stageKeySchema.default("adjudicate"),
     forceRefresh: z.boolean().default(false),
-    m5TargetSize: z.number().int().positive().default(40),
-    m6Model: z.string().min(1).default("claude-opus-4-6"),
-    m6Thinking: z.boolean().default(false),
+    curateTargetSize: z.number().int().positive().default(40),
+    adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
+    adjudicateThinking: z.boolean().default(false),
   })
   .passthrough();
+
+function migrateConfigFields(val: unknown): unknown {
+  if (typeof val !== "object" || val === null) return val;
+  const obj = val as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...obj };
+  // Migrate old field names from stored config_json
+  if ("m5TargetSize" in obj && !("curateTargetSize" in obj)) {
+    out["curateTargetSize"] = obj["m5TargetSize"];
+    delete out["m5TargetSize"];
+  }
+  if ("m6Model" in obj && !("adjudicateModel" in obj)) {
+    out["adjudicateModel"] = obj["m6Model"];
+    delete out["m6Model"];
+  }
+  if ("m6Thinking" in obj && !("adjudicateThinking" in obj)) {
+    out["adjudicateThinking"] = obj["m6Thinking"];
+    delete out["m6Thinking"];
+  }
+  if (out["stopAfterStage"] === "m6-llm-judge") out["stopAfterStage"] = "adjudicate";
+  if (out["stopAfterStage"] === "pre-screen") out["stopAfterStage"] = "screen";
+  if (out["stopAfterStage"] === "m2-extract") out["stopAfterStage"] = "extract";
+  if (out["stopAfterStage"] === "m3-classify") out["stopAfterStage"] = "classify";
+  if (out["stopAfterStage"] === "m4-evidence") out["stopAfterStage"] = "evidence";
+  if (out["stopAfterStage"] === "m5-adjudicate") out["stopAfterStage"] = "curate";
+  return out;
+}
+
+export const analysisRunConfigSchema = z.preprocess(
+  migrateConfigFields,
+  analysisRunConfigObjectSchema,
+);
 export type AnalysisRunConfig = z.infer<typeof analysisRunConfigSchema>;
 
 export const stageArtifactPointerSchema = z

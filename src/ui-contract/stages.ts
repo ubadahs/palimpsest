@@ -1,10 +1,10 @@
 export const stageKeyValues = [
-  "pre-screen",
-  "m2-extract",
-  "m3-classify",
-  "m4-evidence",
-  "m5-adjudicate",
-  "m6-llm-judge",
+  "screen",
+  "extract",
+  "classify",
+  "evidence",
+  "curate",
+  "adjudicate",
 ] as const;
 
 type StageKey = (typeof stageKeyValues)[number];
@@ -25,12 +25,12 @@ export type StageDefinition = {
 
 export const stageDefinitions: readonly StageDefinition[] = [
   {
-    key: "pre-screen",
+    key: "screen",
     order: 1,
-    slug: "01-pre-screen",
-    title: "Pre-screen",
-    directoryName: "01-pre-screen",
-    command: "pre-screen",
+    slug: "01-screen",
+    title: "Screen",
+    directoryName: "01-screen",
+    command: "screen",
     artifactGlobs: {
       primarySuffix: "_pre-screen-results.json",
       reportSuffix: "_pre-screen-report.md",
@@ -38,12 +38,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     },
   },
   {
-    key: "m2-extract",
+    key: "extract",
     order: 2,
-    slug: "02-m2-extract",
-    title: "M2 Extract",
-    directoryName: "02-m2-extract",
-    command: "m2-extract",
+    slug: "02-extract",
+    title: "Extract",
+    directoryName: "02-extract",
+    command: "extract",
     artifactGlobs: {
       primarySuffix: "_m2-extraction-results.json",
       reportSuffix: "_m2-extraction-report.md",
@@ -51,12 +51,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     },
   },
   {
-    key: "m3-classify",
+    key: "classify",
     order: 3,
-    slug: "03-m3-classify",
-    title: "M3 Classify",
-    directoryName: "03-m3-classify",
-    command: "m3-classify",
+    slug: "03-classify",
+    title: "Classify",
+    directoryName: "03-classify",
+    command: "classify",
     artifactGlobs: {
       primarySuffix: "_classification-results.json",
       reportSuffix: "_classification-report.md",
@@ -64,12 +64,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     },
   },
   {
-    key: "m4-evidence",
+    key: "evidence",
     order: 4,
-    slug: "04-m4-evidence",
-    title: "M4 Evidence",
-    directoryName: "04-m4-evidence",
-    command: "m4-evidence",
+    slug: "04-evidence",
+    title: "Evidence",
+    directoryName: "04-evidence",
+    command: "evidence",
     artifactGlobs: {
       primarySuffix: "_evidence-results.json",
       reportSuffix: "_evidence-report.md",
@@ -77,12 +77,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     },
   },
   {
-    key: "m5-adjudicate",
+    key: "curate",
     order: 5,
-    slug: "05-m5-adjudicate",
-    title: "M5 Adjudicate",
-    directoryName: "05-m5-adjudicate",
-    command: "m5-adjudicate",
+    slug: "05-curate",
+    title: "Curate",
+    directoryName: "05-curate",
+    command: "curate",
     artifactGlobs: {
       primarySuffix: "_calibration-set.json",
       reportSuffix: "_calibration-worksheet.md",
@@ -90,12 +90,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     },
   },
   {
-    key: "m6-llm-judge",
+    key: "adjudicate",
     order: 6,
-    slug: "06-m6-llm-judge",
-    title: "M6 LLM Judge",
-    directoryName: "06-m6-llm-judge",
-    command: "m6-llm-judge",
+    slug: "06-adjudicate",
+    title: "Adjudicate",
+    directoryName: "06-adjudicate",
+    command: "adjudicate",
     artifactGlobs: {
       primarySuffix: "_llm-calibration.json",
       reportSuffix: "_llm-summary.md",

@@ -24,27 +24,27 @@ import type {
 
 type ArtifactLoadResult =
   | {
-      kind: "pre-screen";
+      kind: "screen";
       data: ReturnType<typeof preScreenResultsSchema.parse>;
     }
   | {
-      kind: "m2-extract";
+      kind: "extract";
       data: ReturnType<typeof familyExtractionResultSchema.parse>;
     }
   | {
-      kind: "m3-classify";
+      kind: "classify";
       data: ReturnType<typeof familyClassificationResultSchema.parse>;
     }
   | {
-      kind: "m4-evidence";
+      kind: "evidence";
       data: ReturnType<typeof familyEvidenceResultSchema.parse>;
     }
   | {
-      kind: "m5-adjudicate";
+      kind: "curate";
       data: ReturnType<typeof calibrationSetSchema.parse>;
     }
   | {
-      kind: "m6-llm-judge";
+      kind: "adjudicate";
       data: ReturnType<typeof calibrationSetSchema.parse>;
     };
 
@@ -69,46 +69,46 @@ function loadArtifactForStage(
   stageKey: StageKey,
   artifactPath: string,
 ): ArtifactLoadResult {
-  if (stageKey === "pre-screen") {
+  if (stageKey === "screen") {
     return {
       kind: stageKey,
       data: loadJsonArtifact(
         artifactPath,
         preScreenResultsSchema,
-        "pre-screen results",
+        "screen results",
       ),
     };
   }
 
-  if (stageKey === "m2-extract") {
+  if (stageKey === "extract") {
     return {
       kind: stageKey,
       data: loadJsonArtifact(
         artifactPath,
         familyExtractionResultSchema,
-        "m2 extraction results",
+        "extraction results",
       ),
     };
   }
 
-  if (stageKey === "m3-classify") {
+  if (stageKey === "classify") {
     return {
       kind: stageKey,
       data: loadJsonArtifact(
         artifactPath,
         familyClassificationResultSchema,
-        "m3 classification results",
+        "classification results",
       ),
     };
   }
 
-  if (stageKey === "m4-evidence") {
+  if (stageKey === "evidence") {
     return {
       kind: stageKey,
       data: loadJsonArtifact(
         artifactPath,
         familyEvidenceResultSchema,
-        "m4 evidence results",
+        "evidence results",
       ),
     };
   }
@@ -118,9 +118,7 @@ function loadArtifactForStage(
     data: loadJsonArtifact(
       artifactPath,
       calibrationSetSchema,
-      stageKey === "m5-adjudicate"
-        ? "m5 calibration set"
-        : "m6 llm calibration",
+      stageKey === "curate" ? "calibration set" : "llm calibration",
     ),
   };
 }
@@ -228,7 +226,7 @@ export function deriveStageSummary(
 
   const artifact = loadArtifactForStage(stageKey, artifactPath);
 
-  if (artifact.kind === "pre-screen") {
+  if (artifact.kind === "screen") {
     const greenlit = artifact.data.filter(
       (entry) => entry.decision === "greenlight",
     );
@@ -248,7 +246,7 @@ export function deriveStageSummary(
     };
   }
 
-  if (artifact.kind === "m2-extract") {
+  if (artifact.kind === "extract") {
     return {
       headline: "Citation extraction outcomes",
       metrics: [
@@ -260,7 +258,7 @@ export function deriveStageSummary(
     };
   }
 
-  if (artifact.kind === "m3-classify") {
+  if (artifact.kind === "classify") {
     return {
       headline: "Evaluation task packets",
       metrics: [
@@ -278,7 +276,7 @@ export function deriveStageSummary(
     };
   }
 
-  if (artifact.kind === "m4-evidence") {
+  if (artifact.kind === "evidence") {
     return {
       headline: "Retrieved evidence blocks",
       metrics: [
@@ -290,7 +288,7 @@ export function deriveStageSummary(
     };
   }
 
-  if (artifact.kind === "m5-adjudicate") {
+  if (artifact.kind === "curate") {
     return {
       ...summarizeCalibration(artifact.data, "Calibration set"),
       artifacts: artifactPointers,
@@ -309,7 +307,7 @@ export function buildStageInspectorPayload(
 ): unknown {
   const artifact = loadArtifactForStage(stageKey, artifactPath);
 
-  if (artifact.kind === "pre-screen") {
+  if (artifact.kind === "screen") {
     return {
       families: artifact.data.map((family) => ({
         seedDoi: family.seed.doi,
@@ -331,7 +329,7 @@ export function buildStageInspectorPayload(
     };
   }
 
-  if (artifact.kind === "m2-extract") {
+  if (artifact.kind === "extract") {
     return {
       seed: artifact.data.seed,
       summary: artifact.data.summary,
@@ -359,7 +357,7 @@ export function buildStageInspectorPayload(
     };
   }
 
-  if (artifact.kind === "m3-classify") {
+  if (artifact.kind === "classify") {
     return {
       seed: artifact.data.seed,
       summary: artifact.data.summary,
@@ -382,7 +380,7 @@ export function buildStageInspectorPayload(
     };
   }
 
-  if (artifact.kind === "m4-evidence") {
+  if (artifact.kind === "evidence") {
     return {
       seed: artifact.data.seed,
       summary: artifact.data.summary,
@@ -421,7 +419,7 @@ export function buildStageInspectorPayload(
     };
   }
 
-  if (artifact.kind === "m5-adjudicate") {
+  if (artifact.kind === "curate") {
     return {
       summary: artifact.data.samplingStrategy,
       records: artifact.data.records.map((record) => ({

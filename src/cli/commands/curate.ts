@@ -21,7 +21,7 @@ function parseArgs(argv: string[]): {
 } {
   let evidencePath: string | undefined;
   let targetSize = 40;
-  let output = "data/m5-adjudication";
+  let output = "data/curation";
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): {
 
   if (!evidencePath) {
     console.error(
-      "Usage: m5-adjudicate --evidence <path> [--target-size 40] [--output <dir>]",
+      "Usage: curate --evidence <path> [--target-size 40] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -48,10 +48,10 @@ function parseArgs(argv: string[]): {
   return { evidencePath, targetSize, output };
 }
 
-export function runM5AdjudicateCommand(argv: string[]): void {
+export function runCurateCommand(argv: string[]): void {
   const args = parseArgs(argv);
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("m5-adjudicate");
+    createTrackedCliProgressReporter("curate");
 
   try {
     progress.startStep("collect_eligible_tasks", {
@@ -61,7 +61,7 @@ export function runM5AdjudicateCommand(argv: string[]): void {
     const evidence = loadJsonArtifact(
       args.evidencePath,
       familyEvidenceResultSchema,
-      "m4 evidence results",
+      "evidence results",
     );
     const eligibleTasks = evidence.edges.reduce(
       (count, edge) =>
@@ -76,7 +76,7 @@ export function runM5AdjudicateCommand(argv: string[]): void {
     });
 
     const title = evidence.resolvedSeedPaperTitle;
-    console.info(`M5 adjudication for: ${title}`);
+    console.info(`Curation for: ${title}`);
     console.info(`  Target size: ${String(args.targetSize)}`);
 
     progress.startStep("prioritize_edge_cases", {
@@ -119,8 +119,8 @@ export function runM5AdjudicateCommand(argv: string[]): void {
       detail: "Writing the calibration set and worksheet artifacts.",
     });
     const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "m5-calibration-set",
-      generator: "m5-adjudicate",
+      artifactType: "calibration-set",
+      generator: "curate",
       sourceArtifacts: [args.evidencePath],
       relatedArtifacts: [mdPath],
     });

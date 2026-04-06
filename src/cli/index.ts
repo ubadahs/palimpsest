@@ -4,12 +4,12 @@ import { runBenchmarkDiffCommand } from "./commands/benchmark-diff.js";
 import { runBenchmarkSummaryCommand } from "./commands/benchmark-summary.js";
 import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
 import { runDoctorCommand } from "./commands/doctor.js";
-import { runM2ExtractCommand } from "./commands/m2-extract.js";
-import { runM3ClassifyCommand } from "./commands/m3-classify.js";
-import { runM4EvidenceCommand } from "./commands/m4-evidence.js";
-import { runM5AdjudicateCommand } from "./commands/m5-adjudicate.js";
-import { runM6LlmJudgeCommand } from "./commands/m6-llm-judge.js";
-import { runPreScreenCommand } from "./commands/pre-screen.js";
+import { runExtractCommand } from "./commands/extract.js";
+import { runClassifyCommand } from "./commands/classify.js";
+import { runEvidenceCommand } from "./commands/evidence.js";
+import { runCurateCommand } from "./commands/curate.js";
+import { runAdjudicateCommand } from "./commands/adjudicate.js";
+import { runPreScreenCommand } from "./commands/screen.js";
 
 function printHelp(): void {
   console.info(`Citation Fidelity Analyzer
@@ -17,12 +17,12 @@ function printHelp(): void {
 Available commands:
   doctor        Print resolved configuration and taxonomy summary
   db:migrate    Apply pending SQLite migrations
-  pre-screen    Pre-screen claim families (LLM full-doc claim grounding + trace sidecar; needs ANTHROPIC_API_KEY)
-  m2-extract    Extract citation contexts for a single claim family
-  m3-classify   Classify citation functions and build edge evaluation packets
-  m4-evidence   Retrieve evidence from cited paper for evaluation tasks
-  m5-adjudicate Generate calibration worksheet for human adjudication
-  m6-llm-judge  Run LLM adjudication against calibration set
+  screen        Screen claim families (LLM full-doc claim grounding + trace sidecar; needs ANTHROPIC_API_KEY)
+  extract       Extract citation contexts for a single claim family
+  classify      Classify citation functions and build edge evaluation packets
+  evidence      Retrieve evidence from cited paper for evaluation tasks
+  curate        Build a balanced calibration sample from evidence-backed tasks
+  adjudicate    Run LLM adjudication against calibration set
   benchmark:blind Create a blinded benchmark export from an adjudicated set
   benchmark:diff  Compare two adjudication datasets keyed by taskId
   benchmark:apply Apply approved adjudication deltas to a base dataset
@@ -63,33 +63,33 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === "pre-screen") {
+  if (command === "screen" || command === "pre-screen") {
     await runPreScreenCommand(process.argv.slice(3));
     return;
   }
 
-  if (command === "m2-extract") {
-    await runM2ExtractCommand(process.argv.slice(3));
+  if (command === "extract") {
+    await runExtractCommand(process.argv.slice(3));
     return;
   }
 
-  if (command === "m3-classify") {
-    runM3ClassifyCommand(process.argv.slice(3));
+  if (command === "classify") {
+    runClassifyCommand(process.argv.slice(3));
     return;
   }
 
-  if (command === "m4-evidence") {
-    await runM4EvidenceCommand(process.argv.slice(3));
+  if (command === "evidence") {
+    await runEvidenceCommand(process.argv.slice(3));
     return;
   }
 
-  if (command === "m5-adjudicate") {
-    runM5AdjudicateCommand(process.argv.slice(3));
+  if (command === "curate") {
+    runCurateCommand(process.argv.slice(3));
     return;
   }
 
-  if (command === "m6-llm-judge") {
-    await runM6LlmJudgeCommand(process.argv.slice(3));
+  if (command === "adjudicate") {
+    await runAdjudicateCommand(process.argv.slice(3));
     return;
   }
 
