@@ -26,24 +26,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/" className="inline-block">
               {isHome ? (
                 <h1 className="font-[var(--font-instrument)] text-4xl leading-none tracking-[-0.03em] text-[var(--text)] md:text-6xl">
-                  Local run orchestration
+                  Citation Fidelity
                 </h1>
               ) : (
                 <h1 className="font-[var(--font-instrument)] text-2xl leading-tight tracking-[-0.03em] text-[var(--text)] md:text-3xl">
-                  Local run orchestration
+                  Citation Fidelity
                 </h1>
               )}
             </Link>
             {isHome ? (
               <p className="max-w-2xl text-sm text-[var(--text-muted)] md:text-base">
-                A local editorial surface for launching the canonical CLI and
-                inspecting artifacts stage by stage.
+                Check whether citing papers faithfully represent the claims of
+                cited papers.
               </p>
-            ) : (
-              <p className="max-w-xl text-sm text-[var(--text-muted)]">
-                Run overview, logs, and stage artifacts.
-              </p>
-            )}
+            ) : null}
           </div>
           <nav className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
             <Link

@@ -3,7 +3,9 @@
 import type { StageWorkflowSnapshot } from "citation-fidelity/ui-contract";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
+  ChevronsRight,
   Dot,
   Info,
   LoaderCircle,
@@ -18,8 +20,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-function stepIcon(status: StageWorkflowSnapshot["steps"][number]["status"]) {
+type StepStatus = StageWorkflowSnapshot["steps"][number]["status"];
+
+function stepIcon(status: StepStatus, warning?: boolean) {
   if (status === "completed") {
+    if (warning) {
+      return <AlertTriangle className="h-4 w-4 text-[var(--warning)]" />;
+    }
     return <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />;
   }
   if (status === "failed") {
@@ -30,22 +37,43 @@ function stepIcon(status: StageWorkflowSnapshot["steps"][number]["status"]) {
       <LoaderCircle className="h-4 w-4 animate-spin text-[var(--accent)]" />
     );
   }
+  if (status === "skipped") {
+    return <ChevronsRight className="h-4 w-4 text-[var(--text-muted)] opacity-50" />;
+  }
 
   return <Dot className="h-4 w-4 text-[var(--text-muted)]" />;
 }
 
-function sourceLabel(
-  source: StageWorkflowSnapshot["source"],
-  variant: "live" | "archive",
-): string {
-  if (source === "telemetry") {
-    return variant === "live"
-      ? "Live progress from stage telemetry"
-      : "Saved telemetry from this stage";
+function stepCardClasses(status: StepStatus, warning?: boolean): string {
+  if (status === "running") {
+    return "border-[rgba(155,92,65,0.28)] bg-[rgba(155,92,65,0.08)]";
   }
-  return variant === "live"
-    ? "Workflow inferred from stage status"
-    : "Workflow inferred from saved stage status";
+  if (status === "completed" && warning) {
+    return "border-[rgba(151,100,44,0.25)] bg-[rgba(151,100,44,0.07)]";
+  }
+  if (status === "completed") {
+    return "border-[rgba(47,111,79,0.18)] bg-[rgba(47,111,79,0.05)]";
+  }
+  if (status === "failed") {
+    return "border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)]";
+  }
+  if (status === "skipped") {
+    return "border-[var(--border)] bg-white/30 opacity-60";
+  }
+  return "border-[var(--border)] bg-white/60";
+}
+
+/** Detects whether the ground_tracked_claim step completed but triggered a deprioritize.
+ *  Signal: step with id "ground_tracked_claim" is completed AND at least one later step is skipped. */
+function isGroundingWarning(
+  steps: StageWorkflowSnapshot["steps"],
+  stepIndex: number,
+): boolean {
+  const step = steps[stepIndex];
+  if (!step || step.status !== "completed" || step.id !== "ground_tracked_claim") {
+    return false;
+  }
+  return steps.slice(stepIndex + 1).some((s) => s.status === "skipped");
 }
 
 export function CurrentWorkPanel({
@@ -58,89 +86,104 @@ export function CurrentWorkPanel({
   /** `live` while a stage is running; `archive` for completed or idle recap. */
   progressVariant?: "live" | "archive";
 }) {
+  const hasSkipped = workflow.steps.some((s) => s.status === "skipped");
+  const displaySummary =
+    hasSkipped && progressVariant === "archive"
+      ? (workflow.steps.find((s) => s.id === "ground_tracked_claim")?.detail ??
+        workflow.summary)
+      : workflow.summary;
+
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <CardHeader className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-              {title}
+            <p className="text-sm font-semibold text-[var(--text)]">{title}</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {displaySummary}
             </p>
-            <h3 className="mt-2 font-[var(--font-instrument)] text-2xl tracking-[-0.03em] text-[var(--text)]">
-              {workflow.summary}
-            </h3>
           </div>
           {workflow.counts ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                {workflow.counts.current}/{workflow.counts.total}{" "}
-                {workflow.counts.label}
-              </span>
-            </div>
+            <span className="shrink-0 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+              {workflow.counts.current}/{workflow.counts.total}{" "}
+              {workflow.counts.label}
+            </span>
           ) : null}
         </div>
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-muted)]">
-          {sourceLabel(workflow.source, progressVariant)}
-        </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        {workflow.steps.map((step, index) => (
-          <div
-            className={cn(
-              "rounded-[24px] border px-4 py-4 transition",
-              step.status === "running"
-                ? "border-[rgba(155,92,65,0.28)] bg-[rgba(155,92,65,0.08)]"
-                : step.status === "completed"
-                  ? "border-[rgba(47,111,79,0.18)] bg-[rgba(47,111,79,0.05)]"
-                  : step.status === "failed"
-                    ? "border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)]"
-                    : "border-[var(--border)] bg-white/60",
-            )}
-            key={step.id}
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 shrink-0">{stepIcon(step.status)}</div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                      Step {String(index + 1).padStart(2, "0")}
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--text)]">
-                      {step.label}
-                    </p>
-                  </div>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        aria-label={`More about ${step.label}`}
-                        className="h-8 w-8 shrink-0 rounded-full p-0"
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <Info className="h-4 w-4" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent align="end">
-                      <p>{step.description}</p>
-                      {step.detail ? (
-                        <p className="mt-3 border-t border-[var(--border)] pt-3 text-[13px] text-[var(--text-muted)]">
-                          {step.detail}
-                        </p>
-                      ) : null}
-                    </PopoverContent>
-                  </Popover>
+        {workflow.steps.map((step, index) => {
+          const warning = isGroundingWarning(workflow.steps, index);
+          return (
+            <div
+              className={cn(
+                "rounded-[24px] border px-4 py-4 transition",
+                stepCardClasses(step.status, warning),
+              )}
+              key={step.id}
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 shrink-0">
+                  {stepIcon(step.status, warning)}
                 </div>
-                {step.detail &&
-                (step.status === "running" || step.status === "failed") ? (
-                  <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
-                    {step.detail}
-                  </p>
-                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                        Step {String(index + 1).padStart(2, "0")}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-1 text-sm font-semibold",
+                          step.status === "skipped"
+                            ? "text-[var(--text-muted)]"
+                            : "text-[var(--text)]",
+                        )}
+                      >
+                        {step.label}
+                      </p>
+                    </div>
+                    {step.status !== "skipped" ? (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            aria-label={`More about ${step.label}`}
+                            className="h-8 w-8 shrink-0 rounded-full p-0"
+                            size="sm"
+                            variant="ghost"
+                          >
+                            <Info className="h-4 w-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end">
+                          <p>{step.description}</p>
+                          {step.detail ? (
+                            <p className="mt-3 border-t border-[var(--border)] pt-3 text-[13px] text-[var(--text-muted)]">
+                              {step.detail}
+                            </p>
+                          ) : null}
+                        </PopoverContent>
+                      </Popover>
+                    ) : null}
+                  </div>
+                  {step.detail &&
+                  (step.status === "running" ||
+                    step.status === "failed" ||
+                    warning) ? (
+                    <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">
+                      {step.detail}
+                    </p>
+                  ) : null}
+                  {step.status === "skipped" && step.detail ? (
+                    <p className="mt-1 text-xs text-[var(--text-muted)] opacity-70">
+                      {step.detail}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );
