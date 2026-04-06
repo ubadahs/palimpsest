@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type GenericRecord = Record<string, unknown>;
 
-function PreScreenInspector({ payload }: { payload: GenericRecord }) {
+function ScreenInspector({ payload }: { payload: GenericRecord }) {
   const families = (payload["families"] as GenericRecord[] | undefined) ?? [];
   const edgeRows = families.flatMap(
     (family) =>
@@ -50,7 +50,7 @@ function PreScreenInspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
-function M2Inspector({ payload }: { payload: GenericRecord }) {
+function ExtractInspector({ payload }: { payload: GenericRecord }) {
   const rows = (
     (payload["edgeResults"] as GenericRecord[] | undefined) ?? []
   ).map((edge) => ({
@@ -77,7 +77,7 @@ function M2Inspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
-function M3Inspector({ payload }: { payload: GenericRecord }) {
+function ClassifyInspector({ payload }: { payload: GenericRecord }) {
   const rows = (
     (payload["packets"] as GenericRecord[] | undefined) ?? []
   ).flatMap(
@@ -109,7 +109,7 @@ function M3Inspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
-function M4Inspector({ payload }: { payload: GenericRecord }) {
+function EvidenceInspector({ payload }: { payload: GenericRecord }) {
   const edges = (payload["edges"] as GenericRecord[] | undefined) ?? [];
   const tasks = edges.flatMap(
     (edge) =>
@@ -243,7 +243,7 @@ function M4Inspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
-function M5Inspector({ payload }: { payload: GenericRecord }) {
+function CurateInspector({ payload }: { payload: GenericRecord }) {
   const rows = ((payload["records"] as GenericRecord[] | undefined) ?? []).map(
     (record) => ({
       evaluationMode: String(record["evaluationMode"] ?? ""),
@@ -272,7 +272,7 @@ function M5Inspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
-function M6Inspector({ payload }: { payload: GenericRecord }) {
+function AdjudicateInspector({ payload }: { payload: GenericRecord }) {
   const records = (payload["records"] as GenericRecord[] | undefined) ?? [];
   const defaultFilter = String(
     payload["defaultVerdictFilter"] ?? "partially_supported",
@@ -398,23 +398,23 @@ export function StageInspector({ detail }: { detail: RunStageDetail }) {
           <TabsTrigger value="notes">Inspector</TabsTrigger>
         </TabsList>
         <TabsContent value="structured">
-          {detail.stageKey === "pre-screen" ? (
-            <PreScreenInspector payload={payload} />
+          {detail.stageKey === "screen" ? (
+            <ScreenInspector payload={payload} />
           ) : null}
-          {detail.stageKey === "m2-extract" ? (
-            <M2Inspector payload={payload} />
+          {detail.stageKey === "extract" ? (
+            <ExtractInspector payload={payload} />
           ) : null}
-          {detail.stageKey === "m3-classify" ? (
-            <M3Inspector payload={payload} />
+          {detail.stageKey === "classify" ? (
+            <ClassifyInspector payload={payload} />
           ) : null}
-          {detail.stageKey === "m4-evidence" ? (
-            <M4Inspector payload={payload} />
+          {detail.stageKey === "evidence" ? (
+            <EvidenceInspector payload={payload} />
           ) : null}
-          {detail.stageKey === "m5-adjudicate" ? (
-            <M5Inspector payload={payload} />
+          {detail.stageKey === "curate" ? (
+            <CurateInspector payload={payload} />
           ) : null}
-          {detail.stageKey === "m6-llm-judge" ? (
-            <M6Inspector payload={payload} />
+          {detail.stageKey === "adjudicate" ? (
+            <AdjudicateInspector payload={payload} />
           ) : null}
         </TabsContent>
         <TabsContent value="notes">

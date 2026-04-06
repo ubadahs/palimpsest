@@ -9,12 +9,12 @@ import {
   preScreenResultsSchema,
 } from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import { runM2Extraction } from "../../pipeline/m2-extract.js";
+import { runM2Extraction } from "../../pipeline/extract.js";
 import {
   toM2InspectionArtifact,
   toM2Json,
   toM2Markdown,
-} from "../../reporting/m2-extraction-report.js";
+} from "../../reporting/extraction-report.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
 import {
   loadJsonArtifact,
@@ -32,7 +32,7 @@ function parseArgs(argv: string[]): {
 } {
   let preScreenPath: string | undefined;
   let seedDoi: string | undefined;
-  let output = "data/m2-extraction";
+  let output = "data/extraction";
   let forceRefresh = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -53,7 +53,7 @@ function parseArgs(argv: string[]): {
 
   if (!preScreenPath || !seedDoi) {
     console.error(
-      "Usage: m2-extract --pre-screen <path> --seed-doi <doi> [--output <dir>] [--force-refresh]",
+      "Usage: extract --pre-screen <path> --seed-doi <doi> [--output <dir>] [--force-refresh]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -62,13 +62,13 @@ function parseArgs(argv: string[]): {
   return { preScreenPath, seedDoi, output, forceRefresh };
 }
 
-export async function runM2ExtractCommand(argv: string[]): Promise<void> {
+export async function runExtractCommand(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
   const database = openDatabase(config.databasePath);
   const { progress, reportCliFailure } =
-    createTrackedCliProgressReporter("m2-extract");
+    createTrackedCliProgressReporter("extract");
 
   try {
     runMigrations(database);
@@ -105,7 +105,7 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
 
     if (claimFamilyBlocksDownstream(family)) {
       console.error(
-        "Pre-screen claim grounding blocks M2+ for this family. Revise the tracked claim or fix seed full text, then re-run pre-screen.",
+        "Screening claim grounding blocks later stages for this family. Revise the tracked claim or fix seed full text, then re-run screen.",
       );
       console.error(
         `  Status: ${family.claimGrounding?.status ?? "unknown"} — ${family.claimGrounding?.detailReason ?? ""}`,
@@ -114,7 +114,7 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
       return;
     }
 
-    console.info(`M2 extraction for: ${family.resolvedSeedPaper.title}`);
+    console.info(`Extraction for: ${family.resolvedSeedPaper.title}`);
     console.info(`  ${String(family.edges.length)} edges to process\n`);
 
     const cachePolicy: CachePolicy = args.forceRefresh
@@ -158,8 +158,8 @@ export async function runM2ExtractCommand(argv: string[]): Promise<void> {
     writeFileSync(mdPath, toM2Markdown(result), "utf8");
     writeFileSync(inspectPath, toM2InspectionArtifact(result), "utf8");
     const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "m2-extraction-results",
-      generator: "m2-extract",
+      artifactType: "extraction-results",
+      generator: "extract",
       sourceArtifacts: [args.preScreenPath],
       relatedArtifacts: [mdPath, inspectPath],
     });

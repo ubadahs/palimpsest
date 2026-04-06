@@ -5,7 +5,7 @@ import type { StageWorkflowSnapshot } from "citation-fidelity/ui-contract";
 import { CurrentWorkPanel } from "../components/current-work-panel";
 
 const workflow: StageWorkflowSnapshot = {
-  stageKey: "m2-extract",
+  stageKey: "extract",
   title: "Current work",
   summary: "Citation extraction is underway.",
   source: "telemetry",

@@ -14,7 +14,7 @@ describe("createTrackedCliProgressReporter", () => {
 
   it("emits a failed progress line for the running step on reportCliFailure", () => {
     const { progress, reportCliFailure } =
-      createTrackedCliProgressReporter("m3-classify");
+      createTrackedCliProgressReporter("classify");
 
     progress.startStep("classify_citation_roles", {
       detail: "Working",
@@ -35,7 +35,7 @@ describe("createTrackedCliProgressReporter", () => {
   });
 
   it("uses the first workflow step when failure happens before any telemetry", () => {
-    const { reportCliFailure } = createTrackedCliProgressReporter("pre-screen");
+    const { reportCliFailure } = createTrackedCliProgressReporter("screen");
     reportCliFailure(new Error("early"));
 
     const args = vi.mocked(console.info).mock.calls.at(-1);

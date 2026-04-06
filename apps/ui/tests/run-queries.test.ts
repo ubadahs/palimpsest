@@ -49,33 +49,33 @@ describe("run queries workflow integration", () => {
       id: "run-workflow",
       seedDoi: "10.1234/seed",
       trackedClaim: "Tracked claim",
-      targetStage: "m6-llm-judge",
+      targetStage: "adjudicate",
       config: {
-        stopAfterStage: "m6-llm-judge",
+        stopAfterStage: "adjudicate",
         forceRefresh: false,
-        m5TargetSize: 40,
-        m6Model: "claude-opus-4-6",
-        m6Thinking: false,
+        curateTargetSize: 40,
+        adjudicateModel: "claude-opus-4-6",
+        adjudicateThinking: false,
       },
     });
     const database = getDatabase();
-    const logPath = getStageLogPath(run.id, "m6-llm-judge");
+    const logPath = getStageLogPath(run.id, "adjudicate");
 
-    updateStageStatus(database, run.id, "m6-llm-judge", "running", {
+    updateStageStatus(database, run.id, "adjudicate", "running", {
       startedAt: new Date().toISOString(),
     });
-    setRunStatus(database, run.id, "running", "m6-llm-judge");
+    setRunStatus(database, run.id, "running", "adjudicate");
     writeFileSync(
       logPath,
       [
         serializeProgressEvent({
-          stage: "m6-llm-judge",
+          stage: "adjudicate",
           step: "load_active_records",
           status: "completed",
           detail: "31 active records ready",
         }),
         serializeProgressEvent({
-          stage: "m6-llm-judge",
+          stage: "adjudicate",
           step: "adjudicate_records",
           status: "running",
           detail: "Adjudicating record 6 of 31",
@@ -87,7 +87,7 @@ describe("run queries workflow integration", () => {
     );
 
     const detail = getRunDetailOrThrow(run.id);
-    const stageDetail = getStageDetailOrThrow(run.id, "m6-llm-judge");
+    const stageDetail = getStageDetailOrThrow(run.id, "adjudicate");
 
     expect(detail.activeWorkflow?.source).toBe("telemetry");
     expect(detail.activeWorkflow?.counts).toEqual({
@@ -96,7 +96,7 @@ describe("run queries workflow integration", () => {
       label: "records",
     });
     expect(
-      detail.stages.find((stage) => stage.stageKey === "m6-llm-judge")?.summary
+      detail.stages.find((stage) => stage.stageKey === "adjudicate")?.summary
         ?.headline,
     ).toBe(detail.activeWorkflow?.summary);
     expect(stageDetail.workflow.steps[1]?.status).toBe("running");

@@ -40,12 +40,12 @@ function assertClaimGateAllowsDownstream(
   stages: { stageKey: StageKey; primaryArtifactPath?: string | undefined }[],
   startStage: StageKey,
 ): void {
-  const preOrder = getStageDefinition("pre-screen").order;
+  const preOrder = getStageDefinition("screen").order;
   const startOrder = getStageDefinition(startStage).order;
   if (startOrder <= preOrder) {
     return;
   }
-  const preStage = stages.find((s) => s.stageKey === "pre-screen");
+  const preStage = stages.find((s) => s.stageKey === "screen");
   const blockReason = getClaimGateBlockReasonForRun(
     preStage?.primaryArtifactPath,
     run.seedDoi,

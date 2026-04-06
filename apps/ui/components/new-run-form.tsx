@@ -19,9 +19,9 @@ type FormState = {
   trackedClaim: string;
   targetStage: StageKey;
   forceRefresh: boolean;
-  m5TargetSize: number;
-  m6Model: string;
-  m6Thinking: boolean;
+  curateTargetSize: number;
+  adjudicateModel: string;
+  adjudicateThinking: boolean;
 };
 
 export function NewRunForm() {
@@ -32,11 +32,11 @@ export function NewRunForm() {
   const [state, setState] = useState<FormState>({
     seedDoi: "",
     trackedClaim: "",
-    targetStage: "m6-llm-judge",
+    targetStage: "adjudicate",
     forceRefresh: false,
-    m5TargetSize: 40,
-    m6Model: "claude-opus-4-6",
-    m6Thinking: false,
+    curateTargetSize: 40,
+    adjudicateModel: "claude-opus-4-6",
+    adjudicateThinking: false,
   });
 
   function update<K extends keyof FormState>(
@@ -67,9 +67,9 @@ export function NewRunForm() {
             config: {
               stopAfterStage: state.targetStage,
               forceRefresh: state.forceRefresh,
-              m5TargetSize: state.m5TargetSize,
-              m6Model: state.m6Model,
-              m6Thinking: state.m6Thinking,
+              curateTargetSize: state.curateTargetSize,
+              adjudicateModel: state.adjudicateModel,
+              adjudicateThinking: state.adjudicateThinking,
             },
           }),
         });
@@ -118,7 +118,7 @@ export function NewRunForm() {
                 Tracked claim (analyst hypothesis)
               </span>
               <Textarea
-                placeholder="State the empirical claim you want to track. Pre-screen will verify it appears in the seed paper’s full text before M2+ runs."
+                placeholder="State the empirical claim you want to track. Screen will verify it appears in the seed paper's full text before later stages run."
                 value={state.trackedClaim}
                 onChange={(event) => update("trackedClaim", event.target.value)}
               />
@@ -148,7 +148,7 @@ export function NewRunForm() {
                   Stop after stage
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Last pipeline stage this run will execute (M6 is full run).
+                  Last pipeline stage this run will execute (adjudicate is full run).
                 </span>
                 <select
                   className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
@@ -166,25 +166,25 @@ export function NewRunForm() {
               </label>
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  Calibration sample size (M5)
+                  Calibration sample size
                 </span>
                 <Input
                   min={1}
                   type="number"
-                  value={state.m5TargetSize}
+                  value={state.curateTargetSize}
                   onChange={(event) =>
-                    update("m5TargetSize", Number(event.target.value))
+                    update("curateTargetSize", Number(event.target.value))
                   }
                 />
               </label>
               <label className="grid gap-2 md:col-span-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  LLM adjudication model (M6)
+                  Adjudication model
                 </span>
                 <Input
                   autoComplete="off"
-                  value={state.m6Model}
-                  onChange={(event) => update("m6Model", event.target.value)}
+                  value={state.adjudicateModel}
+                  onChange={(event) => update("adjudicateModel", event.target.value)}
                 />
               </label>
               <div className="grid gap-3 md:col-span-2">
@@ -201,14 +201,14 @@ export function NewRunForm() {
                 </label>
                 <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
                   <input
-                    checked={state.m6Thinking}
+                    checked={state.adjudicateThinking}
                     className="size-4 accent-[var(--accent)]"
                     type="checkbox"
                     onChange={(event) =>
-                      update("m6Thinking", event.target.checked)
+                      update("adjudicateThinking", event.target.checked)
                     }
                   />
-                  Enable extended thinking for M6 adjudication
+                  Enable extended thinking for adjudication
                 </label>
               </div>
             </div>

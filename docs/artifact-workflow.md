@@ -14,12 +14,12 @@ The CLI writes JSON artifacts as the canonical machine outputs for each stage. T
 
 Each command writes a primary JSON artifact plus one or more human-readable companions:
 
-- `pre-screen` → `*_pre-screen-results.json` + Markdown report + `*_pre-screen-grounding-trace.json` sidecar. Primary JSON includes compact `claimGrounding` (authoritative for gating/M2), `neighborhoodMetrics`, and per-edge `inClaimFamily` / `claimRelevanceScore`. The trace file holds exact LLM prompt, raw response text, parsed JSON, quote verification, and token/cost metadata per seed. Requires `ANTHROPIC_API_KEY`, SQLite paper cache, and GROBID (or equivalent) for seed full text. Older runs may lack the trace file; loaders should tolerate its absence.
-- `m2-extract` → `*_m2-extraction-results.json` + report + inspection artifact
-- `m3-classify` → `*_classification-results.json` + report
-- `m4-evidence` → `*_evidence-results.json` + report
-- `m5-adjudicate` → `*_calibration-set.json` + worksheet
-- `m6-llm-judge` → `*_llm-calibration.json` + summary, optionally agreement report
+- `screen` → `*_pre-screen-results.json` + Markdown report + `*_pre-screen-grounding-trace.json` sidecar. Primary JSON includes compact `claimGrounding` (authoritative for gating downstream stages), `neighborhoodMetrics`, and per-edge `inClaimFamily` / `claimRelevanceScore`. The trace file holds exact LLM prompt, raw response text, parsed JSON, quote verification, and token/cost metadata per seed. Requires `ANTHROPIC_API_KEY`, SQLite paper cache, and GROBID (or equivalent) for seed full text. Older runs may lack the trace file; loaders should tolerate its absence.
+- `extract` → `*_m2-extraction-results.json` + report + inspection artifact
+- `classify` → `*_classification-results.json` + report
+- `evidence` → `*_evidence-results.json` + report
+- `curate` → `*_calibration-set.json` + worksheet
+- `adjudicate` → `*_llm-calibration.json` + summary, optionally agreement report
 
 Each primary JSON artifact also gets:
 
@@ -30,12 +30,12 @@ Each primary JSON artifact also gets:
 The local UI stores run-scoped output under:
 
 - `data/runs/<runId>/inputs/`
-- `data/runs/<runId>/01-pre-screen/`
-- `data/runs/<runId>/02-m2-extract/`
-- `data/runs/<runId>/03-m3-classify/`
-- `data/runs/<runId>/04-m4-evidence/`
-- `data/runs/<runId>/05-m5-adjudicate/`
-- `data/runs/<runId>/06-m6-llm-judge/`
+- `data/runs/<runId>/01-screen/`
+- `data/runs/<runId>/02-extract/`
+- `data/runs/<runId>/03-classify/`
+- `data/runs/<runId>/04-evidence/`
+- `data/runs/<runId>/05-curate/`
+- `data/runs/<runId>/06-adjudicate/`
 - `data/runs/<runId>/logs/`
 
 The UI does not rename or reshape canonical artifact filenames. It points each stage row at the latest successful primary/report/manifest artifact already emitted by the CLI.
@@ -46,12 +46,12 @@ Use this table when adding stages or documentation; the **canonical program** de
 
 | Order | CLI command | Stage key (DB / API) | Run directory under `data/runs/<runId>/` |
 |------|-------------|----------------------|------------------------------------------|
-| 1 | `pre-screen` | `pre-screen` | `01-pre-screen/` |
-| 2 | `m2-extract` | `m2-extract` | `02-m2-extract/` |
-| 3 | `m3-classify` | `m3-classify` | `03-m3-classify/` |
-| 4 | `m4-evidence` | `m4-evidence` | `04-m4-evidence/` |
-| 5 | `m5-adjudicate` | `m5-adjudicate` | `05-m5-adjudicate/` |
-| 6 | `m6-llm-judge` | `m6-llm-judge` | `06-m6-llm-judge/` |
+| 1 | `screen` | `screen` | `01-screen/` |
+| 2 | `extract` | `extract` | `02-extract/` |
+| 3 | `classify` | `classify` | `03-classify/` |
+| 4 | `evidence` | `evidence` | `04-evidence/` |
+| 5 | `curate` | `curate` | `05-curate/` |
+| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` |
 
 Per-stage log files live under `data/runs/<runId>/logs/` (see [ui-architecture.md](./ui-architecture.md)).
 
@@ -90,8 +90,8 @@ Stage inputs are loaded through shared artifact validation:
 
 This validation applies to:
 
-- pre-screen shortlist input
-- M2/M3/M4/M5/M6 upstream JSON artifacts
+- screen shortlist input
+- extract/classify/evidence/curate/adjudicate upstream JSON artifacts
 - benchmark delta inputs
 - benchmark compare inputs
 
@@ -99,7 +99,7 @@ Historical artifacts remain loadable as long as their payload shape is still com
 
 ## Parsing and Evidence Artifacts
 
-The M2 and M4 artifacts now carry more structured parsing and retrieval metadata.
+The `extract` and `evidence` artifacts now carry more structured parsing and retrieval metadata.
 
 ### Parsed full text
 

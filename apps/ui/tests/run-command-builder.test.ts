@@ -10,16 +10,16 @@ const run: AnalysisRun = {
   id: "run-1",
   seedDoi: "10.1234/seed",
   trackedClaim: "Tracked claim",
-  targetStage: "m6-llm-judge",
+  targetStage: "adjudicate",
   status: "queued",
   currentStage: undefined,
   runRoot: "/tmp/runs/run-1",
   config: {
-    stopAfterStage: "m6-llm-judge",
+    stopAfterStage: "adjudicate",
     forceRefresh: true,
-    m5TargetSize: 40,
-    m6Model: "claude-opus-4-6",
-    m6Thinking: true,
+    curateTargetSize: 40,
+    adjudicateModel: "claude-opus-4-6",
+    adjudicateThinking: true,
   },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -28,12 +28,12 @@ const run: AnalysisRun = {
 const stages: AnalysisRunStage[] = [
   {
     runId: run.id,
-    stageKey: "pre-screen",
+    stageKey: "screen",
     stageOrder: 1,
     status: "succeeded",
     inputArtifactPath: undefined,
     primaryArtifactPath:
-      "/tmp/runs/run-1/01-pre-screen/2026-04-04_001_pre-screen-results.json",
+      "/tmp/runs/run-1/01-screen/2026-04-04_001_pre-screen-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -46,12 +46,12 @@ const stages: AnalysisRunStage[] = [
   },
   {
     runId: run.id,
-    stageKey: "m2-extract",
+    stageKey: "extract",
     stageOrder: 2,
     status: "succeeded",
     inputArtifactPath: undefined,
     primaryArtifactPath:
-      "/tmp/runs/run-1/02-m2-extract/2026-04-04_001_m2-extraction-results.json",
+      "/tmp/runs/run-1/02-extract/2026-04-04_001_m2-extraction-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -64,12 +64,12 @@ const stages: AnalysisRunStage[] = [
   },
   {
     runId: run.id,
-    stageKey: "m3-classify",
+    stageKey: "classify",
     stageOrder: 3,
     status: "succeeded",
     inputArtifactPath: undefined,
     primaryArtifactPath:
-      "/tmp/runs/run-1/03-m3-classify/2026-04-04_001_classification-results.json",
+      "/tmp/runs/run-1/03-classify/2026-04-04_001_classification-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -82,12 +82,12 @@ const stages: AnalysisRunStage[] = [
   },
   {
     runId: run.id,
-    stageKey: "m4-evidence",
+    stageKey: "evidence",
     stageOrder: 4,
     status: "succeeded",
     inputArtifactPath: undefined,
     primaryArtifactPath:
-      "/tmp/runs/run-1/04-m4-evidence/2026-04-04_001_evidence-results.json",
+      "/tmp/runs/run-1/04-evidence/2026-04-04_001_evidence-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -100,12 +100,12 @@ const stages: AnalysisRunStage[] = [
   },
   {
     runId: run.id,
-    stageKey: "m5-adjudicate",
+    stageKey: "curate",
     stageOrder: 5,
     status: "succeeded",
     inputArtifactPath: undefined,
     primaryArtifactPath:
-      "/tmp/runs/run-1/05-m5-adjudicate/2026-04-04_001_calibration-set.json",
+      "/tmp/runs/run-1/05-curate/2026-04-04_001_calibration-set.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -118,7 +118,7 @@ const stages: AnalysisRunStage[] = [
   },
   {
     runId: run.id,
-    stageKey: "m6-llm-judge",
+    stageKey: "adjudicate",
     stageOrder: 6,
     status: "not_started",
     inputArtifactPath: undefined,
@@ -136,18 +136,18 @@ const stages: AnalysisRunStage[] = [
 ];
 
 describe("buildStageCommand", () => {
-  it("builds the documented m6 command shape", () => {
-    const command = buildStageCommand(run, stages, "m6-llm-judge");
+  it("builds the adjudicate command shape", () => {
+    const command = buildStageCommand(run, stages, "adjudicate");
 
     expect(command.args).toEqual([
-      "m6-llm-judge",
+      "adjudicate",
       "--calibration",
-      "/tmp/runs/run-1/05-m5-adjudicate/2026-04-04_001_calibration-set.json",
+      "/tmp/runs/run-1/05-curate/2026-04-04_001_calibration-set.json",
       "--model",
       "claude-opus-4-6",
       "--thinking",
       "--output",
-      expect.stringContaining("/06-m6-llm-judge"),
+      expect.stringContaining("/06-adjudicate"),
     ]);
   });
 });
