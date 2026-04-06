@@ -1,9 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-export function readQueryParam(
-  request: NextApiRequest,
-  key: string,
-): string {
+export function readQueryParam(request: NextApiRequest, key: string): string {
   const value = request.query[key];
   if (typeof value === "string" && value.length > 0) {
     return value;

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisRun, AnalysisRunStage } from "citation-fidelity/ui-contract";
+import type {
+  AnalysisRun,
+  AnalysisRunStage,
+} from "citation-fidelity/ui-contract";
 
 import { buildStageCommand } from "../lib/run-command-builder";
 
@@ -29,7 +32,8 @@ const stages: AnalysisRunStage[] = [
     stageOrder: 1,
     status: "succeeded",
     inputArtifactPath: undefined,
-    primaryArtifactPath: "/tmp/runs/run-1/01-pre-screen/2026-04-04_001_pre-screen-results.json",
+    primaryArtifactPath:
+      "/tmp/runs/run-1/01-pre-screen/2026-04-04_001_pre-screen-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -46,7 +50,8 @@ const stages: AnalysisRunStage[] = [
     stageOrder: 2,
     status: "succeeded",
     inputArtifactPath: undefined,
-    primaryArtifactPath: "/tmp/runs/run-1/02-m2-extract/2026-04-04_001_m2-extraction-results.json",
+    primaryArtifactPath:
+      "/tmp/runs/run-1/02-m2-extract/2026-04-04_001_m2-extraction-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -63,7 +68,8 @@ const stages: AnalysisRunStage[] = [
     stageOrder: 3,
     status: "succeeded",
     inputArtifactPath: undefined,
-    primaryArtifactPath: "/tmp/runs/run-1/03-m3-classify/2026-04-04_001_classification-results.json",
+    primaryArtifactPath:
+      "/tmp/runs/run-1/03-m3-classify/2026-04-04_001_classification-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -80,7 +86,8 @@ const stages: AnalysisRunStage[] = [
     stageOrder: 4,
     status: "succeeded",
     inputArtifactPath: undefined,
-    primaryArtifactPath: "/tmp/runs/run-1/04-m4-evidence/2026-04-04_001_evidence-results.json",
+    primaryArtifactPath:
+      "/tmp/runs/run-1/04-m4-evidence/2026-04-04_001_evidence-results.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,
@@ -97,7 +104,8 @@ const stages: AnalysisRunStage[] = [
     stageOrder: 5,
     status: "succeeded",
     inputArtifactPath: undefined,
-    primaryArtifactPath: "/tmp/runs/run-1/05-m5-adjudicate/2026-04-04_001_calibration-set.json",
+    primaryArtifactPath:
+      "/tmp/runs/run-1/05-m5-adjudicate/2026-04-04_001_calibration-set.json",
     reportArtifactPath: undefined,
     manifestPath: undefined,
     logPath: undefined,

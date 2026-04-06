@@ -67,7 +67,9 @@ function parseEnvironment(source: NodeJS.ProcessEnv): AppEnvironment {
   return environmentSchema.parse(source);
 }
 
-function parseLenientEnvironment(source: NodeJS.ProcessEnv): LenientAppEnvironment {
+function parseLenientEnvironment(
+  source: NodeJS.ProcessEnv,
+): LenientAppEnvironment {
   return lenientEnvironmentSchema.parse(source);
 }
 
