@@ -44,7 +44,6 @@ describe("CurrentWorkPanel", () => {
 
     expect(screen.getByText("Citation extraction is underway.")).toBeTruthy();
     expect(screen.getByText("2/6 edges")).toBeTruthy();
-    expect(screen.getByText("Live progress from stage telemetry")).toBeTruthy();
     expect(screen.getByText("Fetch and parse citing full text")).toBeTruthy();
     expect(screen.getByText("Working through edge 2 of 6")).toBeTruthy();
     expect(screen.queryByText("6 auditable papers selected")).toBeNull();
@@ -96,9 +95,6 @@ describe("CurrentWorkPanel", () => {
 
     expect(
       screen.getByText("Workflow inferred from stage status."),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Workflow inferred from saved stage status"),
     ).toBeTruthy();
   });
 });

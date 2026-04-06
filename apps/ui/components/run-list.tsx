@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { RunSummary } from "citation-fidelity/ui-contract";
+import { getStageDefinition, type RunSummary } from "citation-fidelity/ui-contract";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -43,14 +43,27 @@ export function RunList({ initialRuns }: { initialRuns: RunSummary[] }) {
             Recent Runs
           </p>
           <h2 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
-            Active lineage and historical output
+            Analysis Runs
           </h2>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {runs.length === 0 ? (
-          <div className="rounded-[24px] border border-dashed border-[var(--border)] px-6 py-10 text-center text-sm text-[var(--text-muted)]">
-            No runs yet. Create one seed DOI and tracked claim to start.
+          <div className="rounded-[24px] border border-dashed border-[var(--border)] px-6 py-12 text-center">
+            <p className="text-sm font-semibold text-[var(--text)]">
+              No analysis runs yet.
+            </p>
+            <p className="mx-auto mt-3 max-w-md text-sm text-[var(--text-muted)]">
+              This tool checks whether papers that cite a study faithfully
+              represent its findings. Provide the DOI of the original paper and
+              the specific claim you want to track across the literature.
+            </p>
+            <a
+              className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-[var(--text)] px-5 text-sm font-semibold text-white transition hover:bg-[#2b241d]"
+              href="/runs/new"
+            >
+              Start your first analysis
+            </a>
           </div>
         ) : (
           runs.map((run) => (
@@ -66,7 +79,9 @@ export function RunList({ initialRuns }: { initialRuns: RunSummary[] }) {
                       {run.status}
                     </Badge>
                     <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                      {run.currentStage ?? "not started"}
+                      {run.currentStage
+                        ? getStageDefinition(run.currentStage).title
+                        : "Not started"}
                     </span>
                   </div>
                   <h3 className="text-lg font-semibold text-[var(--text)]">

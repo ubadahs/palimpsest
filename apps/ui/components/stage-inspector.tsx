@@ -4,17 +4,13 @@ import { useMemo, useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import type { RunStageDetail } from "citation-fidelity/ui-contract";
 
+import { ChevronDown } from "lucide-react";
+
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 type GenericRecord = Record<string, unknown>;
 
@@ -272,117 +268,167 @@ function CurateInspector({ payload }: { payload: GenericRecord }) {
   );
 }
 
+const VERDICT_OPTIONS = [
+  "supported",
+  "partially_supported",
+  "overstated_or_generalized",
+  "not_supported",
+  "cannot_determine",
+] as const;
+
+function verdictBadgeVariant(
+  verdict: string,
+): "success" | "warning" | "failed" | "neutral" {
+  if (verdict === "supported") return "success";
+  if (verdict === "partially_supported") return "warning";
+  if (verdict === "not_supported" || verdict === "overstated_or_generalized")
+    return "failed";
+  return "neutral";
+}
+
 function AdjudicateInspector({ payload }: { payload: GenericRecord }) {
   const records = (payload["records"] as GenericRecord[] | undefined) ?? [];
   const defaultFilter = String(
     payload["defaultVerdictFilter"] ?? "partially_supported",
   );
   const [filter, setFilter] = useState(defaultFilter);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const filtered = useMemo(
     () =>
       records.filter((record) => String(record["verdict"] ?? "") === filter),
     [filter, records],
   );
-  const column = createColumnHelper<GenericRecord>();
+  const countByVerdict = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const record of records) {
+      const v = String(record["verdict"] ?? "");
+      counts[v] = (counts[v] ?? 0) + 1;
+    }
+    return counts;
+  }, [records]);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-2">
-        {[
-          "supported",
-          "partially_supported",
-          "overstated_or_generalized",
-          "not_supported",
-          "cannot_determine",
-        ].map((option) => (
-          <Button
-            className="capitalize"
-            key={option}
-            onClick={() => setFilter(option)}
-            type="button"
-            variant={filter === option ? "default" : "secondary"}
-          >
-            {option.replaceAll("_", " ")}
-          </Button>
-        ))}
+        {VERDICT_OPTIONS.map((option) => {
+          const count = countByVerdict[option] ?? 0;
+          return (
+            <Button
+              className="capitalize"
+              key={option}
+              onClick={() => setFilter(option)}
+              type="button"
+              variant={filter === option ? "default" : "secondary"}
+            >
+              {option.replaceAll("_", " ")}
+              {count > 0 ? (
+                <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
+                  {count}
+                </span>
+              ) : null}
+            </Button>
+          );
+        })}
       </div>
-      <DataTable
-        columns={[
-          column.accessor("evaluationMode", { header: "Mode" }),
-          column.accessor("citationRole", { header: "Role" }),
-          column.accessor("citingPaperTitle", { header: "Citing paper" }),
-          column.accessor("verdict", { header: "Verdict" }),
-          column.display({
-            id: "detail",
-            header: "Detail",
-            cell: ({ row }) => (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    Open rationale
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <div className="space-y-6">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-                        Verdict detail
-                      </p>
-                      <DialogTitle asChild>
-                        <h3 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
-                          {String(row.original["verdict"] ?? "No verdict")}
-                        </h3>
-                      </DialogTitle>
-                    </div>
-                    <div className="rounded-[24px] border border-[var(--border)] bg-white/70 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                        Rationale
-                      </p>
-                      <p className="mt-3 text-sm leading-7 text-[var(--text)]">
-                        {String(
-                          row.original["rationale"] ?? "No rationale recorded.",
-                        )}
-                      </p>
-                    </div>
-                    <div className="rounded-[24px] border border-[var(--border)] bg-white/70 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+      <div className="space-y-3">
+        {filtered.length === 0 ? (
+          <div className="rounded-[24px] border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--text-muted)]">
+            No records with this verdict.
+          </div>
+        ) : null}
+        {filtered.map((record, index) => {
+          const key = String(record["taskId"] ?? index);
+          const isOpen = expanded === key;
+          const verdict = String(record["verdict"] ?? "");
+          const spans =
+            (record["evidenceSpans"] as GenericRecord[] | undefined) ?? [];
+
+          return (
+            <div
+              className="overflow-hidden rounded-[24px] border border-[var(--border)] bg-white/60"
+              key={key}
+            >
+              <button
+                className="flex w-full items-center gap-4 p-4 text-left transition hover:bg-white/80"
+                onClick={() => setExpanded(isOpen ? null : key)}
+                type="button"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3">
+                    <Badge variant={verdictBadgeVariant(verdict)}>
+                      {verdict.replaceAll("_", " ")}
+                    </Badge>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      {String(record["evaluationMode"] ?? "")}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-[var(--text)]">
+                    {String(record["citingPaperTitle"] ?? "")}
+                  </p>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform",
+                    isOpen && "rotate-180",
+                  )}
+                />
+              </button>
+
+              {isOpen ? (
+                <div className="space-y-4 border-t border-[var(--border)] p-4">
+                  <div className="rounded-[20px] border border-[var(--border)] bg-white/70 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      Rationale
+                    </p>
+                    <p className="mt-2 text-sm leading-7 text-[var(--text)]">
+                      {String(
+                        record["rationale"] ?? "No rationale recorded.",
+                      )}
+                    </p>
+                  </div>
+
+                  {record["citingSpan"] ? (
+                    <div className="rounded-[20px] border border-[var(--border)] bg-white/70 p-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
                         Citing context
                       </p>
-                      <p className="mt-3 text-sm leading-7 text-[var(--text)]">
-                        {String(row.original["citingSpan"] ?? "")}
+                      <p className="mt-2 text-sm leading-7 text-[var(--text)]">
+                        {String(record["citingSpan"])}
                       </p>
                     </div>
-                    {(
-                      (row.original["evidenceSpans"] as
-                        | GenericRecord[]
-                        | undefined) ?? []
-                    ).map((span) => (
-                      <div
-                        className="rounded-[24px] border border-[var(--border)] bg-white/70 p-4"
-                        key={String(span["spanId"] ?? Math.random())}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <Badge variant="neutral">
-                            {String(span["blockKind"] ?? "")}
-                          </Badge>
-                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                            {String(span["matchMethod"] ?? "")}
+                  ) : null}
+
+                  {spans.length > 0 ? (
+                    <div className="space-y-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                        Evidence spans ({String(spans.length)})
+                      </p>
+                      {spans.map((span) => (
+                        <div
+                          className="rounded-[20px] border border-[var(--border)] bg-white/70 p-4"
+                          key={String(span["spanId"] ?? Math.random())}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <Badge variant="neutral">
+                              {String(span["blockKind"] ?? "")}
+                            </Badge>
+                            <p className="text-xs text-[var(--text-muted)]">
+                              {String(span["matchMethod"] ?? "")}
+                            </p>
+                          </div>
+                          <p className="mt-2 text-sm leading-7 text-[var(--text)]">
+                            {String(span["text"] ?? "")}
                           </p>
                         </div>
-                        <p className="mt-3 text-sm leading-7 text-[var(--text)]">
-                          {String(span["text"] ?? "")}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </DialogContent>
-              </Dialog>
-            ),
-          }),
-        ]}
-        data={filtered}
-        searchPlaceholder="Filter verdict rows"
-      />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -391,57 +437,30 @@ export function StageInspector({ detail }: { detail: RunStageDetail }) {
   const payload = (detail.inspectorPayload as GenericRecord | undefined) ?? {};
 
   return (
-    <div className="space-y-6">
-      <Tabs defaultValue="structured">
-        <TabsList>
-          <TabsTrigger value="structured">Structured</TabsTrigger>
-          <TabsTrigger value="notes">Inspector</TabsTrigger>
-        </TabsList>
-        <TabsContent value="structured">
-          {detail.stageKey === "screen" ? (
-            <ScreenInspector payload={payload} />
-          ) : null}
-          {detail.stageKey === "extract" ? (
-            <ExtractInspector payload={payload} />
-          ) : null}
-          {detail.stageKey === "classify" ? (
-            <ClassifyInspector payload={payload} />
-          ) : null}
-          {detail.stageKey === "evidence" ? (
-            <EvidenceInspector payload={payload} />
-          ) : null}
-          {detail.stageKey === "curate" ? (
-            <CurateInspector payload={payload} />
-          ) : null}
-          {detail.stageKey === "adjudicate" ? (
-            <AdjudicateInspector payload={payload} />
-          ) : null}
-        </TabsContent>
-        <TabsContent value="notes">
-          <Card>
-            <CardContent className="space-y-4 p-6">
-              <div className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  Status
-                </p>
-                <p className="mt-2 text-sm text-[var(--text)]">
-                  {detail.status}
-                </p>
-              </div>
-              {detail.errorMessage ? (
-                <div className="rounded-[24px] border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] p-4 text-sm text-[var(--danger)]">
-                  {detail.errorMessage}
-                </div>
-              ) : (
-                <div className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4 text-sm text-[var(--text-muted)]">
-                  The structured view is the primary surface for this stage. Raw
-                  artifact tabs live below.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+    <div className="space-y-4">
+      {detail.errorMessage ? (
+        <div className="rounded-[24px] border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] px-5 py-4 text-sm text-[var(--danger)]">
+          {detail.errorMessage}
+        </div>
+      ) : null}
+      {detail.stageKey === "screen" ? (
+        <ScreenInspector payload={payload} />
+      ) : null}
+      {detail.stageKey === "extract" ? (
+        <ExtractInspector payload={payload} />
+      ) : null}
+      {detail.stageKey === "classify" ? (
+        <ClassifyInspector payload={payload} />
+      ) : null}
+      {detail.stageKey === "evidence" ? (
+        <EvidenceInspector payload={payload} />
+      ) : null}
+      {detail.stageKey === "curate" ? (
+        <CurateInspector payload={payload} />
+      ) : null}
+      {detail.stageKey === "adjudicate" ? (
+        <AdjudicateInspector payload={payload} />
+      ) : null}
     </div>
   );
 }
