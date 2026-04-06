@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import type {
-  AnalysisRunStage,
-  RunDetail,
+import {
+  getStageDefinition,
+  type AnalysisRunStage,
+  type RunDetail,
 } from "citation-fidelity/ui-contract";
-import { getStageDefinition } from "citation-fidelity/ui-contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { CurrentWorkPanel } from "@/components/current-work-panel";
 import { LogPanel } from "@/components/log-panel";
+import { RunResultsSummary } from "@/components/run-results-summary";
 import { StageRail } from "@/components/stage-rail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,6 +99,9 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs
+        crumbs={[{ label: "Dashboard", href: "/" }, { label: run.seedDoi }]}
+      />
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-3">
@@ -163,15 +168,11 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
         ) : null}
       </Card>
 
+      {run.status === "succeeded" ? <RunResultsSummary run={run} /> : null}
+
       <StageRail run={run} />
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <LogPanel
-          active={isRunning}
-          runId={run.id}
-          stageKey={focusStage?.stageKey}
-          {...(focusStageTitle ? { stageTitle: focusStageTitle } : {})}
-        />
+      <div className="grid gap-6 xl:grid-cols-2">
         <div className="space-y-6">
           {run.activeWorkflow ? (
             <CurrentWorkPanel
@@ -180,71 +181,77 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
               workflow={run.activeWorkflow}
             />
           ) : null}
-          <Card className="overflow-hidden">
-            <details className="group">
-              <summary className="flex cursor-pointer list-none flex-col gap-2 border-b border-[var(--border)] px-6 py-5 [&::-webkit-details-marker]:hidden">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-                      All stages
-                    </p>
-                    <h3 className="mt-2 font-[var(--font-instrument)] text-2xl tracking-[-0.03em]">
-                      Summaries and inspect links
-                    </h3>
-                  </div>
-                  <span className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)] group-open:bg-[var(--panel-muted)] group-open:text-[var(--text)]">
-                    <span className="group-open:hidden">Show</span>
-                    <span className="hidden group-open:inline">Hide</span>
-                  </span>
-                </div>
-                <p className="text-sm text-[var(--text-muted)]">
-                  {String(run.stages.length)} stages — expand for per-stage
-                  metrics and drill-downs.
+        </div>
+        <LogPanel
+          active={isRunning}
+          defaultCollapsed={!isRunning}
+          runId={run.id}
+          stageKey={focusStage?.stageKey}
+          {...(focusStageTitle ? { stageTitle: focusStageTitle } : {})}
+        />
+      </div>
+      <Card className="overflow-hidden">
+        <details className="group">
+          <summary className="flex cursor-pointer list-none flex-col gap-2 border-b border-[var(--border)] px-6 py-5 [&::-webkit-details-marker]:hidden">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-[var(--font-instrument)] text-2xl tracking-[-0.03em]">
+                  Stage Details
+                </h3>
+                <p className="mt-1 text-sm text-[var(--text-muted)]">
+                  {String(run.stages.length)} stages
                 </p>
-              </summary>
-              <CardContent className="space-y-3 pt-5">
-                {run.stages.map((stage) => (
-                  <div
-                    className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4"
-                    key={stage.stageKey}
+              </div>
+              <span className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)] group-open:bg-[var(--panel-muted)] group-open:text-[var(--text)]">
+                <span className="group-open:hidden">Show</span>
+                <span className="hidden group-open:inline">Hide</span>
+              </span>
+            </div>
+          </summary>
+          <CardContent className="space-y-3 pt-5">
+            {run.stages.map((stage) => (
+              <div
+                className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4"
+                key={stage.stageKey}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text)]">
+                      {getStageDefinition(stage.stageKey).title}
+                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                      {stage.stageKey}
+                    </p>
+                    <p className="mt-2 text-sm text-[var(--text-muted)]">
+                      {stageCardHeadline(stage)}
+                    </p>
+                  </div>
+                  <Link
+                    className="shrink-0 text-sm font-semibold text-[var(--accent)]"
+                    href={`/runs/${run.id}/stages/${stage.stageKey}`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--text)]">
-                          {stage.stageKey}
+                    View details
+                  </Link>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {(stage.summary?.metrics ?? [])
+                    .slice(0, 3)
+                    .map((metric) => (
+                      <div key={metric.label}>
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                          {metric.label}
                         </p>
-                        <p className="mt-2 text-sm text-[var(--text-muted)]">
-                          {stageCardHeadline(stage)}
+                        <p className="mt-1 text-sm font-semibold text-[var(--text)]">
+                          {metric.value}
                         </p>
                       </div>
-                      <Link
-                        className="text-sm font-semibold text-[var(--accent)]"
-                        href={`/runs/${run.id}/stages/${stage.stageKey}`}
-                      >
-                        Inspect
-                      </Link>
-                    </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                      {(stage.summary?.metrics ?? [])
-                        .slice(0, 3)
-                        .map((metric) => (
-                          <div key={metric.label}>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                              {metric.label}
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-[var(--text)]">
-                              {metric.value}
-                            </p>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </details>
-          </Card>
-        </div>
-      </div>
+                    ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </details>
+      </Card>
 
       {focusStage ? (
         <ArtifactTabs

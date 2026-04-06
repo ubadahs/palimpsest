@@ -204,9 +204,8 @@ describe("Run detail smoke (fixture)", () => {
 
     render(<RunDetailClient initialRun={buildRunDetail(workflowV1)} />);
 
-    expect(screen.getByText("Stage log")).toBeTruthy();
-    expect(screen.getByText("Adjudicate output")).toBeTruthy();
-    expect(screen.getByText("Raw Artifacts")).toBeTruthy();
+    expect(screen.getByText("Adjudicate log")).toBeTruthy();
+    expect(screen.getByText("Stage output")).toBeTruthy();
     expect(screen.getByText("Adjudicating record 1 of 5")).toBeTruthy();
 
     fireEvent.click(

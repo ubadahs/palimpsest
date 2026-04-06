@@ -57,17 +57,14 @@ export function ArtifactTabs({
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-          Raw Artifacts
-        </p>
-        <h3 className="mt-2 font-[var(--font-instrument)] text-2xl tracking-[-0.03em]">
-          Machine output, reports, and manifests
+        <h3 className="font-semibold text-[var(--text)]">
+          Stage output
+          {stageTitle ? (
+            <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">
+              {stageTitle}
+            </span>
+          ) : null}
         </h3>
-        {stageTitle ? (
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Stage: {stageTitle} ({stageKey})
-          </p>
-        ) : null}
       </CardHeader>
       <CardContent>
         <Tabs

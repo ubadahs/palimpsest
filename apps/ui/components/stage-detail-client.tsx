@@ -1,16 +1,27 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
-import type { RunDetail, RunStageDetail } from "citation-fidelity/ui-contract";
+import type { RunDetail, RunStageDetail, StageKey } from "citation-fidelity/ui-contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { CurrentWorkPanel } from "@/components/current-work-panel";
 import { StageInspector } from "@/components/stage-inspector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { fetchJson, formatDateTime } from "@/lib/utils";
+
+const stageDescriptions: Record<StageKey, string> = {
+  screen:
+    "Finds citing papers and checks whether the tracked claim can be grounded in the seed paper.",
+  extract: "Extracts citation context from each citing paper's full text.",
+  classify: "Classifies citation function and builds evaluation packets.",
+  evidence:
+    "Retrieves evidence spans from cited papers to compare against citations.",
+  curate: "Selects a calibration sample for human review.",
+  adjudicate: "Runs LLM adjudication to produce fidelity verdicts.",
+};
 
 function badgeVariant(
   status: string,
@@ -72,6 +83,13 @@ export function StageDetailClient({
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs
+        crumbs={[
+          { label: "Dashboard", href: "/" },
+          { label: run.seedDoi, href: `/runs/${run.id}` },
+          { label: detail.stageTitle },
+        ]}
+      />
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-3">
@@ -79,6 +97,12 @@ export function StageDetailClient({
               <Badge variant={badgeVariant(detail.status)}>
                 {detail.status}
               </Badge>
+              {detail.stageKey === "screen" &&
+              detail.status === "succeeded" &&
+              (detail.inspectorPayload as { families?: { decision?: string }[] } | undefined)
+                ?.families?.[0]?.decision === "deprioritize" ? (
+                <Badge variant="warning">deprioritized</Badge>
+              ) : null}
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
                 {detail.stageKey}
               </span>
@@ -86,18 +110,15 @@ export function StageDetailClient({
             <h2 className="font-[var(--font-instrument)] text-4xl tracking-[-0.03em]">
               {detail.stageTitle}
             </h2>
-            <p className="text-sm text-[var(--text-muted)]">
+            <p className="max-w-xl text-sm text-[var(--text-muted)]">
+              {stageDescriptions[detail.stageKey]}
+            </p>
+            <p className="text-xs text-[var(--text-muted)]">
               {run.seedDoi} · {formatDateTime(detail.startedAt)} →{" "}
               {formatDateTime(detail.finishedAt)}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--panel-strong)] px-4 py-2 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel-muted)]"
-              href={`/runs/${run.id}`}
-            >
-              Back to run
-            </Link>
             <Button
               disabled={isPending || run.status === "running"}
               onClick={rerunStage}

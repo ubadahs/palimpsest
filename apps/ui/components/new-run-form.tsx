@@ -93,11 +93,16 @@ export function NewRunForm() {
     <Card className="mx-auto max-w-4xl overflow-hidden">
       <CardHeader>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-          Run Creation
+          New Analysis
         </p>
         <h2 className="mt-2 font-[var(--font-instrument)] text-4xl tracking-[-0.03em]">
-          One seed DOI, one claim to ground
+          Start an analysis
         </h2>
+        <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
+          Enter the DOI of a paper and a specific empirical claim. The pipeline
+          will find citing papers, extract how they reference the claim, retrieve
+          the cited evidence, and judge whether each citation is faithful.
+        </p>
       </CardHeader>
       <CardContent>
         <form className="space-y-8" onSubmit={onSubmit}>
@@ -115,7 +120,7 @@ export function NewRunForm() {
             </label>
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-[var(--text)]">
-                Tracked claim (analyst hypothesis)
+                Tracked claim
               </span>
               <Textarea
                 placeholder="State the empirical claim you want to track. Screen will verify it appears in the seed paper's full text before later stages run."
@@ -167,6 +172,9 @@ export function NewRunForm() {
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
                   Calibration sample size
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  Number of citation-evidence pairs included in the calibration set.
                 </span>
                 <Input
                   min={1}
