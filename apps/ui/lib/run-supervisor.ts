@@ -37,7 +37,7 @@ import { getStageDirectory, getStageLogPath } from "./run-files";
 
 function assertClaimGateAllowsDownstream(
   run: AnalysisRun,
-  stages: { stageKey: StageKey; primaryArtifactPath?: string }[],
+  stages: { stageKey: StageKey; primaryArtifactPath?: string | undefined }[],
   startStage: StageKey,
 ): void {
   const preOrder = getStageDefinition("pre-screen").order;

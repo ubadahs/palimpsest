@@ -4,13 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseConnection } from "citation-fidelity/storage";
-import {
-  setRunStatus,
-  updateStageStatus,
-} from "citation-fidelity/storage";
+import { setRunStatus, updateStageStatus } from "citation-fidelity/storage";
 import { serializeProgressEvent } from "citation-fidelity/ui-contract";
 
-import { createRun, getRunDetailOrThrow, getStageDetailOrThrow } from "../lib/run-queries";
+import {
+  createRun,
+  getRunDetailOrThrow,
+  getStageDetailOrThrow,
+} from "../lib/run-queries";
 import { getDatabase } from "../lib/database";
 import { getStageLogPath } from "../lib/run-files";
 

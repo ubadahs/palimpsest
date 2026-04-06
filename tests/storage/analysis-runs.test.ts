@@ -73,8 +73,9 @@ describe("analysis runs repository", () => {
         },
       });
 
-      database.prepare(
-        `
+      database
+        .prepare(
+          `
         UPDATE analysis_run_stages
         SET status = 'succeeded',
             primary_artifact_path = '/tmp/fake.json',
@@ -83,21 +84,22 @@ describe("analysis runs repository", () => {
             summary_json = '{"headline":"done","metrics":[],"artifacts":[]}'
         WHERE run_id = 'run-2' AND stage_key IN ('m3-classify', 'm4-evidence')
       `,
-      ).run();
+        )
+        .run();
 
       markDownstreamStagesStale(database, "run-2", "m2-extract");
 
       const stages = listRunStages(database, "run-2");
-      expect(stages.find((stage) => stage.stageKey === "m3-classify")?.status).toBe(
-        "stale",
-      );
+      expect(
+        stages.find((stage) => stage.stageKey === "m3-classify")?.status,
+      ).toBe("stale");
       expect(
         stages.find((stage) => stage.stageKey === "m3-classify")
           ?.primaryArtifactPath,
       ).toBeUndefined();
-      expect(stages.find((stage) => stage.stageKey === "m4-evidence")?.status).toBe(
-        "stale",
-      );
+      expect(
+        stages.find((stage) => stage.stageKey === "m4-evidence")?.status,
+      ).toBe("stale");
     } finally {
       database.close();
     }
