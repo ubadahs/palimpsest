@@ -381,9 +381,7 @@ function AdjudicateInspector({ payload }: { payload: GenericRecord }) {
                       Rationale
                     </p>
                     <p className="mt-2 text-sm leading-7 text-[var(--text)]">
-                      {String(
-                        record["rationale"] ?? "No rationale recorded.",
-                      )}
+                      {String(record["rationale"] ?? "No rationale recorded.")}
                     </p>
                   </div>
 

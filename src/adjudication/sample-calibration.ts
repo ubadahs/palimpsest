@@ -138,7 +138,8 @@ export function sampleCalibrationSet(
   targets?: SamplingTarget,
   totalTarget: number = DEFAULT_TOTAL,
 ): CalibrationSet {
-  const effectiveTargets = targets ?? scaleTargets(MODE_PROPORTIONS, totalTarget);
+  const effectiveTargets =
+    targets ?? scaleTargets(MODE_PROPORTIONS, totalTarget);
   const allTasks: ScoredTask[] = [];
 
   for (const edge of evidence.edges) {

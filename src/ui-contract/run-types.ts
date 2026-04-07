@@ -63,12 +63,16 @@ function migrateConfigFields(val: unknown): unknown {
     out["adjudicateThinking"] = obj["m6Thinking"];
     delete out["m6Thinking"];
   }
-  if (out["stopAfterStage"] === "m6-llm-judge") out["stopAfterStage"] = "adjudicate";
+  if (out["stopAfterStage"] === "m6-llm-judge")
+    out["stopAfterStage"] = "adjudicate";
   if (out["stopAfterStage"] === "pre-screen") out["stopAfterStage"] = "screen";
   if (out["stopAfterStage"] === "m2-extract") out["stopAfterStage"] = "extract";
-  if (out["stopAfterStage"] === "m3-classify") out["stopAfterStage"] = "classify";
-  if (out["stopAfterStage"] === "m4-evidence") out["stopAfterStage"] = "evidence";
-  if (out["stopAfterStage"] === "m5-adjudicate") out["stopAfterStage"] = "curate";
+  if (out["stopAfterStage"] === "m3-classify")
+    out["stopAfterStage"] = "classify";
+  if (out["stopAfterStage"] === "m4-evidence")
+    out["stopAfterStage"] = "evidence";
+  if (out["stopAfterStage"] === "m5-adjudicate")
+    out["stopAfterStage"] = "curate";
   return out;
 }
 

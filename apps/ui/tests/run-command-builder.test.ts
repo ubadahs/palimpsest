@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AnalysisRun,
-  AnalysisRunStage,
-} from "palimpsest/ui-contract";
+import type { AnalysisRun, AnalysisRunStage } from "palimpsest/ui-contract";
 
 import { buildStageCommand } from "../lib/run-command-builder";
 

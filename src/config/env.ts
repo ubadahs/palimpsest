@@ -5,10 +5,7 @@ import { z } from "zod";
 const nodeEnvSchema = z
   .enum(["development", "test", "production"])
   .default("development");
-const databasePathSchema = z
-  .string()
-  .min(1)
-  .default("data/palimpsest.sqlite");
+const databasePathSchema = z.string().min(1).default("data/palimpsest.sqlite");
 const openAlexBaseUrlSchema = z
   .string()
   .url()

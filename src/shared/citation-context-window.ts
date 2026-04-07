@@ -46,7 +46,10 @@ function findMarkerPosition(text: string, marker: string): number {
   if (exact >= 0) return exact;
 
   // Try normalized match (collapse whitespace, strip trailing punctuation).
-  const normalized = marker.replace(/\s+/g, " ").replace(/[,;:]+$/, "").trim();
+  const normalized = marker
+    .replace(/\s+/g, " ")
+    .replace(/[,;:]+$/, "")
+    .trim();
   const pos = text.indexOf(normalized);
   if (pos >= 0) return pos;
 
@@ -96,11 +99,7 @@ function selectSentencesAroundOffset(
   for (let i = 0; i < sentences.length; i++) {
     const s = sentences[i]!;
     const dist =
-      offset < s.start
-        ? s.start - offset
-        : offset > s.end
-          ? offset - s.end
-          : 0;
+      offset < s.start ? s.start - offset : offset > s.end ? offset - s.end : 0;
     if (dist < bestDist) {
       bestDist = dist;
       anchor = i;
