@@ -40,10 +40,17 @@ Each stage command writes timestamped files into its chosen output directory. Th
 
 ### `pipeline`
 
-The `pipeline` command writes all of its stage outputs into one chosen output directory.
+The `pipeline` command writes into one chosen output root, but it now mirrors the canonical per-stage layout used by UI runs:
 
-- `discover` and `screen` usually write one shared batch artifact each
-- downstream family-oriented stages may write multiple family-specific artifacts into that same directory
+- `00-discover/`
+- `01-screen/`
+- `02-extract/`
+- `03-classify/`
+- `04-evidence/`
+- `05-curate/`
+- `06-adjudicate/`
+
+Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_m2-extraction-results.json`.
 
 ### UI runs
 

@@ -1,6 +1,3 @@
-import { writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import type {
   ClaimDiscoveryResult,
   ClaimRankingResult,
@@ -11,8 +8,6 @@ import type {
 } from "../domain/types.js";
 import { formatAcquisitionSummary } from "../retrieval/fulltext-fetch.js";
 import type { ParsedPaperMaterializeResult } from "../retrieval/parsed-paper.js";
-import { toDiscoveryMarkdown } from "../reporting/discovery-report.js";
-import { writeJsonArtifact } from "../shared/artifact-io.js";
 
 export type DiscoverySeedEntry = {
   doi: string;
@@ -62,12 +57,6 @@ export type DiscoveryStageAdapters = {
 export type DiscoveryStageResult = {
   results: ClaimDiscoveryResult[];
   seeds: DiscoverySeedEntry[];
-};
-
-export type DiscoveryArtifactPaths = {
-  jsonPath: string;
-  mdPath: string;
-  shortlistPath: string;
 };
 
 function emit(
@@ -339,26 +328,5 @@ export async function runDiscoveryStage(
   return {
     results,
     seeds: buildDiscoverySeeds(results, options.topN),
-  };
-}
-
-export function writeDiscoveryArtifacts(
-  outputDir: string,
-  stamp: string,
-  results: ClaimDiscoveryResult[],
-  seeds: DiscoverySeedEntry[],
-): DiscoveryArtifactPaths {
-  const jsonPath = resolve(outputDir, `${stamp}_discovery-results.json`);
-  const mdPath = resolve(outputDir, `${stamp}_discovery-report.md`);
-  const shortlistPath = resolve(outputDir, `${stamp}_discovery-shortlist.json`);
-
-  writeJsonArtifact(jsonPath, results);
-  writeFileSync(mdPath, toDiscoveryMarkdown(results), "utf8");
-  writeJsonArtifact(shortlistPath, { seeds });
-
-  return {
-    jsonPath,
-    mdPath,
-    shortlistPath,
   };
 }
