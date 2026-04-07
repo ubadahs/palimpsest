@@ -103,8 +103,9 @@ export function NewRunForm() {
         </h2>
         <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
           Enter the DOI of a paper and a specific empirical claim. The pipeline
-          will find citing papers, extract how they reference the claim, retrieve
-          the cited evidence, and judge whether each citation is faithful.
+          will find citing papers, extract how they reference the claim,
+          retrieve the cited evidence, and judge whether each citation is
+          faithful.
         </p>
       </CardHeader>
       <CardContent>
@@ -156,7 +157,8 @@ export function NewRunForm() {
                   Stop after stage
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Last pipeline stage this run will execute (adjudicate is full run).
+                  Last pipeline stage this run will execute (adjudicate is full
+                  run).
                 </span>
                 <select
                   className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
@@ -177,7 +179,8 @@ export function NewRunForm() {
                   Calibration sample size
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Number of citation-evidence pairs included in the calibration set.
+                  Number of citation-evidence pairs included in the calibration
+                  set.
                 </span>
                 <Input
                   min={1}
@@ -195,7 +198,9 @@ export function NewRunForm() {
                 <Input
                   autoComplete="off"
                   value={state.adjudicateModel}
-                  onChange={(event) => update("adjudicateModel", event.target.value)}
+                  onChange={(event) =>
+                    update("adjudicateModel", event.target.value)
+                  }
                 />
               </label>
               <div className="grid gap-3 md:col-span-2">

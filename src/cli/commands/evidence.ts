@@ -72,7 +72,14 @@ function parseArgs(argv: string[]): {
     throw new Error("Missing required arguments");
   }
 
-  return { classificationPath, output, forceRefresh, llmRerank, rerankModel, rerankThinking };
+  return {
+    classificationPath,
+    output,
+    forceRefresh,
+    llmRerank,
+    rerankModel,
+    rerankThinking,
+  };
 }
 
 export async function runEvidenceCommand(argv: string[]): Promise<void> {
@@ -159,18 +166,15 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
     }
 
     const rerankModelId = args.rerankModel ?? "claude-haiku-4-5";
-    const llmClient = args.llmRerank && config.anthropicApiKey
-      ? createLLMClient({
-          apiKey: config.anthropicApiKey,
-          defaultModel: rerankModelId,
-        })
-      : undefined;
+    const llmClient =
+      args.llmRerank && config.anthropicApiKey
+        ? createLLMClient({
+            apiKey: config.anthropicApiKey,
+            defaultModel: rerankModelId,
+          })
+        : undefined;
 
-    const rerankMethod = llmClient
-      ? "llm"
-      : reranker
-        ? "local"
-        : "bm25";
+    const rerankMethod = llmClient ? "llm" : reranker ? "local" : "bm25";
 
     progress.startStep("retrieve_candidate_evidence", {
       detail: "Searching the cited paper for supporting evidence blocks.",
@@ -196,18 +200,20 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       detail: `${String(evidenceResult.summary.totalTasks)} tasks searched for evidence`,
     });
     progress.startStep("rerank_and_attach_evidence", {
-      detail: rerankMethod === "llm"
-        ? "LLM-reranking candidate blocks with sentence extraction."
-        : rerankMethod === "local"
-          ? "Reranking candidate blocks and attaching evidence spans."
-          : "Attaching evidence spans from BM25-ranked blocks.",
+      detail:
+        rerankMethod === "llm"
+          ? "LLM-reranking candidate blocks with sentence extraction."
+          : rerankMethod === "local"
+            ? "Reranking candidate blocks and attaching evidence spans."
+            : "Attaching evidence spans from BM25-ranked blocks.",
     });
     progress.completeStep("rerank_and_attach_evidence", {
-      detail: rerankMethod === "llm"
-        ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received LLM-reranked evidence`
-        : rerankMethod === "local"
-          ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received reranked evidence`
-          : `${String(evidenceResult.summary.tasksWithEvidence)} tasks received BM25 evidence`,
+      detail:
+        rerankMethod === "llm"
+          ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received LLM-reranked evidence`
+          : rerankMethod === "local"
+            ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received reranked evidence`
+            : `${String(evidenceResult.summary.tasksWithEvidence)} tasks received BM25 evidence`,
     });
     progress.startStep("summarize_grounded_coverage", {
       detail: "Summarizing grounded evidence coverage.",

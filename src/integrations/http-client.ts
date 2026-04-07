@@ -12,8 +12,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
 
-const USER_AGENT =
-  "palimpsest/0.1 (https://github.com/ubadahs/palimpsest)";
+const USER_AGENT = "palimpsest/0.1 (https://github.com/ubadahs/palimpsest)";
 
 function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
