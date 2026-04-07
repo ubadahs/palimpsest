@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
@@ -10,10 +10,6 @@ import {
 } from "../../integrations/paper-resolver.js";
 import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import {
-  toEvidenceJson,
-  toEvidenceMarkdown,
-} from "../../reporting/evidence-report.js";
 import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
@@ -22,10 +18,8 @@ import {
   createDefaultAdapters,
   formatAcquisitionSummary,
 } from "../../retrieval/fulltext-fetch.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeEvidenceArtifacts } from "../stage-artifact-writers.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 import { nextRunStamp } from "../run-stamp.js";
@@ -229,16 +223,11 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_evidence-results.json`);
-    const mdPath = resolve(outputDir, `${stamp}_evidence-report.md`);
-
-    writeFileSync(jsonPath, toEvidenceJson(evidenceResult), "utf8");
-    writeFileSync(mdPath, toEvidenceMarkdown(evidenceResult), "utf8");
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "evidence-results",
-      generator: "evidence",
+    const { jsonPath, mdPath, manifestPath } = writeEvidenceArtifacts({
+      outputRoot: outputDir,
+      stamp,
+      result: evidenceResult,
       sourceArtifacts: [args.classificationPath],
-      relatedArtifacts: [mdPath],
     });
 
     console.info(`\nResults written to:`);

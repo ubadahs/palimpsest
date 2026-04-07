@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
@@ -6,13 +6,9 @@ import { loadEnvironment } from "../../config/env.js";
 import { calibrationSetSchema } from "../../domain/types.js";
 import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import { toCalibrationJson } from "../../reporting/adjudication-report.js";
-import { toCalibrationSummaryMarkdown } from "../../reporting/calibration-summary.js";
 import { toAgreementMarkdown } from "../../reporting/agreement-report.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeAdjudicationArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
@@ -131,9 +127,6 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_llm-calibration.json`);
-    const summaryPath = resolve(outputDir, `${stamp}_llm-summary.md`);
-
     const verdicts = llmResult.records.filter((r) => !r.excluded && r.verdict);
     const supported = verdicts.filter((r) => r.verdict === "supported").length;
     const partial = verdicts.filter(
@@ -149,44 +142,36 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
       detail: `${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
     });
 
-    writeFileSync(jsonPath, toCalibrationJson(llmResult), "utf8");
-    writeFileSync(summaryPath, toCalibrationSummaryMarkdown(llmResult), "utf8");
     progress.startStep("write_final_outputs", {
       detail: "Writing final adjudication outputs.",
     });
-
-    const relatedArtifacts = [summaryPath];
-
+    const agreementMarkdown = args.humanPath
+      ? toAgreementMarkdown(
+          loadJsonArtifact(
+            args.humanPath,
+            calibrationSetSchema,
+            "human adjudication set",
+          ),
+          llmResult,
+        )
+      : undefined;
+    const { jsonPath, summaryPath, agreementPath, manifestPath } =
+      writeAdjudicationArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: llmResult,
+        sourceArtifacts: args.humanPath
+          ? [args.calibrationPath, args.humanPath]
+          : [args.calibrationPath],
+        model: args.model,
+        ...(agreementMarkdown ? { agreementMarkdown } : {}),
+      });
     console.info(`\nLLM results written to:`);
     console.info(`  JSON: ${jsonPath}`);
     console.info(`  Summary: ${summaryPath}`);
-
-    if (args.humanPath) {
-      const humanSet = loadJsonArtifact(
-        args.humanPath,
-        calibrationSetSchema,
-        "human adjudication set",
-      );
-
-      const agreementPath = resolve(outputDir, `${stamp}_agreement-report.md`);
-      writeFileSync(
-        agreementPath,
-        toAgreementMarkdown(humanSet, llmResult),
-        "utf8",
-      );
-      relatedArtifacts.push(agreementPath);
+    if (agreementPath) {
       console.info(`  Agreement: ${agreementPath}`);
     }
-
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "llm-calibration",
-      generator: "adjudicate",
-      sourceArtifacts: args.humanPath
-        ? [args.calibrationPath, args.humanPath]
-        : [args.calibrationPath],
-      relatedArtifacts,
-      model: args.model,
-    });
     console.info(`  Manifest: ${manifestPath}`);
     progress.completeStep("write_final_outputs", {
       detail: "Final JSON, summary, and manifest written.",

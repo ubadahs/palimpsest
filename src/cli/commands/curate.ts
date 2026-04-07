@@ -1,17 +1,11 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { familyEvidenceResultSchema } from "../../domain/types.js";
 import { sampleCalibrationSet } from "../../adjudication/sample-calibration.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import {
-  toCalibrationJson,
-  toCalibrationMarkdown,
-} from "../../reporting/adjudication-report.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeCalibrationSetArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
@@ -110,19 +104,14 @@ export function runCurateCommand(argv: string[]): void {
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_calibration-set.json`);
-    const mdPath = resolve(outputDir, `${stamp}_calibration-worksheet.md`);
-
-    writeFileSync(jsonPath, toCalibrationJson(calibrationSet), "utf8");
-    writeFileSync(mdPath, toCalibrationMarkdown(calibrationSet), "utf8");
+    const { jsonPath, mdPath, manifestPath } = writeCalibrationSetArtifacts({
+      outputRoot: outputDir,
+      stamp,
+      result: calibrationSet,
+      sourceArtifacts: [args.evidencePath],
+    });
     progress.startStep("write_sampling_outputs", {
       detail: "Writing the calibration set and worksheet artifacts.",
-    });
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "calibration-set",
-      generator: "curate",
-      sourceArtifacts: [args.evidencePath],
-      relatedArtifacts: [mdPath],
     });
     progress.completeStep("write_sampling_outputs", {
       detail: "Calibration set, worksheet, and manifest written.",

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
@@ -10,16 +10,9 @@ import {
 } from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
-import {
-  toM2InspectionArtifact,
-  toM2Json,
-  toM2Markdown,
-} from "../../reporting/extraction-report.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeExtractionArtifacts } from "../stage-artifact-writers.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 import { nextRunStamp } from "../run-stamp.js";
@@ -150,24 +143,18 @@ export async function runExtractCommand(argv: string[]): Promise<void> {
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_m2-extraction-results.json`);
-    const mdPath = resolve(outputDir, `${stamp}_m2-extraction-report.md`);
-    const inspectPath = resolve(outputDir, `${stamp}_m2-inspection.md`);
-
-    writeFileSync(jsonPath, toM2Json(result), "utf8");
-    writeFileSync(mdPath, toM2Markdown(result), "utf8");
-    writeFileSync(inspectPath, toM2InspectionArtifact(result), "utf8");
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "extraction-results",
-      generator: "extract",
-      sourceArtifacts: [args.preScreenPath],
-      relatedArtifacts: [mdPath, inspectPath],
-    });
+    const { jsonPath, mdPath, inspectionPath, manifestPath } =
+      writeExtractionArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result,
+        sourceArtifacts: [args.preScreenPath],
+      });
 
     console.info(`\nResults written to:`);
     console.info(`  JSON: ${jsonPath}`);
     console.info(`  Markdown: ${mdPath}`);
-    console.info(`  Inspection: ${inspectPath}`);
+    console.info(`  Inspection: ${inspectionPath}`);
     console.info(`  Manifest: ${manifestPath}`);
 
     const { summary } = result;

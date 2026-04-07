@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
@@ -10,14 +10,8 @@ import {
 } from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { buildPackets } from "../../classification/build-packets.js";
-import {
-  toClassificationJson,
-  toClassificationMarkdown,
-} from "../../reporting/classification-report.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeClassificationArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
@@ -135,16 +129,11 @@ export function runClassifyCommand(argv: string[]): void {
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const jsonPath = resolve(outputDir, `${stamp}_classification-results.json`);
-    const mdPath = resolve(outputDir, `${stamp}_classification-report.md`);
-
-    writeFileSync(jsonPath, toClassificationJson(result), "utf8");
-    writeFileSync(mdPath, toClassificationMarkdown(result), "utf8");
-    const manifestPath = writeArtifactManifest(jsonPath, {
-      artifactType: "classification-results",
-      generator: "classify",
+    const { jsonPath, mdPath, manifestPath } = writeClassificationArtifacts({
+      outputRoot: outputDir,
+      stamp,
+      result,
       sourceArtifacts: [args.extractionPath, args.preScreenPath],
-      relatedArtifacts: [mdPath],
     });
 
     console.info(`\nResults written to:`);
