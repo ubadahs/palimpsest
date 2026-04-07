@@ -80,6 +80,8 @@ export const adjudicationRecordSchema = z
     rubricQuestion: z.string(),
     evidenceSpans: z.array(evidenceSpanSchema),
     evidenceRetrievalStatus: taskEvidenceRetrievalStatusSchema,
+    /** LLM's one-sentence comparison of what the citing context claims vs. what the evidence shows. */
+    comparison: undefinedable(z.string()),
     verdict: undefinedable(adjudicationVerdictSchema),
     rationale: undefinedable(z.string()),
     retrievalQuality: undefinedable(retrievalQualitySchema),
