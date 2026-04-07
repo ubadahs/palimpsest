@@ -12,7 +12,7 @@ import { runAdjudicateCommand } from "./commands/adjudicate.js";
 import { runPreScreenCommand } from "./commands/screen.js";
 
 function printHelp(): void {
-  console.info(`Citation Fidelity Analyzer
+  console.info(`Palimpsest
 
 Available commands:
   doctor        Print resolved configuration and taxonomy summary

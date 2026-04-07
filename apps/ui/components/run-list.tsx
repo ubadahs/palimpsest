@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getStageDefinition, type RunSummary } from "citation-fidelity/ui-contract";
+import { getStageDefinition, type RunSummary } from "palimpsest/ui-contract";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";

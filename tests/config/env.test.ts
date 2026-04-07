@@ -10,8 +10,8 @@ describe("loadEnvironment", () => {
     });
 
     expect(environment.NODE_ENV).toBe("development");
-    expect(environment.CITATION_FIDELITY_DB_PATH).toBe(
-      "data/citation-fidelity.sqlite",
+    expect(environment.PALIMPSEST_DB_PATH).toBe(
+      "data/palimpsest.sqlite",
     );
     expect(environment.OPENALEX_BASE_URL).toBe("https://api.openalex.org");
     expect(environment.GROBID_BASE_URL).toBe("http://localhost:8070");
@@ -19,7 +19,7 @@ describe("loadEnvironment", () => {
 
   it("builds an absolute app config from environment values", () => {
     const environment = loadEnvironment({
-      CITATION_FIDELITY_DB_PATH: "tmp/test.sqlite",
+      PALIMPSEST_DB_PATH: "tmp/test.sqlite",
       NODE_ENV: "test",
       GROBID_BASE_URL: "http://grobid.internal:8070",
       LOCAL_RERANKER_BASE_URL: "http://reranker.internal:8080",

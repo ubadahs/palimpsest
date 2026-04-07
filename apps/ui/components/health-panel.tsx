@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
-import type { EnvironmentHealthSummary } from "citation-fidelity/ui-contract/server";
+import type { EnvironmentHealthSummary } from "palimpsest/ui-contract/server";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";

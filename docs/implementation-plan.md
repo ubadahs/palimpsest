@@ -1,4 +1,4 @@
-# Citation Fidelity Analyzer
+# Palimpsest
 
 ## Implementation Plan
 

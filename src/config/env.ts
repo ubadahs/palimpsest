@@ -8,7 +8,7 @@ const nodeEnvSchema = z
 const databasePathSchema = z
   .string()
   .min(1)
-  .default("data/citation-fidelity.sqlite");
+  .default("data/palimpsest.sqlite");
 const openAlexBaseUrlSchema = z
   .string()
   .url()
@@ -31,7 +31,7 @@ const environmentSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-  CITATION_FIDELITY_DB_PATH: databasePathSchema,
+  PALIMPSEST_DB_PATH: databasePathSchema,
   OPENALEX_BASE_URL: openAlexBaseUrlSchema,
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,
@@ -44,7 +44,7 @@ const environmentSchema = z.object({
 
 const lenientEnvironmentSchema = z.object({
   NODE_ENV: nodeEnvSchema,
-  CITATION_FIDELITY_DB_PATH: databasePathSchema,
+  PALIMPSEST_DB_PATH: databasePathSchema,
   OPENALEX_BASE_URL: openAlexBaseUrlSchema,
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,

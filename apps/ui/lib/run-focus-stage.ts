@@ -1,4 +1,4 @@
-import type { AnalysisRunStage } from "citation-fidelity/ui-contract";
+import type { AnalysisRunStage } from "palimpsest/ui-contract";
 
 function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
   return (

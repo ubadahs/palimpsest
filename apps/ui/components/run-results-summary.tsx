@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { RunDetail, RunStageDetail } from "citation-fidelity/ui-contract";
+import type { RunDetail, RunStageDetail } from "palimpsest/ui-contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { fetchJson } from "@/lib/utils";
