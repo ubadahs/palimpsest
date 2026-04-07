@@ -42,6 +42,7 @@ export const analysisRunConfigObjectSchema = z
     curateTargetSize: z.number().int().positive().default(40),
     adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
     adjudicateThinking: z.boolean().default(false),
+    evidenceLlmRerank: z.boolean().default(true),
   })
   .passthrough();
 

@@ -1,5 +1,3 @@
-import { generateObject, generateText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
 import type {
@@ -8,8 +6,11 @@ import type {
   LLMCallTelemetry,
   RunTelemetry,
 } from "../domain/types.js";
+import type { LLMClient, LLMCallRecord } from "../integrations/llm-client.js";
+import { createLLMClient } from "../integrations/llm-client.js";
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+import { extractCitingWindow } from "../shared/citation-context-window.js";
 
 const verdictSchema = z.object({
   verdict: z.enum([
@@ -67,7 +68,7 @@ ${record.rubricQuestion}
 Section: ${record.citingSpanSection ?? "unknown"}
 Marker: "${record.citingMarker}"
 
-"${record.citingSpan.substring(0, 800)}"
+"${extractCitingWindow(record.citingSpan, record.citingMarker, 800)}"
 
 ## Evidence from cited paper
 
@@ -94,19 +95,40 @@ export type AdjudicatorOptions = {
   apiKey: string;
   model?: string;
   useExtendedThinking?: boolean;
+  /** Optional pre-existing LLM client for shared ledger tracking. */
+  llmClient?: LLMClient;
 };
+
+function toLLMCallTelemetry(record: LLMCallRecord): LLMCallTelemetry {
+  const telemetry: LLMCallTelemetry = {
+    model: record.model,
+    inputTokens: record.inputTokens,
+    outputTokens: record.outputTokens,
+    totalTokens: record.totalTokens,
+    latencyMs: record.latencyMs,
+    finishReason: record.finishReason,
+    timestamp: record.timestamp,
+  };
+  if (record.reasoningTokens != null) {
+    telemetry.reasoningTokens = record.reasoningTokens;
+  }
+  if (record.cacheReadTokens != null) {
+    telemetry.cacheReadTokens = record.cacheReadTokens;
+  }
+  if (record.cacheWriteTokens != null) {
+    telemetry.cacheWriteTokens = record.cacheWriteTokens;
+  }
+  return telemetry;
+}
 
 async function callLLMWithThinking(
   record: AdjudicationRecord,
-  _options: AdjudicatorOptions,
-  anthropic: ReturnType<typeof createAnthropic>,
+  client: LLMClient,
   modelId: string,
 ): Promise<{
   verdict: z.infer<typeof verdictSchema>;
   telemetry: LLMCallTelemetry;
 }> {
-  const startMs = Date.now();
-
   const thinkingPrompt =
     buildPrompt(record) +
     `
@@ -121,86 +143,56 @@ Respond with a JSON object (no markdown fencing needed) with exactly these field
   "judgeConfidence": "high" | "medium" | "low"
 }`;
 
-  const result = await generateText({
-    model: anthropic(modelId),
+  const result = await client.generateText({
+    purpose: "adjudication",
+    model: modelId,
     prompt: thinkingPrompt,
-    providerOptions: {
-      anthropic: {
-        thinking: { type: "enabled" as const, budgetTokens: 10000 },
-      },
-    },
+    thinking: { type: "enabled", budgetTokens: 10000 },
   });
 
-  const latencyMs = Date.now() - startMs;
   const parsed = verdictSchema.parse(
     JSON.parse(extractJsonFromModelText(result.text)),
   );
 
-  const telemetry: LLMCallTelemetry = {
-    model: modelId,
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    reasoningTokens: result.usage.outputTokenDetails?.reasoningTokens,
-    totalTokens: result.usage.totalTokens,
-    cacheReadTokens: result.usage.inputTokenDetails?.cacheReadTokens,
-    cacheWriteTokens: result.usage.inputTokenDetails?.cacheWriteTokens,
-    latencyMs,
-    finishReason: result.finishReason,
-    timestamp: new Date().toISOString(),
-  };
-
-  return { verdict: parsed, telemetry };
+  return { verdict: parsed, telemetry: toLLMCallTelemetry(result.record) };
 }
 
 async function callLLMStructured(
   record: AdjudicationRecord,
-  anthropic: ReturnType<typeof createAnthropic>,
+  client: LLMClient,
   modelId: string,
 ): Promise<{
   verdict: z.infer<typeof verdictSchema>;
   telemetry: LLMCallTelemetry;
 }> {
-  const startMs = Date.now();
-
-  const result = await generateObject({
-    model: anthropic(modelId),
-    schema: verdictSchema,
+  const result = await client.generateObject({
+    purpose: "adjudication",
+    model: modelId,
     prompt: buildPrompt(record),
+    schema: verdictSchema,
   });
 
-  const latencyMs = Date.now() - startMs;
-
-  const telemetry: LLMCallTelemetry = {
-    model: modelId,
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    reasoningTokens: result.usage.outputTokenDetails?.reasoningTokens,
-    totalTokens: result.usage.totalTokens,
-    cacheReadTokens: result.usage.inputTokenDetails?.cacheReadTokens,
-    cacheWriteTokens: result.usage.inputTokenDetails?.cacheWriteTokens,
-    latencyMs,
-    finishReason: result.finishReason,
-    timestamp: new Date().toISOString(),
+  return {
+    verdict: result.object,
+    telemetry: toLLMCallTelemetry(result.record),
   };
-
-  return { verdict: result.object, telemetry };
 }
 
 async function callLLM(
   record: AdjudicationRecord,
   options: AdjudicatorOptions,
+  client: LLMClient,
 ): Promise<{
   verdict: z.infer<typeof verdictSchema>;
   telemetry: LLMCallTelemetry;
 }> {
-  const anthropic = createAnthropic({ apiKey: options.apiKey });
   const modelId = options.model ?? "claude-opus-4-6";
 
   if (options.useExtendedThinking) {
-    return callLLMWithThinking(record, options, anthropic, modelId);
+    return callLLMWithThinking(record, client, modelId);
   }
 
-  return callLLMStructured(record, anthropic, modelId);
+  return callLLMStructured(record, client, modelId);
 }
 
 function buildRunTelemetry(
@@ -247,6 +239,10 @@ export async function adjudicateCalibrationSet(
   onProgress?: (index: number, total: number) => void,
 ): Promise<CalibrationSet> {
   const modelId = options.model ?? "claude-opus-4-6";
+  const client =
+    options.llmClient ??
+    createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
+
   const records: AdjudicationRecord[] = [];
   const active = set.records.filter((r) => !r.excluded);
   const excluded = set.records.filter((r) => r.excluded);
@@ -261,7 +257,7 @@ export async function adjudicateCalibrationSet(
     onProgress?.(i + 1, active.length);
 
     try {
-      const { verdict, telemetry } = await callLLM(record, options);
+      const { verdict, telemetry } = await callLLM(record, options, client);
 
       records.push({
         ...record,

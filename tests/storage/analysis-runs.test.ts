@@ -40,6 +40,7 @@ describe("analysis runs repository", () => {
           curateTargetSize: 40,
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
+          evidenceLlmRerank: true,
         },
       });
 
@@ -70,6 +71,7 @@ describe("analysis runs repository", () => {
           curateTargetSize: 40,
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
+          evidenceLlmRerank: true,
         },
       });
 
