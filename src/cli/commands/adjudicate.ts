@@ -25,7 +25,7 @@ function parseArgs(argv: string[]): {
   let calibrationPath: string | undefined;
   let humanPath: string | undefined;
   let model = "claude-opus-4-6";
-  let thinking = false;
+  let thinking = true;
   let output = "data/adjudication";
 
   for (let i = 0; i < argv.length; i++) {
@@ -41,6 +41,8 @@ function parseArgs(argv: string[]): {
       i++;
     } else if (arg === "--thinking") {
       thinking = true;
+    } else if (arg === "--no-thinking") {
+      thinking = false;
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
       i++;

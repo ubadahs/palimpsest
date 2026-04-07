@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
+import { z } from "zod";
+
 import {
   calibrationSetSchema,
   familyClassificationResultSchema,
@@ -8,6 +10,7 @@ import {
   familyExtractionResultSchema,
   preScreenResultsSchema,
 } from "../domain/types.js";
+import { claimDiscoveryResultSchema } from "../domain/discovery.js";
 import {
   artifactManifestSchema,
   loadJsonArtifact,
@@ -23,6 +26,10 @@ import type {
 } from "./run-types.js";
 
 type ArtifactLoadResult =
+  | {
+      kind: "discover";
+      data: ReturnType<typeof claimDiscoveryResultSchema.parse>[];
+    }
   | {
       kind: "screen";
       data: ReturnType<typeof preScreenResultsSchema.parse>;
@@ -65,10 +72,23 @@ function metric(
   return { label, value: String(value) };
 }
 
+const discoveryResultsArraySchema = z.array(claimDiscoveryResultSchema);
+
 function loadArtifactForStage(
   stageKey: StageKey,
   artifactPath: string,
 ): ArtifactLoadResult {
+  if (stageKey === "discover") {
+    return {
+      kind: stageKey,
+      data: loadJsonArtifact(
+        artifactPath,
+        discoveryResultsArraySchema,
+        "discovery results",
+      ),
+    };
+  }
+
   if (stageKey === "screen") {
     return {
       kind: stageKey,
@@ -226,6 +246,23 @@ export function deriveStageSummary(
 
   const artifact = loadArtifactForStage(stageKey, artifactPath);
 
+  if (artifact.kind === "discover") {
+    const completed = artifact.data.filter((r) => r.status === "completed");
+    const findings = artifact.data.reduce((s, r) => s + r.findingCount, 0);
+    const total = artifact.data.reduce((s, r) => s + r.totalClaimCount, 0);
+
+    return {
+      headline: "Discovered claim units",
+      metrics: [
+        metric("Papers", artifact.data.length),
+        metric("Completed", completed.length),
+        metric("Claims", total),
+        metric("Findings", findings),
+      ],
+      artifacts: artifactPointers,
+    };
+  }
+
   if (artifact.kind === "screen") {
     const greenlit = artifact.data.filter(
       (entry) => entry.decision === "greenlight",
@@ -306,6 +343,26 @@ export function buildStageInspectorPayload(
   artifactPath: string,
 ): unknown {
   const artifact = loadArtifactForStage(stageKey, artifactPath);
+
+  if (artifact.kind === "discover") {
+    return {
+      papers: artifact.data.map((result) => ({
+        doi: result.doi,
+        title: result.resolvedPaper?.title,
+        status: result.status,
+        statusDetail: result.statusDetail,
+        findingCount: result.findingCount,
+        totalClaimCount: result.totalClaimCount,
+        claims: result.claims.map((claim) => ({
+          claimText: claim.claimText,
+          section: claim.section,
+          claimType: claim.claimType,
+          confidence: claim.confidence,
+          citedReferences: claim.citedReferences,
+        })),
+      })),
+    };
+  }
 
   if (artifact.kind === "screen") {
     return {

@@ -31,7 +31,7 @@ Pre-screen writes `*_pre-screen-results.json`, a Markdown report, and `*_pre-scr
 
 | Script | Purpose |
 |--------|---------|
-| `npm run dev` | CLI entry (`tsx src/cli/index.ts`) |
+| `npm run dev` | CLI entry (`tsx src/cli/index.ts`); try `discover`, `screen`, etc. |
 | `npm run build` | Clear `dist/`, then compile `src/` only (no test emit) |
 | `npm run typecheck` | Typecheck `src/` + `tests/` |
 | `npm run test` | Vitest for root `tests/**/*.ts` |

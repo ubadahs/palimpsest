@@ -17,6 +17,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { fetchJson, formatDateTime } from "@/lib/utils";
 
 const stageDescriptions: Record<StageKey, string> = {
+  discover:
+    "Extracts empirical claim units that a paper advances as its own contribution.",
   screen:
     "Finds citing papers and checks whether the tracked claim can be grounded in the seed paper.",
   extract: "Extracts citation context from each citing paper's full text.",

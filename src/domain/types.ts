@@ -1,4 +1,5 @@
 export * from "./common.js";
+export * from "./discovery.js";
 export * from "./parsing.js";
 export * from "./pre-screen.js";
 export * from "./pre-screen-grounding-trace.js";
