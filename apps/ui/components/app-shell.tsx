@@ -20,17 +20,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         >
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--accent)]">
-              Palimpsest
-            </p>
             <Link href="/" className="inline-block">
               {isHome ? (
                 <h1 className="font-[var(--font-instrument)] text-4xl leading-none tracking-[-0.03em] text-[var(--text)] md:text-6xl">
-                  Palimpsest
+                  palimpsest
                 </h1>
               ) : (
                 <h1 className="font-[var(--font-instrument)] text-2xl leading-tight tracking-[-0.03em] text-[var(--text)] md:text-3xl">
-                  Palimpsest
+                  palimpsest
                 </h1>
               )}
             </Link>
