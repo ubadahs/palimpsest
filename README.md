@@ -1,4 +1,4 @@
-# Citation Fidelity
+# Palimpsest
 
 CLI-first tooling for auditing **citation fidelity** in scientific literature: it checks whether citing papers faithfully represent empirical-attribution claims from cited papers (bioRxiv-focused POC). The **CLI and JSON/Markdown artifacts are canonical**; SQLite stores structured state locally. A **local-only** Next.js app in `apps/ui` can orchestrate pipeline stages and inspect artifacts—there is no hosted product UI.
 

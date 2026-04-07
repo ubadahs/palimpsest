@@ -1,4 +1,4 @@
-import { stageKeySchema } from "citation-fidelity/ui-contract";
+import { stageKeySchema } from "palimpsest/ui-contract";
 
 import { StageDetailClient } from "@/components/stage-detail-client";
 import { getRunDetailOrThrow, getStageDetailOrThrow } from "@/lib/run-queries";

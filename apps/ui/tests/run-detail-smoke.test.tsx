@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   RunDetail,
   StageWorkflowSnapshot,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 
 import { RunDetailClient } from "../components/run-detail-client";
 

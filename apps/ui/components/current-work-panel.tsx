@@ -1,6 +1,6 @@
 "use client";
 
-import type { StageWorkflowSnapshot } from "citation-fidelity/ui-contract";
+import type { StageWorkflowSnapshot } from "palimpsest/ui-contract";
 import {
   AlertCircle,
   AlertTriangle,

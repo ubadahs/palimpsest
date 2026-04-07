@@ -5,7 +5,7 @@ import {
   analysisRunConfigSchema,
   analysisRunConfigObjectSchema,
   stageKeySchema,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 import { z } from "zod";
 
 import { createRun, getDashboardData } from "@/lib/run-queries";

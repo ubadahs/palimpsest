@@ -66,7 +66,7 @@ async function fetchPmcXml(
   doi: string,
   adapters: FullTextFetchAdapters,
 ): Promise<Result<FullTextContent>> {
-  const toolParam = "citation-fidelity";
+  const toolParam = "palimpsest";
   const emailParam = adapters.email
     ? `&email=${encodeURIComponent(adapters.email)}`
     : "";
@@ -213,7 +213,7 @@ async function defaultFetchXml(url: string): Promise<Result<string>> {
     const resp = await fetch(url, {
       headers: {
         Accept: "application/xml, text/xml",
-        "User-Agent": "citation-fidelity/0.1",
+        "User-Agent": "palimpsest/0.1",
       },
       signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),
     });
@@ -231,7 +231,7 @@ async function defaultFetchXml(url: string): Promise<Result<string>> {
 async function defaultFetchPdf(url: string): Promise<Result<Buffer>> {
   try {
     const resp = await fetch(url, {
-      headers: { "User-Agent": "citation-fidelity/0.1" },
+      headers: { "User-Agent": "palimpsest/0.1" },
       signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),
     });
     if (!resp.ok)
@@ -267,7 +267,7 @@ async function defaultProcessPdfWithGrobid(
       {
         method: "POST",
         headers: {
-          "User-Agent": "citation-fidelity/0.1",
+          "User-Agent": "palimpsest/0.1",
         },
         body: formData,
         signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),

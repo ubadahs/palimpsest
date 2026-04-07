@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import type { RunDetail, RunStageDetail, StageKey } from "citation-fidelity/ui-contract";
+import type { RunDetail, RunStageDetail, StageKey } from "palimpsest/ui-contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
 import { Breadcrumbs } from "@/components/breadcrumbs";

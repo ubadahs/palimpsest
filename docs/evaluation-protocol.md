@@ -1,4 +1,4 @@
-# Citation Fidelity Analyzer
+# Palimpsest
 
 ## Evaluation Protocol
 
@@ -18,7 +18,7 @@ The [PRD](./prd.md) is the source of truth for:
 
 ## Evaluation Question
 
-Can the system correctly determine whether a citation edge is auditable and, when it is auditable, produce span-grounded citation-fidelity judgments that are accurate enough to surface real mutation patterns in a small claim-family cluster?
+Can the system correctly determine whether a citation edge is auditable and, when it is auditable, produce span-grounded palimpsest judgments that are accurate enough to surface real mutation patterns in a small claim-family cluster?
 
 This protocol evaluates the POC as a triage instrument, not as an autonomous judge.
 

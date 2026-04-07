@@ -1,5 +1,5 @@
 {
-  "name": "citation-fidelity",
+  "name": "palimpsest",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
@@ -22,17 +22,17 @@
     "db:migrate": "tsx src/cli/index.ts db:migrate",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
-    "lint:all": "npm run lint && npm --workspace @citation-fidelity/ui run lint",
+    "lint:all": "npm run lint && npm --workspace @palimpsest/ui run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "ui:dev": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run dev",
-    "ui:build": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run build",
-    "ui:start": "CITATION_FIDELITY_ROOT=$PWD npm --workspace @citation-fidelity/ui run start"
+    "ui:dev": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run dev",
+    "ui:build": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run build",
+    "ui:start": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run start"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ubadahs/citation-fidelity.git"
+    "url": "git+https://github.com/ubadahs/palimpsest.git"
   },
   "keywords": [],
   "author": "",
@@ -42,9 +42,9 @@
     "node": ">=22"
   },
   "bugs": {
-    "url": "https://github.com/ubadahs/citation-fidelity/issues"
+    "url": "https://github.com/ubadahs/palimpsest/issues"
   },
-  "homepage": "https://github.com/ubadahs/citation-fidelity#readme",
+  "homepage": "https://github.com/ubadahs/palimpsest#readme",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.66",
     "@xmldom/xmldom": "^0.8.12",

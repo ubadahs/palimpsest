@@ -11,7 +11,7 @@ describe("runMigrations", () => {
   let tempDirectory = "";
 
   beforeEach(() => {
-    tempDirectory = mkdtempSync(join(tmpdir(), "citation-fidelity-"));
+    tempDirectory = mkdtempSync(join(tmpdir(), "palimpsest-"));
   });
 
   afterEach(() => {

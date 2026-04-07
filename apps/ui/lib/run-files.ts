@@ -5,7 +5,7 @@ import {
   getStageDefinition,
   stageDefinitions,
   type StageKey,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 
 import { getRepoRoot } from "./root-path";
 

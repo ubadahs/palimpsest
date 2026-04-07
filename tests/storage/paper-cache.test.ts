@@ -98,7 +98,7 @@ describe("paper cache integration", () => {
   let tempDirectory = "";
 
   beforeEach(() => {
-    tempDirectory = mkdtempSync(join(tmpdir(), "citation-fidelity-cache-"));
+    tempDirectory = mkdtempSync(join(tmpdir(), "palimpsest-cache-"));
   });
 
   afterEach(() => {

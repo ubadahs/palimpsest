@@ -62,4 +62,4 @@ The root package exposes a narrow shared contract for the UI:
 - artifact discovery and stage-summary selectors
 - stage-specific inspector payload builders
 
-Client components import only the client-safe `citation-fidelity/ui-contract` entrypoint. Server code uses `citation-fidelity/ui-contract/server`.
+Client components import only the client-safe `palimpsest/ui-contract` entrypoint. Server code uses `palimpsest/ui-contract/server`.

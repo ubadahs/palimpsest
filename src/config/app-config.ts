@@ -23,7 +23,7 @@ export function createAppConfig(
 ): AppConfig {
   return {
     nodeEnv: environment.NODE_ENV,
-    databasePath: resolve(cwd, environment.CITATION_FIDELITY_DB_PATH),
+    databasePath: resolve(cwd, environment.PALIMPSEST_DB_PATH),
     providerBaseUrls: {
       openAlex: environment.OPENALEX_BASE_URL,
       semanticScholar: environment.SEMANTIC_SCHOLAR_BASE_URL,
