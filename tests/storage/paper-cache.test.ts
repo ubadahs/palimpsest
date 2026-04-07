@@ -60,11 +60,10 @@ function makePaper(): ResolvedPaper {
     authors: ["Alice Smith"],
     abstract: undefined,
     source: "openalex",
-    openAccessUrl: "https://example.com/paper.pdf",
-    openAccessPdfUrl: "https://example.com/paper.pdf",
-    fullTextStatus: {
-      status: "available",
-      source: "publisher_pdf",
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "pdf",
+      pdfUrl: "https://example.com/paper.pdf",
     },
     paperType: "article",
     referencedWorksCount: 12,
@@ -81,10 +80,21 @@ function makeAdapters(
   counters: { fetchPdf: number; processPdfWithGrobid: number },
 ): FullTextFetchAdapters {
   return {
-    fetchXml: () => Promise.resolve({ ok: false as const, error: "not used" }),
-    fetchPdf: () => {
+    fetchUrl: (url, options) => {
       counters.fetchPdf++;
-      return Promise.resolve({ ok: true as const, data: Buffer.from("pdf") });
+      return Promise.resolve({
+        ok: true as const,
+        data: {
+          finalUrl: url,
+          status: 200,
+          contentType: options?.accept?.includes("pdf")
+            ? "application/pdf"
+            : "application/xml",
+          body: options?.accept?.includes("pdf")
+            ? Buffer.from("%PDF-1.7 fixture")
+            : Buffer.from("<?xml version=\"1.0\"?><article />"),
+        },
+      });
     },
     processPdfWithGrobid: () => {
       counters.processPdfWithGrobid++;
@@ -136,6 +146,12 @@ describe("paper cache integration", () => {
 
       expect(first.ok).toBe(true);
       expect(second.ok).toBe(true);
+      if (first.ok) {
+        expect(first.data.acquisition.materializationSource).toBe("network");
+      }
+      if (second.ok) {
+        expect(second.data.acquisition.materializationSource).toBe("raw_cache");
+      }
       expect(counters.fetchPdf).toBe(1);
       expect(counters.processPdfWithGrobid).toBe(1);
     } finally {
@@ -159,10 +175,18 @@ describe("paper cache integration", () => {
       accessStatus: "available",
       rawFullText: RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.openAccessPdfUrl,
+      fetchSourceUrl: paper.fullTextHints.pdfUrl,
       fetchStatus: "success",
       contentHash,
       fetchedAt: new Date().toISOString(),
+      acquisitionProvenanceJson: JSON.stringify({
+        materializationSource: "network",
+        attempts: [],
+        selectedMethod: "direct_pdf_grobid",
+        selectedLocatorKind: "direct_pdf_url",
+        selectedUrl: paper.fullTextHints.pdfUrl,
+        fullTextFormat: "grobid_tei_xml",
+      }),
       metadataJson: undefined,
     });
     upsertParsedData(database, {
@@ -207,6 +231,7 @@ describe("paper cache integration", () => {
       expect(result.data.parsedDocument.blocks[0]?.sectionTitle).toBe(
         "Cached Section",
       );
+      expect(result.data.acquisition.materializationSource).toBe("parsed_cache");
     } finally {
       database.close();
     }
@@ -227,10 +252,18 @@ describe("paper cache integration", () => {
       accessStatus: "available",
       rawFullText: UPDATED_RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.openAccessPdfUrl,
+      fetchSourceUrl: paper.fullTextHints.pdfUrl,
       fetchStatus: "success",
       contentHash: computeContentHash(UPDATED_RAW_TEI),
       fetchedAt: new Date().toISOString(),
+      acquisitionProvenanceJson: JSON.stringify({
+        materializationSource: "network",
+        attempts: [],
+        selectedMethod: "direct_pdf_grobid",
+        selectedLocatorKind: "direct_pdf_url",
+        selectedUrl: paper.fullTextHints.pdfUrl,
+        fullTextFormat: "grobid_tei_xml",
+      }),
       metadataJson: undefined,
     });
     upsertParsedData(database, {
@@ -295,10 +328,18 @@ describe("paper cache integration", () => {
       accessStatus: "available",
       rawFullText: RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.openAccessPdfUrl,
+      fetchSourceUrl: paper.fullTextHints.pdfUrl,
       fetchStatus: "success",
       contentHash: computeContentHash(RAW_TEI),
       fetchedAt: new Date().toISOString(),
+      acquisitionProvenanceJson: JSON.stringify({
+        materializationSource: "network",
+        attempts: [],
+        selectedMethod: "direct_pdf_grobid",
+        selectedLocatorKind: "direct_pdf_url",
+        selectedUrl: paper.fullTextHints.pdfUrl,
+        fullTextFormat: "grobid_tei_xml",
+      }),
       metadataJson: undefined,
     });
 

@@ -5,7 +5,9 @@ import type {
   ResolvedPaper,
   Result,
 } from "../domain/types.js";
-import type { ParsedPaperMaterialized } from "../retrieval/parsed-paper.js";
+import type {
+  ParsedPaperMaterializeResult,
+} from "../retrieval/parsed-paper.js";
 
 export type M4EvidenceAdapters = {
   resolveByDoi: (doi: string) => Promise<Result<ResolvedPaper>>;
@@ -19,7 +21,7 @@ export type M4EvidenceAdapters = {
   }) => Promise<Result<ResolvedPaper>>;
   materializeParsedPaper: (
     paper: ResolvedPaper,
-  ) => Promise<Result<ParsedPaperMaterialized>>;
+  ) => Promise<ParsedPaperMaterializeResult>;
 };
 
 export type MaterializedCitedPaperSource = {
@@ -51,6 +53,7 @@ export async function resolveCitedPaperSource(
         fetchStatus: "not_attempted",
         fetchError: undefined,
         fullTextFormat: undefined,
+        acquisition: undefined,
       },
       citedPaperParsedDocument: undefined,
     };
@@ -89,6 +92,7 @@ export async function resolveCitedPaperSource(
         fetchStatus: "not_attempted",
         fetchError: undefined,
         fullTextFormat: undefined,
+        acquisition: undefined,
       },
       citedPaperParsedDocument: undefined,
     };
@@ -100,11 +104,12 @@ export async function resolveCitedPaperSource(
     status: "completed",
     detail: resolvedPaper.title,
   });
-  if (resolvedPaper.fullTextStatus.status !== "available") {
+  if (resolvedPaper.fullTextHints.providerAvailability !== "available") {
     const reason =
-      resolvedPaper.fullTextStatus.status === "unavailable"
-        ? resolvedPaper.fullTextStatus.reason
-        : "Only abstract text is available";
+      resolvedPaper.fullTextHints.providerAvailability === "abstract_only"
+        ? "Only abstract text is available"
+        : (resolvedPaper.fullTextHints.providerReason ??
+          "No open-access full text available");
 
     onProgress?.({
       step: "fetch_and_parse_cited_full_text",
@@ -119,6 +124,7 @@ export async function resolveCitedPaperSource(
         fetchStatus: "no_fulltext",
         fetchError: reason,
         fullTextFormat: undefined,
+        acquisition: undefined,
       },
       citedPaperParsedDocument: undefined,
     };
@@ -145,6 +151,7 @@ export async function resolveCitedPaperSource(
         fetchStatus: "fetch_failed",
         fetchError: parsedPaperResult.error,
         fullTextFormat: undefined,
+        acquisition: parsedPaperResult.acquisition,
       },
       citedPaperParsedDocument: undefined,
     };
@@ -161,10 +168,11 @@ export async function resolveCitedPaperSource(
       resolutionStatus: "resolved",
       resolutionError: undefined,
       resolvedPaper,
-      fetchStatus: "retrieved",
-      fetchError: undefined,
-      fullTextFormat: parsedPaperResult.data.fullText.format,
-    },
+        fetchStatus: "retrieved",
+        fetchError: undefined,
+        fullTextFormat: parsedPaperResult.data.fullText.format,
+        acquisition: parsedPaperResult.data.acquisition,
+      },
     citedPaperParsedDocument: parsedPaperResult.data.parsedDocument,
   };
 }

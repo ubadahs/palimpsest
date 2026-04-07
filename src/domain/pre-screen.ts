@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   edgeClassificationSchema,
+  fullTextAcquisitionSchema,
   resolvedPaperSchema,
   undefinedable,
 } from "./common.js";
@@ -157,6 +158,7 @@ export const claimFamilyPreScreenSchema = z
     metrics: preScreenMetricsSchema,
     /** Full seed neighborhood before claim filtering (auditability composition). */
     neighborhoodMetrics: undefinedable(preScreenMetricsSchema),
+    seedFullTextAcquisition: undefinedable(fullTextAcquisitionSchema),
     claimGrounding: undefinedable(claimGroundingSchema),
     familyUseProfile: z.array(familyUseProfileSchema),
     m2Priority: m2PrioritySchema,

@@ -29,7 +29,14 @@ describe("preScreenGroundingTraceRecordSchema", () => {
       seedResolutionOk: true,
       resolvedSeedPaperId: "id",
       resolvedSeedTitle: "Title",
-      materializationOk: true,
+      materialization: {
+        materializationSource: "network",
+        attempts: [],
+        selectedMethod: "pmc_xml",
+        selectedLocatorKind: "doi_input",
+        selectedUrl: "https://example.com/paper.xml",
+        fullTextFormat: "jats_xml",
+      },
       llmCall: {
         modelId: "claude-opus-4-6",
         promptTemplateVersion: "2026-04-06-v1",
@@ -75,7 +82,14 @@ describe("preScreenGroundingTraceFileSchema", () => {
           seedResolutionOk: true,
           resolvedSeedPaperId: "p",
           resolvedSeedTitle: "T",
-          materializationOk: true,
+          materialization: {
+            materializationSource: "network",
+            attempts: [],
+            selectedMethod: "pmc_xml",
+            selectedLocatorKind: "doi_input",
+            selectedUrl: "https://example.com/paper.xml",
+            fullTextFormat: "jats_xml",
+          },
           finalClaimGrounding: {
             status: "grounded",
             analystClaim: "c",
@@ -88,7 +102,9 @@ describe("preScreenGroundingTraceFileSchema", () => {
       },
     };
     const parsed = preScreenGroundingTraceFileSchema.parse(payload);
-    expect(parsed.recordsBySeedDoi["10.1234/x"]?.materializationOk).toBe(true);
+    expect(
+      parsed.recordsBySeedDoi["10.1234/x"]?.materialization?.selectedMethod,
+    ).toBe("pmc_xml");
     const again = preScreenGroundingTraceFileSchema.parse(
       JSON.parse(JSON.stringify(parsed)),
     );

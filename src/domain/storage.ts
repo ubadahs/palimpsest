@@ -19,6 +19,7 @@ export const cachedPaperSchema = z
     fetchStatus: z.string().min(1),
     contentHash: undefinedable(z.string()),
     fetchedAt: z.string().min(1),
+    acquisitionProvenanceJson: undefinedable(z.string()),
     metadataJson: undefinedable(z.string()),
   })
   .passthrough();

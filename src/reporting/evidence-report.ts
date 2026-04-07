@@ -3,6 +3,7 @@ import type {
   FamilyEvidenceResult,
   TaskWithEvidence,
 } from "../domain/types.js";
+import { formatAcquisitionSummary } from "../retrieval/fulltext-fetch.js";
 import { truncate } from "./report-utils.js";
 
 export function toEvidenceJson(result: FamilyEvidenceResult): string {
@@ -65,6 +66,7 @@ export function toEvidenceMarkdown(result: FamilyEvidenceResult): string {
     `**Tracked claim:** ${result.seed.trackedClaim}`,
     `**Study mode:** ${result.studyMode}`,
     `**Cited paper full text:** ${result.citedPaperFullTextAvailable ? "available" : "not available"}`,
+    `**Cited paper acquisition:** ${formatAcquisitionSummary(result.citedPaperSource.acquisition)}`,
     "",
     "## Summary",
     "",

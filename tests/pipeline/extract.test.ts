@@ -40,8 +40,10 @@ function makeSeedPaper(): ResolvedPaper {
     authors: ["Seed Author"],
     abstract: undefined,
     source: "openalex",
-    openAccessUrl: undefined,
-    fullTextStatus: { status: "available", source: "publisher_pdf" },
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "pdf",
+    },
     paperType: "article",
     referencedWorksCount: 40,
     publicationYear: 2020,
@@ -56,11 +58,17 @@ function makeCitingPaper(id: string, available: boolean): ResolvedPaper {
     authors: ["Author A"],
     abstract: undefined,
     source: "openalex",
-    openAccessPdfUrl: available ? `https://example.com/${id}.pdf` : undefined,
-    openAccessUrl: available ? `https://example.com/${id}.pdf` : undefined,
-    fullTextStatus: available
-      ? { status: "available" as const, source: "publisher_pdf" }
-      : { status: "unavailable" as const, reason: "Paywalled" },
+    fullTextHints: available
+      ? {
+          providerAvailability: "available" as const,
+          providerSourceHint: "pdf",
+          pdfUrl: `https://example.com/${id}.pdf`,
+          repositoryUrl: `https://example.com/${id}.pdf`,
+        }
+      : {
+          providerAvailability: "unavailable" as const,
+          providerReason: "Paywalled",
+        },
     paperType: "article",
     referencedWorksCount: 25,
     publicationYear: 2022,
@@ -182,10 +190,20 @@ function makeFamily(
 function makeTestAdapters(): ExtractionAdapters {
   return {
     fullText: {
-      fetchXml: async () =>
-        Promise.resolve({ ok: false as const, error: "no xml" }),
-      fetchPdf: async () =>
-        Promise.resolve({ ok: true as const, data: Buffer.from("pdf") }),
+      fetchUrl: async (url, options) =>
+        Promise.resolve({
+          ok: true as const,
+          data: {
+            finalUrl: url,
+            status: 200,
+            contentType: options?.accept?.includes("pdf")
+              ? "application/pdf"
+              : "application/xml",
+            body: options?.accept?.includes("pdf")
+              ? Buffer.from("%PDF-1.7 fixture")
+              : Buffer.from("<?xml version=\"1.0\"?><article />"),
+          },
+        }),
       processPdfWithGrobid: async () =>
         Promise.resolve({ ok: true as const, data: GROBID_TEI }),
       email: undefined,

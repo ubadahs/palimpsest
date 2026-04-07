@@ -11,8 +11,12 @@ function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
     authors: ["Author A"],
     abstract: "Test abstract.",
     source: "openalex",
-    openAccessUrl: "https://example.com/paper.pdf",
-    fullTextStatus: { status: "available", source: "biorxiv_xml" },
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
+      pdfUrl: "https://example.com/paper.pdf",
+      repositoryUrl: "https://example.com/paper.pdf",
+    },
     paperType: "article",
     referencedWorksCount: 25,
     publicationYear: 2022,
@@ -24,7 +28,12 @@ describe("assessAuditability", () => {
   it("returns auditable_structured for XML full text sources", () => {
     for (const source of ["biorxiv_xml", "pmc_xml", "jats_xml"]) {
       const result = assessAuditability(
-        makePaper({ fullTextStatus: { status: "available", source } }),
+        makePaper({
+          fullTextHints: {
+            providerAvailability: "available",
+            providerSourceHint: source,
+          },
+        }),
       );
       expect(result.status).toBe("auditable_structured");
     }
@@ -32,7 +41,13 @@ describe("assessAuditability", () => {
 
   it("returns auditable_pdf for PDF full text", () => {
     const result = assessAuditability(
-      makePaper({ fullTextStatus: { status: "available", source: "pdf" } }),
+      makePaper({
+        fullTextHints: {
+          providerAvailability: "available",
+          providerSourceHint: "pdf",
+          pdfUrl: "https://example.com/paper.pdf",
+        },
+      }),
     );
     expect(result.status).toBe("auditable_pdf");
     expect(result.reason).toContain("PDF");
@@ -40,7 +55,11 @@ describe("assessAuditability", () => {
 
   it("returns partially_auditable for abstract-only papers", () => {
     const result = assessAuditability(
-      makePaper({ fullTextStatus: { status: "abstract_only" } }),
+      makePaper({
+        fullTextHints: {
+          providerAvailability: "abstract_only",
+        },
+      }),
     );
     expect(result.status).toBe("partially_auditable");
     expect(result.reason).toContain("abstract");
@@ -49,7 +68,10 @@ describe("assessAuditability", () => {
   it("returns not_auditable for unavailable full text", () => {
     const result = assessAuditability(
       makePaper({
-        fullTextStatus: { status: "unavailable", reason: "Paywalled" },
+        fullTextHints: {
+          providerAvailability: "unavailable",
+          providerReason: "Paywalled",
+        },
       }),
     );
     expect(result.status).toBe("not_auditable");

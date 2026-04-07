@@ -18,7 +18,10 @@ import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
-import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import {
+  createDefaultAdapters,
+  formatAcquisitionSummary,
+} from "../../retrieval/fulltext-fetch.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
@@ -161,7 +164,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       );
     } else if (citedPaperMaterialized.citedPaperParsedDocument) {
       console.info(
-        `  Retrieved ${String(citedPaperMaterialized.citedPaperParsedDocument.blocks.length)} parsed blocks (${citedPaperMaterialized.citedPaperSource.fullTextFormat})`,
+        `  Retrieved ${String(citedPaperMaterialized.citedPaperParsedDocument.blocks.length)} parsed blocks (${citedPaperMaterialized.citedPaperSource.fullTextFormat}) via ${formatAcquisitionSummary(citedPaperMaterialized.citedPaperSource.acquisition)}`,
       );
     }
 

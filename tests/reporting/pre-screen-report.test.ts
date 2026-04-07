@@ -19,8 +19,12 @@ const sampleResult: ClaimFamilyPreScreen = {
     authors: ["Alice"],
     abstract: "Abstract text.",
     source: "openalex",
-    openAccessUrl: "https://example.com",
-    fullTextStatus: { status: "available", source: "biorxiv_xml" },
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
+      landingPageUrl: "https://example.com",
+      repositoryUrl: "https://example.com",
+    },
     paperType: "article",
     referencedWorksCount: 20,
     publicationYear: 2021,
@@ -75,8 +79,12 @@ const sampleResult: ClaimFamilyPreScreen = {
       authors: ["Alice"],
       abstract: "Abstract text.",
       source: "openalex",
-      openAccessUrl: "https://example.com",
-      fullTextStatus: { status: "available", source: "biorxiv_xml" },
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "biorxiv_xml",
+        landingPageUrl: "https://example.com",
+        repositoryUrl: "https://example.com",
+      },
       paperType: "article",
       referencedWorksCount: 20,
       publicationYear: 2021,
@@ -88,8 +96,12 @@ const sampleResult: ClaimFamilyPreScreen = {
       authors: ["Bob"],
       abstract: "Gene X increases protein Y in cells.",
       source: "openalex",
-      openAccessUrl: "https://example.com/c1",
-      fullTextStatus: { status: "available", source: "biorxiv_xml" },
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "biorxiv_xml",
+        landingPageUrl: "https://example.com/c1",
+        repositoryUrl: "https://example.com/c1",
+      },
       paperType: "article",
       referencedWorksCount: 15,
       publicationYear: 2022,
@@ -101,8 +113,10 @@ const sampleResult: ClaimFamilyPreScreen = {
       authors: ["Carol"],
       abstract: "Gene X and protein Y signaling.",
       source: "openalex",
-      openAccessUrl: undefined,
-      fullTextStatus: { status: "unavailable", reason: "No OA" },
+      fullTextHints: {
+        providerAvailability: "unavailable",
+        providerReason: "No OA",
+      },
       paperType: "article",
       referencedWorksCount: 10,
       publicationYear: 2023,
@@ -210,6 +224,22 @@ describe("toPreScreenMarkdown", () => {
   it("includes notes when present", () => {
     const md = toPreScreenMarkdown([sampleResult]);
     expect(md).toContain("Hedged in original");
+  });
+
+  it("includes seed acquisition failure reasons when available", () => {
+    const md = toPreScreenMarkdown([
+      {
+        ...sampleResult,
+        seedFullTextAcquisition: {
+          materializationSource: "network",
+          attempts: [],
+          failureReason: "No fetchable full text candidates",
+        },
+      },
+    ]);
+
+    expect(md).toContain("Seed full text acquisition:");
+    expect(md).toContain("No fetchable full text candidates");
   });
 
   it("includes explanatory note about review-heavy neighborhoods", () => {

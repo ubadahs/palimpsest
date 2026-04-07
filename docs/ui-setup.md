@@ -29,7 +29,7 @@ npm run ui:start
 The UI reads the same environment used by the CLI (including `.env.local` / `.env` at the repo root when resolved via `PALIMPSEST_ROOT`).
 
 - **Database** — required for the app to function.
-- **GROBID** — used for PDF → structured text and for seed full-text materialization. When it is down or unreachable, stages that need parsed full text (including **screen** seed parsing and **extract/evidence** PDF paths) fail or degrade according to each command’s behavior. The **GROBID Docker image is JVM-heavy**; reserving on the order of **3–4 GiB** RAM for the container is normal.
+- **GROBID** — used only after the acquisition layer has validated that a fetched payload is a real PDF. It still powers PDF -> structured text and seed full-text materialization when XML is unavailable. When it is down or unreachable, stages that need validated PDF parsing (including **screen** seed parsing and **extract/evidence** PDF paths) fail or degrade according to each command’s behavior. The **GROBID Docker image is JVM-heavy**; reserving on the order of **3–4 GiB** RAM for the container is normal.
 - **`ANTHROPIC_API_KEY`** — required for **`screen`** (full-manuscript LLM claim grounding) and for **`adjudicate`**. Without it, those commands exit early; `doctor` reports Anthropic as not configured.
 - **Local reranker** (`LOCAL_RERANKER_BASE_URL`) — optional; health treats it as non-blocking when unset.
 

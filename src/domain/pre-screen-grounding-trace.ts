@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { fullTextAcquisitionSchema } from "./common.js";
 import { claimGroundingSchema, seedPaperInputSchema } from "./pre-screen.js";
 
 /** Increment when the trace envelope or required fields change. */
@@ -74,7 +75,7 @@ export const preScreenGroundingTraceRecordSchema = z
     seedResolutionError: z.string().optional(),
     resolvedSeedPaperId: z.string().optional(),
     resolvedSeedTitle: z.string().optional(),
-    materializationOk: z.boolean().optional(),
+    materialization: fullTextAcquisitionSchema.optional(),
     materializationError: z.string().optional(),
     llmCall: groundingTraceLlmCallSchema.optional(),
     finalClaimGrounding: claimGroundingSchema,

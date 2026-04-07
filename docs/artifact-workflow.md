@@ -132,6 +132,21 @@ New runs normalize JATS XML and GROBID TEI into one internal parsed-document sha
 
 Historical artifacts that still reference legacy `pdf_text` remain loadable. New PDF-backed runs should emit `grobid_tei_xml`.
 
+### Full-text acquisition provenance
+
+Artifacts that depend on fetched paper content now also carry acquisition provenance alongside the parsed document or paper source record.
+
+The shared provenance shape includes:
+
+- `materializationSource` (`network`, `raw_cache`, `parsed_cache`)
+- `selectedMethod` (`biorxiv_xml`, `pmc_xml`, `landing_page_xml`, `direct_pdf_grobid`)
+- `selectedLocatorKind` (`pmcid_metadata`, `pmcid_derived_url`, `doi_input`, `doi_resolved`, `direct_pdf_url`, `meta_pdf_url`, `meta_xml_url`)
+- `selectedUrl`
+- `fullTextFormat`
+- ordered `attempts[]` with probe classification, URL, HTTP status, and failure reason when relevant
+
+This provenance is the canonical answer to "how did we get this parsed paper?" and should be preferred over legacy cache fetch-status fields.
+
 ### Evidence spans
 
 Evidence spans include retrieval metadata needed for auditability and debugging:

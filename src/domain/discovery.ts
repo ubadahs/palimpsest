@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { resolvedPaperSchema, undefinedable } from "./common.js";
+import {
+  fullTextAcquisitionSchema,
+  resolvedPaperSchema,
+  undefinedable,
+} from "./common.js";
 
 // ---------------------------------------------------------------------------
 // Claim type: what kind of assertion the paper is making.
@@ -113,6 +117,7 @@ export const claimDiscoveryResultSchema = z
     llmOutputTokens: undefinedable(z.number().int().nonnegative()),
     llmEstimatedCostUsd: undefinedable(z.number().nonnegative()),
     ranking: undefinedable(claimRankingResultSchema),
+    fullTextAcquisition: undefinedable(fullTextAcquisitionSchema),
     generatedAt: z.string().min(1),
   })
   .passthrough();
