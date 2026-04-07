@@ -87,7 +87,7 @@ export function LogPanel({
       {!collapsed ? (
         <CardContent className="pt-0">
           <ScrollArea className="h-[360px] rounded-[24px] border border-[var(--border)] bg-[#1f1b17] p-0">
-            <pre className="min-h-full whitespace-pre-wrap p-5 text-xs leading-6 text-[#efe6da]">
+            <pre className="min-h-full whitespace-pre-wrap break-all p-5 text-xs leading-6 text-[#efe6da]">
               {content || "No log output yet."}
             </pre>
           </ScrollArea>
