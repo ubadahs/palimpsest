@@ -1,4 +1,9 @@
-import { appendFileSync, copyFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import {
@@ -16,6 +21,7 @@ import {
   updateStageStatus,
 } from "palimpsest/storage";
 import {
+  extractStageFailureDetailFromLog,
   getStageDefinition,
   stageDefinitions,
   type AnalysisRun,
@@ -104,6 +110,26 @@ function writeLog(logPath: string, chunk: string): void {
   appendFileSync(logPath, chunk, "utf8");
 }
 
+function defaultExitErrorMessage(exitCode: number | null): string {
+  return `Command exited with code ${String(exitCode ?? 1)}.`;
+}
+
+function resolveFailedStageErrorMessage(
+  stageKey: StageKey,
+  logPath: string,
+  exitCode: number | null,
+): string {
+  try {
+    const detail = extractStageFailureDetailFromLog({
+      stageKey,
+      logContent: readFileSync(logPath, "utf8"),
+    });
+    return detail ?? defaultExitErrorMessage(exitCode);
+  } catch {
+    return defaultExitErrorMessage(exitCode);
+  }
+}
+
 async function runStage(
   run: AnalysisRun,
   stageKey: StageKey,
@@ -178,7 +204,7 @@ async function runStage(
   });
 
   const exitCode = await new Promise<number | null>((resolve) => {
-    child.on("exit", (code) => resolve(code));
+    child.on("close", (code) => resolve(code));
   });
 
   getState().activeChildren.delete(run.id);
@@ -217,7 +243,11 @@ async function runStage(
       exitCode: number;
     } = {
       finishedAt,
-      errorMessage: `Command exited with code ${String(exitCode ?? 1)}.`,
+      errorMessage: resolveFailedStageErrorMessage(
+        stageKey,
+        logPath,
+        exitCode,
+      ),
       exitCode: exitCode ?? 1,
     };
     if (spec.inputArtifactPath) {
