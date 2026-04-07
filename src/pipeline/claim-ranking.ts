@@ -102,6 +102,10 @@ async function matchOnePaper(
       purpose: "claim-family-filter",
       model,
       prompt,
+      thinking: {
+        type: "enabled",
+        budgetTokens: DEFAULT_THINKING_BUDGET,
+      },
     });
 
     const jsonSlice = extractJsonFromModelText(result.text);
@@ -174,7 +178,8 @@ function aggregate(
 // Public API
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = "claude-haiku-4-5";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_THINKING_BUDGET = 4096;
 const CONCURRENCY = 8;
 
 export type ClaimRankingOptions = {

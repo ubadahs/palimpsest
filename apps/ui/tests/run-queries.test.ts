@@ -22,6 +22,7 @@ import { getDatabase } from "../lib/database";
 import {
   getDoisInputPath,
   getShortlistPath,
+  getStageDirectory,
   getStageLogPath,
 } from "../lib/run-files";
 
@@ -189,5 +190,78 @@ describe("run queries workflow integration", () => {
     ).toBe(detail.activeWorkflow?.summary);
     expect(stageDetail.workflow.steps[1]?.status).toBe("running");
     expect(stageDetail.workflow.steps[1]?.detail).toContain("6 of 31");
+  });
+
+  it("enriches failed discover runs with specific log-backed error detail", () => {
+    const run = createRun({
+      id: "run-discover-failure",
+      seedDoi: "10.1234/seed",
+      targetStage: "adjudicate",
+      config: {
+        stopAfterStage: "adjudicate",
+        forceRefresh: false,
+        curateTargetSize: 40,
+        adjudicateModel: "claude-opus-4-6",
+        adjudicateThinking: true,
+        discoverTopN: 5,
+        discoverRank: true,
+        discoverModel: "claude-opus-4-6",
+      },
+    });
+    const database = getDatabase();
+    const logPath = getStageLogPath(run.id, "discover");
+    const artifactPath = join(
+      getStageDirectory(run.id, "discover"),
+      "2026-04-07_001_discovery-results.json",
+    );
+    const failureDetail =
+      "No seeds produced.\n  10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070";
+
+    updateStageStatus(database, run.id, "discover", "failed", {
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      errorMessage: "Command exited with code 1.",
+    });
+    setRunStatus(database, run.id, "failed", "discover");
+    writeFileSync(
+      logPath,
+      serializeProgressEvent({
+        stage: "discover",
+        step: "emit_shortlist",
+        status: "failed",
+        detail: failureDetail,
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      artifactPath,
+      JSON.stringify(
+        [
+          {
+            doi: "10.1234/seed",
+            status: "no_fulltext",
+            statusDetail:
+              "Full text unavailable: GROBID HTTP 500 from http://localhost:8070",
+            claims: [],
+            findingCount: 0,
+            totalClaimCount: 0,
+            generatedAt: "2026-04-07T00:00:00.000Z",
+          },
+        ],
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const detail = getRunDetailOrThrow(run.id);
+    const discover = detail.stages.find((stage) => stage.stageKey === "discover");
+    const stageDetail = getStageDetailOrThrow(run.id, "discover");
+
+    expect(discover?.errorMessage).toContain("Full text unavailable");
+    expect(discover?.summary?.headline).toContain("Full text unavailable");
+    expect(detail.activeWorkflow?.summary).toContain("Full text unavailable");
+    expect(stageDetail.errorMessage).toContain("Full text unavailable");
+    expect(stageDetail.workflow.summary).toContain("Full text unavailable");
   });
 });

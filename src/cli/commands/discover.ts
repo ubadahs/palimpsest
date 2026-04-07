@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
-import type { CachePolicy } from "../../domain/types.js";
+import type { CachePolicy, ClaimDiscoveryResult } from "../../domain/types.js";
 import { discoveryInputSchema } from "../../domain/discovery.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
@@ -25,6 +25,28 @@ import { nextRunStamp } from "../run-stamp.js";
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TOP_N = 5;
+
+function buildNoSeedsDetail(results: ClaimDiscoveryResult[]): string {
+  const reasons = results
+    .filter((result) => result.status !== "completed")
+    .map((result) => `${result.doi}: ${result.statusDetail}`);
+  if (reasons.length === 1) {
+    return `No seeds produced: ${reasons[0]!}`;
+  }
+  if (reasons.length > 1) {
+    return `No seeds produced.\n${reasons.map((reason) => `  ${reason}`).join("\n")}`;
+  }
+
+  const totalFindings = results.reduce(
+    (count, result) => count + result.findingCount,
+    0,
+  );
+  if (totalFindings > 0) {
+    return "No ranked findings had direct citing-paper engagement.";
+  }
+
+  return "No empirical findings extracted from any paper.";
+}
 
 function parseArgs(argv: string[]): {
   input: string;
@@ -190,13 +212,7 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
       });
 
       if (seeds.length === 0) {
-        const reasons = results
-          .filter((r) => r.status !== "completed")
-          .map((r) => `  ${r.doi}: ${r.statusDetail}`);
-        const detail =
-          reasons.length > 0
-            ? `No seeds produced.\n${reasons.join("\n")}`
-            : "No empirical findings extracted from any paper.";
+        const detail = buildNoSeedsDetail(results);
         progress.failStep("emit_shortlist", { detail });
         console.error(`\n${detail}`);
         process.exitCode = 1;
