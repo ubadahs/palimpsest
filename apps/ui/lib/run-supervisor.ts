@@ -14,17 +14,17 @@ import {
   setRunStatus,
   setStageInputArtifact,
   updateStageStatus,
-} from "citation-fidelity/storage";
+} from "palimpsest/storage";
 import {
   getStageDefinition,
   stageDefinitions,
   type AnalysisRun,
   type StageKey,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 import {
   deriveStageSummary,
   listStageArtifacts,
-} from "citation-fidelity/ui-contract/server";
+} from "palimpsest/ui-contract/server";
 
 import { getDatabase } from "./database";
 import {

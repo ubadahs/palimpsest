@@ -1,9 +1,9 @@
-import { loadEnvironmentLenient } from "citation-fidelity/config";
+import { loadEnvironmentLenient } from "palimpsest/config";
 import {
   openDatabase,
   runMigrations,
   type DatabaseConnection,
-} from "citation-fidelity/storage";
+} from "palimpsest/storage";
 import { resolve } from "node:path";
 
 import { getRepoRoot } from "./root-path";
@@ -20,7 +20,7 @@ export function getDatabase(): DatabaseConnection {
   const repoRoot = getRepoRoot();
   const environment = loadEnvironmentLenient(process.env, { cwd: repoRoot });
   const database = openDatabase(
-    resolve(repoRoot, environment.CITATION_FIDELITY_DB_PATH),
+    resolve(repoRoot, environment.PALIMPSEST_DB_PATH),
   );
   runMigrations(database);
   globalThis.__citationFidelityUiDatabase = database;

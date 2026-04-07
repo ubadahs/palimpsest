@@ -28,7 +28,7 @@ npm run dev -- screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
 npm run ui:start
-npm --workspace @citation-fidelity/ui run test   # UI workspace tests
+npm --workspace @palimpsest/ui run test   # UI workspace tests
 ```
 
 ## Architecture
@@ -46,7 +46,7 @@ src/
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
-  ui-contract/  Shared stage/run types; package exports: citation-fidelity/ui-contract (+ /server)
+  ui-contract/  Shared stage/run types; package exports: palimpsest/ui-contract (+ /server)
 tests/          Mirrors src/ structure
 ```
 

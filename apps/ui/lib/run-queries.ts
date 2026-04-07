@@ -12,7 +12,7 @@ import {
   type RunStageDetail,
   type RunSummary,
   type StageKey,
-} from "citation-fidelity/ui-contract/server";
+} from "palimpsest/ui-contract/server";
 import {
   createAnalysisRun,
   getAnalysisRun,
@@ -20,7 +20,7 @@ import {
   listAnalysisRuns,
   listRunStages,
   type CreateAnalysisRunInput,
-} from "citation-fidelity/storage";
+} from "palimpsest/storage";
 
 import { getDatabase } from "./database";
 import { ensureRunDirectories, getStageDirectory } from "./run-files";

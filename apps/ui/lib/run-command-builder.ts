@@ -5,7 +5,7 @@ import {
   type AnalysisRun,
   type AnalysisRunStage,
   type StageKey,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 
 import { getShortlistPath, getStageDirectory } from "./run-files";
 

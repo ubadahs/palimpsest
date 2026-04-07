@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
-import { getStageDefinition, type RunDetail } from "citation-fidelity/ui-contract";
+import { getStageDefinition, type RunDetail } from "palimpsest/ui-contract";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";

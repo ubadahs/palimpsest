@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import type { RunStageDetail } from "citation-fidelity/ui-contract";
+import type { RunStageDetail } from "palimpsest/ui-contract";
 
 import { ChevronDown } from "lucide-react";
 

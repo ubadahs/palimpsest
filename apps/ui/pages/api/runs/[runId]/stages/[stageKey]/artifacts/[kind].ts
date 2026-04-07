@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { stageKeySchema } from "citation-fidelity/ui-contract";
+import { stageKeySchema } from "palimpsest/ui-contract";
 
 import { getArtifactContent } from "@/lib/run-queries";
 import { allowMethods, handleApiError, readQueryParam } from "@/lib/api-route";

@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DatabaseConnection } from "citation-fidelity/storage";
-import { setRunStatus, updateStageStatus } from "citation-fidelity/storage";
-import { serializeProgressEvent } from "citation-fidelity/ui-contract";
+import type { DatabaseConnection } from "palimpsest/storage";
+import { setRunStatus, updateStageStatus } from "palimpsest/storage";
+import { serializeProgressEvent } from "palimpsest/ui-contract";
 
 import {
   createRun,
@@ -24,10 +24,10 @@ describe("run queries workflow integration", () => {
   let previousRoot: string | undefined;
 
   beforeEach(() => {
-    tempRoot = mkdtempSync(join(tmpdir(), "citation-fidelity-ui-"));
+    tempRoot = mkdtempSync(join(tmpdir(), "palimpsest-ui-"));
     mkdirSync(join(tempRoot, "data"), { recursive: true });
-    previousRoot = process.env["CITATION_FIDELITY_ROOT"];
-    process.env["CITATION_FIDELITY_ROOT"] = tempRoot;
+    previousRoot = process.env["PALIMPSEST_ROOT"];
+    process.env["PALIMPSEST_ROOT"] = tempRoot;
   });
 
   afterEach(() => {
@@ -36,9 +36,9 @@ describe("run queries workflow integration", () => {
     delete globals.__citationFidelityUiDatabase;
 
     if (previousRoot) {
-      process.env["CITATION_FIDELITY_ROOT"] = previousRoot;
+      process.env["PALIMPSEST_ROOT"] = previousRoot;
     } else {
-      delete process.env["CITATION_FIDELITY_ROOT"];
+      delete process.env["PALIMPSEST_ROOT"];
     }
 
     rmSync(tempRoot, { recursive: true, force: true });
