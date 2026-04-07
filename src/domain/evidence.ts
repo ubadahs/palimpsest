@@ -25,6 +25,7 @@ export const evidenceSpanSchema = z
       "section_title",
       "bm25",
       "bm25_reranked",
+      "llm_reranked",
     ]),
     relevanceScore: z.number(),
     bm25Score: z.number(),

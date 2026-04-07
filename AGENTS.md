@@ -40,9 +40,9 @@ src/
   config/       Env loading (Zod-validated) and AppConfig construction
   domain/       Core taxonomy types and decision logic (pure)
   health/       Health checks shared by CLI (doctor) and UI
-  integrations/ External provider adapters (bioRxiv, OpenAlex, Semantic Scholar, LLM)
+  integrations/ External provider adapters (bioRxiv, OpenAlex, Semantic Scholar); centralized LLM client (llm-client.ts)
   pipeline/     Pre-screen and full-analysis orchestration
-  retrieval/    Chunking, ranking, cited-span selection
+  retrieval/    Chunking, BM25 ranking, LLM reranking, cited-span selection
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
@@ -55,6 +55,7 @@ tests/          Mirrors src/ structure
 - **Boundary validation**: All external data (API responses, env vars, LLM outputs, XML) is Zod-validated before entering the domain layer. Types are inferred from Zod schemas (`z.infer<typeof schema>`).
 - **Domain taxonomy**: Core enums (CitationFunction, AuditabilityStatus, FidelityTopLabel, DistortionSubtype, ErrorSubtype, EvidenceVsInterpretation, ConfidenceLevel) live in `src/domain/taxonomy.ts`. Each has a `values` const array, a Zod schema, and an inferred type.
 - **Typed error handling**: Expected failures (unresolved citation, no open-access text, invalid LLM JSON) use `Result<T>` return values (`{ ok: true; data: T } | { ok: false; error: string }`), not thrown exceptions. Throw only for programmer errors.
+- **Centralized LLM client**: All Anthropic API calls (seed-grounding, evidence-reranking, adjudication) go through `src/integrations/llm-client.ts`. Every call is tagged with a `purpose` and returns `LLMCallRecord` telemetry; `getLedger()` aggregates per-run cost by purpose.
 - **Dependency injection**: Pipeline orchestration accepts adapter interfaces so integration tests can use mocked adapters without network calls.
 - **Migrations**: Sequential `.sql` files in `src/storage/migrations/` named `NNNN_description.sql`. Applied via `schema_migrations` table. Never modify existing migration files.
 - **ESM modules**: The project uses `"type": "module"` with NodeNext resolution. All local imports must use `.js` extensions.

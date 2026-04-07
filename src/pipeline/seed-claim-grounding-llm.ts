@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { generateText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-
 import type {
   ClaimGrounding,
   ClaimGroundingLlmParsedResponse,
@@ -13,8 +10,9 @@ import type {
   SeedPaperInput,
 } from "../domain/types.js";
 import { claimGroundingLlmParsedResponseSchema } from "../domain/pre-screen-grounding-trace.js";
+import type { LLMClient } from "../integrations/llm-client.js";
+import { createLLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
-import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 
 /** Bump when instructions or JSON shape change (stored in trace artifacts). */
 export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = "2026-04-06-v1";
@@ -34,6 +32,8 @@ export type SeedClaimLlmGroundingOptions = {
   apiKey: string;
   /** Anthropic model id (e.g. claude-opus-4-6). */
   model?: string;
+  /** Optional pre-existing LLM client for shared ledger tracking. */
+  llmClient?: LLMClient;
 };
 
 export function buildSeedFullTextForLlm(doc: ParsedPaperDocument): string {
@@ -168,30 +168,6 @@ Respond with a single JSON object (no markdown fences) with exactly these fields
 Quotes must be copy-paste exact substrings of the manuscript text.`;
 }
 
-function usageFields(usage: {
-  inputTokens?: number | undefined;
-  outputTokens?: number | undefined;
-  totalTokens?: number | undefined;
-}): Pick<
-  GroundingTraceLlmCall,
-  "inputTokens" | "outputTokens" | "totalTokens"
-> {
-  const out: Pick<
-    GroundingTraceLlmCall,
-    "inputTokens" | "outputTokens" | "totalTokens"
-  > = {};
-  if (usage.inputTokens != null) {
-    out.inputTokens = usage.inputTokens;
-  }
-  if (usage.outputTokens != null) {
-    out.outputTokens = usage.outputTokens;
-  }
-  if (usage.totalTokens != null) {
-    out.totalTokens = usage.totalTokens;
-  }
-  return out;
-}
-
 /**
  * Full-manuscript LLM claim grounding (canonical pre-screen path).
  * Persists raw model text via the returned `llmCall` for sidecar artifacts.
@@ -231,7 +207,6 @@ export async function runLlmFullDocumentClaimGrounding(params: {
     manuscript,
   });
   const manuscriptSha256 = sha256Utf8(manuscript);
-  const startMs = Date.now();
 
   const baseLlmFields = {
     modelId,
@@ -241,13 +216,16 @@ export async function runLlmFullDocumentClaimGrounding(params: {
     manuscriptSha256,
   } as const;
 
+  const client =
+    options.llmClient ??
+    createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
+
   try {
-    const anthropic = createAnthropic({ apiKey: options.apiKey });
-    const result = await generateText({
-      model: anthropic(modelId),
+    const result = await client.generateText({
+      purpose: "seed-grounding",
+      model: modelId,
       prompt: promptText,
     });
-    const latencyMs = Date.now() - startMs;
     const rawResponseText = result.text;
 
     let parsedResponse: ClaimGroundingLlmParsedResponse | undefined;
@@ -269,8 +247,8 @@ export async function runLlmFullDocumentClaimGrounding(params: {
           : "JSON.parse failed for LLM output.";
     }
 
-    const inT = result.usage.inputTokens ?? 0;
-    const outT = result.usage.outputTokens ?? 0;
+    const inT = result.record.inputTokens;
+    const outT = result.record.outputTokens;
 
     if (!parsedResponse) {
       const grounding = applyCanonicalGroundingBlocksDownstream({
@@ -288,10 +266,12 @@ export async function runLlmFullDocumentClaimGrounding(params: {
           rawResponseText,
           parseError,
           quoteVerification: undefined,
-          ...usageFields(result.usage),
-          latencyMs,
-          finishReason: result.finishReason,
-          estimatedCostUsd: estimateAnthropicUsd(modelId, inT, outT),
+          inputTokens: inT,
+          outputTokens: outT,
+          totalTokens: result.record.totalTokens,
+          latencyMs: result.record.latencyMs,
+          finishReason: result.record.finishReason,
+          estimatedCostUsd: result.record.estimatedCostUsd,
         },
       };
     }
@@ -311,14 +291,15 @@ export async function runLlmFullDocumentClaimGrounding(params: {
         parsedResponse,
         parseError,
         quoteVerification,
-        ...usageFields(result.usage),
-        latencyMs,
-        finishReason: result.finishReason,
-        estimatedCostUsd: estimateAnthropicUsd(modelId, inT, outT),
+        inputTokens: inT,
+        outputTokens: outT,
+        totalTokens: result.record.totalTokens,
+        latencyMs: result.record.latencyMs,
+        finishReason: result.record.finishReason,
+        estimatedCostUsd: result.record.estimatedCostUsd,
       },
     };
   } catch (err) {
-    const latencyMs = Date.now() - startMs;
     const msg = err instanceof Error ? err.message : String(err);
     return {
       grounding: applyCanonicalGroundingBlocksDownstream({
@@ -334,7 +315,7 @@ export async function runLlmFullDocumentClaimGrounding(params: {
         rawResponseText: "",
         parseError: msg,
         quoteVerification: undefined,
-        latencyMs,
+        latencyMs: 0,
         finishReason: undefined,
         estimatedCostUsd: undefined,
       },
