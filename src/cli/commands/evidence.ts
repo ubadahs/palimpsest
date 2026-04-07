@@ -32,11 +32,15 @@ function parseArgs(argv: string[]): {
   output: string;
   forceRefresh: boolean;
   llmRerank: boolean;
+  rerankModel: string | undefined;
+  rerankThinking: boolean;
 } {
   let classificationPath: string | undefined;
   let output = "data/evidence";
   let forceRefresh = false;
   let llmRerank = true;
+  let rerankModel: string | undefined;
+  let rerankThinking = true;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -50,18 +54,25 @@ function parseArgs(argv: string[]): {
       forceRefresh = true;
     } else if (arg === "--no-llm-rerank") {
       llmRerank = false;
+    } else if (arg === "--rerank-model" && i + 1 < argv.length) {
+      rerankModel = argv[i + 1];
+      i++;
+    } else if (arg === "--rerank-thinking") {
+      rerankThinking = true;
+    } else if (arg === "--no-rerank-thinking") {
+      rerankThinking = false;
     }
   }
 
   if (!classificationPath) {
     console.error(
-      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh] [--no-llm-rerank]",
+      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh] [--no-llm-rerank] [--rerank-model <id>] [--rerank-thinking]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { classificationPath, output, forceRefresh, llmRerank };
+  return { classificationPath, output, forceRefresh, llmRerank, rerankModel, rerankThinking };
 }
 
 export async function runEvidenceCommand(argv: string[]): Promise<void> {
@@ -147,10 +158,11 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       );
     }
 
+    const rerankModelId = args.rerankModel ?? "claude-haiku-4-5";
     const llmClient = args.llmRerank && config.anthropicApiKey
       ? createLLMClient({
           apiKey: config.anthropicApiKey,
-          defaultModel: "claude-haiku-4-5",
+          defaultModel: rerankModelId,
         })
       : undefined;
 
@@ -169,7 +181,15 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       citedPaperMaterialized.citedPaperParsedDocument,
       {
         ...(reranker ? { reranker } : {}),
-        ...(llmClient ? { llmClient } : {}),
+        ...(llmClient
+          ? {
+              llmClient,
+              llmRerankerOptions: {
+                model: rerankModelId,
+                useThinking: args.rerankThinking,
+              },
+            }
+          : {}),
       },
     );
     progress.completeStep("retrieve_candidate_evidence", {
@@ -227,7 +247,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       const rerankSummary = ledger.byPurpose["evidence-rerank"];
       if (rerankSummary) {
         console.info(
-          `  LLM reranking: ${String(rerankSummary.calls)} calls, ~$${rerankSummary.estimatedCostUsd.toFixed(4)} estimated cost`,
+          `  LLM reranking (${rerankModelId}${args.rerankThinking ? "+thinking" : ""}): ${String(rerankSummary.calls)} calls, ~$${rerankSummary.estimatedCostUsd.toFixed(4)} estimated cost`,
         );
       }
     }
