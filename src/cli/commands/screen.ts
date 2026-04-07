@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
@@ -16,12 +16,8 @@ import {
   runPreScreen,
   type PreScreenAdapters,
 } from "../../pipeline/pre-screen.js";
-import { toPreScreenMarkdown } from "../../reporting/pre-screen-report.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-  writeJsonArtifact,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeScreenArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
@@ -182,38 +178,14 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
       mkdirSync(outputDir, { recursive: true });
 
       const stamp = nextRunStamp(outputDir);
-      const jsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
-      const mdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
-      const tracePath = resolve(
-        outputDir,
-        `${stamp}_pre-screen-grounding-trace.json`,
-      );
-
-      writeJsonArtifact(jsonPath, families);
-      writeJsonArtifact(tracePath, groundingTrace);
-
-      const traceBasename = basename(tracePath);
-      writeFileSync(
-        mdPath,
-        toPreScreenMarkdown(families, {
-          groundingTraceFileName: traceBasename,
-        }),
-        "utf8",
-      );
-
-      const manifestPath = writeArtifactManifest(jsonPath, {
-        artifactType: "pre-screen-results",
-        generator: "pre-screen",
-        sourceArtifacts: [args.input],
-        relatedArtifacts: [mdPath, tracePath],
-      });
-
-      const traceManifestPath = writeArtifactManifest(tracePath, {
-        artifactType: "pre-screen-grounding-trace",
-        generator: "pre-screen",
-        sourceArtifacts: [args.input, jsonPath],
-        relatedArtifacts: [jsonPath, mdPath],
-      });
+      const { jsonPath, mdPath, tracePath, manifestPath, traceManifestPath } =
+        writeScreenArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          families,
+          groundingTrace,
+          sourceArtifacts: [args.input],
+        });
 
       console.info(`\nResults written to:`);
       console.info(`  JSON: ${jsonPath}`);

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
@@ -28,7 +28,6 @@ import {
 import {
   runDiscoveryStage,
   type DiscoverySeedEntry,
-  writeDiscoveryArtifacts,
 } from "../../pipeline/discovery-stage.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
@@ -41,26 +40,19 @@ import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { resolveStageOutputDir } from "../stage-output.js";
 import {
-  loadJsonArtifact,
-  writeJsonArtifact,
-} from "../../shared/artifact-io.js";
-import { nextRunStamp } from "../run-stamp.js";
-import { toPreScreenMarkdown } from "../../reporting/pre-screen-report.js";
-import { toM2Json, toM2Markdown } from "../../reporting/extraction-report.js";
-import {
-  toClassificationJson,
-  toClassificationMarkdown,
-} from "../../reporting/classification-report.js";
-import {
-  toEvidenceJson,
-  toEvidenceMarkdown,
-} from "../../reporting/evidence-report.js";
-import {
-  toCalibrationJson,
-  toCalibrationMarkdown,
-} from "../../reporting/adjudication-report.js";
-import { toCalibrationSummaryMarkdown } from "../../reporting/calibration-summary.js";
+  writeAdjudicationArtifacts,
+  writeCalibrationSetArtifacts,
+  writeClassificationArtifacts,
+  writeDiscoveryArtifacts,
+  writeEvidenceArtifacts,
+  writeExtractionArtifacts,
+  writeScreenArtifacts,
+} from "../stage-artifact-writers.js";
+import { nextRunStampFromDirectories } from "../run-stamp.js";
+import { stageDefinitions } from "../../ui-contract/stages.js";
 
 // ---------------------------------------------------------------------------
 // Args
@@ -150,13 +142,19 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
-    const stamp = nextRunStamp(outputDir);
+    const stamp = nextRunStampFromDirectories([
+      outputDir,
+      ...stageDefinitions.map((stage) =>
+        resolveStageOutputDir(outputDir, stage.key),
+      ),
+    ]);
 
     // -----------------------------------------------------------------------
     // Stage 1: Discover (or load shortlist)
     // -----------------------------------------------------------------------
 
     let seeds: DiscoverySeedEntry[];
+    let screenInputArtifactPath: string | undefined = args.shortlist;
 
     if (args.shortlist) {
       log("discover", `Loading shortlist from ${args.shortlist}`);
@@ -238,12 +236,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
       seeds = discoveryStage.seeds;
-      writeDiscoveryArtifacts(
-        outputDir,
+      const discoverArtifacts = writeDiscoveryArtifacts({
+        outputRoot: outputDir,
         stamp,
-        discoveryStage.results,
-        discoveryStage.seeds,
-      );
+        results: discoveryStage.results,
+        seeds: discoveryStage.seeds,
+        sourceArtifacts: [args.input!],
+      });
+      screenInputArtifactPath = discoverArtifacts.shortlistPath;
 
       const discoveryLedger = discoveryClient.getLedger();
       log(
@@ -311,24 +311,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     );
 
     // Write screen artifacts
-    const screenJsonPath = resolve(
-      outputDir,
-      `${stamp}_pre-screen-results.json`,
-    );
-    const screenMdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
-    const screenTracePath = resolve(
-      outputDir,
-      `${stamp}_pre-screen-grounding-trace.json`,
-    );
-    writeJsonArtifact(screenJsonPath, families);
-    writeJsonArtifact(screenTracePath, groundingTrace);
-    writeFileSync(
-      screenMdPath,
-      toPreScreenMarkdown(families, {
-        groundingTraceFileName: `${stamp}_pre-screen-grounding-trace.json`,
-      }),
-      "utf8",
-    );
+    const { jsonPath: screenJsonPath } = writeScreenArtifacts({
+      outputRoot: outputDir,
+      stamp,
+      families,
+      groundingTrace,
+      sourceArtifacts: screenInputArtifactPath ? [screenInputArtifactPath] : [],
+    });
 
     const greenlit = families.filter((f) => f.decision === "greenlight");
     const blocked = families.filter((f) => claimFamilyBlocksDownstream(f));
@@ -378,16 +367,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
 
-      const extractJsonPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_extraction.json`,
-      );
-      const extractMdPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_extraction.md`,
-      );
-      writeFileSync(extractJsonPath, toM2Json(extraction), "utf8");
-      writeFileSync(extractMdPath, toM2Markdown(extraction), "utf8");
+      const { jsonPath: extractJsonPath } = writeExtractionArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: extraction,
+        sourceArtifacts: [screenJsonPath],
+        familyIndex: fi,
+      });
       log(
         "extract",
         `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
@@ -417,24 +403,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         preScreenEdges,
       );
 
-      const classifyJsonPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_classification.json`,
-      );
-      const classifyMdPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_classification.md`,
-      );
-      writeFileSync(
-        classifyJsonPath,
-        toClassificationJson(classification),
-        "utf8",
-      );
-      writeFileSync(
-        classifyMdPath,
-        toClassificationMarkdown(classification),
-        "utf8",
-      );
+      const { jsonPath: classifyJsonPath } = writeClassificationArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: classification,
+        sourceArtifacts: [extractJsonPath, screenJsonPath],
+        familyIndex: fi,
+      });
       log(
         "classify",
         `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
@@ -498,16 +473,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
 
-      const evidenceJsonPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_evidence.json`,
-      );
-      const evidenceMdPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_evidence.md`,
-      );
-      writeFileSync(evidenceJsonPath, toEvidenceJson(evidenceResult), "utf8");
-      writeFileSync(evidenceMdPath, toEvidenceMarkdown(evidenceResult), "utf8");
+      const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: evidenceResult,
+        sourceArtifacts: [classifyJsonPath],
+        familyIndex: fi,
+      });
       log(
         "evidence",
         `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
@@ -529,20 +501,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         args.targetSize,
       );
 
-      const curateJsonPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_calibration.json`,
-      );
-      const curateMdPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_calibration-worksheet.md`,
-      );
-      writeFileSync(curateJsonPath, toCalibrationJson(calibrationSet), "utf8");
-      writeFileSync(
-        curateMdPath,
-        toCalibrationMarkdown(calibrationSet),
-        "utf8",
-      );
+      const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: calibrationSet,
+        sourceArtifacts: [evidenceJsonPath],
+        familyIndex: fi,
+      });
       log(
         "curate",
         `${String(calibrationSet.records.length)} calibration records`,
@@ -572,20 +537,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
 
-      const adjJsonPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_adjudication.json`,
-      );
-      const adjSummaryPath = resolve(
-        outputDir,
-        `${stamp}_family-${String(fi + 1)}_adjudication-summary.md`,
-      );
-      writeFileSync(adjJsonPath, toCalibrationJson(adjudicationResult), "utf8");
-      writeFileSync(
-        adjSummaryPath,
-        toCalibrationSummaryMarkdown(adjudicationResult),
-        "utf8",
-      );
+      writeAdjudicationArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        result: adjudicationResult,
+        sourceArtifacts: [curateJsonPath],
+        model: "claude-opus-4-6",
+        familyIndex: fi,
+      });
 
       const verdicts = adjudicationResult.records.filter(
         (r) => !r.excluded && r.verdict != null,

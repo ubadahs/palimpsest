@@ -326,6 +326,8 @@ Some stages are batch-oriented and some are family-oriented.
 
 The `pipeline` command handles that handoff for you. The UI does the same orchestration stage by stage and stores the resulting pointers in SQLite.
 
+When `pipeline` writes artifacts, it mirrors the canonical stage layout under the chosen output root (`00-discover/`, `01-screen/`, `02-extract/`, and so on) and preserves the same stage-specific filename suffixes used by the standalone commands.
+
 ## What To Update When The Workflow Changes
 
 Update this document when any of the following change:
