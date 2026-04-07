@@ -36,6 +36,10 @@ export function buildStageCommand(
   const config = run.config;
   const outputDirectory = getStageDirectory(run.id, stageKey);
 
+  if (stageKey === "discover") {
+    throw new Error("discover stage is CLI-only and not yet orchestrated by the UI.");
+  }
+
   if (stageKey === "screen") {
     return {
       command: getStageDefinition(stageKey).command,

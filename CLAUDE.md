@@ -24,6 +24,10 @@ npx vitest run tests/domain/taxonomy.test.ts  # single test file
 npm run dev            # run CLI: tsx src/cli/index.ts
 npm run dev -- doctor  # check config and taxonomy
 npm run dev -- db:migrate  # apply pending SQLite migrations
+npm run dev -- discover --input dois.json      # extract claims, rank by citing-paper engagement, emit shortlist (needs ANTHROPIC_API_KEY)
+npm run dev -- discover --input dois.json --no-rank  # extract claims only, skip ranking
+npm run dev -- pipeline --input dois.json     # full e2e: discover → screen → extract → classify → evidence → curate → adjudicate
+npm run dev -- pipeline --shortlist shortlist.json  # e2e from existing shortlist (skip discover)
 npm run dev -- screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_KEY; writes *_pre-screen-grounding-trace.json)
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
@@ -41,7 +45,7 @@ src/
   domain/       Core taxonomy types and decision logic (pure)
   health/       Health checks shared by CLI (doctor) and UI
   integrations/ External provider adapters (bioRxiv, OpenAlex, Semantic Scholar); centralized LLM client (llm-client.ts)
-  pipeline/     Pre-screen and full-analysis orchestration
+  pipeline/     Claim discovery, pre-screen, and full-analysis orchestration
   retrieval/    Chunking, BM25 ranking, LLM reranking, cited-span selection
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations (sequential .sql files), repositories
@@ -55,7 +59,7 @@ tests/          Mirrors src/ structure
 - **Boundary validation**: All external data (API responses, env vars, LLM outputs, XML) is Zod-validated before entering the domain layer. Types are inferred from Zod schemas (`z.infer<typeof schema>`).
 - **Domain taxonomy**: Core enums (CitationFunction, AuditabilityStatus, FidelityTopLabel, DistortionSubtype, ErrorSubtype, EvidenceVsInterpretation, ConfidenceLevel) live in `src/domain/taxonomy.ts`. Each has a `values` const array, a Zod schema, and an inferred type.
 - **Typed error handling**: Expected failures (unresolved citation, no open-access text, invalid LLM JSON) use `Result<T>` return values (`{ ok: true; data: T } | { ok: false; error: string }`), not thrown exceptions. Throw only for programmer errors.
-- **Centralized LLM client**: All Anthropic API calls (seed-grounding, evidence-reranking, adjudication) go through `src/integrations/llm-client.ts`. Every call is tagged with a `purpose` and returns `LLMCallRecord` telemetry; `getLedger()` aggregates per-run cost by purpose.
+- **Centralized LLM client**: All Anthropic API calls (claim-discovery, seed-grounding, claim-family-filter, evidence-reranking, adjudication) go through `src/integrations/llm-client.ts`. Every call is tagged with a `purpose` and returns `LLMCallRecord` telemetry; `getLedger()` aggregates per-run cost by purpose.
 - **Dependency injection**: Pipeline orchestration accepts adapter interfaces so integration tests can use mocked adapters without network calls.
 - **Migrations**: Sequential `.sql` files in `src/storage/migrations/` named `NNNN_description.sql`. Applied via `schema_migrations` table. Never modify existing migration files.
 - **ESM modules**: The project uses `"type": "module"` with NodeNext resolution. All local imports must use `.js` extensions.

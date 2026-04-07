@@ -1,4 +1,5 @@
 export const stageKeyValues = [
+  "discover",
   "screen",
   "extract",
   "classify",
@@ -24,6 +25,19 @@ export type StageDefinition = {
 };
 
 export const stageDefinitions: readonly StageDefinition[] = [
+  {
+    key: "discover",
+    order: 0,
+    slug: "00-discover",
+    title: "Discover",
+    directoryName: "00-discover",
+    command: "discover",
+    artifactGlobs: {
+      primarySuffix: "_discovery-results.json",
+      reportSuffix: "_discovery-report.md",
+      extraSuffixes: ["_discovery-shortlist.json"],
+    },
+  },
   {
     key: "screen",
     order: 1,

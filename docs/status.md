@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-04-07
+**Last updated:** 2026-04-08
 
 This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md).
 
@@ -8,6 +8,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 
 | Area | Command | Status | Notes |
 |------|---------|--------|--------|
+| Claim discovery | `discover` | Done | Extracts empirical claim units from a paper via Opus 4.6; optional `--rank` uses Haiku to score claims by citing-paper engagement (direct/indirect); JSON + Markdown artifacts |
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
 | Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); GROBID for seed full text; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
@@ -34,7 +35,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Artifact schemas + validated loaders | Done | Stage artifacts are schema-validated on load |
 | Artifact manifests | Done | Primary JSON outputs get adjacent manifest files |
 | OpenAlex + Semantic Scholar adapters | Done | `src/integrations/`; separate PDF vs landing-page URLs and conservative metadata fallback |
-| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`seed-grounding`, `evidence-rerank`, `adjudication`), run-level cost ledger |
+| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`), run-level cost ledger |
 | SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence` |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |

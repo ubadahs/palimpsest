@@ -104,6 +104,47 @@ type StageWorkflowDefinition = {
 
 const workflowDefinitions = [
   {
+    stageKey: "discover",
+    title: "Current work",
+    pendingSummary: "Claim discovery has not started yet.",
+    completedSummary:
+      "Claim extraction is complete — discovered claims are ready for screening.",
+    failedSummary:
+      "Claim discovery stopped before extraction could be finalized.",
+    steps: [
+      {
+        id: "resolve_paper",
+        label: "Resolve paper metadata",
+        description:
+          "Find the paper record via DOI and establish a canonical identity.",
+      },
+      {
+        id: "fetch_and_parse_full_text",
+        label: "Fetch and parse full text",
+        description:
+          "Retrieve the open-access full text and parse it into structured blocks with section labels.",
+      },
+      {
+        id: "extract_claims",
+        label: "Extract claim units (LLM)",
+        description:
+          "Send claim-bearing sections to the LLM and extract discrete empirical assertions the paper advances as its own contribution.",
+      },
+      {
+        id: "rank_claims",
+        label: "Rank claims by citing-paper engagement",
+        description:
+          "Pull citing papers via OpenAlex and ask an LLM which discovered claims each citing paper directly or indirectly engages with.",
+      },
+      {
+        id: "emit_shortlist",
+        label: "Emit shortlist for screening",
+        description:
+          "Select the top-ranked claims and write a shortlist artifact ready to feed into the screen stage.",
+      },
+    ],
+  },
+  {
     stageKey: "screen",
     title: "Current work",
     pendingSummary: "Family viability has not been evaluated yet.",

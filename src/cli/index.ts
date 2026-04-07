@@ -3,6 +3,8 @@ import { runBenchmarkBlindCommand } from "./commands/benchmark-blind.js";
 import { runBenchmarkDiffCommand } from "./commands/benchmark-diff.js";
 import { runBenchmarkSummaryCommand } from "./commands/benchmark-summary.js";
 import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
+import { runDiscoverCommand } from "./commands/discover.js";
+import { runPipelineCommand } from "./commands/pipeline.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import { runExtractCommand } from "./commands/extract.js";
 import { runClassifyCommand } from "./commands/classify.js";
@@ -17,6 +19,8 @@ function printHelp(): void {
 Available commands:
   doctor        Print resolved configuration and taxonomy summary
   db:migrate    Apply pending SQLite migrations
+  discover      Extract claim units, rank by citing-paper engagement, emit shortlist (needs ANTHROPIC_API_KEY)
+  pipeline      Run full e2e: discover → screen → extract → classify → evidence → curate → adjudicate
   screen        Screen claim families (LLM full-doc claim grounding + trace sidecar; needs ANTHROPIC_API_KEY)
   extract       Extract citation contexts for a single claim family
   classify      Classify citation functions and build edge evaluation packets
@@ -60,6 +64,16 @@ async function main(): Promise<void> {
 
   if (command === "db:migrate") {
     runDatabaseMigrateCommand();
+    return;
+  }
+
+  if (command === "discover") {
+    await runDiscoverCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "pipeline") {
+    await runPipelineCommand(process.argv.slice(3));
     return;
   }
 
