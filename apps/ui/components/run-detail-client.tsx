@@ -115,7 +115,8 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
               {run.seedDoi}
             </h2>
             <p className="max-w-4xl text-sm leading-7 text-[var(--text-muted)]">
-              {run.trackedClaim ?? "Auto-discover — top claims by citing-paper engagement"}
+              {run.trackedClaim ??
+                "Auto-discover — top claims by citing-paper engagement"}
             </p>
           </div>
           <div className="flex flex-col items-start gap-3">

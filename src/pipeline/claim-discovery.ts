@@ -49,7 +49,10 @@ const EXCLUDED_SECTION_PATTERNS = [
 
 function isClaimBearingBlock(block: ParsedPaperBlock): boolean {
   if (block.blockKind === "abstract") return true;
-  if (block.blockKind === "figure_caption" || block.blockKind === "table_caption")
+  if (
+    block.blockKind === "figure_caption" ||
+    block.blockKind === "table_caption"
+  )
     return false;
 
   const section = block.sectionTitle ?? "";

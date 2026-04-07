@@ -41,6 +41,9 @@ describe("analysis runs repository", () => {
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
           evidenceLlmRerank: true,
+          discoverTopN: 5,
+          discoverRank: true,
+          discoverModel: "claude-opus-4-6",
         },
       });
 
@@ -74,6 +77,9 @@ describe("analysis runs repository", () => {
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
           evidenceLlmRerank: true,
+          discoverTopN: 5,
+          discoverRank: true,
+          discoverModel: "claude-opus-4-6",
         },
       });
 

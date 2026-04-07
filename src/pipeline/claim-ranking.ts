@@ -126,7 +126,11 @@ async function matchOnePaper(
       else indirect.push(m.claimIndex);
     }
 
-    return { citingTitle: citingPaper.title, directClaims: direct, indirectClaims: indirect };
+    return {
+      citingTitle: citingPaper.title,
+      directClaims: direct,
+      indirectClaims: indirect,
+    };
   } catch (err) {
     return {
       citingTitle: citingPaper.title,
@@ -185,7 +189,8 @@ export async function rankClaimsByEngagement(params: {
   options?: ClaimRankingOptions | undefined;
   onProgress?: (processed: number, total: number) => void;
 }): Promise<ClaimRankingResult> {
-  const { seedTitle, claims, citingPapers, client, options, onProgress } = params;
+  const { seedTitle, claims, citingPapers, client, options, onProgress } =
+    params;
   const model = options?.model ?? DEFAULT_MODEL;
 
   const usable = citingPapers.filter(
@@ -196,7 +201,9 @@ export async function rankClaimsByEngagement(params: {
   for (let i = 0; i < usable.length; i += CONCURRENCY) {
     const batch = usable.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(
-      batch.map((paper) => matchOnePaper(seedTitle, claims, paper, client, model)),
+      batch.map((paper) =>
+        matchOnePaper(seedTitle, claims, paper, client, model),
+      ),
     );
     paperResults.push(...batchResults);
     onProgress?.(Math.min(i + CONCURRENCY, usable.length), usable.length);
@@ -204,7 +211,8 @@ export async function rankClaimsByEngagement(params: {
 
   const engagements = aggregate(claims, paperResults);
   engagements.sort(
-    (a, b) => b.directCount - a.directCount || b.indirectCount - a.indirectCount,
+    (a, b) =>
+      b.directCount - a.directCount || b.indirectCount - a.indirectCount,
   );
 
   const ledger = client.getLedger();

@@ -7,7 +7,11 @@ import {
   type StageKey,
 } from "palimpsest/ui-contract";
 
-import { getDoisInputPath, getShortlistPath, getStageDirectory } from "./run-files";
+import {
+  getDoisInputPath,
+  getShortlistPath,
+  getStageDirectory,
+} from "./run-files";
 
 export type StageCommandSpec = {
   command: string;

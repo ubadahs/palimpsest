@@ -177,7 +177,11 @@ describe("buildStageCommand", () => {
       trackedClaim: undefined,
       config: { ...run.config, discoverRank: false },
     };
-    const command = buildStageCommand(noRankRun, stagesWithDiscover, "discover");
+    const command = buildStageCommand(
+      noRankRun,
+      stagesWithDiscover,
+      "discover",
+    );
     expect(command.args).toContain("--no-rank");
   });
 
