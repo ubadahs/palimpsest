@@ -16,9 +16,15 @@ import type {
 import { getRubric } from "../classification/rubrics.js";
 import { buildRetrievalQuery, rankDocumentsByBm25 } from "./bm25.js";
 import type { LocalReranker } from "./local-reranker.js";
+import type { LLMClient } from "../integrations/llm-client.js";
+import { llmRerankBlocks } from "./llm-reranker.js";
+import type { LLMRerankerOptions } from "./llm-reranker.js";
+import { extractCitingWindow } from "../shared/citation-context-window.js";
 
 export type EvidenceRetrievalAdapters = {
   reranker?: LocalReranker;
+  llmClient?: LLMClient;
+  llmRerankerOptions?: LLMRerankerOptions;
 };
 
 type RankedBlock = {
@@ -52,7 +58,7 @@ function buildTaskQuery(
   return buildRetrievalQuery(queryParts);
 }
 
-async function rerankBlocks(
+async function rerankBlocksLocal(
   query: string,
   rankedBlocks: RankedBlock[],
   reranker: LocalReranker | undefined,
@@ -106,6 +112,91 @@ async function rerankBlocks(
   return reranked;
 }
 
+/**
+ * LLM-based semantic reranking with sentence extraction.
+ *
+ * - Sends a focused citing-context window (sentences around the marker)
+ *   instead of the full rawContext, so the seed claim doesn't dominate.
+ * - Passes the evaluationMode so the LLM knows whether to look for methods,
+ *   findings, background, etc.
+ * - Preserves the BM25 #1 span as a floor: if the LLM drops a high-scoring
+ *   BM25 hit, it's kept as a fallback (hybrid strategy).
+ *
+ * Falls back to local reranker or BM25 top-5 if the LLM call fails.
+ */
+async function rerankBlocksLLM(
+  task: EvaluationTask,
+  rankedBlocks: RankedBlock[],
+  llmClient: LLMClient,
+  llmOptions: LLMRerankerOptions | undefined,
+  seedClaimBoost: string | undefined,
+  localReranker: LocalReranker | undefined,
+  query: string,
+): Promise<RankedBlock[]> {
+  if (rankedBlocks.length === 0) {
+    return [];
+  }
+
+  const bestMention = task.mentions[0];
+  const rawContext = bestMention?.rawContext ?? "";
+  const marker = bestMention?.citationMarker ?? "";
+
+  // Tight window around the citation marker — not the full paragraph.
+  const citingContext = extractCitingWindow(rawContext, marker);
+  const claimSummary =
+    seedClaimBoost ?? rawContext ?? "citation fidelity check";
+
+  const result = await llmRerankBlocks(
+    llmClient,
+    {
+      citingContext,
+      claimSummary,
+      evaluationMode: task.evaluationMode,
+      candidates: rankedBlocks.map((rb) => ({
+        blockId: rb.block.blockId,
+        text: rb.block.text,
+        sectionTitle: rb.block.sectionTitle,
+      })),
+    },
+    llmOptions,
+  );
+
+  if (!result.ok) {
+    return rerankBlocksLocal(query, rankedBlocks, localReranker);
+  }
+
+  const byId = new Map<string, RankedBlock>();
+  for (const rb of rankedBlocks) {
+    byId.set(rb.block.blockId, rb);
+  }
+
+  const reranked: RankedBlock[] = [];
+  const llmBlockIds = new Set<string>();
+
+  for (const item of result.data.results) {
+    const rb = byId.get(item.blockId);
+    if (!rb) continue;
+
+    llmBlockIds.add(item.blockId);
+    reranked.push({
+      ...rb,
+      block: { ...rb.block, text: item.extractedSentences },
+      rerankScore: item.relevanceScore,
+      matchMethod: "llm_reranked",
+      relevanceScore: item.relevanceScore,
+    });
+  }
+
+  // Hybrid: if the BM25 #1 span was dropped by the LLM, keep it as a
+  // fallback so that lexical-match wins (like exact method names) aren't lost.
+  const bm25Top = rankedBlocks[0];
+  if (bm25Top && !llmBlockIds.has(bm25Top.block.blockId)) {
+    reranked.push(bm25Top);
+  }
+
+  return reranked;
+}
+
 function toEvidenceSpan(rankedBlock: RankedBlock): EvidenceSpan {
   const span: EvidenceSpan = {
     spanId: randomUUID(),
@@ -137,7 +228,7 @@ async function retrieveForTask(
   task: EvaluationTask,
   citedPaperSource: CitedPaperSource,
   blocks: ParsedPaperBlock[],
-  reranker: LocalReranker | undefined,
+  adapters: EvidenceRetrievalAdapters,
   seedClaimBoost: string | undefined,
 ): Promise<TaskWithEvidence> {
   const rubric = getRubric(task.evaluationMode);
@@ -186,7 +277,19 @@ async function retrieveForTask(
     };
   }
 
-  const reranked = await rerankBlocks(query, bm25Ranked, reranker);
+  // Use LLM reranker when available, else fall back to local reranker / BM25.
+  const reranked = adapters.llmClient
+    ? await rerankBlocksLLM(
+        task,
+        bm25Ranked,
+        adapters.llmClient,
+        adapters.llmRerankerOptions,
+        seedClaimBoost,
+        adapters.reranker,
+        query,
+      )
+    : await rerankBlocksLocal(query, bm25Ranked, adapters.reranker);
+
   const spans = reranked.slice(0, 5).map(toEvidenceSpan);
 
   return {
@@ -238,7 +341,7 @@ export async function retrieveEvidence(
           task,
           citedPaperSource,
           blocks,
-          adapters.reranker,
+          adapters,
           seedClaimBoost,
         );
         tasksWithEvidenceForPacket.push(result);
@@ -272,7 +375,7 @@ export async function retrieveEvidence(
         task,
         citedPaperSource,
         blocks,
-        adapters.reranker,
+        adapters,
         seedClaimBoost,
       );
       tasksWithEvidenceForPacket.push(result);

@@ -22,6 +22,7 @@ type FormState = {
   curateTargetSize: number;
   adjudicateModel: string;
   adjudicateThinking: boolean;
+  evidenceLlmRerank: boolean;
 };
 
 export function NewRunForm() {
@@ -37,6 +38,7 @@ export function NewRunForm() {
     curateTargetSize: 40,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: false,
+    evidenceLlmRerank: true,
   });
 
   function update<K extends keyof FormState>(
@@ -70,6 +72,7 @@ export function NewRunForm() {
               curateTargetSize: state.curateTargetSize,
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
+              evidenceLlmRerank: state.evidenceLlmRerank,
             },
           }),
         });
@@ -206,6 +209,17 @@ export function NewRunForm() {
                     }
                   />
                   Force-refresh cache-aware stages
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
+                  <input
+                    checked={state.evidenceLlmRerank}
+                    className="size-4 accent-[var(--accent)]"
+                    type="checkbox"
+                    onChange={(event) =>
+                      update("evidenceLlmRerank", event.target.checked)
+                    }
+                  />
+                  LLM-based evidence reranking (semantic, uses Haiku)
                 </label>
                 <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
                   <input
