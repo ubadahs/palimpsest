@@ -18,8 +18,13 @@ import {
   PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
   normalizeSeedDoiForTraceKey,
 } from "../domain/pre-screen-grounding-trace.js";
+import { createLLMClient } from "../integrations/llm-client.js";
 import { buildRetrievalQuery, rankDocumentsByBm25 } from "../retrieval/bm25.js";
 import { deduplicatePapers } from "./dedup.js";
+import {
+  llmFilterClaimFamily,
+  type ClaimFamilyCandidate,
+} from "./llm-claim-family-filter.js";
 import { runLlmFullDocumentClaimGrounding } from "./seed-claim-grounding-llm.js";
 import type { SeedClaimGroundingAdapters } from "./seed-claim-grounding.js";
 
@@ -603,11 +608,55 @@ async function processOneSeed(
       edge.claimRelevanceScore = 0;
     }
   } else {
+    // Stage 1: BM25 pre-filter (cheap, removes obviously irrelevant papers).
     const claimQuery = buildRetrievalQuery([
       claimGrounding.normalizedClaim,
       seedPaper.title,
     ]);
     annotateClaimFamilyMembership(edges, resolvedPapers, claimQuery);
+
+    // Stage 2: LLM filter on BM25 survivors (Haiku 4.5 + thinking).
+    const bm25Survivors = edges.filter((e) => e.inClaimFamily === true);
+    if (bm25Survivors.length > 0) {
+      const candidates: ClaimFamilyCandidate[] = [];
+      for (const edge of bm25Survivors) {
+        const paper = resolvedPapers[edge.citingPaperId];
+        if (paper) {
+          candidates.push({
+            citingPaperId: edge.citingPaperId,
+            title: paper.title,
+            abstract: paper.abstract ?? "",
+          });
+        }
+      }
+
+      onProgress?.({
+        step: "filter_claim_family",
+        status: "running",
+        detail: `LLM filtering ${String(candidates.length)} BM25 survivors.`,
+      });
+
+      const llmClient = createLLMClient({
+        apiKey: options.llmGrounding.anthropicApiKey,
+      });
+      const llmResults = await llmFilterClaimFamily(
+        llmClient,
+        claimGrounding.normalizedClaim,
+        seedPaper.title,
+        candidates,
+      );
+
+      const excluded = new Set(
+        llmResults
+          .filter((r) => !r.relevant)
+          .map((r) => r.citingPaperId),
+      );
+      for (const edge of bm25Survivors) {
+        if (excluded.has(edge.citingPaperId)) {
+          edge.inClaimFamily = false;
+        }
+      }
+    }
   }
 
   const claimFamilyEdges = edges.filter((edge) => edge.inClaimFamily === true);

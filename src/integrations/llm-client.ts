@@ -19,6 +19,7 @@ import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 
 export const llmPurposeValues = [
   "seed-grounding",
+  "claim-family-filter",
   "adjudication",
   "evidence-rerank",
 ] as const;
