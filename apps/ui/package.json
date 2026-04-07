@@ -1,5 +1,5 @@
 {
-  "name": "@citation-fidelity/ui",
+  "name": "@palimpsest/ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-tabs": "^1.1.13",
     "@tanstack/react-table": "^8.21.3",
-    "citation-fidelity": "file:../..",
+    "palimpsest": "file:../..",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.542.0",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisRunStage } from "citation-fidelity/ui-contract";
+import type { AnalysisRunStage } from "palimpsest/ui-contract";
 
 import { resolveFocusStage } from "../lib/run-focus-stage";
 

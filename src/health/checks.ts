@@ -33,7 +33,7 @@ async function checkGrobid(baseUrl: string): Promise<HealthCheck> {
   try {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
     const response = await fetch(`${normalizedBaseUrl}/api/isalive`, {
-      headers: { "User-Agent": "citation-fidelity/0.1" },
+      headers: { "User-Agent": "palimpsest/0.1" },
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) {
@@ -70,7 +70,7 @@ export async function getEnvironmentHealthSummary(
   cwd: string = process.cwd(),
 ): Promise<EnvironmentHealthSummary> {
   const environment = loadEnvironmentLenient(process.env, { cwd });
-  const databasePath = resolve(cwd, environment.CITATION_FIDELITY_DB_PATH);
+  const databasePath = resolve(cwd, environment.PALIMPSEST_DB_PATH);
   const providerBaseUrls = {
     openAlex: environment.OPENALEX_BASE_URL,
     semanticScholar: environment.SEMANTIC_SCHOLAR_BASE_URL,

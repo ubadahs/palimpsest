@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type {
   StageArtifactPointer,
   StageKey,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";

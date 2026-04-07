@@ -13,7 +13,7 @@ const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
 
 const USER_AGENT =
-  "citation-fidelity/0.1 (https://github.com/ubadahs/citation-fidelity)";
+  "palimpsest/0.1 (https://github.com/ubadahs/palimpsest)";
 
 function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;

@@ -16,7 +16,7 @@ describe("analysis runs repository", () => {
   let tempDirectory = "";
 
   beforeEach(() => {
-    tempDirectory = mkdtempSync(join(tmpdir(), "citation-fidelity-runs-"));
+    tempDirectory = mkdtempSync(join(tmpdir(), "palimpsest-runs-"));
   });
 
   afterEach(() => {

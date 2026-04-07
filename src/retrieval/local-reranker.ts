@@ -46,7 +46,7 @@ export function createLocalReranker(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "citation-fidelity/0.1",
+            "User-Agent": "palimpsest/0.1",
           },
           body: JSON.stringify({ query, documents, topN }),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -73,7 +73,7 @@ export function createLocalReranker(
       try {
         const response = await fetch(`${normalizedBaseUrl}/health`, {
           headers: {
-            "User-Agent": "citation-fidelity/0.1",
+            "User-Agent": "palimpsest/0.1",
           },
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });

@@ -6,7 +6,7 @@ import {
   getStageDefinition,
   type AnalysisRunStage,
   type RunDetail,
-} from "citation-fidelity/ui-contract";
+} from "palimpsest/ui-contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
 import { Breadcrumbs } from "@/components/breadcrumbs";
