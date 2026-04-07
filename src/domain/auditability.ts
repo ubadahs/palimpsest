@@ -20,29 +20,32 @@ export function isAuditableForPreScreen(status: AuditabilityStatus): boolean {
 export function assessAuditability(
   paper: ResolvedPaper,
 ): AuditabilityAssessment {
-  if (paper.fullTextStatus.status === "unavailable") {
+  if (paper.fullTextHints.providerAvailability === "unavailable") {
     return {
       status: "not_auditable",
-      reason: paper.fullTextStatus.reason,
+      reason: paper.fullTextHints.providerReason ?? "No open-access full text",
     };
   }
 
-  if (paper.fullTextStatus.status === "abstract_only") {
+  if (paper.fullTextHints.providerAvailability === "abstract_only") {
     return {
       status: "partially_auditable",
       reason: "Only abstract text is available",
     };
   }
 
-  if (STRUCTURED_SOURCES.has(paper.fullTextStatus.source)) {
+  if (
+    paper.fullTextHints.providerSourceHint &&
+    STRUCTURED_SOURCES.has(paper.fullTextHints.providerSourceHint)
+  ) {
     return {
       status: "auditable_structured",
-      reason: `Structured full text from ${paper.fullTextStatus.source}`,
+      reason: `Structured full text from ${paper.fullTextHints.providerSourceHint}`,
     };
   }
 
   return {
     status: "auditable_pdf",
-    reason: `Full text available as PDF from ${paper.fullTextStatus.source}`,
+    reason: `Full text available as PDF from ${paper.fullTextHints.providerSourceHint ?? "provider hint"}`,
   };
 }

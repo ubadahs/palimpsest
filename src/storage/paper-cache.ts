@@ -36,6 +36,8 @@ export function getCachedPaper(
     fetchStatus: row["fetch_status"] as string,
     contentHash: row["content_hash"] as string | undefined,
     fetchedAt: row["fetched_at"] as string,
+    acquisitionProvenanceJson:
+      row["acquisition_provenance_json"] as string | undefined,
     metadataJson: row["metadata_json"] as string | undefined,
   };
 }
@@ -49,8 +51,9 @@ export function upsertRawPaper(
     INSERT INTO paper_cache (
       paper_id, doi, openalex_id, pmcid, title, authors_json,
       access_status, raw_full_text, full_text_format,
-      fetch_source_url, fetch_status, content_hash, fetched_at, metadata_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      fetch_source_url, fetch_status, content_hash, fetched_at,
+      acquisition_provenance_json, metadata_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(paper_id) DO UPDATE SET
       raw_full_text = excluded.raw_full_text,
       full_text_format = excluded.full_text_format,
@@ -58,6 +61,7 @@ export function upsertRawPaper(
       fetch_status = excluded.fetch_status,
       content_hash = excluded.content_hash,
       fetched_at = excluded.fetched_at,
+      acquisition_provenance_json = excluded.acquisition_provenance_json,
       metadata_json = excluded.metadata_json
   `,
   ).run(
@@ -74,6 +78,7 @@ export function upsertRawPaper(
     paper.fetchStatus,
     paper.contentHash ?? null,
     paper.fetchedAt,
+    paper.acquisitionProvenanceJson ?? null,
     paper.metadataJson ?? null,
   );
 }

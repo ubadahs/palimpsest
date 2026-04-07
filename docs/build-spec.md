@@ -97,7 +97,7 @@ Prefer specific, paraphraseable claims with likely certainty or scope drift. Dep
 
 - Input: one bioRxiv DOI or URL
 - Preferred source: bioRxiv JATS XML
-- Fallback: GROBID TEI parsing only if XML is unavailable
+- Fallback: validated direct PDF -> GROBID TEI only if structured XML is unavailable
 - Extract:
   - paper metadata
   - sectioned full text
@@ -131,8 +131,17 @@ If the answer is no, mark the citation as out of scope and stop processing it.
   - PMID
   - exact normalized title + author-surname overlap + publication year window
 - Retrieve open-access full text where possible
+- Use one centralized acquisition policy for all stages:
+  - preserve the original requested identifiers alongside provider-normalized identifiers
+  - treat provider OA metadata as hints, not as the fetch plan
+  - rank candidates as structured repository XML first, verified PDF later
+  - allow landing-page fetches only to discover better XML/PDF links
 - Prefer structured text sources over PDFs
+- Validate payloads before parsing:
+  - only send bytes to GROBID if the response is a real PDF
+  - classify HTML/interstitial/challenge responses explicitly instead of reporting them as parser failures
 - Cache cited-paper metadata, parsed text, and chunked representations locally
+- Persist acquisition provenance so each parsed paper records the winning method, locator kind, selected URL, and ordered attempts
 - If multiple citing papers reference the same cited paper, fetch and parse it once
 
 If the cited paper cannot be retrieved in usable full-text form, mark the edge as `not_auditable` or `partially_auditable` and stop before fidelity scoring.

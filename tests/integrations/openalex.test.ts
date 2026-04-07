@@ -55,18 +55,20 @@ describe("resolveWorkByDoi", () => {
     expect(result.data.authors).toEqual(["Alice Smith", "Bob Jones"]);
     expect(result.data.abstract).toContain("gene X may increase");
     expect(result.data.source).toBe("openalex");
-    expect(result.data.fullTextStatus).toEqual({
-      status: "available",
-      source: "biorxiv_xml",
+    expect(result.data.fullTextHints).toMatchObject({
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
     });
-    expect(result.data.openAccessPdfUrl).toContain(".pdf");
-    expect(result.data.openAccessLandingPageUrl).toBe(
+    expect(result.data.fullTextHints.pdfUrl).toContain(".pdf");
+    expect(result.data.fullTextHints.landingPageUrl).toBe(
       "https://doi.org/10.1101/2024.01.15.575745",
     );
-    expect(result.data.openAccessOaUrl).toContain("biorxiv.org");
+    expect(result.data.fullTextHints.repositoryUrl).toContain("biorxiv.org");
     expect(result.data.resolutionProvenance).toEqual({
       method: "doi",
       confidence: "exact",
+      requestedIdentifierType: "doi",
+      requestedIdentifier: "10.1101/2024.01.15.575745",
     });
 
     vi.restoreAllMocks();
@@ -107,11 +109,13 @@ describe("resolveWorkByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.openAccessPdfUrl).toBe("https://example.com/paper.pdf");
-    expect(result.data.openAccessLandingPageUrl).toBe(
+    expect(result.data.fullTextHints.pdfUrl).toBe("https://example.com/paper.pdf");
+    expect(result.data.fullTextHints.landingPageUrl).toBe(
       "https://example.com/landing",
     );
-    expect(result.data.openAccessUrl).toBe("https://example.com/paper.pdf");
+    expect(result.data.fullTextHints.repositoryUrl).toBe(
+      "https://example.com/landing",
+    );
 
     vi.restoreAllMocks();
   });
@@ -151,14 +155,16 @@ describe("resolveWorkByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.openAccessPdfUrl).toBeUndefined();
-    expect(result.data.openAccessLandingPageUrl).toBe(
+    expect(result.data.fullTextHints.pdfUrl).toBeUndefined();
+    expect(result.data.fullTextHints.landingPageUrl).toBe(
       "https://example.com/landing",
     );
-    expect(result.data.openAccessUrl).toBe("https://example.com/landing");
-    expect(result.data.fullTextStatus).toEqual({
-      status: "available",
-      source: "oa_link",
+    expect(result.data.fullTextHints.repositoryUrl).toBe(
+      "https://example.com/landing",
+    );
+    expect(result.data.fullTextHints).toMatchObject({
+      providerAvailability: "available",
+      providerSourceHint: "oa_link",
     });
 
     vi.restoreAllMocks();
@@ -187,18 +193,20 @@ describe("getCitingWorks", () => {
     expect(result.data).toHaveLength(3);
 
     const biorxivPaper = result.data[0];
-    expect(biorxivPaper?.fullTextStatus).toEqual({
-      status: "available",
-      source: "biorxiv_xml",
+    expect(biorxivPaper?.fullTextHints).toMatchObject({
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
     });
 
     const closedPaper = result.data[1];
-    expect(closedPaper?.fullTextStatus.status).toBe("unavailable");
+    expect(closedPaper?.fullTextHints).toMatchObject({
+      providerAvailability: "unavailable",
+    });
 
     const pmcPaper = result.data[2];
-    expect(pmcPaper?.fullTextStatus).toEqual({
-      status: "available",
-      source: "pmc_xml",
+    expect(pmcPaper?.fullTextHints).toMatchObject({
+      providerAvailability: "available",
+      providerSourceHint: "pmc_xml",
     });
 
     vi.restoreAllMocks();

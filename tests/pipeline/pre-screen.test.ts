@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { normalizeSeedDoiForTraceKey } from "../../src/domain/pre-screen-grounding-trace.js";
-import type { ParsedPaperMaterialized } from "../../src/retrieval/parsed-paper.js";
+import type {
+  ParsedPaperMaterializeResult,
+  ParsedPaperMaterialized,
+} from "../../src/retrieval/parsed-paper.js";
 import type { ResolvedPaper, Result } from "../../src/domain/types.js";
 import type * as SeedLlm from "../../src/pipeline/seed-claim-grounding-llm.js";
 import {
@@ -80,6 +83,14 @@ function fixtureParsedSeed(claimPhrase: string): ParsedPaperMaterialized {
       content: "<article><body><p>placeholder</p></body></article>",
       format: "jats_xml",
     },
+    acquisition: {
+      materializationSource: "network",
+      attempts: [],
+      selectedMethod: "pmc_xml",
+      selectedLocatorKind: "doi_input",
+      selectedUrl: "https://example.com/seed.xml",
+      fullTextFormat: "jats_xml",
+    },
     parsedDocument: {
       parserKind: "jats",
       parserVersion: "fixture",
@@ -111,8 +122,12 @@ function makePaper(
     authors: ["Author"],
     abstract: `Abstract text. Related to ${DEFAULT_CLAIM_PHRASE}.`,
     source: "openalex",
-    openAccessUrl: "https://example.com/paper",
-    fullTextStatus: { status: "available", source: "biorxiv_xml" },
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
+      landingPageUrl: "https://example.com/paper",
+      repositoryUrl: "https://example.com/paper",
+    },
     paperType: "article",
     referencedWorksCount: 30,
     publicationYear: 2022,
@@ -141,7 +156,7 @@ function makeAdapters(
       return Promise.resolve({ ok: true, data: results });
     },
     seedClaimGrounding: {
-      materializeSeedPaper: (): Promise<Result<ParsedPaperMaterialized>> =>
+      materializeSeedPaper: (): Promise<ParsedPaperMaterializeResult> =>
         Promise.resolve({
           ok: true,
           data: fixtureParsedSeed(claimPhrase),
@@ -200,10 +215,16 @@ describe("runPreScreen", () => {
   it("deprioritizes when too few auditable edges", async () => {
     const seed = makePaper("seed-1");
     const closed1 = makePaper("closed-1", {
-      fullTextStatus: { status: "unavailable", reason: "Paywalled" },
+      fullTextHints: {
+        providerAvailability: "unavailable",
+        providerReason: "Paywalled",
+      },
     });
     const closed2 = makePaper("closed-2", {
-      fullTextStatus: { status: "unavailable", reason: "Paywalled" },
+      fullTextHints: {
+        providerAvailability: "unavailable",
+        providerReason: "Paywalled",
+      },
     });
 
     const adapters = makeAdapters(
@@ -293,10 +314,15 @@ describe("runPreScreen", () => {
     const open2 = makePaper("open-2");
     const open3 = makePaper("open-3");
     const partial = makePaper("partial-1", {
-      fullTextStatus: { status: "abstract_only" },
+      fullTextHints: {
+        providerAvailability: "abstract_only",
+      },
     });
     const closed = makePaper("closed-1", {
-      fullTextStatus: { status: "unavailable", reason: "Paywalled" },
+      fullTextHints: {
+        providerAvailability: "unavailable",
+        providerReason: "Paywalled",
+      },
     });
 
     const adapters = makeAdapters(

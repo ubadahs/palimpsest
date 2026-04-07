@@ -5,7 +5,6 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type {
   CachePolicy,
-  ClaimDiscoveryResult,
   EdgeClassification,
   PreScreenEdge,
 } from "../../domain/types.js";
@@ -26,6 +25,11 @@ import {
   runPreScreen,
   type PreScreenAdapters,
 } from "../../pipeline/pre-screen.js";
+import {
+  runDiscoveryStage,
+  type DiscoverySeedEntry,
+  writeDiscoveryArtifacts,
+} from "../../pipeline/discovery-stage.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
 import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
@@ -152,12 +156,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     // Stage 1: Discover (or load shortlist)
     // -----------------------------------------------------------------------
 
-    type SeedEntry = {
-      doi: string;
-      trackedClaim: string;
-      notes?: string | undefined;
-    };
-    let seeds: SeedEntry[];
+    let seeds: DiscoverySeedEntry[];
 
     if (args.shortlist) {
       log("discover", `Loading shortlist from ${args.shortlist}`);
@@ -184,118 +183,66 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         defaultModel: "claude-opus-4-6",
       });
 
-      const allResults: ClaimDiscoveryResult[] = [];
-      seeds = [];
-
-      for (const doi of inputData.dois) {
-        log("discover", `Resolving ${doi}...`);
-        const resolved = await resolvePaperByDoi(doi, {
-          openAlexBaseUrl: config.providerBaseUrls.openAlex,
-          semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-          openAlexEmail: config.openAlexEmail,
-          semanticScholarApiKey: config.semanticScholarApiKey,
-        });
-
-        if (!resolved.ok) {
-          log("discover", `Could not resolve ${doi}: ${resolved.error}`);
-          continue;
-        }
-        log("discover", `Resolved: ${resolved.data.title}`);
-
-        const materialized = await materializeParsedPaper(
-          resolved.data,
-          config.providerBaseUrls.bioRxiv,
-          fullTextAdapters,
-          { db: database, cachePolicy },
-        );
-
-        if (!materialized.ok) {
-          log("discover", `No full text for ${doi}: ${materialized.error}`);
-          continue;
-        }
-        log(
-          "discover",
-          `Parsed ${String(materialized.data.parsedDocument.blocks.length)} blocks`,
-        );
-
-        const result = await discoverClaims({
-          paper: resolved.data,
-          parsedDocument: materialized.data.parsedDocument,
-          client: discoveryClient,
-        });
-        log(
-          "discover",
-          `Extracted ${String(result.totalClaimCount)} claims (${String(result.findingCount)} findings)`,
-        );
-
-        // Rank by citing-paper engagement
-        if (
-          !args.noRank &&
-          result.status === "completed" &&
-          result.claims.length > 0
-        ) {
-          log("discover", `Ranking claims against citing papers...`);
-          const citingResult = await openalex.getCitingWorks(
-            resolved.data.id,
-            config.providerBaseUrls.openAlex,
-            200,
-            config.openAlexEmail,
-          );
-
-          if (citingResult.ok && citingResult.data.length > 0) {
-            const ranking = await rankClaimsByEngagement({
-              seedTitle: resolved.data.title,
-              claims: result.claims,
-              citingPapers: citingResult.data,
+      const discoveryStage = await runDiscoveryStage(
+        {
+          dois: inputData.dois,
+          topN: args.topN,
+          rank: !args.noRank,
+        },
+        {
+          resolvePaperByDoi: (doi) =>
+            resolvePaperByDoi(doi, {
+              openAlexBaseUrl: config.providerBaseUrls.openAlex,
+              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+              openAlexEmail: config.openAlexEmail,
+              semanticScholarApiKey: config.semanticScholarApiKey,
+            }),
+          materializeParsedPaper: (paper) =>
+            materializeParsedPaper(
+              paper,
+              config.providerBaseUrls.bioRxiv,
+              fullTextAdapters,
+              { db: database, cachePolicy },
+            ),
+          discoverClaims: (paper, parsedDocument) =>
+            discoverClaims({
+              paper,
+              parsedDocument,
               client: discoveryClient,
-            });
-            result.ranking = ranking;
-            const withDirect = ranking.engagements.filter(
-              (e) => e.directCount > 0,
-            ).length;
-            log(
-              "discover",
-              `${String(withDirect)} claims with direct citing-paper engagement`,
-            );
+            }),
+          getCitingPapers: (openAlexId) =>
+            openalex.getCitingWorks(
+              openAlexId,
+              config.providerBaseUrls.openAlex,
+              200,
+              config.openAlexEmail,
+            ),
+          rankClaimsByEngagement: (
+            seedTitle,
+            claims,
+            citingPapers,
+            onProgress,
+          ) =>
+            rankClaimsByEngagement({
+              seedTitle,
+              claims,
+              citingPapers,
+              client: discoveryClient,
+              ...(onProgress ? { onProgress } : {}),
+            }),
+        },
+        (event) => {
+          if (event.status === "completed") {
+            log("discover", `${event.step}: ${event.detail}`);
           }
-        }
-
-        allResults.push(result);
-
-        // Build seeds from this result
-        if (result.ranking) {
-          const topFindings = result.ranking.engagements
-            .filter((e) => e.claimType === "finding" && e.directCount > 0)
-            .slice(0, args.topN);
-          for (const e of topFindings) {
-            seeds.push({
-              doi,
-              trackedClaim: e.claimText,
-              notes: `Auto-discovered; ${String(e.directCount)} direct, ${String(e.indirectCount)} indirect engagements`,
-            });
-          }
-        } else {
-          const findings = result.claims
-            .filter((c) => c.claimType === "finding")
-            .slice(0, args.topN);
-          for (const c of findings) {
-            seeds.push({
-              doi,
-              trackedClaim: c.claimText,
-              notes: "Auto-discovered (unranked)",
-            });
-          }
-        }
-      }
-
-      // Write discover artifacts
-      writeJsonArtifact(
-        resolve(outputDir, `${stamp}_discovery-results.json`),
-        allResults,
+        },
       );
-      writeJsonArtifact(
-        resolve(outputDir, `${stamp}_discovery-shortlist.json`),
-        { seeds },
+      seeds = discoveryStage.seeds;
+      writeDiscoveryArtifacts(
+        outputDir,
+        stamp,
+        discoveryStage.results,
+        discoveryStage.seeds,
       );
 
       const discoveryLedger = discoveryClient.getLedger();

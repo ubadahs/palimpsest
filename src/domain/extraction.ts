@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { resolvedPaperSchema, undefinedable } from "./common.js";
+import {
+  fullTextAcquisitionSchema,
+  resolvedPaperSchema,
+  undefinedable,
+} from "./common.js";
 import { parsedCitationMentionSchema } from "./parsing.js";
 import { seedPaperInputSchema } from "./pre-screen.js";
 
@@ -97,6 +101,7 @@ export const edgeExtractionResultSchema = z
     rawMentionCount: z.number().int().nonnegative(),
     deduplicatedMentionCount: z.number().int().nonnegative(),
     mentions: z.array(citationMentionSchema),
+    citingPaperAcquisition: undefinedable(fullTextAcquisitionSchema),
     failureReason: undefinedable(z.string()),
   })
   .passthrough();

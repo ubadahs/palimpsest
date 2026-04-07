@@ -37,8 +37,8 @@ describe("resolvePaperByDoi", () => {
     );
     expect(result.data.authors).toEqual(["Alice Smith", "Bob Jones"]);
     expect(result.data.source).toBe("semantic_scholar");
-    expect(result.data.fullTextStatus.status).toBe("available");
-    expect(result.data.openAccessUrl).toContain("biorxiv.org");
+    expect(result.data.fullTextHints.providerAvailability).toBe("available");
+    expect(result.data.fullTextHints.pdfUrl).toContain("biorxiv.org");
 
     vi.restoreAllMocks();
   });
@@ -69,7 +69,7 @@ describe("resolvePaperByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.fullTextStatus.status).toBe("unavailable");
+    expect(result.data.fullTextHints.providerAvailability).toBe("unavailable");
 
     vi.restoreAllMocks();
   });
