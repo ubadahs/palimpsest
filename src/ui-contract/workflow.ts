@@ -433,6 +433,73 @@ export function parseProgressEventLine(
   }
 }
 
+export function isGenericStageErrorMessage(
+  message: string | undefined,
+): boolean {
+  return message != null && /^Command exited with code \d+\.$/.test(message);
+}
+
+function normalizedFailureDetailLines(detail: string): string[] {
+  return detail
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+export function summarizeFailureDetail(detail: string): string {
+  const lines = normalizedFailureDetailLines(detail);
+  if (lines.length === 0) {
+    return detail.trim();
+  }
+
+  const [first, ...rest] = lines;
+  if (
+    (first === "No seeds produced." || first === "No seeds produced") &&
+    rest.length > 0
+  ) {
+    return rest[0]!;
+  }
+
+  if (isGenericStageErrorMessage(first) && rest.length > 0) {
+    return rest[0]!;
+  }
+
+  return first!;
+}
+
+export function extractStageFailureDetailFromLog(input: {
+  stageKey: StageKey;
+  logContent?: string;
+}): string | undefined {
+  const lines = (input.logContent ?? "").split("\n");
+
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const event = parseProgressEventLine(lines[index]!);
+    if (
+      event?.stage === input.stageKey &&
+      event.status === "failed" &&
+      event.detail
+    ) {
+      return event.detail;
+    }
+  }
+
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const trimmed = lines[index]!.trim();
+    if (
+      trimmed.length === 0 ||
+      trimmed.startsWith(progressLogPrefix) ||
+      trimmed.startsWith("===") ||
+      trimmed.startsWith("> ")
+    ) {
+      continue;
+    }
+    return trimmed;
+  }
+
+  return undefined;
+}
+
 function buildPendingSteps(stageKey: StageKey): StageWorkflowStep[] {
   return getStageWorkflowDefinition(stageKey).steps.map((step) => ({
     ...step,
@@ -464,7 +531,9 @@ function fallbackSummary(
     stageStatus === "cancelled" ||
     stageStatus === "interrupted"
   ) {
-    return errorMessage ?? definition.failedSummary;
+    return errorMessage && !isGenericStageErrorMessage(errorMessage)
+      ? summarizeFailureDetail(errorMessage)
+      : definition.failedSummary;
   }
 
   if (stageStatus === "running") {
@@ -650,7 +719,15 @@ export function buildStageWorkflowSnapshot(input: {
       : input.stageStatus === "failed" ||
           input.stageStatus === "cancelled" ||
           input.stageStatus === "interrupted"
-        ? (input.errorMessage ?? definition.failedSummary)
+        ? summarizeFailureDetail(
+            [...steps]
+              .reverse()
+              .find((step) => step.status === "failed")
+              ?.detail ??
+              (input.errorMessage && !isGenericStageErrorMessage(input.errorMessage)
+                ? input.errorMessage
+                : definition.failedSummary),
+          )
         : (steps.find((step) => step.status === "running")?.label ??
           definition.pendingSummary);
 

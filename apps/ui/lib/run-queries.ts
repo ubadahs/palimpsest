@@ -4,8 +4,10 @@ import {
   buildStageWorkflowSnapshot,
   buildStageInspectorPayload,
   deriveStageSummary,
+  extractStageFailureDetailFromLog,
   getEnvironmentHealthSummary,
   getStageDefinition,
+  isGenericStageErrorMessage,
   listStageArtifacts,
   type AnalysisRunStage,
   type RunDetail,
@@ -57,15 +59,38 @@ function readStageLogContent(stage: AnalysisRunStage): string | undefined {
   }
 }
 
+function resolveStageErrorMessage(
+  stage: AnalysisRunStage,
+  logContent: string | undefined,
+): string | undefined {
+  const fromLog = logContent
+    ? extractStageFailureDetailFromLog({
+        stageKey: stage.stageKey,
+        logContent,
+      })
+    : undefined;
+
+  if (!stage.errorMessage) {
+    return fromLog;
+  }
+
+  if (fromLog && isGenericStageErrorMessage(stage.errorMessage)) {
+    return fromLog;
+  }
+
+  return stage.errorMessage;
+}
+
 function buildWorkflowSummary(
   stage: AnalysisRunStage,
 ): AnalysisRunStage["summary"] {
   const logContent = readStageLogContent(stage);
+  const errorMessage = resolveStageErrorMessage(stage, logContent);
   const workflow = buildStageWorkflowSnapshot({
     stageKey: stage.stageKey,
     stageStatus: stage.status,
     ...(logContent ? { logContent } : {}),
-    ...(stage.errorMessage ? { errorMessage: stage.errorMessage } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
   });
 
   return {
@@ -87,6 +112,8 @@ function attachStageSummaries(
   runId: string,
 ): AnalysisRunStage[] {
   return stages.map((stage) => {
+    const logContent = readStageLogContent(stage);
+    const errorMessage = resolveStageErrorMessage(stage, logContent);
     const artifacts = listStageArtifacts(
       stage.stageKey,
       getStageDirectory(runId, stage.stageKey),
@@ -106,6 +133,7 @@ function attachStageSummaries(
 
     return {
       ...stage,
+      ...(errorMessage ? { errorMessage } : {}),
       primaryArtifactPath:
         artifacts.primaryArtifactPath ?? stage.primaryArtifactPath,
       reportArtifactPath:
@@ -117,6 +145,10 @@ function attachStageSummaries(
           stage.stageKey,
           artifacts.primaryArtifactPath,
           pointers,
+          {
+            stageStatus: stage.status,
+            ...(errorMessage ? { errorMessage } : {}),
+          },
         ) ??
         (stage.status === "not_started"
           ? undefined
@@ -220,7 +252,8 @@ export function getStageDetailOrThrow(
   ];
 
   let inspectorPayload: unknown = undefined;
-  let errorMessage = stage.errorMessage;
+  const stageLogContent = readStageLogContent(stage);
+  let errorMessage = resolveStageErrorMessage(stage, stageLogContent);
   const primaryArtifactPath =
     artifactSet.primaryArtifactPath ?? stage.primaryArtifactPath;
 
@@ -243,8 +276,6 @@ export function getStageDetailOrThrow(
           new Date(stage.finishedAt ?? new Date().toISOString()).getTime() -
             new Date(stage.startedAt).getTime(),
         );
-  const stageLogContent = readStageLogContent(stage);
-
   return {
     ...stage,
     stageTitle: getStageDefinition(stageKey).title,

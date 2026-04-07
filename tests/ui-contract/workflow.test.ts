@@ -87,6 +87,22 @@ describe("buildStageWorkflowSnapshot", () => {
         (step) => step.id === "fetch_and_parse_cited_full_text",
       )?.status,
     ).toBe("failed");
+    expect(snapshot.summary).toBe("Parsing failed");
+  });
+
+  it("summarizes multiline discover failures using the specific reason", () => {
+    const snapshot = buildStageWorkflowSnapshot({
+      stageKey: "discover",
+      stageStatus: "failed",
+      errorMessage: "Command exited with code 1.",
+      logContent: [
+        `${progressLogPrefix}{"stage":"discover","step":"emit_shortlist","status":"failed","detail":"No seeds produced.\\n  10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070"}`,
+      ].join("\n"),
+    });
+
+    expect(snapshot.summary).toBe(
+      "10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070",
+    );
   });
 });
 
