@@ -96,6 +96,7 @@ export function buildStageCommand(
         "--output",
         outputDirectory,
         ...(config.forceRefresh ? ["--force-refresh"] : []),
+        ...(config.evidenceLlmRerank === false ? ["--no-llm-rerank"] : []),
       ],
       outputDirectory,
       inputArtifactPath: getStageArtifactPath(stages, "classify"),

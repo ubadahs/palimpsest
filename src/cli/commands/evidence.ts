@@ -15,6 +15,7 @@ import {
   toEvidenceMarkdown,
 } from "../../reporting/evidence-report.js";
 import { createLocalReranker } from "../../retrieval/local-reranker.js";
+import { createLLMClient } from "../../integrations/llm-client.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
@@ -30,10 +31,12 @@ function parseArgs(argv: string[]): {
   classificationPath: string;
   output: string;
   forceRefresh: boolean;
+  llmRerank: boolean;
 } {
   let classificationPath: string | undefined;
   let output = "data/evidence";
   let forceRefresh = false;
+  let llmRerank = true;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -45,18 +48,20 @@ function parseArgs(argv: string[]): {
       i++;
     } else if (arg === "--force-refresh") {
       forceRefresh = true;
+    } else if (arg === "--no-llm-rerank") {
+      llmRerank = false;
     }
   }
 
   if (!classificationPath) {
     console.error(
-      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh]",
+      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh] [--no-llm-rerank]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { classificationPath, output, forceRefresh };
+  return { classificationPath, output, forceRefresh, llmRerank };
 }
 
 export async function runEvidenceCommand(argv: string[]): Promise<void> {
@@ -142,6 +147,19 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       );
     }
 
+    const llmClient = args.llmRerank && config.anthropicApiKey
+      ? createLLMClient({
+          apiKey: config.anthropicApiKey,
+          defaultModel: "claude-haiku-4-5",
+        })
+      : undefined;
+
+    const rerankMethod = llmClient
+      ? "llm"
+      : reranker
+        ? "local"
+        : "bm25";
+
     progress.startStep("retrieve_candidate_evidence", {
       detail: "Searching the cited paper for supporting evidence blocks.",
     });
@@ -149,20 +167,27 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       classification,
       citedPaperMaterialized.citedPaperSource,
       citedPaperMaterialized.citedPaperParsedDocument,
-      reranker ? { reranker } : {},
+      {
+        ...(reranker ? { reranker } : {}),
+        ...(llmClient ? { llmClient } : {}),
+      },
     );
     progress.completeStep("retrieve_candidate_evidence", {
       detail: `${String(evidenceResult.summary.totalTasks)} tasks searched for evidence`,
     });
     progress.startStep("rerank_and_attach_evidence", {
-      detail: reranker
-        ? "Reranking candidate blocks and attaching evidence spans."
-        : "Attaching evidence spans from BM25-ranked blocks.",
+      detail: rerankMethod === "llm"
+        ? "LLM-reranking candidate blocks with sentence extraction."
+        : rerankMethod === "local"
+          ? "Reranking candidate blocks and attaching evidence spans."
+          : "Attaching evidence spans from BM25-ranked blocks.",
     });
     progress.completeStep("rerank_and_attach_evidence", {
-      detail: reranker
-        ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received reranked evidence`
-        : `${String(evidenceResult.summary.tasksWithEvidence)} tasks received BM25 evidence`,
+      detail: rerankMethod === "llm"
+        ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received LLM-reranked evidence`
+        : rerankMethod === "local"
+          ? `${String(evidenceResult.summary.tasksWithEvidence)} tasks received reranked evidence`
+          : `${String(evidenceResult.summary.tasksWithEvidence)} tasks received BM25 evidence`,
     });
     progress.startStep("summarize_grounded_coverage", {
       detail: "Summarizing grounded evidence coverage.",
@@ -196,6 +221,16 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
     console.info(
       `\n${String(s.tasksWithEvidence)}/${String(s.totalTasks)} tasks matched evidence (${String(s.totalEvidenceSpans)} spans)`,
     );
+
+    if (llmClient) {
+      const ledger = llmClient.getLedger();
+      const rerankSummary = ledger.byPurpose["evidence-rerank"];
+      if (rerankSummary) {
+        console.info(
+          `  LLM reranking: ${String(rerankSummary.calls)} calls, ~$${rerankSummary.estimatedCostUsd.toFixed(4)} estimated cost`,
+        );
+      }
+    }
   } catch (error) {
     reportCliFailure(error);
     console.error(error instanceof Error ? error.message : String(error));
