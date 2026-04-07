@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import type { RunDetail, RunStageDetail, StageKey } from "palimpsest/ui-contract";
+import type {
+  RunDetail,
+  RunStageDetail,
+  StageKey,
+} from "palimpsest/ui-contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
 import { Breadcrumbs } from "@/components/breadcrumbs";
@@ -99,8 +103,11 @@ export function StageDetailClient({
               </Badge>
               {detail.stageKey === "screen" &&
               detail.status === "succeeded" &&
-              (detail.inspectorPayload as { families?: { decision?: string }[] } | undefined)
-                ?.families?.[0]?.decision === "deprioritize" ? (
+              (
+                detail.inspectorPayload as
+                  | { families?: { decision?: string }[] }
+                  | undefined
+              )?.families?.[0]?.decision === "deprioritize" ? (
                 <Badge variant="warning">deprioritized</Badge>
               ) : null}
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">

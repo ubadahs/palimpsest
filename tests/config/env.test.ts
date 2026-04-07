@@ -10,9 +10,7 @@ describe("loadEnvironment", () => {
     });
 
     expect(environment.NODE_ENV).toBe("development");
-    expect(environment.PALIMPSEST_DB_PATH).toBe(
-      "data/palimpsest.sqlite",
-    );
+    expect(environment.PALIMPSEST_DB_PATH).toBe("data/palimpsest.sqlite");
     expect(environment.OPENALEX_BASE_URL).toBe("https://api.openalex.org");
     expect(environment.GROBID_BASE_URL).toBe("http://localhost:8070");
   });

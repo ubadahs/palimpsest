@@ -234,18 +234,16 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                   </Link>
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {(stage.summary?.metrics ?? [])
-                    .slice(0, 3)
-                    .map((metric) => (
-                      <div key={metric.label}>
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                          {metric.label}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-[var(--text)]">
-                          {metric.value}
-                        </p>
-                      </div>
-                    ))}
+                  {(stage.summary?.metrics ?? []).slice(0, 3).map((metric) => (
+                    <div key={metric.label}>
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                        {metric.label}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--text)]">
+                        {metric.value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}

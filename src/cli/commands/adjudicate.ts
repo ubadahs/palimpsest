@@ -88,9 +88,7 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
     progress.completeStep("load_active_records", {
       detail: `${String(activeCount)} active records ready for adjudication`,
     });
-    console.info(
-      `LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`,
-    );
+    console.info(`LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`);
     console.info(
       `  Model: ${args.model}${args.thinking ? " (extended thinking)" : ""}`,
     );

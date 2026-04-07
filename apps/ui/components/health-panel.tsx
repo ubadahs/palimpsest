@@ -90,7 +90,9 @@ export function HealthPanel({
                 ? `${String(blockingIssues)} blocking issue${blockingIssues > 1 ? "s" : ""}`
                 : "Optional service unavailable"}
           </span>
-          <span className="text-xs text-[var(--text-muted)]">System status</span>
+          <span className="text-xs text-[var(--text-muted)]">
+            System status
+          </span>
         </div>
         <ChevronDown
           className={cn(

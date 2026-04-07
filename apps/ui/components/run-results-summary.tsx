@@ -82,9 +82,9 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
   const [detail, setDetail] = useState<RunStageDetail | null>(null);
 
   useEffect(() => {
-    void fetchJson<RunStageDetail>(
-      `/api/runs/${run.id}/stages/adjudicate`,
-    ).then(setDetail).catch(() => null);
+    void fetchJson<RunStageDetail>(`/api/runs/${run.id}/stages/adjudicate`)
+      .then(setDetail)
+      .catch(() => null);
   }, [run.id]);
 
   if (!detail) {
@@ -109,7 +109,10 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
   // Flagged = not_supported or overstated
   const flagged = records.filter((r) => {
     const v = String(r["verdict"] ?? "");
-    return (v === "not_supported" || v === "overstated_or_generalized") && !r["excluded"];
+    return (
+      (v === "not_supported" || v === "overstated_or_generalized") &&
+      !r["excluded"]
+    );
   });
 
   return (
@@ -173,12 +176,17 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
               {flagged.slice(0, 5).map((record) => (
                 <div
                   className="rounded-[20px] border border-[rgba(154,64,54,0.15)] bg-[rgba(154,64,54,0.04)] p-4"
-                  key={String(record["taskId"] ?? record["citingPaperTitle"] ?? Math.random())}
+                  key={String(
+                    record["taskId"] ??
+                      record["citingPaperTitle"] ??
+                      Math.random(),
+                  )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--danger)]">
-                        {VERDICT_LABELS[String(record["verdict"] ?? "")] ?? String(record["verdict"] ?? "")}
+                        {VERDICT_LABELS[String(record["verdict"] ?? "")] ??
+                          String(record["verdict"] ?? "")}
                       </p>
                       <p className="mt-1 text-sm font-semibold text-[var(--text)]">
                         {String(record["citingPaperTitle"] ?? "")}
@@ -211,7 +219,8 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
               ) : null}
             </div>
           </div>
-        ) : counts.not_supported === 0 && counts.overstated_or_generalized === 0 ? (
+        ) : counts.not_supported === 0 &&
+          counts.overstated_or_generalized === 0 ? (
           <p className="text-sm text-[var(--success)]">
             No citations were flagged as not supported or overstated.
           </p>

@@ -76,34 +76,38 @@ export function StageRail({ run }: { run: RunDetail }) {
             Number(greenlitMetric.value) === 0;
 
           return (
-          <Link
-            href={`/runs/${run.id}/stages/${stage.stageKey}`}
-            key={stage.stageKey}
-            className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4 transition hover:border-[var(--border-strong)] hover:bg-white/80"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold text-[var(--text-muted)]">
-                {stage.stageOrder.toString().padStart(2, "0")}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <Badge variant={isDeprioritized ? "warning" : badgeVariant(stage.status)}>
-                  {isDeprioritized ? "deprioritized" : stage.status}
-                </Badge>
+            <Link
+              href={`/runs/${run.id}/stages/${stage.stageKey}`}
+              key={stage.stageKey}
+              className="rounded-[24px] border border-[var(--border)] bg-white/60 p-4 transition hover:border-[var(--border-strong)] hover:bg-white/80"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-[var(--text-muted)]">
+                  {stage.stageOrder.toString().padStart(2, "0")}
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <Badge
+                    variant={
+                      isDeprioritized ? "warning" : badgeVariant(stage.status)
+                    }
+                  >
+                    {isDeprioritized ? "deprioritized" : stage.status}
+                  </Badge>
+                </div>
               </div>
-            </div>
-            <p className="mt-3 text-base font-semibold text-[var(--text)]">
-              {getStageDefinition(stage.stageKey).title}
-            </p>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
-              {stage.stageKey}
-            </p>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">
-              {stage.summary?.headline ?? "Awaiting execution"}
-            </p>
-            <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-              {formatDuration(stage.startedAt, stage.finishedAt)}
-            </p>
-          </Link>
+              <p className="mt-3 text-base font-semibold text-[var(--text)]">
+                {getStageDefinition(stage.stageKey).title}
+              </p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                {stage.stageKey}
+              </p>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">
+                {stage.summary?.headline ?? "Awaiting execution"}
+              </p>
+              <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                {formatDuration(stage.startedAt, stage.finishedAt)}
+              </p>
+            </Link>
           );
         })}
       </CardContent>
