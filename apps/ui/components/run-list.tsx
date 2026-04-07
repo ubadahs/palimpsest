@@ -88,7 +88,7 @@ export function RunList({ initialRuns }: { initialRuns: RunSummary[] }) {
                     {run.seedDoi}
                   </h3>
                   <p className="max-w-3xl text-sm text-[var(--text-muted)]">
-                    {run.trackedClaim}
+                    {run.trackedClaim ?? "Auto-discover"}
                   </p>
                 </div>
                 <div className="grid gap-3 text-sm text-[var(--text-muted)] md:min-w-[260px]">

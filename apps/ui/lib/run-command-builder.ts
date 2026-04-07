@@ -7,7 +7,7 @@ import {
   type StageKey,
 } from "palimpsest/ui-contract";
 
-import { getShortlistPath, getStageDirectory } from "./run-files";
+import { getDoisInputPath, getShortlistPath, getStageDirectory } from "./run-files";
 
 export type StageCommandSpec = {
   command: string;
@@ -37,7 +37,24 @@ export function buildStageCommand(
   const outputDirectory = getStageDirectory(run.id, stageKey);
 
   if (stageKey === "discover") {
-    throw new Error("discover stage is CLI-only and not yet orchestrated by the UI.");
+    return {
+      command: "discover",
+      args: [
+        "discover",
+        "--input",
+        getDoisInputPath(run.id),
+        "--output",
+        outputDirectory,
+        "--top",
+        String(config.discoverTopN),
+        ...(config.discoverRank === false ? ["--no-rank"] : []),
+        ...(config.discoverModel !== "claude-opus-4-6"
+          ? ["--model", config.discoverModel]
+          : []),
+      ],
+      outputDirectory,
+      inputArtifactPath: getDoisInputPath(run.id),
+    };
   }
 
   if (stageKey === "screen") {

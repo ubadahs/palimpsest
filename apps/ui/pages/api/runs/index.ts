@@ -14,7 +14,7 @@ import { allowMethods, handleApiError } from "@/lib/api-route";
 
 const createRunSchema = z.object({
   seedDoi: z.string().min(1),
-  trackedClaim: z.string().min(1),
+  trackedClaim: z.string().min(1).optional(),
   targetStage: stageKeySchema.default("adjudicate"),
   config: analysisRunConfigObjectSchema.partial().optional(),
 });
@@ -40,14 +40,17 @@ export default async function handler(
     const detail = createRun({
       id: randomUUID(),
       seedDoi: payload.seedDoi,
-      trackedClaim: payload.trackedClaim,
+      ...(payload.trackedClaim ? { trackedClaim: payload.trackedClaim } : {}),
       targetStage: payload.targetStage,
       config: analysisRunConfigSchema.parse({
         stopAfterStage: payload.targetStage,
         forceRefresh: false,
         curateTargetSize: 40,
         adjudicateModel: "claude-opus-4-6",
-        adjudicateThinking: false,
+        adjudicateThinking: true,
+        discoverTopN: 5,
+        discoverRank: true,
+        discoverModel: "claude-opus-4-6",
         ...payload.config,
       }),
     });

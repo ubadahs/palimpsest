@@ -17,9 +17,30 @@ const run: AnalysisRun = {
     curateTargetSize: 40,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
+    discoverTopN: 5,
+    discoverRank: true,
+    discoverModel: "claude-opus-4-6",
   },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
+};
+
+const discoverStage: AnalysisRunStage = {
+  runId: run.id,
+  stageKey: "discover",
+  stageOrder: 0,
+  status: "succeeded",
+  inputArtifactPath: undefined,
+  primaryArtifactPath: undefined,
+  reportArtifactPath: undefined,
+  manifestPath: undefined,
+  logPath: undefined,
+  summary: undefined,
+  errorMessage: undefined,
+  startedAt: undefined,
+  finishedAt: undefined,
+  exitCode: undefined,
+  processId: undefined,
 };
 
 const stages: AnalysisRunStage[] = [
@@ -132,9 +153,36 @@ const stages: AnalysisRunStage[] = [
   },
 ];
 
+const stagesWithDiscover: AnalysisRunStage[] = [discoverStage, ...stages];
+
 describe("buildStageCommand", () => {
+  it("builds the discover command shape", () => {
+    const autoRun: AnalysisRun = { ...run, trackedClaim: undefined };
+    const command = buildStageCommand(autoRun, stagesWithDiscover, "discover");
+
+    expect(command.args).toEqual([
+      "discover",
+      "--input",
+      expect.stringContaining("inputs/dois.json"),
+      "--output",
+      expect.stringContaining("/00-discover"),
+      "--top",
+      "5",
+    ]);
+  });
+
+  it("includes --no-rank when discoverRank is false", () => {
+    const noRankRun: AnalysisRun = {
+      ...run,
+      trackedClaim: undefined,
+      config: { ...run.config, discoverRank: false },
+    };
+    const command = buildStageCommand(noRankRun, stagesWithDiscover, "discover");
+    expect(command.args).toContain("--no-rank");
+  });
+
   it("builds the adjudicate command shape", () => {
-    const command = buildStageCommand(run, stages, "adjudicate");
+    const command = buildStageCommand(run, stagesWithDiscover, "adjudicate");
 
     expect(command.args).toEqual([
       "adjudicate",
