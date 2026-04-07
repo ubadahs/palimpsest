@@ -1,42 +1,56 @@
-# Documentation index
+# Documentation Guide
 
-Non-normative map of **where to look**. If documents disagree on product scope, follow the order in [implementation-plan.md](./implementation-plan.md) (PRD → Build Spec → Evaluation Protocol → this plan).
+Use this as the map of the docs set. The goal is not to document every internal detail; it is to keep a small number of durable documents aligned with the workflow that actually exists.
 
-## Product and evaluation
+If design documents disagree on scope, follow this order:
 
-- [prd.md](./prd.md) — scope, taxonomy, success criteria
-- [build-spec.md](./build-spec.md) — minimum implementation vs non-goals
-- [evaluation-protocol.md](./evaluation-protocol.md) — how the POC is evaluated
+1. [prd.md](./prd.md)
+2. [build-spec.md](./build-spec.md)
+3. [evaluation-protocol.md](./evaluation-protocol.md)
+4. [implementation-plan.md](./implementation-plan.md)
 
-## Execution and current state
+## Start Here
 
-- [implementation-plan.md](./implementation-plan.md) — how to implement the scoped POC
-- [status.md](./status.md) — **what exists in the repo today** (keep this current)
+- [../README.md](../README.md) — repo landing page, quick start, high-level workflow
+- [runtime-setup.md](./runtime-setup.md) — environment variables, external services, required versus optional dependencies
+- [pipeline.md](./pipeline.md) — canonical stage-by-stage workflow guide
 
-## Artifacts, runs, and UI
+## If You Want To Run Or Inspect The Tool
 
-- [artifact-workflow.md](./artifact-workflow.md) — CLI artifacts, manifests, benchmark flow, stage naming
-- [ui-setup.md](./ui-setup.md) — running the local Next.js UI
-- [ui-architecture.md](./ui-architecture.md) — UI routes, API, job model, shared contract
+- [pipeline.md](./pipeline.md) — what each stage reads, writes, and decides
+- [artifact-workflow.md](./artifact-workflow.md) — artifact names, run layout, manifests, benchmark outputs
+- [status.md](./status.md) — what is implemented in the repo today
+- [ui-setup.md](./ui-setup.md) — run the local Next.js UI
+- [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
 
-## Operations
+## If You Want The Project Intent
 
-- [ops-setup.md](./ops-setup.md) — environment and service setup
-- [artifact-workflow.md](./artifact-workflow.md) — also covers `data/` policy
+- [concept-memo.md](./concept-memo.md) — why this project is worth testing
+- [prd.md](./prd.md) — canonical scope, taxonomy, outputs, success criteria
+- [build-spec.md](./build-spec.md) — minimum implementation and non-goals
+- [evaluation-protocol.md](./evaluation-protocol.md) — how the POC is judged
+- [implementation-plan.md](./implementation-plan.md) — execution-oriented plan for the scoped POC
 
-## Lint and tests (monorepo)
+## Focused Reference Docs
 
-- **Root package:** `npm run lint` covers `src/` and `tests/` only. `npm run test` runs Vitest for `tests/**/*.ts`.
-- **UI workspace:** `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (or `npm run lint:all` from root for both linters).
+- [adjudication-rubric.md](./adjudication-rubric.md) — current adjudication output shape and rubric notes
+- [eval-reranker-model-selection.md](./eval-reranker-model-selection.md) — reranker evaluation note and current retrieval-model rationale
 
-## Release / large-change checklist (avoid stale docs)
+## Lint And Tests
 
-Before tagging a release or merging a large feature:
+- Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
+- UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test`
+
+## Large-Change Checklist
+
+Before merging a large workflow, artifact, or UI change:
 
 | Check | Action |
 |--------|--------|
-| Tree vs agents | `src/` and `apps/` match the architecture block in [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md) |
-| UI wording | Search `*.md` for outdated phrases like “no web app” without the local-UI clarification |
-| Paths | Stage folders under `data/runs/<runId>/` match [artifact-workflow.md](./artifact-workflow.md) |
-| Status date | [status.md](./status.md) **Last updated** reflects the change |
-| Package exports | [package.json](../package.json) `exports` match docs that mention `palimpsest/ui-contract` |
+| Tree vs agent docs | Verify `src/` and `apps/` still match [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) |
+| Stage contract | If stage names, order, inputs, or outputs changed, update [pipeline.md](./pipeline.md) and [artifact-workflow.md](./artifact-workflow.md) |
+| Runtime boundary | If env vars or service requirements changed, update [runtime-setup.md](./runtime-setup.md), [ui-setup.md](./ui-setup.md), and the root [README.md](../README.md) |
+| UI wording | Search `*.md` for stale wording about the local UI or hosted-product boundary |
+| Run layout | Verify stage folders under `data/runs/<runId>/` still match [artifact-workflow.md](./artifact-workflow.md) |
+| Status ledger | Update [status.md](./status.md) when shipped behavior materially changes |
+| Package exports | Verify [package.json](../package.json) exports still match docs that mention `palimpsest/ui-contract` |
