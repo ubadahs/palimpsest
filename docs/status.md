@@ -11,10 +11,10 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Claim discovery | `discover` | Done | Extracts empirical claim units from a paper via Opus 4.6; optional `--rank` uses Haiku to score claims by citing-paper engagement (direct/indirect); JSON + Markdown artifacts |
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
-| Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); GROBID for seed full text; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
-| Citation context extraction | `extract` | Done | JATS-first parsing, GROBID-backed PDF parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
+| Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); centralized full-text acquisition for seed parsing with provenance; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
+| Citation context extraction | `extract` | Done | Centralized full-text acquisition, JATS-first parsing, validated PDF -> GROBID parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
 | Citation function + packets | `classify` | Done | Roles, evaluation modes, `EdgeEvaluationPacket`, classification reports |
-| Cited-paper evidence | `evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, BM25 retrieval, LLM-based reranking (Haiku, default on) or optional local HTTP sidecar reranker, abstract-only downgrade, parsed-paper cache reuse; `--no-llm-rerank` to disable |
+| Cited-paper evidence | `evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, centralized full-text acquisition with method tracking, BM25 retrieval, LLM-based reranking (Haiku, default on) or optional local HTTP sidecar reranker, abstract-only downgrade, parsed-paper cache reuse; `--no-llm-rerank` to disable |
 | Human adjudication set | `curate` | Done | Samples calibration worksheet + JSON from evidence results |
 | LLM adjudication | `adjudicate` | Done | Anthropic via centralized LLM client, telemetry, agreement reports; default is `claude-opus-4-6` with extended thinking (`--no-thinking` to disable) |
 | Benchmark workflow | `benchmark:*` | Done | Blind export, keyed diff, candidate summary, and approved-delta apply for adjudication datasets; excluded-only adjudication diffs are ignored |
@@ -36,7 +36,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Artifact manifests | Done | Primary JSON outputs get adjacent manifest files |
 | OpenAlex + Semantic Scholar adapters | Done | `src/integrations/`; separate PDF vs landing-page URLs and conservative metadata fallback |
 | Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`), run-level cost ledger |
-| SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence` |
+| SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence`; acquisition provenance persisted with cached raw papers |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
 | UI workspace tests | Partial | Targeted command-builder coverage in `apps/ui/tests`; broader component/E2E coverage not added yet |
@@ -44,6 +44,9 @@ This file tracks **what exists in the codebase today**. For product intent and p
 ## Retrieval and Parsing Notes
 
 - PDF ingestion now requires **GROBID**. Legacy `pdf_text` artifacts remain loadable, but new runs emit `grobid_tei_xml`.
+- Full-text retrieval is now centralized in one acquisition layer shared by `discover`, `screen`, `extract`, and `evidence`.
+- Provider metadata is treated as retrieval hints. The acquisition layer preserves requested identifiers, ranks candidates, validates payloads, and records the winning method plus every attempted path.
+- GROBID is invoked only after a response has been validated as a real PDF. HTML landing pages, interstitials, and challenge pages are classified explicitly rather than surfacing as generic parser failures.
 - Citing and cited full text are normalized into one parsed-document representation with:
   - structured blocks
   - bibliography references
@@ -54,7 +57,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
   - optional local HTTP sidecar reranking through `LOCAL_RERANKER_BASE_URL` (legacy, used as fallback if LLM reranking fails)
   - explicit `abstract_only_matches` downgrade when only abstract blocks match
   - `extractCitingWindow()` focuses retrieval and adjudication on sentences around the citation marker
-- Direct PDF URLs are kept separate from landing-page URLs so fetchers do not attempt to download publisher landing pages as PDFs.
+- Stage artifacts now record acquisition provenance so reports can say how each paper was materialized (`pmc_xml`, `biorxiv_xml`, landing-page XML, or validated direct PDF via GROBID).
 
 ## Not implemented yet (or out of current scope)
 

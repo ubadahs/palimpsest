@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { resolvedPaperSchema, undefinedable } from "./common.js";
+import {
+  fullTextAcquisitionSchema,
+  resolvedPaperSchema,
+  undefinedable,
+} from "./common.js";
 import { fullTextFormatSchema, parsedBlockKindSchema } from "./parsing.js";
 import {
   evaluationModeSchema,
@@ -67,6 +71,7 @@ export const citedPaperSourceSchema = z
     fetchStatus: citedPaperFetchStatusSchema,
     fetchError: undefinedable(z.string()),
     fullTextFormat: undefinedable(fullTextFormatSchema),
+    acquisition: undefinedable(fullTextAcquisitionSchema),
   })
   .passthrough();
 export type CitedPaperSource = z.infer<typeof citedPaperSourceSchema>;

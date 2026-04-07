@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type {
-  FullTextStatus,
+  FullTextHints,
   PaperResolutionProvenance,
   ResolvedPaper,
   Result,
@@ -91,31 +91,50 @@ const STRUCTURED_SOURCE_PATTERNS = [
   { pattern: /pmc|pubmed\s*central/i, source: "pmc_xml" },
 ];
 
-function inferFullTextStatus(work: OpenAlexWork): FullTextStatus {
+function inferFullTextHints(work: OpenAlexWork): FullTextHints {
   const isOa = work.open_access?.is_oa ?? false;
   const oaUrl = work.open_access?.oa_url ?? undefined;
   const sourceName = work.primary_location?.source?.display_name ?? "";
   const sourceType = work.primary_location?.source?.type ?? "";
+  const pdfUrl = work.primary_location?.pdf_url ?? undefined;
+  const landingPageUrl = work.primary_location?.landing_page_url ?? undefined;
+
+  let providerAvailability: FullTextHints["providerAvailability"] = "available";
+  let providerReason: string | undefined;
+  let providerSourceHint: string | undefined;
 
   if (!isOa || oaUrl == null) {
-    return { status: "unavailable", reason: "No open-access URL available" };
-  }
+    providerAvailability = "unavailable";
+    providerReason = "No open-access URL available";
+  } else {
+    for (const { pattern, source } of STRUCTURED_SOURCE_PATTERNS) {
+      if (pattern.test(sourceName)) {
+        providerSourceHint = source;
+        break;
+      }
+    }
 
-  for (const { pattern, source } of STRUCTURED_SOURCE_PATTERNS) {
-    if (pattern.test(sourceName)) {
-      return { status: "available", source };
+    if (!providerSourceHint) {
+      if (sourceType === "repository") {
+        providerSourceHint = "repository_pdf";
+      } else if (pdfUrl) {
+        providerSourceHint = "pdf";
+      } else {
+        providerSourceHint = "oa_link";
+      }
     }
   }
 
-  if (sourceType === "repository") {
-    return { status: "available", source: "repository_pdf" };
-  }
-
-  if (work.primary_location?.pdf_url) {
-    return { status: "available", source: "pdf" };
-  }
-
-  return { status: "available", source: "oa_link" };
+  return {
+    providerAvailability,
+    providerReason,
+    providerSourceHint,
+    pdfUrl,
+    landingPageUrl,
+    repositoryUrl: oaUrl,
+    sourceName: work.primary_location?.source?.display_name ?? undefined,
+    sourceType: work.primary_location?.source?.type ?? undefined,
+  };
 }
 
 function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
@@ -124,9 +143,7 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
     work.abstract_inverted_index != null
       ? reconstructAbstract(work.abstract_inverted_index)
       : undefined;
-  const pdfUrl = work.primary_location?.pdf_url ?? undefined;
-  const landingPageUrl = work.primary_location?.landing_page_url ?? undefined;
-  const oaUrl = work.open_access?.oa_url ?? undefined;
+  const fullTextHints = inferFullTextHints(work);
 
   return {
     id: work.id,
@@ -141,11 +158,7 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
     authors: (work.authorships ?? []).map((a) => a.author.display_name),
     abstract,
     source: "openalex",
-    openAccessUrl: pdfUrl ?? oaUrl ?? landingPageUrl,
-    openAccessPdfUrl: pdfUrl,
-    openAccessLandingPageUrl: landingPageUrl,
-    openAccessOaUrl: oaUrl,
-    fullTextStatus: inferFullTextStatus(work),
+    fullTextHints,
     paperType: work.type ?? undefined,
     referencedWorksCount: work.referenced_works_count,
     publicationYear: work.publication_year ?? undefined,
@@ -209,12 +222,17 @@ function withResolutionProvenance(
   paper: ResolvedPaper,
   method: PaperResolutionProvenance["method"],
   confidence: PaperResolutionProvenance["confidence"],
+  requestedIdentifier:
+    | { type: "doi" | "pmcid" | "pmid"; value: string }
+    | undefined,
 ): ResolvedPaper {
   return {
     ...paper,
     resolutionProvenance: {
       method,
       confidence,
+      requestedIdentifierType: requestedIdentifier?.type,
+      requestedIdentifier: requestedIdentifier?.value,
     },
   };
 }
@@ -243,6 +261,7 @@ export async function resolveWorkByDoi(
       toResolvedPaper(result.data),
       "doi",
       "exact",
+      { type: "doi", value: doi },
     ),
   };
 }
@@ -285,7 +304,10 @@ export async function resolveWorkByPmid(
   }
   return {
     ok: true,
-    data: withResolutionProvenance(result.data, "pmid", "exact"),
+    data: withResolutionProvenance(result.data, "pmid", "exact", {
+      type: "pmid",
+      value: pmid,
+    }),
   };
 }
 
@@ -300,7 +322,10 @@ export async function resolveWorkByPmcid(
   }
   return {
     ok: true,
-    data: withResolutionProvenance(result.data, "pmcid", "exact"),
+    data: withResolutionProvenance(result.data, "pmcid", "exact", {
+      type: "pmcid",
+      value: pmcid,
+    }),
   };
 }
 
@@ -346,6 +371,7 @@ export async function resolveWorkByMetadata(
       toResolvedPaper(candidates[0]!),
       "title_author_year",
       "high",
+      undefined,
     ),
   };
 }

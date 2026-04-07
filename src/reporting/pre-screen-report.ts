@@ -1,5 +1,6 @@
 import { claimGroundingBlocksAnalysis } from "../domain/pre-screen.js";
 import type { ClaimFamilyPreScreen, PreScreenEdge } from "../domain/types.js";
+import { formatAcquisitionSummary } from "../retrieval/fulltext-fetch.js";
 
 // --- JSON output ---
 
@@ -88,6 +89,12 @@ function renderSeedSection(result: ClaimFamilyPreScreen): string {
     `**DOI:** ${seed.doi}`,
     `**Tracked claim (analyst hypothesis):** ${seed.trackedClaim}`,
   ];
+
+  if (result.seedFullTextAcquisition) {
+    lines.push(
+      `**Seed full text acquisition:** ${formatAcquisitionSummary(result.seedFullTextAcquisition)}`,
+    );
+  }
 
   if (seed.notes) {
     lines.push(`**Notes:** ${seed.notes}`);

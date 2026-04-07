@@ -40,10 +40,9 @@ function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
     authors: ["Author One"],
     abstract: undefined,
     source: "openalex",
-    openAccessUrl: undefined,
-    fullTextStatus: {
-      status: "available",
-      source: "biorxiv_xml",
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "biorxiv_xml",
     },
     paperType: "article",
     referencedWorksCount: 30,
@@ -77,7 +76,10 @@ function makeEdge(overrides: Partial<PreScreenEdge> = {}): PreScreenEdge {
 describe("extractEdgeContext", () => {
   it("returns skipped_not_auditable when full text is unavailable", async () => {
     const citing = makePaper({
-      fullTextStatus: { status: "unavailable", reason: "Paywalled" },
+      fullTextHints: {
+        providerAvailability: "unavailable",
+        providerReason: "Paywalled",
+      },
     });
     const seed = makePaper({
       id: "seed-1",
@@ -88,9 +90,16 @@ describe("extractEdgeContext", () => {
 
     const adapters: ExtractionAdapters = {
       fullText: {
-        fetchXml: async () => Promise.resolve({ ok: true as const, data: "" }),
-        fetchPdf: async () =>
-          Promise.resolve({ ok: false as const, error: "not needed" }),
+        fetchUrl: async (url) =>
+          Promise.resolve({
+            ok: true as const,
+            data: {
+              finalUrl: url,
+              status: 200,
+              contentType: "application/xml",
+              body: Buffer.from("<?xml version=\"1.0\"?><article />"),
+            },
+          }),
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "not needed" }),
         email: undefined,
@@ -107,8 +116,12 @@ describe("extractEdgeContext", () => {
 
   it("returns structured failure when full text fetch fails with 403", async () => {
     const citing = makePaper({
-      fullTextStatus: { status: "available", source: "publisher_pdf" },
-      openAccessUrl: "https://example.com/paper.pdf",
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "pdf",
+        pdfUrl: "https://example.com/paper.pdf",
+        repositoryUrl: "https://example.com/paper.pdf",
+      },
     });
     const seed = makePaper({
       id: "seed-1",
@@ -119,12 +132,17 @@ describe("extractEdgeContext", () => {
 
     const adapters: ExtractionAdapters = {
       fullText: {
-        fetchXml: async () =>
-          Promise.resolve({ ok: false as const, error: "no xml" }),
-        fetchPdf: async () =>
+        fetchUrl: async (url, options) =>
           Promise.resolve({
-            ok: false as const,
-            error: "HTTP 403 from publisher",
+            ok: true as const,
+            data: {
+              finalUrl: url,
+              status: options?.accept?.includes("pdf") ? 403 : 404,
+              contentType: options?.accept?.includes("pdf")
+                ? "application/pdf"
+                : "application/xml",
+              body: Buffer.from(""),
+            },
           }),
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "no text" }),
@@ -143,8 +161,10 @@ describe("extractEdgeContext", () => {
   it("reports failure when fetch fails for non-403 reasons", async () => {
     const citing = makePaper({
       doi: undefined,
-      openAccessUrl: undefined,
-      fullTextStatus: { status: "available", source: "publisher_pdf" },
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "pdf",
+      },
     });
     const seed = makePaper({
       id: "seed-1",
@@ -155,10 +175,11 @@ describe("extractEdgeContext", () => {
 
     const adapters: ExtractionAdapters = {
       fullText: {
-        fetchXml: async () =>
-          Promise.resolve({ ok: false as const, error: "connection timeout" }),
-        fetchPdf: async () =>
-          Promise.resolve({ ok: false as const, error: "connection timeout" }),
+        fetchUrl: async () =>
+          Promise.resolve({
+            ok: false as const,
+            error: "connection timeout",
+          }),
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "no text" }),
         email: undefined,
@@ -174,9 +195,12 @@ describe("extractEdgeContext", () => {
 
   it("extracts citation mentions from GROBID TEI for PDF-backed papers", async () => {
     const citing = makePaper({
-      fullTextStatus: { status: "available", source: "publisher_pdf" },
-      openAccessPdfUrl: "https://example.com/paper.pdf",
-      openAccessUrl: "https://example.com/paper.pdf",
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "pdf",
+        pdfUrl: "https://example.com/paper.pdf",
+        repositoryUrl: "https://example.com/paper.pdf",
+      },
     });
     const seed = makePaper({
       id: "seed-1",
@@ -187,10 +211,20 @@ describe("extractEdgeContext", () => {
 
     const adapters: ExtractionAdapters = {
       fullText: {
-        fetchXml: async () =>
-          Promise.resolve({ ok: false as const, error: "no xml" }),
-        fetchPdf: async () =>
-          Promise.resolve({ ok: true as const, data: Buffer.from("pdf") }),
+        fetchUrl: async (url, options) =>
+          Promise.resolve({
+            ok: true as const,
+            data: {
+              finalUrl: url,
+              status: 200,
+              contentType: options?.accept?.includes("pdf")
+                ? "application/pdf"
+                : "application/xml",
+              body: options?.accept?.includes("pdf")
+                ? Buffer.from("%PDF-1.7 fixture")
+                : Buffer.from("<?xml version=\"1.0\"?><article />"),
+            },
+          }),
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: true as const, data: GROBID_TEI }),
         email: undefined,

@@ -5,6 +5,7 @@ import type Database from "better-sqlite3";
 import type {
   CachePolicy,
   CitationMention,
+  FullTextAcquisition,
   FullTextFormat,
   ParsedBlockKind,
   ParsedCitationMention,
@@ -16,7 +17,7 @@ import type {
 } from "../domain/types.js";
 import { parsedPaperDocumentSchema } from "../domain/types.js";
 import {
-  fetchFullText,
+  acquireFullText,
   type FullTextContent,
   type FullTextFetchAdapters,
 } from "./fulltext-fetch.js";
@@ -30,8 +31,13 @@ export const PARSED_PAPER_PARSER_VERSION = "structured-v2";
 
 export type ParsedPaperMaterialized = {
   fullText: FullTextContent;
+  acquisition: FullTextAcquisition;
   parsedDocument: ParsedPaperDocument;
 };
+
+export type ParsedPaperMaterializeResult =
+  | { ok: true; data: ParsedPaperMaterialized }
+  | { ok: false; error: string; acquisition: FullTextAcquisition | undefined };
 
 export type ParsedPaperCacheOptions = {
   db: Database.Database;
@@ -743,15 +749,19 @@ export async function materializeParsedPaper(
   biorxivBaseUrl: string,
   adapters: FullTextFetchAdapters,
   cache?: ParsedPaperCacheOptions,
-): Promise<Result<ParsedPaperMaterialized>> {
-  const fullTextResult = await fetchFullText(
+): Promise<ParsedPaperMaterializeResult> {
+  const fullTextResult = await acquireFullText(
     paper,
     biorxivBaseUrl,
     adapters,
     cache,
   );
   if (!fullTextResult.ok) {
-    return fullTextResult;
+    return {
+      ok: false,
+      error: fullTextResult.error,
+      acquisition: fullTextResult.acquisition,
+    };
   }
 
   const contentHash = computeContentHash(fullTextResult.data.content);
@@ -764,10 +774,15 @@ export async function materializeParsedPaper(
     );
     const decoded = decodeCachedParsedPaper(cached, fullTextResult.data.format);
     if (decoded.ok) {
+      const acquisition = {
+        ...fullTextResult.data.acquisition,
+        materializationSource: "parsed_cache" as const,
+      };
       return {
         ok: true,
         data: {
           fullText: fullTextResult.data,
+          acquisition,
           parsedDocument: decoded.data,
         },
       };
@@ -779,7 +794,11 @@ export async function materializeParsedPaper(
     fullTextResult.data.format,
   );
   if (!parsedResult.ok) {
-    return parsedResult;
+    return {
+      ok: false,
+      error: parsedResult.error,
+      acquisition: fullTextResult.data.acquisition,
+    };
   }
 
   if (cache) {
@@ -804,6 +823,7 @@ export async function materializeParsedPaper(
     ok: true,
     data: {
       fullText: fullTextResult.data,
+      acquisition: fullTextResult.data.acquisition,
       parsedDocument: parsedResult.data,
     },
   };

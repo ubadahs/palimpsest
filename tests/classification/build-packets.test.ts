@@ -66,8 +66,10 @@ function makeExtraction(edges: EdgeExtractionResult[]): FamilyExtractionResult {
       authors: ["Author A"],
       abstract: undefined,
       source: "openalex",
-      openAccessUrl: undefined,
-      fullTextStatus: { status: "available", source: "pmc_xml" },
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "pmc_xml",
+      },
       paperType: "article",
       referencedWorksCount: 40,
       publicationYear: 2021,

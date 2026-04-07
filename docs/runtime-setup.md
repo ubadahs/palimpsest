@@ -8,7 +8,7 @@ This document covers the local runtime boundary: environment variables, external
 |------|-----------|-------|
 | Node.js 22+ | Yes | See [`package.json`](../package.json) `engines` |
 | Local SQLite path | Yes | `PALIMPSEST_DB_PATH` defaults to `data/palimpsest.sqlite` |
-| `GROBID_BASE_URL` | Yes | Required by environment loading and by any PDF-backed parsing path |
+| `GROBID_BASE_URL` | Yes | Required by environment loading and by validated PDF-backed parsing paths |
 | `ANTHROPIC_API_KEY` | Stage-dependent | Required for `discover`, `screen`, `adjudicate`, `pipeline`, and `evidence` when LLM reranking is enabled |
 | `LOCAL_RERANKER_BASE_URL` | No | Optional fallback reranker for `evidence` |
 | `OPENALEX_EMAIL` | No | Optional, but useful for OpenAlex requests |
@@ -33,7 +33,7 @@ Base URLs for OpenAlex, Semantic Scholar, and bioRxiv also have defaults and usu
 
 ### Why it matters
 
-The PDF fallback path no longer uses raw PDF text extraction in production. When a paper is only available as PDF, the pipeline expects GROBID and stores the resulting TEI as `grobid_tei_xml`.
+The PDF fallback path no longer uses raw PDF text extraction in production. When a paper is only available as PDF, the pipeline validates that the fetched payload is actually a PDF before sending it to GROBID, then stores the resulting TEI as `grobid_tei_xml`.
 
 Historical artifacts with legacy `pdf_text` remain loadable, but new PDF-backed runs should go through GROBID.
 
@@ -53,6 +53,7 @@ Any equivalent deployment is fine as long as `GROBID_BASE_URL` exposes:
 - `doctor` fails if GROBID is unreachable
 - PDF-backed `discover`, `screen`, `extract`, and `evidence` paths fail or degrade when parsing cannot proceed
 - JATS-backed paths do not need GROBID at runtime once structured full text is already available
+- Landing pages, HTML interstitials, and challenge pages are not sent to GROBID; they are classified as acquisition failures or used only to discover better XML/PDF links
 
 ## Stage-dependent LLM Access
 

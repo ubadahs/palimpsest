@@ -28,7 +28,12 @@ export type ExtractionAdapters = {
 function classifyFailure(error: string): ExtractionOutcome {
   if (/403/i.test(error)) return "fail_http_403";
   if (/grobid/i.test(error)) return "fail_grobid_parse_error";
-  if (/pdf\s*parse/i.test(error) || /invalid\s*pdf/i.test(error))
+  if (
+    /pdf\s*parse/i.test(error) ||
+    /invalid\s*pdf/i.test(error) ||
+    /html_instead_of_pdf/i.test(error) ||
+    /invalid_pdf_payload/i.test(error)
+  )
     return "fail_pdf_parse_error";
   return "fail_unknown";
 }
@@ -38,7 +43,10 @@ function classifyFailure(error: string): ExtractionOutcome {
 function makeResult(
   base: Pick<
     EdgeExtractionResult,
-    "citingPaperId" | "citedPaperId" | "citingPaperTitle"
+    | "citingPaperId"
+    | "citedPaperId"
+    | "citingPaperTitle"
+    | "citingPaperAcquisition"
   >,
   outcome: ExtractionOutcome,
   sourceType: EdgeExtractionResult["sourceType"],
@@ -79,9 +87,10 @@ export async function extractEdgeContext(
     citingPaperId: edge.citingPaperId,
     citedPaperId: edge.citedPaperId,
     citingPaperTitle: citingPaper.title,
+    citingPaperAcquisition: undefined,
   };
 
-  if (citingPaper.fullTextStatus.status !== "available") {
+  if (citingPaper.fullTextHints.providerAvailability !== "available") {
     return makeResult(
       base,
       "skipped_not_auditable",
@@ -99,7 +108,10 @@ export async function extractEdgeContext(
 
   if (!parsedResult.ok) {
     return makeResult(
-      base,
+      {
+        ...base,
+        citingPaperAcquisition: parsedResult.acquisition,
+      },
       classifyFailure(parsedResult.error),
       "not_attempted",
       parsedResult.error,
@@ -111,7 +123,10 @@ export async function extractEdgeContext(
 
   if (refs.length === 0) {
     return makeResult(
-      base,
+      {
+        ...base,
+        citingPaperAcquisition: parsedResult.data.acquisition,
+      },
       "fail_ref_list_empty",
       parsedDocument.parserKind === "grobid_tei" ? "grobid_tei" : "jats_xml",
       "Reference list parsed but empty",
@@ -132,7 +147,10 @@ export async function extractEdgeContext(
 
   if (!seedRef) {
     return makeResult(
-      base,
+      {
+        ...base,
+        citingPaperAcquisition: parsedResult.data.acquisition,
+      },
       "fail_no_reference_match",
       sourceType,
       `Seed paper not found in reference list (${String(refs.length)} refs parsed)`,
@@ -145,7 +163,10 @@ export async function extractEdgeContext(
 
   if (mentions.length === 0) {
     return makeResult(
-      base,
+      {
+        ...base,
+        citingPaperAcquisition: parsedResult.data.acquisition,
+      },
       "fail_ref_found_but_no_in_text_xref",
       sourceType,
       "Seed ref found in reference list but no in-text citation mentions located",
@@ -153,7 +174,10 @@ export async function extractEdgeContext(
   }
 
   return makeResult(
-    base,
+    {
+      ...base,
+      citingPaperAcquisition: parsedResult.data.acquisition,
+    },
     sourceType === "grobid_tei"
       ? "success_grobid"
       : sourceType === "jats_xml"

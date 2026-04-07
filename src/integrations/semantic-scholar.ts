@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type {
-  FullTextStatus,
+  FullTextHints,
   PaperResolutionProvenance,
   ResolvedPaper,
   Result,
@@ -39,15 +39,33 @@ type S2Paper = z.infer<typeof s2PaperSchema>;
 
 // --- Helpers ---
 
-function inferFullTextStatus(paper: S2Paper): FullTextStatus {
+function inferFullTextHints(paper: S2Paper): FullTextHints {
   const isOa = paper.isOpenAccess ?? false;
   const pdfUrl = paper.openAccessPdf?.url ?? undefined;
 
   if (!isOa || pdfUrl == null) {
-    return { status: "unavailable", reason: "No open-access PDF available" };
+    return {
+      providerAvailability: "unavailable",
+      providerReason: "No open-access PDF available",
+      providerSourceHint: undefined,
+      pdfUrl,
+      landingPageUrl: undefined,
+      repositoryUrl: undefined,
+      sourceName: undefined,
+      sourceType: undefined,
+    };
   }
 
-  return { status: "available", source: "pdf" };
+  return {
+    providerAvailability: "available",
+    providerReason: undefined,
+    providerSourceHint: "pdf",
+    pdfUrl,
+    landingPageUrl: undefined,
+    repositoryUrl: undefined,
+    sourceName: undefined,
+    sourceType: undefined,
+  };
 }
 
 function mapS2Type(types: string[] | null | undefined): string | undefined {
@@ -67,11 +85,7 @@ function toResolvedPaper(paper: S2Paper): ResolvedPaper {
     authors: (paper.authors ?? []).map((a) => a.name),
     abstract: paper.abstract ?? undefined,
     source: "semantic_scholar",
-    openAccessUrl: paper.openAccessPdf?.url ?? undefined,
-    openAccessPdfUrl: paper.openAccessPdf?.url ?? undefined,
-    openAccessLandingPageUrl: undefined,
-    openAccessOaUrl: undefined,
-    fullTextStatus: inferFullTextStatus(paper),
+    fullTextHints: inferFullTextHints(paper),
     paperType: mapS2Type(paper.publicationTypes),
     referencedWorksCount: paper.referenceCount ?? undefined,
     publicationYear: paper.year ?? undefined,
@@ -83,12 +97,17 @@ function withResolutionProvenance(
   paper: ResolvedPaper,
   method: PaperResolutionProvenance["method"],
   confidence: PaperResolutionProvenance["confidence"],
+  requestedIdentifier:
+    | { type: "doi" | "pmcid" | "pmid"; value: string }
+    | undefined,
 ): ResolvedPaper {
   return {
     ...paper,
     resolutionProvenance: {
       method,
       confidence,
+      requestedIdentifierType: requestedIdentifier?.type,
+      requestedIdentifier: requestedIdentifier?.value,
     },
   };
 }
@@ -160,6 +179,7 @@ export async function resolvePaperByDoi(
       toResolvedPaper(result.data),
       "doi",
       "exact",
+      { type: "doi", value: doi },
     ),
   };
 }
@@ -183,6 +203,7 @@ export async function resolvePaperByPmid(
       toResolvedPaper(result.data),
       "pmid",
       "exact",
+      { type: "pmid", value: pmid },
     ),
   };
 }
@@ -206,6 +227,7 @@ export async function resolvePaperByPmcid(
       toResolvedPaper(result.data),
       "pmcid",
       "exact",
+      { type: "pmcid", value: pmcid },
     ),
   };
 }
@@ -262,6 +284,7 @@ export async function resolvePaperByMetadata(
       toResolvedPaper(candidates[0]!),
       "title_author_year",
       "high",
+      undefined,
     ),
   };
 }
