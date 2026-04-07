@@ -121,6 +121,7 @@ function taskToRecord(
     evidenceSpans: task.citedPaperEvidenceSpans,
     evidenceRetrievalStatus: task.evidenceRetrievalStatus,
 
+    comparison: undefined,
     verdict: undefined,
     rationale: undefined,
     retrievalQuality: undefined,
