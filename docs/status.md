@@ -69,6 +69,6 @@ This file tracks **what exists in the codebase today**. For product intent and p
 
 Edit the tables when a command’s behavior materially ships or when scope changes. Bump **Last updated** to the change date.
 
-When the **local UI** or **workspace layout** changes, verify [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) still match the repo. When **artifact paths** or **stage keys** change, update [artifact-workflow.md](./artifact-workflow.md) and [ui-architecture.md](./ui-architecture.md) in the same change when possible.
+When the **local UI** or **workspace layout** changes, verify [AGENTS.md](../AGENTS.md) and [CLAUDE.md](../CLAUDE.md) still match the repo. When **artifact paths**, **stage keys**, or **stage responsibilities** change, update [pipeline.md](./pipeline.md), [artifact-workflow.md](./artifact-workflow.md), and [ui-architecture.md](./ui-architecture.md) in the same change when possible.
 
 Before a release or large merge, use the checklist in [README.md](./README.md) (release / large-change section) to avoid stale documentation.
