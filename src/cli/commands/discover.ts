@@ -113,9 +113,7 @@ function toDiscoveryMarkdown(results: ClaimDiscoveryResult[]): string {
     if (result.ranking) {
       lines.push("### Ranked by citing-paper engagement");
       lines.push("");
-      lines.push(
-        "| Rank | # | Type | Direct | Indirect | Claim |",
-      );
+      lines.push("| Rank | # | Type | Direct | Indirect | Claim |");
       lines.push("|------|---|------|--------|----------|-------|");
 
       const sorted = result.ranking.engagements;
@@ -168,9 +166,7 @@ function toDiscoveryMarkdown(results: ClaimDiscoveryResult[]): string {
       lines.push("");
       lines.push(`**Section:** ${claim.section}`);
       if (claim.citedReferences.length > 0) {
-        lines.push(
-          `**Cited references:** ${claim.citedReferences.join(", ")}`,
-        );
+        lines.push(`**Cited references:** ${claim.citedReferences.join(", ")}`);
       }
       lines.push("");
       lines.push("**Source:**");
@@ -316,7 +312,11 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         });
 
         // Step 4: rank by citing-paper engagement (default on)
-        if (args.rank && result.status === "completed" && result.claims.length > 0) {
+        if (
+          args.rank &&
+          result.status === "completed" &&
+          result.claims.length > 0
+        ) {
           progress.startStep("rank_claims", {
             detail: `Ranking ${String(result.claims.length)} claims against citing papers...`,
           });
@@ -421,6 +421,20 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         sourceArtifacts: [args.input],
         relatedArtifacts,
       });
+
+      if (seeds.length === 0) {
+        const reasons = results
+          .filter((r) => r.status !== "completed")
+          .map((r) => `  ${r.doi}: ${r.statusDetail}`);
+        const detail =
+          reasons.length > 0
+            ? `No seeds produced.\n${reasons.join("\n")}`
+            : "No empirical findings extracted from any paper.";
+        progress.failStep("emit_shortlist", { detail });
+        console.error(`\n${detail}`);
+        process.exitCode = 1;
+        return;
+      }
 
       progress.completeStep("emit_shortlist", {
         detail: `${String(seeds.length)} seed(s) in shortlist`,

@@ -22,11 +22,7 @@ import {
   type AnalysisStageSummary,
   type StageKey,
 } from "../ui-contract/run-types.js";
-import {
-  compareStageKeys,
-  getStageDefinition,
-  stageDefinitions,
-} from "../ui-contract/stages.js";
+import { getStageDefinition, stageDefinitions } from "../ui-contract/stages.js";
 
 type RunRow = {
   id: string;
@@ -489,15 +485,6 @@ export function getClaimGateBlockReasonForRun(
   } catch {
     return undefined;
   }
-}
-
-export function getPreviousStageKey(stageKey: StageKey): StageKey | undefined {
-  const previous = stageDefinitions
-    .filter((stage) => compareStageKeys(stage.key, stageKey) < 0)
-    .sort((left, right) => left.order - right.order)
-    .at(-1);
-
-  return previous?.key;
 }
 
 export function parseStoredConfig(raw: string): AnalysisRunConfig {

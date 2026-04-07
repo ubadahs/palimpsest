@@ -14,7 +14,10 @@ import {
   shortlistInputSchema,
 } from "../../domain/types.js";
 import { discoveryInputSchema } from "../../domain/discovery.js";
-import { resolvePaperByDoi, resolvePaperByMetadata } from "../../integrations/paper-resolver.js";
+import {
+  resolvePaperByDoi,
+  resolvePaperByMetadata,
+} from "../../integrations/paper-resolver.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import * as openalex from "../../integrations/openalex.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
@@ -40,10 +43,7 @@ import {
 } from "../../shared/artifact-io.js";
 import { nextRunStamp } from "../run-stamp.js";
 import { toPreScreenMarkdown } from "../../reporting/pre-screen-report.js";
-import {
-  toM2Json,
-  toM2Markdown,
-} from "../../reporting/extraction-report.js";
+import { toM2Json, toM2Markdown } from "../../reporting/extraction-report.js";
 import {
   toClassificationJson,
   toClassificationMarkdown,
@@ -152,7 +152,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     // Stage 1: Discover (or load shortlist)
     // -----------------------------------------------------------------------
 
-    type SeedEntry = { doi: string; trackedClaim: string; notes?: string | undefined };
+    type SeedEntry = {
+      doi: string;
+      trackedClaim: string;
+      notes?: string | undefined;
+    };
     let seeds: SeedEntry[];
 
     if (args.shortlist) {
@@ -170,7 +174,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoveryInputSchema,
         "discovery input",
       );
-      log("discover", `Extracting claims from ${String(inputData.dois.length)} paper(s)...`);
+      log(
+        "discover",
+        `Extracting claims from ${String(inputData.dois.length)} paper(s)...`,
+      );
 
       const discoveryClient = createLLMClient({
         apiKey: config.anthropicApiKey,
@@ -206,17 +213,27 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           log("discover", `No full text for ${doi}: ${materialized.error}`);
           continue;
         }
-        log("discover", `Parsed ${String(materialized.data.parsedDocument.blocks.length)} blocks`);
+        log(
+          "discover",
+          `Parsed ${String(materialized.data.parsedDocument.blocks.length)} blocks`,
+        );
 
         const result = await discoverClaims({
           paper: resolved.data,
           parsedDocument: materialized.data.parsedDocument,
           client: discoveryClient,
         });
-        log("discover", `Extracted ${String(result.totalClaimCount)} claims (${String(result.findingCount)} findings)`);
+        log(
+          "discover",
+          `Extracted ${String(result.totalClaimCount)} claims (${String(result.findingCount)} findings)`,
+        );
 
         // Rank by citing-paper engagement
-        if (!args.noRank && result.status === "completed" && result.claims.length > 0) {
+        if (
+          !args.noRank &&
+          result.status === "completed" &&
+          result.claims.length > 0
+        ) {
           log("discover", `Ranking claims against citing papers...`);
           const citingResult = await openalex.getCitingWorks(
             resolved.data.id,
@@ -236,7 +253,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             const withDirect = ranking.engagements.filter(
               (e) => e.directCount > 0,
             ).length;
-            log("discover", `${String(withDirect)} claims with direct citing-paper engagement`);
+            log(
+              "discover",
+              `${String(withDirect)} claims with direct citing-paper engagement`,
+            );
           }
         }
 
@@ -279,7 +299,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       );
 
       const discoveryLedger = discoveryClient.getLedger();
-      log("discover", `Done. ${String(seeds.length)} seeds. LLM: ${discoveryLedger.totalCalls} calls, ~$${discoveryLedger.totalEstimatedCostUsd.toFixed(4)}`);
+      log(
+        "discover",
+        `Done. ${String(seeds.length)} seeds. LLM: ${discoveryLedger.totalCalls} calls, ~$${discoveryLedger.totalEstimatedCostUsd.toFixed(4)}`,
+      );
     }
 
     if (seeds.length === 0) {
@@ -341,16 +364,31 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     );
 
     // Write screen artifacts
-    const screenJsonPath = resolve(outputDir, `${stamp}_pre-screen-results.json`);
+    const screenJsonPath = resolve(
+      outputDir,
+      `${stamp}_pre-screen-results.json`,
+    );
     const screenMdPath = resolve(outputDir, `${stamp}_pre-screen-report.md`);
-    const screenTracePath = resolve(outputDir, `${stamp}_pre-screen-grounding-trace.json`);
+    const screenTracePath = resolve(
+      outputDir,
+      `${stamp}_pre-screen-grounding-trace.json`,
+    );
     writeJsonArtifact(screenJsonPath, families);
     writeJsonArtifact(screenTracePath, groundingTrace);
-    writeFileSync(screenMdPath, toPreScreenMarkdown(families, { groundingTraceFileName: `${stamp}_pre-screen-grounding-trace.json` }), "utf8");
+    writeFileSync(
+      screenMdPath,
+      toPreScreenMarkdown(families, {
+        groundingTraceFileName: `${stamp}_pre-screen-grounding-trace.json`,
+      }),
+      "utf8",
+    );
 
     const greenlit = families.filter((f) => f.decision === "greenlight");
     const blocked = families.filter((f) => claimFamilyBlocksDownstream(f));
-    log("screen", `${String(greenlit.length)} greenlit, ${String(blocked.length)} blocked, ${String(families.length - greenlit.length - blocked.length)} deprioritized`);
+    log(
+      "screen",
+      `${String(greenlit.length)} greenlit, ${String(blocked.length)} blocked, ${String(families.length - greenlit.length - blocked.length)} deprioritized`,
+    );
 
     // Filter to families that can proceed
     const processable = families.filter(
@@ -383,20 +421,36 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
       // --- Extract ---
       log("extract", "Extracting citation contexts...");
-      const extraction = await runM2Extraction(family, extractionAdapters, (event) => {
-        if (event.status === "completed") {
-          log("extract", `${event.step}: ${event.detail ?? "done"}`);
-        }
-      });
+      const extraction = await runM2Extraction(
+        family,
+        extractionAdapters,
+        (event) => {
+          if (event.status === "completed") {
+            log("extract", `${event.step}: ${event.detail ?? "done"}`);
+          }
+        },
+      );
 
-      const extractJsonPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_extraction.json`);
-      const extractMdPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_extraction.md`);
+      const extractJsonPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_extraction.json`,
+      );
+      const extractMdPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_extraction.md`,
+      );
       writeFileSync(extractJsonPath, toM2Json(extraction), "utf8");
       writeFileSync(extractMdPath, toM2Markdown(extraction), "utf8");
-      log("extract", `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`);
+      log(
+        "extract",
+        `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
+      );
 
       if (extraction.summary.successfulEdgesUsable === 0) {
-        log("extract", "No usable edges — skipping downstream stages for this family.");
+        log(
+          "extract",
+          "No usable edges — skipping downstream stages for this family.",
+        );
         continue;
       }
 
@@ -416,14 +470,34 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         preScreenEdges,
       );
 
-      const classifyJsonPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_classification.json`);
-      const classifyMdPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_classification.md`);
-      writeFileSync(classifyJsonPath, toClassificationJson(classification), "utf8");
-      writeFileSync(classifyMdPath, toClassificationMarkdown(classification), "utf8");
-      log("classify", `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`);
+      const classifyJsonPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_classification.json`,
+      );
+      const classifyMdPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_classification.md`,
+      );
+      writeFileSync(
+        classifyJsonPath,
+        toClassificationJson(classification),
+        "utf8",
+      );
+      writeFileSync(
+        classifyMdPath,
+        toClassificationMarkdown(classification),
+        "utf8",
+      );
+      log(
+        "classify",
+        `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
+      );
 
       if (classification.summary.literatureStructure.totalTasks === 0) {
-        log("classify", "No evaluation tasks — skipping downstream stages for this family.");
+        log(
+          "classify",
+          "No evaluation tasks — skipping downstream stages for this family.",
+        );
         continue;
       }
 
@@ -477,15 +551,27 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
 
-      const evidenceJsonPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_evidence.json`);
-      const evidenceMdPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_evidence.md`);
+      const evidenceJsonPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_evidence.json`,
+      );
+      const evidenceMdPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_evidence.md`,
+      );
       writeFileSync(evidenceJsonPath, toEvidenceJson(evidenceResult), "utf8");
       writeFileSync(evidenceMdPath, toEvidenceMarkdown(evidenceResult), "utf8");
-      log("evidence", `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`);
+      log(
+        "evidence",
+        `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
+      );
 
       const evidenceLedger = llmClient.getLedger();
       if (evidenceLedger.totalCalls > 0) {
-        log("evidence", `LLM reranking: ${evidenceLedger.totalCalls} calls, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`);
+        log(
+          "evidence",
+          `LLM reranking: ${evidenceLedger.totalCalls} calls, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
+        );
       }
 
       // --- Curate ---
@@ -496,14 +582,30 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         args.targetSize,
       );
 
-      const curateJsonPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_calibration.json`);
-      const curateMdPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_calibration-worksheet.md`);
+      const curateJsonPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_calibration.json`,
+      );
+      const curateMdPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_calibration-worksheet.md`,
+      );
       writeFileSync(curateJsonPath, toCalibrationJson(calibrationSet), "utf8");
-      writeFileSync(curateMdPath, toCalibrationMarkdown(calibrationSet), "utf8");
-      log("curate", `${String(calibrationSet.records.length)} calibration records`);
+      writeFileSync(
+        curateMdPath,
+        toCalibrationMarkdown(calibrationSet),
+        "utf8",
+      );
+      log(
+        "curate",
+        `${String(calibrationSet.records.length)} calibration records`,
+      );
 
       if (calibrationSet.records.length === 0) {
-        log("curate", "No calibration records — skipping adjudication for this family.");
+        log(
+          "curate",
+          "No calibration records — skipping adjudication for this family.",
+        );
         continue;
       }
 
@@ -523,18 +625,37 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
 
-      const adjJsonPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_adjudication.json`);
-      const adjSummaryPath = resolve(outputDir, `${stamp}_family-${String(fi + 1)}_adjudication-summary.md`);
+      const adjJsonPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_adjudication.json`,
+      );
+      const adjSummaryPath = resolve(
+        outputDir,
+        `${stamp}_family-${String(fi + 1)}_adjudication-summary.md`,
+      );
       writeFileSync(adjJsonPath, toCalibrationJson(adjudicationResult), "utf8");
-      writeFileSync(adjSummaryPath, toCalibrationSummaryMarkdown(adjudicationResult), "utf8");
+      writeFileSync(
+        adjSummaryPath,
+        toCalibrationSummaryMarkdown(adjudicationResult),
+        "utf8",
+      );
 
       const verdicts = adjudicationResult.records.filter(
         (r) => !r.excluded && r.verdict != null,
       );
-      const supported = verdicts.filter((r) => r.verdict === "supported").length;
-      const partial = verdicts.filter((r) => r.verdict === "partially_supported").length;
-      const notSupported = verdicts.filter((r) => r.verdict === "not_supported").length;
-      log("adjudicate", `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`);
+      const supported = verdicts.filter(
+        (r) => r.verdict === "supported",
+      ).length;
+      const partial = verdicts.filter(
+        (r) => r.verdict === "partially_supported",
+      ).length;
+      const notSupported = verdicts.filter(
+        (r) => r.verdict === "not_supported",
+      ).length;
+      log(
+        "adjudicate",
+        `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
+      );
     }
 
     log("pipeline", `\nPipeline complete. All artifacts in ${outputDir}`);

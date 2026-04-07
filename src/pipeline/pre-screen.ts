@@ -647,9 +647,7 @@ async function processOneSeed(
       );
 
       const excluded = new Set(
-        llmResults
-          .filter((r) => !r.relevant)
-          .map((r) => r.citingPaperId),
+        llmResults.filter((r) => !r.relevant).map((r) => r.citingPaperId),
       );
       for (const edge of bm25Survivors) {
         if (excluded.has(edge.citingPaperId)) {
