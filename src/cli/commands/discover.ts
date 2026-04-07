@@ -11,18 +11,13 @@ import * as openalex from "../../integrations/openalex.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
-import {
-  runDiscoveryStage,
-  writeDiscoveryArtifacts,
-} from "../../pipeline/discovery-stage.js";
+import { runDiscoveryStage } from "../../pipeline/discovery-stage.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import {
-  loadJsonArtifact,
-  writeArtifactManifest,
-} from "../../shared/artifact-io.js";
+import { loadJsonArtifact } from "../../shared/artifact-io.js";
+import { writeDiscoveryArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 // ---------------------------------------------------------------------------
@@ -186,19 +181,12 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
       mkdirSync(outputDir, { recursive: true });
 
       const stamp = nextRunStamp(outputDir);
-      const { jsonPath, mdPath, shortlistPath } = writeDiscoveryArtifacts(
-        outputDir,
+      const { jsonPath, mdPath, shortlistPath } = writeDiscoveryArtifacts({
+        outputRoot: outputDir,
         stamp,
         results,
         seeds,
-      );
-
-      const relatedArtifacts = [mdPath, shortlistPath];
-      writeArtifactManifest(jsonPath, {
-        artifactType: "discovery-results",
-        generator: "discover",
         sourceArtifacts: [args.input],
-        relatedArtifacts,
       });
 
       if (seeds.length === 0) {
