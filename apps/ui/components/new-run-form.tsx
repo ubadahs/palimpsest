@@ -23,6 +23,9 @@ type FormState = {
   adjudicateModel: string;
   adjudicateThinking: boolean;
   evidenceLlmRerank: boolean;
+  discoverTopN: number;
+  discoverRank: boolean;
+  discoverModel: string;
 };
 
 export function NewRunForm() {
@@ -30,6 +33,7 @@ export function NewRunForm() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [launchImmediately, setLaunchImmediately] = useState(true);
+  const [showManualClaim, setShowManualClaim] = useState(false);
   const [state, setState] = useState<FormState>({
     seedDoi: "",
     trackedClaim: "",
@@ -37,8 +41,11 @@ export function NewRunForm() {
     forceRefresh: false,
     curateTargetSize: 40,
     adjudicateModel: "claude-opus-4-6",
-    adjudicateThinking: false,
+    adjudicateThinking: true,
     evidenceLlmRerank: true,
+    discoverTopN: 5,
+    discoverRank: true,
+    discoverModel: "claude-opus-4-6",
   });
 
   function update<K extends keyof FormState>(
@@ -52,10 +59,15 @@ export function NewRunForm() {
     event.preventDefault();
     setError(null);
 
-    if (!state.seedDoi.trim() || !state.trackedClaim.trim()) {
-      setError("Seed DOI and tracked claim are required.");
+    if (!state.seedDoi.trim()) {
+      setError("Seed DOI is required.");
       return;
     }
+
+    const trackedClaim =
+      showManualClaim && state.trackedClaim.trim()
+        ? state.trackedClaim.trim()
+        : undefined;
 
     startTransition(async () => {
       try {
@@ -64,7 +76,7 @@ export function NewRunForm() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             seedDoi: state.seedDoi.trim(),
-            trackedClaim: state.trackedClaim.trim(),
+            ...(trackedClaim ? { trackedClaim } : {}),
             targetStage: state.targetStage,
             config: {
               stopAfterStage: state.targetStage,
@@ -73,6 +85,9 @@ export function NewRunForm() {
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
               evidenceLlmRerank: state.evidenceLlmRerank,
+              discoverTopN: state.discoverTopN,
+              discoverRank: state.discoverRank,
+              discoverModel: state.discoverModel,
             },
           }),
         });
@@ -102,10 +117,10 @@ export function NewRunForm() {
           Start an analysis
         </h2>
         <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
-          Enter the DOI of a paper and a specific empirical claim. The pipeline
-          will find citing papers, extract how they reference the claim,
-          retrieve the cited evidence, and judge whether each citation is
-          faithful.
+          Enter a paper DOI. The pipeline will extract empirical claims, rank
+          them by how often citing papers engage with each, then screen,
+          retrieve evidence, and adjudicate citation fidelity for the top
+          claims.
         </p>
       </CardHeader>
       <CardContent>
@@ -122,16 +137,38 @@ export function NewRunForm() {
                 onChange={(event) => update("seedDoi", event.target.value)}
               />
             </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-[var(--text)]">
-                Tracked claim
-              </span>
-              <Textarea
-                placeholder="State the empirical claim you want to track. Screen will verify it appears in the seed paper's full text before later stages run."
-                value={state.trackedClaim}
-                onChange={(event) => update("trackedClaim", event.target.value)}
-              />
-            </label>
+
+            <div className="rounded-[28px] border border-[var(--border)] bg-white/40">
+              <button
+                className="flex w-full items-center justify-between px-5 py-4 text-left"
+                type="button"
+                onClick={() => setShowManualClaim((v) => !v)}
+              >
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Specify a claim manually
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  {showManualClaim
+                    ? "Hide — use auto-discovery"
+                    : "Optional — overrides auto-discovery"}
+                </span>
+              </button>
+              {showManualClaim ? (
+                <div className="border-t border-[var(--border)] px-5 pb-5 pt-4">
+                  <p className="mb-3 text-xs text-[var(--text-muted)]">
+                    If provided, the discover stage is skipped and the pipeline
+                    starts directly at screen with this claim.
+                  </p>
+                  <Textarea
+                    placeholder="State the empirical claim you want to track. Screen will verify it appears in the seed paper's full text before later stages run."
+                    value={state.trackedClaim}
+                    onChange={(event) =>
+                      update("trackedClaim", event.target.value)
+                    }
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
@@ -157,8 +194,8 @@ export function NewRunForm() {
                   Stop after stage
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Last pipeline stage this run will execute (adjudicate is full
-                  run).
+                  Pipeline halts after this stage. Adjudicate runs the full
+                  analysis.
                 </span>
                 <select
                   className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
@@ -179,8 +216,8 @@ export function NewRunForm() {
                   Calibration sample size
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Number of citation-evidence pairs included in the calibration
-                  set.
+                  How many citation-evidence pairs to curate for adjudication.
+                  Larger samples give more coverage but take longer.
                 </span>
                 <Input
                   min={1}
@@ -191,9 +228,12 @@ export function NewRunForm() {
                   }
                 />
               </label>
-              <label className="grid gap-2 md:col-span-2">
+              <label className="grid gap-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
                   Adjudication model
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  Claude model that reads evidence and judges citation fidelity.
                 </span>
                 <Input
                   autoComplete="off"
@@ -203,39 +243,108 @@ export function NewRunForm() {
                   }
                 />
               </label>
-              <div className="grid gap-3 md:col-span-2">
-                <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
-                  <input
-                    checked={state.forceRefresh}
-                    className="size-4 accent-[var(--accent)]"
-                    type="checkbox"
-                    onChange={(event) =>
-                      update("forceRefresh", event.target.checked)
-                    }
-                  />
-                  Force-refresh cache-aware stages
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Max claims to shortlist
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  Upper limit on claims passed from discovery to screen. Only
+                  claims with direct citing-paper engagement qualify, so fewer
+                  may pass through if the literature is sparse.
+                </span>
+                <Input
+                  min={1}
+                  type="number"
+                  value={state.discoverTopN}
+                  onChange={(event) =>
+                    update("discoverTopN", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label className="grid gap-2 md:col-span-2">
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Discovery model
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  Model used for claim extraction and ranking during
+                  auto-discovery.
+                </span>
+                <Input
+                  autoComplete="off"
+                  value={state.discoverModel}
+                  onChange={(event) =>
+                    update("discoverModel", event.target.value)
+                  }
+                />
+              </label>
+              <div className="grid gap-4 md:col-span-2">
+                <label className="grid cursor-pointer gap-1">
+                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                    <input
+                      checked={state.forceRefresh}
+                      className="size-4 accent-[var(--accent)]"
+                      type="checkbox"
+                      onChange={(event) =>
+                        update("forceRefresh", event.target.checked)
+                      }
+                    />
+                    Force-refresh cached data
+                  </span>
+                  <span className="pl-7 text-xs text-[var(--text-muted)]">
+                    Re-fetch and re-parse papers even if they are already in the
+                    local cache.
+                  </span>
                 </label>
-                <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
-                  <input
-                    checked={state.evidenceLlmRerank}
-                    className="size-4 accent-[var(--accent)]"
-                    type="checkbox"
-                    onChange={(event) =>
-                      update("evidenceLlmRerank", event.target.checked)
-                    }
-                  />
-                  LLM-based evidence reranking (semantic, uses Haiku)
+                <label className="grid cursor-pointer gap-1">
+                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                    <input
+                      checked={state.evidenceLlmRerank}
+                      className="size-4 accent-[var(--accent)]"
+                      type="checkbox"
+                      onChange={(event) =>
+                        update("evidenceLlmRerank", event.target.checked)
+                      }
+                    />
+                    LLM evidence reranking
+                  </span>
+                  <span className="pl-7 text-xs text-[var(--text-muted)]">
+                    After keyword retrieval, Haiku re-ranks passages by
+                    relevance. Better accuracy, higher cost.
+                  </span>
                 </label>
-                <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
-                  <input
-                    checked={state.adjudicateThinking}
-                    className="size-4 accent-[var(--accent)]"
-                    type="checkbox"
-                    onChange={(event) =>
-                      update("adjudicateThinking", event.target.checked)
-                    }
-                  />
-                  Enable extended thinking for adjudication
+                <label className="grid cursor-pointer gap-1">
+                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                    <input
+                      checked={state.discoverRank}
+                      className="size-4 accent-[var(--accent)]"
+                      type="checkbox"
+                      onChange={(event) =>
+                        update("discoverRank", event.target.checked)
+                      }
+                    />
+                    Rank discovered claims
+                  </span>
+                  <span className="pl-7 text-xs text-[var(--text-muted)]">
+                    Score claims by how often citing papers engage with them.
+                    Off takes claims in extraction order.
+                  </span>
+                </label>
+                <label className="grid cursor-pointer gap-1">
+                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                    <input
+                      checked={state.adjudicateThinking}
+                      className="size-4 accent-[var(--accent)]"
+                      type="checkbox"
+                      onChange={(event) =>
+                        update("adjudicateThinking", event.target.checked)
+                      }
+                    />
+                    Extended thinking for adjudication
+                  </span>
+                  <span className="pl-7 text-xs text-[var(--text-muted)]">
+                    The model reasons step-by-step before each verdict. More
+                    careful but slower.
+                  </span>
                 </label>
               </div>
             </div>

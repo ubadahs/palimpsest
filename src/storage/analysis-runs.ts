@@ -31,7 +31,7 @@ import {
 type RunRow = {
   id: string;
   seed_doi: string;
-  tracked_claim: string;
+  tracked_claim: string | null;
   target_stage: string;
   status: string;
   current_stage: string | null;
@@ -62,7 +62,8 @@ type StageRow = {
 export type CreateAnalysisRunInput = {
   id: string;
   seedDoi: string;
-  trackedClaim: string;
+  /** If provided, discover is skipped and this claim is used directly. If absent, discover runs first. */
+  trackedClaim?: string;
   targetStage: StageKey;
   runRoot: string;
   config: AnalysisRunConfig;
@@ -72,7 +73,7 @@ function toRun(row: RunRow): AnalysisRun {
   return analysisRunSchema.parse({
     id: row.id,
     seedDoi: row.seed_doi,
-    trackedClaim: row.tracked_claim,
+    trackedClaim: row.tracked_claim ?? undefined,
     targetStage: row.target_stage,
     status: row.status,
     currentStage: row.current_stage ?? undefined,
@@ -122,14 +123,26 @@ export function createAnalysisRun(
   const inputDirectory = resolve(runRoot, "inputs");
   mkdirSync(inputDirectory, { recursive: true });
 
-  const shortlist = shortlistInputSchema.parse({
-    seeds: [{ doi: input.seedDoi, trackedClaim: input.trackedClaim }],
-  });
-  writeFileSync(
-    resolve(inputDirectory, "shortlist.json"),
-    JSON.stringify(shortlist, null, 2),
-    "utf8",
-  );
+  const isManualClaim = Boolean(input.trackedClaim?.trim());
+
+  if (isManualClaim) {
+    // Manual claim: write shortlist directly, discover will be pre-marked succeeded.
+    const shortlist = shortlistInputSchema.parse({
+      seeds: [{ doi: input.seedDoi, trackedClaim: input.trackedClaim }],
+    });
+    writeFileSync(
+      resolve(inputDirectory, "shortlist.json"),
+      JSON.stringify(shortlist, null, 2),
+      "utf8",
+    );
+  } else {
+    // Auto-discover: write dois.json; shortlist will be written by discover stage.
+    writeFileSync(
+      resolve(inputDirectory, "dois.json"),
+      JSON.stringify({ dois: [input.seedDoi] }, null, 2),
+      "utf8",
+    );
+  }
 
   const insertRun = database.prepare(`
     INSERT INTO analysis_runs (
@@ -143,11 +156,17 @@ export function createAnalysisRun(
     ) VALUES (?, ?, ?, ?, ?)
   `);
 
+  const skippedDiscoverSummary: AnalysisStageSummary = {
+    headline: "Skipped — manual claim provided",
+    metrics: [],
+    artifacts: [],
+  };
+
   database.transaction(() => {
     insertRun.run(
       input.id,
       input.seedDoi,
-      input.trackedClaim,
+      input.trackedClaim ?? null,
       input.targetStage,
       "queued",
       null,
@@ -156,13 +175,30 @@ export function createAnalysisRun(
     );
 
     for (const stage of stageDefinitions) {
+      // If a manual claim was given, pre-mark discover as succeeded so
+      // resolveStartStage skips it and canRunFromStage permits screen.
+      const stageStatus =
+        isManualClaim && stage.key === "discover" ? "succeeded" : "not_started";
+      const summaryJson =
+        isManualClaim && stage.key === "discover"
+          ? JSON.stringify(skippedDiscoverSummary)
+          : null;
+
       insertStage.run(
         input.id,
         stage.key,
         stage.order,
-        "not_started",
+        stageStatus,
         resolve(runRoot, "logs", `${stage.slug}.log`),
       );
+
+      if (summaryJson) {
+        database
+          .prepare(
+            "UPDATE analysis_run_stages SET summary_json = ? WHERE run_id = ? AND stage_key = ?",
+          )
+          .run(summaryJson, input.id, stage.key);
+      }
     }
   })();
 

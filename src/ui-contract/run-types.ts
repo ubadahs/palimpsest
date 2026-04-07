@@ -41,8 +41,11 @@ export const analysisRunConfigObjectSchema = z
     forceRefresh: z.boolean().default(false),
     curateTargetSize: z.number().int().positive().default(40),
     adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
-    adjudicateThinking: z.boolean().default(false),
+    adjudicateThinking: z.boolean().default(true),
     evidenceLlmRerank: z.boolean().default(true),
+    discoverTopN: z.number().int().positive().default(5),
+    discoverRank: z.boolean().default(true),
+    discoverModel: z.string().min(1).default("claude-opus-4-6"),
   })
   .passthrough();
 
@@ -110,7 +113,7 @@ export const analysisRunStageSchema = z
   .object({
     runId: z.string().min(1),
     stageKey: stageKeySchema,
-    stageOrder: z.number().int().positive(),
+    stageOrder: z.number().int().nonnegative(),
     status: analysisRunStageStatusSchema,
     inputArtifactPath: undefinedable(z.string()),
     primaryArtifactPath: undefinedable(z.string()),
@@ -131,7 +134,7 @@ export const analysisRunSchema = z
   .object({
     id: z.string().min(1),
     seedDoi: z.string().min(1),
-    trackedClaim: z.string().min(1),
+    trackedClaim: undefinedable(z.string().min(1)),
     targetStage: stageKeySchema,
     status: analysisRunStatusSchema,
     currentStage: undefinedable(stageKeySchema),

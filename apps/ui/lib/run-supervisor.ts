@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import {
@@ -33,7 +33,11 @@ import {
   resolveStartStage,
 } from "./run-command-builder";
 import { getRepoRoot } from "./root-path";
-import { getStageDirectory, getStageLogPath } from "./run-files";
+import {
+  getShortlistPath,
+  getStageDirectory,
+  getStageLogPath,
+} from "./run-files";
 
 function assertClaimGateAllowsDownstream(
   run: AnalysisRun,
@@ -274,6 +278,17 @@ async function runStage(
     successOptions.summary = summary;
   }
   updateStageStatus(database, run.id, stageKey, "succeeded", successOptions);
+
+  // After discover succeeds, copy its shortlist to inputs/shortlist.json
+  // so that the screen stage can find it via getShortlistPath().
+  if (stageKey === "discover") {
+    const shortlistExtra = artifactSet.extraArtifacts.find((a) =>
+      a.path.endsWith("_discovery-shortlist.json"),
+    );
+    if (shortlistExtra) {
+      copyFileSync(shortlistExtra.path, getShortlistPath(run.id));
+    }
+  }
 
   return "succeeded";
 }

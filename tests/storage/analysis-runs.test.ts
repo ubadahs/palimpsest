@@ -46,9 +46,11 @@ describe("analysis runs repository", () => {
 
       const stages = listRunStages(database, run.id);
       expect(run.seedDoi).toBe("10.1234/seed");
-      expect(stages).toHaveLength(6);
-      expect(stages[0]?.stageKey).toBe("screen");
-      expect(stages[5]?.stageKey).toBe("adjudicate");
+      expect(stages).toHaveLength(7);
+      expect(stages[0]?.stageKey).toBe("discover");
+      expect(stages[0]?.status).toBe("succeeded"); // manual claim skips discover
+      expect(stages[1]?.stageKey).toBe("screen");
+      expect(stages[6]?.stageKey).toBe("adjudicate");
     } finally {
       database.close();
     }

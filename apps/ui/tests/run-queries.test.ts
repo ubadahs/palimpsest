@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseConnection } from "palimpsest/storage";
@@ -13,11 +13,89 @@ import {
   getStageDetailOrThrow,
 } from "../lib/run-queries";
 import { getDatabase } from "../lib/database";
-import { getStageLogPath } from "../lib/run-files";
+import { getDoisInputPath, getShortlistPath, getStageLogPath } from "../lib/run-files";
 
 type UiGlobals = typeof globalThis & {
   __citationFidelityUiDatabase?: DatabaseConnection;
 };
+
+describe("run creation", () => {
+  let tempRoot = "";
+  let previousRoot: string | undefined;
+
+  beforeEach(() => {
+    tempRoot = mkdtempSync(join(tmpdir(), "palimpsest-ui-creation-"));
+    mkdirSync(join(tempRoot, "data"), { recursive: true });
+    previousRoot = process.env["PALIMPSEST_ROOT"];
+    process.env["PALIMPSEST_ROOT"] = tempRoot;
+  });
+
+  afterEach(() => {
+    const globals = globalThis as UiGlobals;
+    globals.__citationFidelityUiDatabase?.close();
+    delete globals.__citationFidelityUiDatabase;
+    if (previousRoot) {
+      process.env["PALIMPSEST_ROOT"] = previousRoot;
+    } else {
+      delete process.env["PALIMPSEST_ROOT"];
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it("auto-discover run: writes dois.json, discover is not_started, shortlist absent", () => {
+    const run = createRun({
+      id: "run-auto",
+      seedDoi: "10.1234/seed",
+      targetStage: "adjudicate",
+      config: {
+        stopAfterStage: "adjudicate",
+        forceRefresh: false,
+        curateTargetSize: 40,
+        adjudicateModel: "claude-opus-4-6",
+        adjudicateThinking: true,
+        discoverTopN: 5,
+        discoverRank: true,
+        discoverModel: "claude-opus-4-6",
+      },
+    });
+
+    expect(run.trackedClaim).toBeUndefined();
+    expect(existsSync(getDoisInputPath(run.id))).toBe(true);
+    expect(existsSync(getShortlistPath(run.id))).toBe(false);
+
+    const detail = getRunDetailOrThrow(run.id);
+    const discover = detail.stages.find((s) => s.stageKey === "discover");
+    expect(discover?.status).toBe("not_started");
+    expect(detail.stages).toHaveLength(7);
+  });
+
+  it("manual-claim run: writes shortlist.json, discover is succeeded", () => {
+    const run = createRun({
+      id: "run-manual",
+      seedDoi: "10.1234/seed",
+      trackedClaim: "Neurons form sublaminae.",
+      targetStage: "adjudicate",
+      config: {
+        stopAfterStage: "adjudicate",
+        forceRefresh: false,
+        curateTargetSize: 40,
+        adjudicateModel: "claude-opus-4-6",
+        adjudicateThinking: true,
+        discoverTopN: 5,
+        discoverRank: true,
+        discoverModel: "claude-opus-4-6",
+      },
+    });
+
+    expect(run.trackedClaim).toBe("Neurons form sublaminae.");
+    expect(existsSync(getShortlistPath(run.id))).toBe(true);
+
+    const detail = getRunDetailOrThrow(run.id);
+    const discover = detail.stages.find((s) => s.stageKey === "discover");
+    expect(discover?.status).toBe("succeeded");
+    expect(discover?.summary?.headline).toContain("Skipped");
+  });
+});
 
 describe("run queries workflow integration", () => {
   let tempRoot = "";

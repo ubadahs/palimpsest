@@ -14,6 +14,38 @@ import { cn } from "@/lib/utils";
 
 type GenericRecord = Record<string, unknown>;
 
+function DiscoverInspector({ payload }: { payload: GenericRecord }) {
+  const papers = (payload["papers"] as GenericRecord[] | undefined) ?? [];
+  const rows = papers.flatMap((paper) =>
+    ((paper["claims"] as GenericRecord[] | undefined) ?? []).map((claim) => ({
+      rank: claim["rank"] != null ? String(claim["rank"]) : "—",
+      claimText: String(claim["claimText"] ?? ""),
+      section: String(claim["section"] ?? ""),
+      claimType: String(claim["claimType"] ?? ""),
+      confidence: String(claim["confidence"] ?? ""),
+      directCount: String(claim["directCount"] ?? 0),
+      indirectCount: String(claim["indirectCount"] ?? 0),
+    })),
+  );
+  const column = createColumnHelper<GenericRecord>();
+
+  return (
+    <DataTable
+      columns={[
+        column.accessor("rank", { header: "Rank" }),
+        column.accessor("claimText", { header: "Claim" }),
+        column.accessor("section", { header: "Section" }),
+        column.accessor("claimType", { header: "Type" }),
+        column.accessor("confidence", { header: "Confidence" }),
+        column.accessor("directCount", { header: "Direct" }),
+        column.accessor("indirectCount", { header: "Indirect" }),
+      ]}
+      data={rows}
+      searchPlaceholder="Filter extracted claims"
+    />
+  );
+}
+
 function ScreenInspector({ payload }: { payload: GenericRecord }) {
   const families = (payload["families"] as GenericRecord[] | undefined) ?? [];
   const edgeRows = families.flatMap(
@@ -440,6 +472,9 @@ export function StageInspector({ detail }: { detail: RunStageDetail }) {
         <div className="rounded-[24px] border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] px-5 py-4 text-sm text-[var(--danger)]">
           {detail.errorMessage}
         </div>
+      ) : null}
+      {detail.stageKey === "discover" ? (
+        <DiscoverInspector payload={payload} />
       ) : null}
       {detail.stageKey === "screen" ? (
         <ScreenInspector payload={payload} />

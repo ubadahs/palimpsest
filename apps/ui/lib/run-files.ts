@@ -33,6 +33,10 @@ export function getShortlistPath(runId: string): string {
   return resolve(getRunRoot(runId), "inputs", "shortlist.json");
 }
 
+export function getDoisInputPath(runId: string): string {
+  return resolve(getRunRoot(runId), "inputs", "dois.json");
+}
+
 export function getStageDirectory(runId: string, stageKey: StageKey): string {
   return resolve(getRunRoot(runId), getStageDefinition(stageKey).directoryName);
 }

@@ -353,13 +353,27 @@ export function buildStageInspectorPayload(
         statusDetail: result.statusDetail,
         findingCount: result.findingCount,
         totalClaimCount: result.totalClaimCount,
-        claims: result.claims.map((claim) => ({
-          claimText: claim.claimText,
-          section: claim.section,
-          claimType: claim.claimType,
-          confidence: claim.confidence,
-          citedReferences: claim.citedReferences,
-        })),
+        ranking: result.ranking
+          ? { citingPapersAnalyzed: result.ranking.citingPapersAnalyzed }
+          : undefined,
+        claims: result.claims.map((claim, i) => {
+          const engagement = result.ranking?.engagements.find(
+            (e) => e.claimIndex === i,
+          );
+          const rank = engagement
+            ? result.ranking!.engagements.indexOf(engagement) + 1
+            : undefined;
+          return {
+            claimText: claim.claimText,
+            section: claim.section,
+            claimType: claim.claimType,
+            confidence: claim.confidence,
+            citedReferences: claim.citedReferences,
+            rank,
+            directCount: engagement?.directCount ?? 0,
+            indirectCount: engagement?.indirectCount ?? 0,
+          };
+        }),
       })),
     };
   }
