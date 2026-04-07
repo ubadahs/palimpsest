@@ -20,10 +20,15 @@ import type { ArtifactManifest } from "../shared/artifact-io.js";
 import type { CalibrationSet } from "../domain/types.js";
 import { getStageDefinition } from "./stages.js";
 import type {
+  AnalysisRunStageStatus,
   AnalysisStageSummary,
   StageArtifactPointer,
   StageKey,
 } from "./run-types.js";
+import {
+  isGenericStageErrorMessage,
+  summarizeFailureDetail,
+} from "./workflow.js";
 
 type ArtifactLoadResult =
   | {
@@ -239,20 +244,44 @@ export function deriveStageSummary(
   stageKey: StageKey,
   artifactPath: string | undefined,
   artifactPointers: StageArtifactPointer[] = [],
+  context?: {
+    stageStatus?: AnalysisRunStageStatus;
+    errorMessage?: string;
+  },
 ): AnalysisStageSummary | undefined {
   if (!artifactPath || !existsSync(artifactPath)) {
     return undefined;
   }
 
-  const artifact = loadArtifactForStage(stageKey, artifactPath);
+  let artifact: ReturnType<typeof loadArtifactForStage>;
+  try {
+    artifact = loadArtifactForStage(stageKey, artifactPath);
+  } catch {
+    return undefined;
+  }
+
+  const failedStage =
+    context?.stageStatus === "failed" ||
+    context?.stageStatus === "cancelled" ||
+    context?.stageStatus === "interrupted";
+  const failureHeadline =
+    context?.errorMessage && !isGenericStageErrorMessage(context.errorMessage)
+      ? summarizeFailureDetail(context.errorMessage)
+      : undefined;
 
   if (artifact.kind === "discover") {
     const completed = artifact.data.filter((r) => r.status === "completed");
     const findings = artifact.data.reduce((s, r) => s + r.findingCount, 0);
     const total = artifact.data.reduce((s, r) => s + r.totalClaimCount, 0);
+    const firstFailure = artifact.data.find((result) => result.status !== "completed");
 
     return {
-      headline: "Discovered claim units",
+      headline:
+        failureHeadline ??
+        (failedStage
+          ? (firstFailure?.statusDetail ??
+            "Claim discovery stopped before extraction could be finalized.")
+          : "Discovered claim units"),
       metrics: [
         metric("Papers", artifact.data.length),
         metric("Completed", completed.length),
@@ -273,7 +302,7 @@ export function deriveStageSummary(
     );
 
     return {
-      headline: "Family viability and auditability",
+      headline: failureHeadline ?? "Family viability and auditability",
       metrics: [
         metric("Families", artifact.data.length),
         metric("Greenlit", greenlit.length),
@@ -285,7 +314,7 @@ export function deriveStageSummary(
 
   if (artifact.kind === "extract") {
     return {
-      headline: "Citation extraction outcomes",
+      headline: failureHeadline ?? "Citation extraction outcomes",
       metrics: [
         metric("Usable edges", artifact.data.summary.successfulEdgesUsable),
         metric("Mentions", artifact.data.summary.deduplicatedMentionCount),
@@ -297,7 +326,7 @@ export function deriveStageSummary(
 
   if (artifact.kind === "classify") {
     return {
-      headline: "Evaluation task packets",
+      headline: failureHeadline ?? "Evaluation task packets",
       metrics: [
         metric("Tasks", artifact.data.summary.literatureStructure.totalTasks),
         metric(
@@ -315,7 +344,7 @@ export function deriveStageSummary(
 
   if (artifact.kind === "evidence") {
     return {
-      headline: "Retrieved evidence blocks",
+      headline: failureHeadline ?? "Retrieved evidence blocks",
       metrics: [
         metric("Tasks", artifact.data.summary.totalTasks),
         metric("With evidence", artifact.data.summary.tasksWithEvidence),
@@ -327,13 +356,16 @@ export function deriveStageSummary(
 
   if (artifact.kind === "curate") {
     return {
-      ...summarizeCalibration(artifact.data, "Calibration set"),
+      ...summarizeCalibration(
+        artifact.data,
+        failureHeadline ?? "Calibration set",
+      ),
       artifacts: artifactPointers,
     };
   }
 
   return {
-    ...summarizeCalibration(artifact.data, "LLM verdicts"),
+    ...summarizeCalibration(artifact.data, failureHeadline ?? "LLM verdicts"),
     artifacts: artifactPointers,
   };
 }
