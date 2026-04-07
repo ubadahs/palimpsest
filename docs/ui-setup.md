@@ -1,5 +1,7 @@
 # UI Setup
 
+For environment variables and service requirements, see [runtime-setup.md](./runtime-setup.md).
+
 ## Start the UI
 
 From the repository root:
