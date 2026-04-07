@@ -13,6 +13,8 @@ import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { extractCitingWindow } from "../shared/citation-context-window.js";
 
 const verdictSchema = z.object({
+  // comparison comes first to anchor reasoning before the verdict is assigned
+  comparison: z.string(),
   verdict: z.enum([
     "supported",
     "partially_supported",
@@ -25,17 +27,54 @@ const verdictSchema = z.object({
   judgeConfidence: z.enum(["high", "medium", "low"]),
 });
 
+/**
+ * Returns a warning note when retrieval did not produce full-text evidence,
+ * so the adjudicator knows why the evidence block is empty or weak.
+ */
+function retrievalStatusNote(status: string): string {
+  switch (status) {
+    case "no_fulltext":
+      return "Note: The cited paper's full text was not available — evidence is abstract-only or absent. Default to cannot_determine unless the abstract alone is sufficient to judge.";
+    case "abstract_only_matches":
+      return "Note: Only abstract-level passages were retrieved; body text was unavailable or yielded no matches. Abstract evidence is weaker — rate retrievalQuality as medium or low.";
+    case "unresolved_cited_paper":
+      return "Note: The cited paper metadata could not be resolved. No full-text evidence was retrieved. Verdict should be cannot_determine.";
+    case "no_matches":
+      return "Note: No matching passages were found in the cited paper. This may indicate a retrieval gap or a mismatch between the citation and the paper's content.";
+    default:
+      return "";
+  }
+}
+
+const EVIDENCE_LEGEND =
+  "Evidence legend: llm_reranked = LLM-curated key sentences (score 0–100); bm25 / bm25_reranked = lexical keyword match.";
+
 function buildPrompt(record: AdjudicationRecord): string {
-  const evidenceBlock =
+  const spansText =
     record.evidenceSpans.length > 0
-      ? record.evidenceSpans
+      ? EVIDENCE_LEGEND +
+        "\n\n" +
+        record.evidenceSpans
           .slice(0, 3)
-          .map(
-            (s, i) =>
-              `Evidence span ${String(i + 1)} [${s.matchMethod}, relevance ${String(s.relevanceScore)}]:\n"${s.text.substring(0, 500)}"`,
-          )
+          .map((s, i) => {
+            // Only show score for llm_reranked — the 0–100 scale is meaningful;
+            // BM25 scores are not comparable and would be noise.
+            const scoreLabel =
+              s.matchMethod === "llm_reranked"
+                ? `, relevance ${String(s.relevanceScore)}/100`
+                : "";
+            const sectionLabel = s.sectionTitle
+              ? ` (section: "${s.sectionTitle}")`
+              : "";
+            return `Evidence span ${String(i + 1)} [${s.matchMethod}${scoreLabel}]${sectionLabel}:\n"${s.text}"`;
+          })
           .join("\n\n")
       : "No evidence spans retrieved.";
+
+  const statusNote = retrievalStatusNote(record.evidenceRetrievalStatus);
+  const evidenceBlock = statusNote
+    ? `${statusNote}\n\n${spansText}`
+    : spansText;
 
   const modifiers: string[] = [];
   if (record.modifiers.isBundled) modifiers.push("bundled citation");
@@ -58,7 +97,6 @@ Evaluation mode: ${record.evaluationMode}${modifierStr}
 Citing paper: "${record.citingPaperTitle}"
 Cited paper: "${record.citedPaperTitle}"
 ${seedClaimBlock}
-
 ## Rubric question
 
 ${record.rubricQuestion}
@@ -76,19 +114,48 @@ ${evidenceBlock}
 
 ## Instructions
 
-1. Compare the citing context against the evidence from the cited paper.
+1. In the "comparison" field, write one sentence stating what the citing context claims
+   the cited paper shows, and one sentence summarizing what the evidence spans actually
+   contain. This anchors your reasoning before you assign a verdict.
+
 2. Determine your verdict using ONLY these options:
-   - supported: The cited paper clearly supports the claim/use as stated
-   - partially_supported: The cited paper partly supports it, but there is compression, scope expansion, or simplification
-   - overstated_or_generalized: The citing paper makes a stronger or broader claim than the cited paper warrants
-   - not_supported: The cited paper does not support this use
-   - cannot_determine: Insufficient evidence to judge
+   - supported: The cited paper clearly and specifically supports the claim/use as stated.
+     Use this only when the evidence directly contains the asserted fact, finding, or method.
+   - partially_supported: The cited paper provides some support, but the citing paper
+     compresses, sharpens, or expands it in a way that may mislead. Common patterns:
+       • A qualified finding is cited as if unqualified ("under condition X" dropped).
+       • A relative or probabilistic claim is cited as absolute ("often" becomes "always").
+       • A specific result is generalized beyond its scope in the citing paper.
+     Compression or simplification counts as partial support even if it reads as acceptable
+     shorthand — this project's goal is detecting latent distortion, not exonerating it.
+   - overstated_or_generalized: The citing paper makes a claim that is broader, stronger,
+     or more universal than anything the cited paper states or implies. The gap is large
+     enough that a reader relying on the citing paper would form a materially wrong impression.
+     Common patterns:
+       • A finding in one cell type / model / condition is cited as a general mechanism.
+       • A dose-dependent or conditional effect becomes a clean causal statement.
+       • A preliminary or single-study result is cited as established fact.
+   - not_supported: The cited paper does not address the claim being made, or directly
+     contradicts it.
+   - cannot_determine: The retrieved evidence is insufficient to judge. Use this when
+     retrieval clearly failed (wrong section, missing full text) — not as a hedge when
+     evidence is merely ambiguous. If evidence is ambiguous, reason through it and choose
+     the most defensible label with lower judgeConfidence.
 
 3. Write a concise rationale (2-3 sentences) explaining your reasoning.
-4. Rate the retrieval quality (how well the evidence spans match the citing context).
-5. Rate your confidence in the verdict.
 
-Be precise. Do not collapse "partially supported" into "supported." Partial support often means compression, mechanistic sharpening, or scope expansion — these are real phenomena worth tracking.`;
+4. Rate the retrieval quality (how well the evidence spans match what the citing context
+   is actually citing):
+   - high: At least one span directly contains the specific fact, finding, or method
+     being cited. A human reviewer could verify the verdict from the span alone without
+     returning to the full paper.
+   - medium: The spans are topically relevant but do not contain the specific assertion
+     being evaluated. A reviewer would need to read more of the paper to reach a confident
+     conclusion.
+   - low: The spans are from the wrong section, do not substantively relate to the citing
+     context, or are abstract-only. The verdict is based on partial or indirect evidence.
+
+5. Rate your confidence in the verdict.`;
 }
 
 export type AdjudicatorOptions = {
@@ -137,6 +204,7 @@ async function callLLMWithThinking(
 
 Respond with a JSON object (no markdown fencing needed) with exactly these fields:
 {
+  "comparison": "Citing paper claims X. Evidence shows Y.",
   "verdict": "supported" | "partially_supported" | "overstated_or_generalized" | "not_supported" | "cannot_determine",
   "rationale": "your 2-3 sentence rationale",
   "retrievalQuality": "high" | "medium" | "low",
@@ -261,6 +329,7 @@ export async function adjudicateCalibrationSet(
 
       records.push({
         ...record,
+        comparison: verdict.comparison,
         verdict: verdict.verdict,
         rationale: verdict.rationale,
         retrievalQuality: verdict.retrievalQuality,
@@ -275,6 +344,7 @@ export async function adjudicateCalibrationSet(
       failedCount++;
       records.push({
         ...record,
+        comparison: undefined,
         verdict: "cannot_determine",
         rationale: `LLM error: ${err instanceof Error ? err.message : String(err)}`,
         retrievalQuality: undefined,
