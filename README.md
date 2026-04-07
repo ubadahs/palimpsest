@@ -1,8 +1,12 @@
 # Palimpsest
 
-CLI-first tooling for auditing **citation fidelity** in scientific literature: it checks whether citing papers faithfully represent empirical-attribution claims from cited papers (bioRxiv-focused POC). The **CLI and JSON/Markdown artifacts are canonical**; SQLite stores structured state locally. A **local-only** Next.js app in `apps/ui` can orchestrate pipeline stages and inspect artifacts—there is no hosted product UI.
+Palimpsest is CLI-first tooling for auditing citation fidelity in scientific literature. It follows a claim family outward from a seed paper, checks which downstream citations are actually auditable, extracts the claim-bearing citing passages, retrieves evidence from the cited paper, and writes local JSON and Markdown artifacts for review.
 
-## Quick start
+The CLI and artifacts are canonical. SQLite stores structured local state. The Next.js app in `apps/ui` is a local orchestration and inspection surface, not a separate hosted product.
+
+## Quick Start
+
+Install dependencies, verify the runtime, and initialize the local database:
 
 ```bash
 npm install
@@ -10,33 +14,64 @@ npm run dev -- doctor
 npm run dev -- db:migrate
 ```
 
-Run a stage from the repo root (example):
+`doctor` checks the runtime boundary. `GROBID_BASE_URL` must be configured; Anthropic is required only for stages that use LLMs. See [docs/runtime-setup.md](docs/runtime-setup.md).
+
+## Main Ways To Run It
+
+Run the full pipeline from DOI input:
 
 ```bash
-# Requires ANTHROPIC_API_KEY in the environment for LLM claim grounding.
-npm run dev -- pre-screen --input path/to/shortlist.json
+npm run dev -- pipeline --input path/to/dois.json
 ```
 
-Pre-screen writes `*_pre-screen-results.json`, a Markdown report, and `*_pre-screen-grounding-trace.json` (full LLM prompt/response audit trail). See [docs/artifact-workflow.md](docs/artifact-workflow.md).
+Run stage by stage:
 
-**Local UI:** see [docs/ui-setup.md](docs/ui-setup.md) (`npm run ui:dev`).
+```bash
+npm run dev -- discover --input path/to/dois.json
+npm run dev -- screen --input path/to/shortlist.json
+```
 
-## Where to read
+Run the local UI:
 
-- [docs/README.md](docs/README.md) — index of all documentation
-- [docs/status.md](docs/status.md) — what is implemented today
-- [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — conventions for working in this repo
+```bash
+npm run ui:dev
+```
 
-## Common scripts
+See [docs/pipeline.md](docs/pipeline.md) for when to use each path and what every stage consumes and produces.
+
+## Pipeline At A Glance
+
+| Stage | Command | Purpose | Primary outputs |
+|------|---------|---------|-----------------|
+| Discover | `discover` | Extract candidate empirical claims from seed papers and build a shortlist | discovery results, discovery report, shortlist |
+| Screen | `screen` | Ground the tracked claim and decide whether a claim family is viable for deeper analysis | pre-screen results, report, grounding trace |
+| Extract | `extract` | Locate and normalize claim-bearing citation contexts in citing papers | extraction results, report, inspection notes |
+| Classify | `classify` | Turn extracted mentions into evaluation packets | classification results, report |
+| Evidence | `evidence` | Resolve the cited paper and attach retrieved evidence spans | evidence results, report |
+| Curate | `curate` | Sample a balanced adjudication set from evidence-backed tasks | calibration set, worksheet |
+| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for the sampled tasks | adjudicated calibration set, summary |
+
+Canonical stage names are `discover`, `screen`, `extract`, `classify`, `evidence`, `curate`, and `adjudicate`. Some artifact filenames still preserve older prefixes such as `_pre-screen-*` and `_m2-extraction-*`; the stage contract is documented in [docs/pipeline.md](docs/pipeline.md) and [docs/artifact-workflow.md](docs/artifact-workflow.md).
+
+## Where To Read
+
+- [docs/pipeline.md](docs/pipeline.md) — canonical stage-by-stage workflow guide
+- [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests, benchmark outputs
+- [docs/runtime-setup.md](docs/runtime-setup.md) — environment variables, required services, failure and fallback behavior
+- [docs/status.md](docs/status.md) — what is implemented in the repo today
+- [docs/ui-setup.md](docs/ui-setup.md) — running the local UI
+- [docs/README.md](docs/README.md) — full documentation map
+
+## Common Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `npm run dev` | CLI entry (`tsx src/cli/index.ts`); try `discover`, `screen`, etc. |
-| `npm run build` | Clear `dist/`, then compile `src/` only (no test emit) |
-| `npm run typecheck` | Typecheck `src/` + `tests/` |
-| `npm run test` | Vitest for root `tests/**/*.ts` |
-| `npm run lint` | ESLint for `src/` + `tests/` |
-| `npm run lint:all` | Root lint + UI workspace lint |
-| `npm run ui:dev` / `ui:build` / `ui:start` | Local Next.js UI |
+| `npm run dev` | CLI entry (`tsx src/cli/index.ts`) |
+| `npm run build` | Clear `dist/`, then compile `src/` only |
+| `npm run typecheck` | Typecheck `src/` and `tests/` |
+| `npm run test` | Run root Vitest suite |
+| `npm run lint` | Run ESLint over `src/` and `tests/` |
+| `npm run lint:all` | Run root lint plus UI workspace lint |
+| `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |
 
-See [package.json](package.json) for the full list.
+See [package.json](package.json) for the full script list.
