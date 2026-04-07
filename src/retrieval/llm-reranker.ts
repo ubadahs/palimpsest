@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import type { LLMClient } from "../integrations/llm-client.js";
 import type { EvaluationMode, Result } from "../domain/types.js";
+import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +159,23 @@ export type LLMRerankerOptions = {
   model?: string;
   /** How many top results to request from the LLM. Default 5. */
   topN?: number;
+  /** Enable extended thinking (requires generateText path since generateObject doesn't support thinking). */
+  useThinking?: boolean;
+  /** Thinking budget in tokens. Default 8000. */
+  thinkingBudget?: number;
 };
+
+function postProcess(
+  raw: z.infer<typeof rerankResponseSchema>,
+  validIds: Set<string>,
+  topN: number,
+): LLMRerankResponse {
+  const sorted = [...raw.results].sort(
+    (a, b) => b.relevanceScore - a.relevanceScore,
+  );
+  const filtered = sorted.filter((r) => validIds.has(r.blockId));
+  return { results: filtered.slice(0, topN) };
+}
 
 export async function llmRerankBlocks(
   client: LLMClient,
@@ -171,24 +188,36 @@ export async function llmRerankBlocks(
     return { ok: true, data: { results: [] } };
   }
 
+  const modelId = options.model ?? "claude-haiku-4-5";
+  const prompt = buildRerankPrompt(request, topN);
+  const validIds = new Set(request.candidates.map((c) => c.blockId));
+
   try {
+    if (options.useThinking) {
+      // Thinking path: generateText + manual JSON parse.
+      const result = await client.generateText({
+        purpose: "evidence-rerank",
+        model: modelId,
+        prompt,
+        thinking: {
+          type: "enabled",
+          budgetTokens: options.thinkingBudget ?? 8000,
+        },
+      });
+      const parsed = rerankResponseSchema.parse(
+        JSON.parse(extractJsonFromModelText(result.text)),
+      );
+      return { ok: true, data: postProcess(parsed, validIds, topN) };
+    }
+
+    // Structured output path (default).
     const result = await client.generateObject({
       purpose: "evidence-rerank",
-      model: options.model ?? "claude-haiku-4-5",
-      prompt: buildRerankPrompt(request, topN),
+      model: modelId,
+      prompt,
       schema: rerankResponseSchema,
     });
-
-    // Ensure results are sorted by relevance descending.
-    const sorted = [...result.object.results].sort(
-      (a, b) => b.relevanceScore - a.relevanceScore,
-    );
-
-    // Only keep results that reference valid block IDs.
-    const validIds = new Set(request.candidates.map((c) => c.blockId));
-    const filtered = sorted.filter((r) => validIds.has(r.blockId));
-
-    return { ok: true, data: { results: filtered.slice(0, topN) } };
+    return { ok: true, data: postProcess(result.object, validIds, topN) };
   } catch (error) {
     return {
       ok: false,
