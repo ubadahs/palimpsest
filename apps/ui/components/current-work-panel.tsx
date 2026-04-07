@@ -38,7 +38,9 @@ function stepIcon(status: StepStatus, warning?: boolean) {
     );
   }
   if (status === "skipped") {
-    return <ChevronsRight className="h-4 w-4 text-[var(--text-muted)] opacity-50" />;
+    return (
+      <ChevronsRight className="h-4 w-4 text-[var(--text-muted)] opacity-50" />
+    );
   }
 
   return <Dot className="h-4 w-4 text-[var(--text-muted)]" />;
@@ -70,7 +72,11 @@ function isGroundingWarning(
   stepIndex: number,
 ): boolean {
   const step = steps[stepIndex];
-  if (!step || step.status !== "completed" || step.id !== "ground_tracked_claim") {
+  if (
+    !step ||
+    step.status !== "completed" ||
+    step.id !== "ground_tracked_claim"
+  ) {
     return false;
   }
   return steps.slice(stepIndex + 1).some((s) => s.status === "skipped");

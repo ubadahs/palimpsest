@@ -1,9 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  RunDetail,
-  StageWorkflowSnapshot,
-} from "palimpsest/ui-contract";
+import type { RunDetail, StageWorkflowSnapshot } from "palimpsest/ui-contract";
 
 import { RunDetailClient } from "../components/run-detail-client";
 

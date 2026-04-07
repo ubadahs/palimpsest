@@ -18,8 +18,7 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: "Palimpsest",
-  description:
-    "Local orchestration and artifact inspection for palimpsest.",
+  description: "Local orchestration and artifact inspection for palimpsest.",
 };
 
 export default function RootLayout({

@@ -131,7 +131,12 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       inputTokens?: number | undefined;
       outputTokens?: number | undefined;
       totalTokens?: number | undefined;
-      inputTokenDetails?: { cacheReadTokens?: number | undefined; cacheWriteTokens?: number | undefined } | undefined;
+      inputTokenDetails?:
+        | {
+            cacheReadTokens?: number | undefined;
+            cacheWriteTokens?: number | undefined;
+          }
+        | undefined;
       outputTokenDetails?: { reasoningTokens?: number | undefined } | undefined;
     },
     latencyMs: number,
@@ -148,7 +153,11 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       latencyMs,
       finishReason,
       timestamp: new Date().toISOString(),
-      estimatedCostUsd: estimateAnthropicUsd(modelId, inputTokens, outputTokens),
+      estimatedCostUsd: estimateAnthropicUsd(
+        modelId,
+        inputTokens,
+        outputTokens,
+      ),
     };
     if (usage.outputTokenDetails?.reasoningTokens != null) {
       record.reasoningTokens = usage.outputTokenDetails.reasoningTokens;
