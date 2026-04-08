@@ -9,6 +9,7 @@ import {
 
 import {
   getDoisInputPath,
+  getRunRoot,
   getShortlistPath,
   getStageDirectory,
 } from "./run-files";
@@ -39,6 +40,7 @@ export function buildStageCommand(
 ): StageCommandSpec {
   const config = run.config;
   const outputDirectory = getStageDirectory(run.id, stageKey);
+  const runRoot = getRunRoot(run.id);
 
   if (stageKey === "discover") {
     const isAttribution = config.discoverStrategy === "attribution_first";
@@ -49,7 +51,7 @@ export function buildStageCommand(
         "--input",
         getDoisInputPath(run.id),
         "--output",
-        outputDirectory,
+        runRoot,
         "--strategy",
         config.discoverStrategy,
         ...(isAttribution
@@ -81,7 +83,16 @@ export function buildStageCommand(
         "--input",
         getShortlistPath(run.id),
         "--output",
-        outputDirectory,
+        runRoot,
+        ...(config.screenGroundingModel !== "claude-opus-4-6"
+          ? ["--llm-grounding-model", config.screenGroundingModel]
+          : []),
+        ...(config.screenFilterModel !== "claude-haiku-4-5"
+          ? ["--filter-model", config.screenFilterModel]
+          : []),
+        ...(config.screenFilterConcurrency !== 10
+          ? ["--filter-concurrency", String(config.screenFilterConcurrency)]
+          : []),
       ],
       outputDirectory,
       inputArtifactPath: getShortlistPath(run.id),
@@ -98,7 +109,7 @@ export function buildStageCommand(
         "--seed-doi",
         run.seedDoi,
         "--output",
-        outputDirectory,
+        runRoot,
         ...(config.forceRefresh ? ["--force-refresh"] : []),
       ],
       outputDirectory,
@@ -116,7 +127,7 @@ export function buildStageCommand(
         "--pre-screen",
         getStageArtifactPath(stages, "screen"),
         "--output",
-        outputDirectory,
+        runRoot,
       ],
       outputDirectory,
       inputArtifactPath: getStageArtifactPath(stages, "extract"),
@@ -131,9 +142,15 @@ export function buildStageCommand(
         "--classification",
         getStageArtifactPath(stages, "classify"),
         "--output",
-        outputDirectory,
+        runRoot,
         ...(config.forceRefresh ? ["--force-refresh"] : []),
         ...(config.evidenceLlmRerank === false ? ["--no-llm-rerank"] : []),
+        ...(config.evidenceRerankModel !== "claude-haiku-4-5"
+          ? ["--rerank-model", config.evidenceRerankModel]
+          : []),
+        ...(config.evidenceRerankTopN !== 5
+          ? ["--rerank-top-n", String(config.evidenceRerankTopN)]
+          : []),
       ],
       outputDirectory,
       inputArtifactPath: getStageArtifactPath(stages, "classify"),
@@ -150,7 +167,7 @@ export function buildStageCommand(
         "--target-size",
         String(config.curateTargetSize),
         "--output",
-        outputDirectory,
+        runRoot,
       ],
       outputDirectory,
       inputArtifactPath: getStageArtifactPath(stages, "evidence"),
@@ -167,7 +184,7 @@ export function buildStageCommand(
       config.adjudicateModel,
       ...(config.adjudicateThinking ? ["--thinking"] : []),
       "--output",
-      outputDirectory,
+      runRoot,
     ],
     outputDirectory,
     inputArtifactPath: getStageArtifactPath(stages, "curate"),

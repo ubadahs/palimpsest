@@ -47,6 +47,11 @@ describe("analysis runs repository", () => {
           discoverModel: "claude-opus-4-6",
           discoverProbeBudget: 20,
           discoverShortlistCap: 10,
+          screenGroundingModel: "claude-opus-4-6",
+          screenFilterModel: "claude-haiku-4-5",
+          screenFilterConcurrency: 10,
+          evidenceRerankModel: "claude-haiku-4-5",
+          evidenceRerankTopN: 5,
         },
       });
 
@@ -86,6 +91,11 @@ describe("analysis runs repository", () => {
           discoverModel: "claude-opus-4-6",
           discoverProbeBudget: 20,
           discoverShortlistCap: 10,
+          screenGroundingModel: "claude-opus-4-6",
+          screenFilterModel: "claude-haiku-4-5",
+          screenFilterConcurrency: 10,
+          evidenceRerankModel: "claude-haiku-4-5",
+          evidenceRerankTopN: 5,
         },
       });
 

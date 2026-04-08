@@ -14,15 +14,21 @@ const run: AnalysisRun = {
   config: {
     stopAfterStage: "adjudicate",
     forceRefresh: true,
-    curateTargetSize: 40,
-    adjudicateModel: "claude-opus-4-6",
-    adjudicateThinking: true,
     discoverStrategy: "legacy",
     discoverTopN: 5,
     discoverRank: true,
     discoverModel: "claude-opus-4-6",
     discoverProbeBudget: 20,
     discoverShortlistCap: 10,
+    screenGroundingModel: "claude-opus-4-6",
+    screenFilterModel: "claude-haiku-4-5",
+    screenFilterConcurrency: 10,
+    evidenceLlmRerank: true,
+    evidenceRerankModel: "claude-haiku-4-5",
+    evidenceRerankTopN: 5,
+    curateTargetSize: 40,
+    adjudicateModel: "claude-opus-4-6",
+    adjudicateThinking: true,
   },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -168,7 +174,7 @@ describe("buildStageCommand", () => {
       "--input",
       expect.stringContaining("inputs/dois.json"),
       "--output",
-      expect.stringContaining("/00-discover"),
+      expect.stringContaining("runs/run-1"),
       "--strategy",
       "legacy",
       "--top",
@@ -201,7 +207,60 @@ describe("buildStageCommand", () => {
       "claude-opus-4-6",
       "--thinking",
       "--output",
-      expect.stringContaining("/06-adjudicate"),
+      expect.stringContaining("runs/run-1"),
     ]);
+  });
+
+  it("emits no extra screen flags when all screen params are default", () => {
+    const command = buildStageCommand(run, stagesWithDiscover, "screen");
+    expect(command.args).not.toContain("--llm-grounding-model");
+    expect(command.args).not.toContain("--filter-model");
+    expect(command.args).not.toContain("--filter-concurrency");
+  });
+
+  it("emits --filter-model when screenFilterModel is non-default", () => {
+    const customRun: AnalysisRun = {
+      ...run,
+      config: { ...run.config, screenFilterModel: "claude-sonnet-4-6" },
+    };
+    const command = buildStageCommand(customRun, stagesWithDiscover, "screen");
+    expect(command.args).toContain("--filter-model");
+    expect(command.args).toContain("claude-sonnet-4-6");
+  });
+
+  it("emits --filter-concurrency when screenFilterConcurrency is non-default", () => {
+    const customRun: AnalysisRun = {
+      ...run,
+      config: { ...run.config, screenFilterConcurrency: 5 },
+    };
+    const command = buildStageCommand(customRun, stagesWithDiscover, "screen");
+    expect(command.args).toContain("--filter-concurrency");
+    expect(command.args).toContain("5");
+  });
+
+  it("emits no extra evidence flags when all evidence params are default", () => {
+    const command = buildStageCommand(run, stagesWithDiscover, "evidence");
+    expect(command.args).not.toContain("--rerank-model");
+    expect(command.args).not.toContain("--rerank-top-n");
+  });
+
+  it("emits --rerank-top-n when evidenceRerankTopN is non-default", () => {
+    const customRun: AnalysisRun = {
+      ...run,
+      config: { ...run.config, evidenceRerankTopN: 3 },
+    };
+    const command = buildStageCommand(customRun, stagesWithDiscover, "evidence");
+    expect(command.args).toContain("--rerank-top-n");
+    expect(command.args).toContain("3");
+  });
+
+  it("emits --rerank-model when evidenceRerankModel is non-default", () => {
+    const customRun: AnalysisRun = {
+      ...run,
+      config: { ...run.config, evidenceRerankModel: "claude-sonnet-4-6" },
+    };
+    const command = buildStageCommand(customRun, stagesWithDiscover, "evidence");
+    expect(command.args).toContain("--rerank-model");
+    expect(command.args).toContain("claude-sonnet-4-6");
   });
 });

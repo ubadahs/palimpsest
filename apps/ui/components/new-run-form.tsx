@@ -21,16 +21,21 @@ type FormState = {
   trackedClaim: string;
   targetStage: StageKey;
   forceRefresh: boolean;
+  discoverStrategy: DiscoverStrategy;
+  discoverModel: string;
+  discoverTopN: number;
+  discoverRank: boolean;
+  discoverProbeBudget: number;
+  discoverShortlistCap: number;
+  screenGroundingModel: string;
+  screenFilterModel: string;
+  screenFilterConcurrency: number;
+  evidenceLlmRerank: boolean;
+  evidenceRerankModel: string;
+  evidenceRerankTopN: number;
   curateTargetSize: number;
   adjudicateModel: string;
   adjudicateThinking: boolean;
-  evidenceLlmRerank: boolean;
-  discoverStrategy: DiscoverStrategy;
-  discoverTopN: number;
-  discoverRank: boolean;
-  discoverModel: string;
-  discoverProbeBudget: number;
-  discoverShortlistCap: number;
 };
 
 export function NewRunForm() {
@@ -44,16 +49,21 @@ export function NewRunForm() {
     trackedClaim: "",
     targetStage: "adjudicate",
     forceRefresh: false,
+    discoverStrategy: "legacy",
+    discoverModel: "claude-opus-4-6",
+    discoverTopN: 5,
+    discoverRank: true,
+    discoverProbeBudget: 20,
+    discoverShortlistCap: 10,
+    screenGroundingModel: "claude-opus-4-6",
+    screenFilterModel: "claude-haiku-4-5",
+    screenFilterConcurrency: 10,
+    evidenceLlmRerank: true,
+    evidenceRerankModel: "claude-haiku-4-5",
+    evidenceRerankTopN: 5,
     curateTargetSize: 40,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
-    evidenceLlmRerank: true,
-    discoverStrategy: "legacy",
-    discoverTopN: 5,
-    discoverRank: true,
-    discoverModel: "claude-opus-4-6",
-    discoverProbeBudget: 20,
-    discoverShortlistCap: 10,
   });
 
   function update<K extends keyof FormState>(
@@ -89,16 +99,21 @@ export function NewRunForm() {
             config: {
               stopAfterStage: state.targetStage,
               forceRefresh: state.forceRefresh,
+              discoverStrategy: state.discoverStrategy,
+              discoverModel: state.discoverModel,
+              discoverTopN: state.discoverTopN,
+              discoverRank: state.discoverRank,
+              discoverProbeBudget: state.discoverProbeBudget,
+              discoverShortlistCap: state.discoverShortlistCap,
+              screenGroundingModel: state.screenGroundingModel,
+              screenFilterModel: state.screenFilterModel,
+              screenFilterConcurrency: state.screenFilterConcurrency,
+              evidenceLlmRerank: state.evidenceLlmRerank,
+              evidenceRerankModel: state.evidenceRerankModel,
+              evidenceRerankTopN: state.evidenceRerankTopN,
               curateTargetSize: state.curateTargetSize,
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
-              evidenceLlmRerank: state.evidenceLlmRerank,
-              discoverStrategy: state.discoverStrategy,
-              discoverTopN: state.discoverTopN,
-              discoverRank: state.discoverRank,
-              discoverModel: state.discoverModel,
-              discoverProbeBudget: state.discoverProbeBudget,
-              discoverShortlistCap: state.discoverShortlistCap,
             },
           }),
         });
@@ -117,6 +132,13 @@ export function NewRunForm() {
       }
     });
   }
+
+  const sectionClass =
+    "rounded-[28px] border border-[var(--border)] bg-white/40 overflow-hidden";
+  const summaryClass =
+    "cursor-pointer list-none px-6 py-4 flex items-center justify-between [&::-webkit-details-marker]:hidden";
+  const sectionBodyClass =
+    "grid gap-4 border-t border-[var(--border)] p-6 md:grid-cols-2";
 
   return (
     <Card className="mx-auto max-w-4xl overflow-hidden">
@@ -192,239 +214,406 @@ export function NewRunForm() {
             Launch immediately after creation
           </label>
 
-          <details className="rounded-[28px] border border-[var(--border)] bg-white/55">
-            <summary className="cursor-pointer list-none px-6 py-4 text-sm font-semibold text-[var(--text)] [&::-webkit-details-marker]:hidden">
-              Advanced pipeline options
-              <span className="ml-2 text-xs font-normal text-[var(--text-muted)]">
-                optional
-              </span>
-            </summary>
-            <div className="grid gap-6 border-t border-[var(--border)] p-6 md:grid-cols-2">
-              <label className="grid gap-2">
+          <div className="space-y-3">
+            {/* Discovery */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  Stop after stage
+                  Discovery
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Pipeline halts after this stage. Adjudicate runs the full
-                  analysis.
+                  how claims or attributions are found
                 </span>
-                <select
-                  className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
-                  value={state.targetStage}
-                  onChange={(event) =>
-                    update("targetStage", event.target.value as StageKey)
-                  }
-                >
-                  {stageDefinitions.map((stage) => (
-                    <option key={stage.key} value={stage.key}>
-                      {stage.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-[var(--text)]">
-                  Calibration sample size
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  How many citation-evidence pairs to curate for adjudication.
-                  Larger samples give more coverage but take longer.
-                </span>
-                <Input
-                  min={1}
-                  type="number"
-                  value={state.curateTargetSize}
-                  onChange={(event) =>
-                    update("curateTargetSize", Number(event.target.value))
-                  }
-                />
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-[var(--text)]">
-                  Adjudication model
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  Claude model that reads evidence and judges citation fidelity.
-                </span>
-                <Input
-                  autoComplete="off"
-                  value={state.adjudicateModel}
-                  onChange={(event) =>
-                    update("adjudicateModel", event.target.value)
-                  }
-                />
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-[var(--text)]">
-                  Discovery strategy
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  Legacy extracts claims from the seed paper. Attribution-first
-                  harvests what citing papers actually attribute to the seed.
-                </span>
-                <select
-                  className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
-                  value={state.discoverStrategy}
-                  onChange={(event) =>
-                    update(
-                      "discoverStrategy",
-                      event.target.value as DiscoverStrategy,
-                    )
-                  }
-                >
-                  <option value="legacy">Legacy (seed-side extraction)</option>
-                  <option value="attribution_first">
-                    Attribution-first (citing-side harvesting)
-                  </option>
-                </select>
-              </label>
-              {state.discoverStrategy === "attribution_first" ? (
-                <>
-                  <label className="grid gap-2">
-                    <span className="text-sm font-semibold text-[var(--text)]">
-                      Probe budget
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Maximum citing papers to inspect for in-text mentions of
-                      the seed.
-                    </span>
-                    <Input
-                      min={1}
-                      type="number"
-                      value={state.discoverProbeBudget}
-                      onChange={(event) =>
-                        update("discoverProbeBudget", Number(event.target.value))
-                      }
-                    />
-                  </label>
-                  <label className="grid gap-2">
-                    <span className="text-sm font-semibold text-[var(--text)]">
-                      Shortlist cap
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">
-                      Maximum family candidates passed from discovery to screen.
-                    </span>
-                    <Input
-                      min={1}
-                      type="number"
-                      value={state.discoverShortlistCap}
-                      onChange={(event) =>
-                        update(
-                          "discoverShortlistCap",
-                          Number(event.target.value),
-                        )
-                      }
-                    />
-                  </label>
-                </>
-              ) : (
-                <label className="grid gap-2">
+              </summary>
+              <div className={sectionBodyClass}>
+                <label className="grid gap-2 md:col-span-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
-                    Max claims to shortlist
+                    Strategy
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Upper limit on claims passed from discovery to screen.
+                    Legacy extracts claims from the seed paper. Attribution-first
+                    harvests what citing papers actually attribute to the seed.
+                  </span>
+                  <select
+                    className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
+                    value={state.discoverStrategy}
+                    onChange={(event) =>
+                      update(
+                        "discoverStrategy",
+                        event.target.value as DiscoverStrategy,
+                      )
+                    }
+                  >
+                    <option value="legacy">Legacy (seed-side extraction)</option>
+                    <option value="attribution_first">
+                      Attribution-first (citing-side harvesting)
+                    </option>
+                  </select>
+                </label>
+                <label className="grid gap-2 md:col-span-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Model
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Claude model used for claim extraction and ranking.
+                  </span>
+                  <Input
+                    autoComplete="off"
+                    value={state.discoverModel}
+                    onChange={(event) =>
+                      update("discoverModel", event.target.value)
+                    }
+                  />
+                </label>
+                {state.discoverStrategy === "legacy" ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Max claims
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Upper limit on claims passed from discovery to screen.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discoverTopN}
+                        onChange={(event) =>
+                          update("discoverTopN", Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <div className="grid gap-1 self-end pb-1">
+                      <label className="grid cursor-pointer gap-1">
+                        <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                          <input
+                            checked={state.discoverRank}
+                            className="size-4 accent-[var(--accent)]"
+                            type="checkbox"
+                            onChange={(event) =>
+                              update("discoverRank", event.target.checked)
+                            }
+                          />
+                          Rank claims
+                        </span>
+                        <span className="pl-7 text-xs text-[var(--text-muted)]">
+                          Score claims by citing-paper engagement.
+                        </span>
+                      </label>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Probe budget
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Maximum citing papers to inspect for in-text mentions.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discoverProbeBudget}
+                        onChange={(event) =>
+                          update(
+                            "discoverProbeBudget",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Shortlist cap
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Maximum families passed from discovery to screen.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discoverShortlistCap}
+                        onChange={(event) =>
+                          update(
+                            "discoverShortlistCap",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+            </details>
+
+            {/* Screen */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Screen
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  claim grounding and family filtering
+                </span>
+              </summary>
+              <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Grounding model
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Model that verifies each claim against the seed paper's full
+                    text.
+                  </span>
+                  <Input
+                    autoComplete="off"
+                    value={state.screenGroundingModel}
+                    onChange={(event) =>
+                      update("screenGroundingModel", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Filter model
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Model used for LLM claim-family filtering after BM25
+                    pre-filter.
+                  </span>
+                  <Input
+                    autoComplete="off"
+                    value={state.screenFilterModel}
+                    onChange={(event) =>
+                      update("screenFilterModel", event.target.value)
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Filter concurrency
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Max concurrent LLM calls during claim-family filtering.
                   </span>
                   <Input
                     min={1}
                     type="number"
-                    value={state.discoverTopN}
+                    value={state.screenFilterConcurrency}
                     onChange={(event) =>
-                      update("discoverTopN", Number(event.target.value))
+                      update(
+                        "screenFilterConcurrency",
+                        Number(event.target.value),
+                      )
                     }
                   />
                 </label>
-              )}
-              <label className="grid gap-2 md:col-span-2">
+              </div>
+            </details>
+
+            {/* Evidence */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  Discovery model
+                  Evidence
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Model used for claim extraction and ranking during
-                  auto-discovery.
+                  cited-paper retrieval and reranking
                 </span>
-                <Input
-                  autoComplete="off"
-                  value={state.discoverModel}
-                  onChange={(event) =>
-                    update("discoverModel", event.target.value)
-                  }
-                />
-              </label>
-              <div className="grid gap-4 md:col-span-2">
-                <label className="grid cursor-pointer gap-1">
-                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                    <input
-                      checked={state.forceRefresh}
-                      className="size-4 accent-[var(--accent)]"
-                      type="checkbox"
-                      onChange={(event) =>
-                        update("forceRefresh", event.target.checked)
-                      }
-                    />
-                    Force-refresh cached data
-                  </span>
-                  <span className="pl-7 text-xs text-[var(--text-muted)]">
-                    Re-fetch and re-parse papers even if they are already in the
-                    local cache.
-                  </span>
-                </label>
-                <label className="grid cursor-pointer gap-1">
-                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                    <input
-                      checked={state.evidenceLlmRerank}
-                      className="size-4 accent-[var(--accent)]"
-                      type="checkbox"
-                      onChange={(event) =>
-                        update("evidenceLlmRerank", event.target.checked)
-                      }
-                    />
-                    LLM evidence reranking
-                  </span>
-                  <span className="pl-7 text-xs text-[var(--text-muted)]">
-                    After keyword retrieval, Haiku re-ranks passages by
-                    relevance. Better accuracy, higher cost.
-                  </span>
-                </label>
-                {state.discoverStrategy === "legacy" ? (
+              </summary>
+              <div className={sectionBodyClass}>
+                <div className="grid gap-1 md:col-span-2">
                   <label className="grid cursor-pointer gap-1">
                     <span className="flex items-center gap-3 text-sm text-[var(--text)]">
                       <input
-                        checked={state.discoverRank}
+                        checked={state.evidenceLlmRerank}
                         className="size-4 accent-[var(--accent)]"
                         type="checkbox"
                         onChange={(event) =>
-                          update("discoverRank", event.target.checked)
+                          update("evidenceLlmRerank", event.target.checked)
                         }
                       />
-                      Rank discovered claims
+                      LLM reranking
                     </span>
                     <span className="pl-7 text-xs text-[var(--text-muted)]">
-                      Score claims by how often citing papers engage with them.
-                      Off takes claims in extraction order.
+                      After keyword retrieval, a model re-ranks passages by
+                      relevance. Better accuracy, higher cost.
                     </span>
                   </label>
+                </div>
+                {state.evidenceLlmRerank ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Rerank model
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Model used to rerank candidate evidence passages.
+                      </span>
+                      <Input
+                        autoComplete="off"
+                        value={state.evidenceRerankModel}
+                        onChange={(event) =>
+                          update("evidenceRerankModel", event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Rerank top N
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        How many top passages to return per evaluation task.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.evidenceRerankTopN}
+                        onChange={(event) =>
+                          update(
+                            "evidenceRerankTopN",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
                 ) : null}
-                <label className="grid cursor-pointer gap-1">
-                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                    <input
-                      checked={state.adjudicateThinking}
-                      className="size-4 accent-[var(--accent)]"
-                      type="checkbox"
-                      onChange={(event) =>
-                        update("adjudicateThinking", event.target.checked)
-                      }
-                    />
-                    Extended thinking for adjudication
+              </div>
+            </details>
+
+            {/* Curate */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Curate
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  calibration set sampling
+                </span>
+              </summary>
+              <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Sample size
                   </span>
-                  <span className="pl-7 text-xs text-[var(--text-muted)]">
-                    The model reasons step-by-step before each verdict. More
-                    careful but slower.
+                  <span className="text-xs text-[var(--text-muted)]">
+                    How many citation-evidence pairs to curate for adjudication.
                   </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.curateTargetSize}
+                    onChange={(event) =>
+                      update("curateTargetSize", Number(event.target.value))
+                    }
+                  />
                 </label>
               </div>
-            </div>
-          </details>
+            </details>
+
+            {/* Adjudicate */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Adjudicate
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  LLM fidelity judgement
+                </span>
+              </summary>
+              <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Model
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Model that reads evidence and judges citation fidelity.
+                  </span>
+                  <Input
+                    autoComplete="off"
+                    value={state.adjudicateModel}
+                    onChange={(event) =>
+                      update("adjudicateModel", event.target.value)
+                    }
+                  />
+                </label>
+                <div className="grid gap-1 self-end pb-1">
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.adjudicateThinking}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update("adjudicateThinking", event.target.checked)
+                        }
+                      />
+                      Extended thinking
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      The model reasons step-by-step before each verdict.
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            {/* Run Settings */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Run settings
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  pipeline control
+                </span>
+              </summary>
+              <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Stop after stage
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Pipeline halts after this stage. Adjudicate runs the full
+                    analysis.
+                  </span>
+                  <select
+                    className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
+                    value={state.targetStage}
+                    onChange={(event) =>
+                      update("targetStage", event.target.value as StageKey)
+                    }
+                  >
+                    {stageDefinitions.map((stage) => (
+                      <option key={stage.key} value={stage.key}>
+                        {stage.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="grid gap-1 self-end pb-1">
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.forceRefresh}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update("forceRefresh", event.target.checked)
+                        }
+                      />
+                      Force-refresh cached data
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      Re-fetch papers even if already in the local cache.
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </details>
+          </div>
 
           {error ? (
             <p className="rounded-2xl border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] px-4 py-3 text-sm text-[var(--danger)]">
