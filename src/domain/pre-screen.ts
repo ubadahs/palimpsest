@@ -44,12 +44,6 @@ export const seedPaperInputSchema = z
   .passthrough();
 export type SeedPaperInput = z.infer<typeof seedPaperInputSchema>;
 
-export const shortlistInputSchema = z
-  .object({
-    seeds: z.array(seedPaperInputSchema).min(1),
-  })
-  .passthrough();
-export type ShortlistInput = z.infer<typeof shortlistInputSchema>;
 
 export const preScreenEdgeSchema = z
   .object({
@@ -80,6 +74,50 @@ export const claimGroundingStatusValues = [
 
 export const claimGroundingStatusSchema = z.enum(claimGroundingStatusValues);
 export type ClaimGroundingStatus = z.infer<typeof claimGroundingStatusSchema>;
+
+/**
+ * Extended shortlist entry emitted by the redesigned attribution-first discover
+ * stage. All fields beyond `doi` and `trackedClaim` are optional so that legacy
+ * shortlist files (which only contain those two plus an optional `notes`) remain
+ * valid without any migration.
+ *
+ * `ShortlistInput` uses this schema so that both old and new shortlist files
+ * load through the same parser.
+ */
+export const discoveryShortlistEntrySchema = z
+  .object({
+    doi: z.string().min(1),
+    trackedClaim: z.string().min(1),
+    notes: z.string().optional(),
+    /** Set when the entry was produced by the attribution-first discover path. */
+    familyId: z.string().optional(),
+    /** How this entry was produced. */
+    discoveryMethod: z
+      .enum(["attribution_first", "legacy_rank", "manual"])
+      .optional(),
+    supportingMentionCount: z.number().int().nonnegative().optional(),
+    supportingPaperCount: z.number().int().nonnegative().optional(),
+    /** Seed-grounding status at discovery time (may be refined by screen). */
+    seedGroundingStatus: claimGroundingStatusSchema.optional(),
+    /** Path to the discovery sidecar containing the full family candidate. */
+    sourceDiscoveryArtifact: z.string().optional(),
+  })
+  .passthrough();
+export type DiscoveryShortlistEntry = z.infer<
+  typeof discoveryShortlistEntrySchema
+>;
+
+/**
+ * The shortlist file fed from `discover` to `screen`. Both legacy entries
+ * (doi + trackedClaim + optional notes) and redesigned entries (which add
+ * familyId and other optional fields) parse correctly through this schema.
+ */
+export const shortlistInputSchema = z
+  .object({
+    seeds: z.array(discoveryShortlistEntrySchema).min(1),
+  })
+  .passthrough();
+export type ShortlistInput = z.infer<typeof shortlistInputSchema>;
 
 export const seedClaimSupportSpanSchema = z
   .object({

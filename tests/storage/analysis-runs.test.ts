@@ -41,9 +41,12 @@ describe("analysis runs repository", () => {
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
           evidenceLlmRerank: true,
+          discoverStrategy: "legacy",
           discoverTopN: 5,
           discoverRank: true,
           discoverModel: "claude-opus-4-6",
+          discoverProbeBudget: 20,
+          discoverShortlistCap: 10,
         },
       });
 
@@ -77,9 +80,12 @@ describe("analysis runs repository", () => {
           adjudicateModel: "claude-opus-4-6",
           adjudicateThinking: false,
           evidenceLlmRerank: true,
+          discoverStrategy: "legacy",
           discoverTopN: 5,
           discoverRank: true,
           discoverModel: "claude-opus-4-6",
+          discoverProbeBudget: 20,
+          discoverShortlistCap: 10,
         },
       });
 

@@ -84,19 +84,19 @@ describe("runDiscoveryStage", () => {
 
     const adapters: DiscoveryStageAdapters = {
       resolvePaperByDoi: vi.fn(
-        async (doi: string): Promise<Result<ResolvedPaper>> => {
+        (doi: string): Promise<Result<ResolvedPaper>> => {
           if (doi === "10.1234/success") {
-            return { ok: true, data: resolvedPaper };
+            return Promise.resolve({ ok: true, data: resolvedPaper });
           }
           if (doi === "10.1234/no-fulltext") {
-            return { ok: true, data: makePaper("paper-2", doi) };
+            return Promise.resolve({ ok: true, data: makePaper("paper-2", doi) });
           }
-          return { ok: false, error: `Not found: ${doi}` };
+          return Promise.resolve({ ok: false, error: `Not found: ${doi}` });
         },
       ),
-      materializeParsedPaper: vi.fn(async (paper: ResolvedPaper) => {
+      materializeParsedPaper: vi.fn((paper: ResolvedPaper) => {
         if (paper.doi === "10.1234/no-fulltext") {
-          return {
+          return Promise.resolve({
             ok: false as const,
             error: "No fetchable full text candidates",
             acquisition: {
@@ -108,9 +108,9 @@ describe("runDiscoveryStage", () => {
               fullTextFormat: undefined,
               failureReason: "No fetchable full text candidates",
             },
-          };
+          });
         }
-        return {
+        return Promise.resolve({
           ok: true as const,
           data: {
             fullText: {
@@ -128,16 +128,16 @@ describe("runDiscoveryStage", () => {
             },
             parsedDocument: PARSED_DOCUMENT,
           },
-        };
+        });
       }),
-      discoverClaims: vi.fn(async () => discoveryResult),
-      getCitingPapers: vi.fn(async () => ({
+      discoverClaims: vi.fn(() => Promise.resolve(discoveryResult)),
+      getCitingPapers: vi.fn(() => Promise.resolve({
         ok: true as const,
         data: [makePaper("citing-1", "10.1234/citing-1")],
       })),
       rankClaimsByEngagement: vi.fn<
         DiscoveryStageAdapters["rankClaimsByEngagement"]
-      >(async (_seedTitle, claims) => ({
+      >((_seedTitle, claims) => Promise.resolve({
         citingPapersAnalyzed: 1,
         citingPapersTotal: 1,
         rankingModel: "mock-ranker",
