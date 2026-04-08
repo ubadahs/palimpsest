@@ -41,6 +41,7 @@ export function buildStageCommand(
   const outputDirectory = getStageDirectory(run.id, stageKey);
 
   if (stageKey === "discover") {
+    const isAttribution = config.discoverStrategy === "attribution_first";
     return {
       command: "discover",
       args: [
@@ -49,9 +50,20 @@ export function buildStageCommand(
         getDoisInputPath(run.id),
         "--output",
         outputDirectory,
-        "--top",
-        String(config.discoverTopN),
-        ...(config.discoverRank === false ? ["--no-rank"] : []),
+        "--strategy",
+        config.discoverStrategy,
+        ...(isAttribution
+          ? [
+              "--probe-budget",
+              String(config.discoverProbeBudget),
+              "--shortlist-cap",
+              String(config.discoverShortlistCap),
+            ]
+          : [
+              "--top",
+              String(config.discoverTopN),
+              ...(config.discoverRank === false ? ["--no-rank"] : []),
+            ]),
         ...(config.discoverModel !== "claude-opus-4-6"
           ? ["--model", config.discoverModel]
           : []),

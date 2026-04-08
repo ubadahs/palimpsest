@@ -43,9 +43,14 @@ export const analysisRunConfigObjectSchema = z
     adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
     adjudicateThinking: z.boolean().default(true),
     evidenceLlmRerank: z.boolean().default(true),
+    discoverStrategy: z
+      .enum(["legacy", "attribution_first"])
+      .default("legacy"),
     discoverTopN: z.number().int().positive().default(5),
     discoverRank: z.boolean().default(true),
     discoverModel: z.string().min(1).default("claude-opus-4-6"),
+    discoverProbeBudget: z.number().int().positive().default(20),
+    discoverShortlistCap: z.number().int().positive().default(10),
   })
   .passthrough();
 

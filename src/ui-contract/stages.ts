@@ -35,7 +35,15 @@ export const stageDefinitions: readonly StageDefinition[] = [
     artifactGlobs: {
       primarySuffix: "_discovery-results.json",
       reportSuffix: "_discovery-report.md",
-      extraSuffixes: ["_discovery-shortlist.json"],
+      extraSuffixes: [
+        "_discovery-shortlist.json",
+        "_discovery-neighborhood.json",
+        "_discovery-probe.json",
+        "_discovery-mentions.json",
+        "_discovery-attributed-claims.json",
+        "_discovery-family-candidates.json",
+        "_discovery-grounding-trace.json",
+      ],
     },
   },
   {

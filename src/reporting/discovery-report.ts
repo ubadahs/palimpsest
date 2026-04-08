@@ -1,4 +1,5 @@
 import type { ClaimDiscoveryResult } from "../domain/types.js";
+import type { AttributionDiscoveryResult } from "../pipeline/discovery-family-probe.js";
 import { formatAcquisitionSummary } from "../retrieval/fulltext-fetch.js";
 
 export function toDiscoveryMarkdown(results: ClaimDiscoveryResult[]): string {
@@ -103,6 +104,117 @@ export function toDiscoveryMarkdown(results: ClaimDiscoveryResult[]): string {
       lines.push("**Source:**");
       for (const span of claim.sourceSpans) {
         lines.push(`> ${span}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("---");
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Attribution-first report
+// ---------------------------------------------------------------------------
+
+export function toAttributionDiscoveryMarkdown(
+  results: AttributionDiscoveryResult[],
+): string {
+  const lines: string[] = ["# Attribution-First Discovery Report", ""];
+
+  for (const result of results) {
+    const title = result.resolvedPaper?.title ?? result.doi;
+    lines.push(`## ${title}`);
+    lines.push("");
+    lines.push(`- **DOI:** ${result.doi}`);
+    lines.push(
+      `- **Neighborhood:** ${String(result.neighborhood.totalCitingPapers)} citing papers (${String(result.neighborhood.fullTextAvailableCount)} full-text available)`,
+    );
+    lines.push(
+      `- **Probe set:** ${String(result.probeSelection.selectedCount)} selected, ${String(result.probeSelection.excludedCount)} excluded (strategy: ${result.probeSelection.strategy})`,
+    );
+    lines.push(
+      `- **Mentions harvested:** ${String(result.mentions.length)} from ${String(result.harvestSummaries.filter((s) => s.harvestOutcome === "success").length)} papers`,
+    );
+
+    const inScope = result.extractionRecords.filter(
+      (r) => r.inScopeEmpiricalAttribution,
+    );
+    lines.push(
+      `- **Attributed claims:** ${String(inScope.length)} in-scope of ${String(result.extractionRecords.length)} total`,
+    );
+    lines.push(
+      `- **Family candidates:** ${String(result.familyCandidates.length)}`,
+    );
+    lines.push(
+      `- **Shortlisted:** ${String(result.shortlistEntries.length)}`,
+    );
+
+    if (result.warnings.length > 0) {
+      lines.push("");
+      lines.push("### Warnings");
+      for (const w of result.warnings) {
+        lines.push(`- ${w}`);
+      }
+    }
+    lines.push("");
+
+    // Harvest summary
+    const failedHarvests = result.harvestSummaries.filter(
+      (s) => s.harvestOutcome !== "success",
+    );
+    if (failedHarvests.length > 0) {
+      lines.push("### Harvest failures");
+      lines.push("");
+      for (const s of failedHarvests) {
+        lines.push(
+          `- **${s.citingPaperTitle.slice(0, 60)}**: ${s.harvestOutcome} — ${s.failureReason ?? "no detail"}`,
+        );
+      }
+      lines.push("");
+    }
+
+    // Shortlisted families
+    if (result.shortlistEntries.length > 0) {
+      lines.push("### Shortlisted families");
+      lines.push("");
+      for (let i = 0; i < result.shortlistEntries.length; i++) {
+        const entry = result.shortlistEntries[i]!;
+        lines.push(`#### ${String(i + 1)}. ${entry.trackedClaim}`);
+        lines.push("");
+        if (entry.seedGroundingStatus) {
+          lines.push(`- **Grounding:** ${entry.seedGroundingStatus}`);
+        }
+        if (entry.supportingMentionCount != null) {
+          lines.push(
+            `- **Supporting mentions:** ${String(entry.supportingMentionCount)}`,
+          );
+        }
+        if (entry.supportingPaperCount != null) {
+          lines.push(
+            `- **Supporting papers:** ${String(entry.supportingPaperCount)}`,
+          );
+        }
+        if (entry.notes) {
+          lines.push(`- **Notes:** ${entry.notes}`);
+        }
+        lines.push("");
+      }
+    }
+
+    // Non-shortlisted families (for transparency)
+    const excluded = result.familyCandidates.filter((f) => !f.shortlistEligible);
+    if (excluded.length > 0) {
+      lines.push("### Excluded families");
+      lines.push("");
+      for (const f of excluded) {
+        const truncated =
+          f.canonicalTrackedClaim.length > 80
+            ? `${f.canonicalTrackedClaim.slice(0, 77)}…`
+            : f.canonicalTrackedClaim;
+        lines.push(`- ${truncated} — ${f.shortlistReason}`);
       }
       lines.push("");
     }

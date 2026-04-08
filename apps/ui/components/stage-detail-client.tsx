@@ -29,6 +29,18 @@ const stageDescriptions: Record<StageKey, string> = {
   adjudicate: "Runs LLM adjudication to produce fidelity verdicts.",
 };
 
+function getDiscoverDescription(payload: unknown): string {
+  const strategy =
+    typeof payload === "object" &&
+    payload !== null &&
+    "strategy" in payload &&
+    (payload as Record<string, unknown>)["strategy"];
+  if (strategy === "attribution_first") {
+    return "Harvests what citing papers attribute to the seed paper, then builds grounded family candidates.";
+  }
+  return stageDescriptions.discover;
+}
+
 function badgeVariant(
   status: string,
 ): "neutral" | "running" | "success" | "failed" | "stale" {
@@ -120,7 +132,9 @@ export function StageDetailClient({
               {detail.stageTitle}
             </h2>
             <p className="max-w-xl text-sm text-[var(--text-muted)]">
-              {stageDescriptions[detail.stageKey]}
+              {detail.stageKey === "discover"
+                ? getDiscoverDescription(detail.inspectorPayload)
+                : stageDescriptions[detail.stageKey]}
             </p>
             <p className="text-xs text-[var(--text-muted)]">
               {run.seedDoi} · {formatDateTime(detail.startedAt)} →{" "}
