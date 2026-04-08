@@ -19,6 +19,7 @@ import {
 } from "../../integrations/paper-resolver.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import * as openalex from "../../integrations/openalex.js";
+import { buildPaperAdapters } from "../paper-adapters.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
 import {
@@ -28,6 +29,7 @@ import {
 import {
   runDiscoveryStage,
   type DiscoverySeedEntry,
+  type DiscoveryStrategy,
 } from "../../pipeline/discovery-stage.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
@@ -44,6 +46,7 @@ import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { resolveStageOutputDir } from "../stage-output.js";
 import {
   writeAdjudicationArtifacts,
+  writeAttributionDiscoveryArtifacts,
   writeCalibrationSetArtifacts,
   writeClassificationArtifacts,
   writeDiscoveryArtifacts,
@@ -65,6 +68,9 @@ function parseArgs(argv: string[]): {
   topN: number;
   noRank: boolean;
   targetSize: number;
+  strategy: DiscoveryStrategy;
+  probeBudget: number;
+  shortlistCap: number;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -72,6 +78,9 @@ function parseArgs(argv: string[]): {
   let topN = 5;
   let noRank = false;
   let targetSize = 40;
+  let strategy: DiscoveryStrategy = "legacy";
+  let probeBudget = 20;
+  let shortlistCap = 10;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -92,18 +101,36 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--target-size" && i + 1 < argv.length) {
       targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 40);
       i++;
+    } else if (arg === "--strategy" && i + 1 < argv.length) {
+      const val = argv[i + 1]!;
+      if (val === "attribution_first" || val === "legacy") {
+        strategy = val;
+      } else {
+        console.error(
+          `Invalid --strategy value "${val}". Use "legacy" or "attribution_first".`,
+        );
+        process.exitCode = 1;
+        throw new Error("Invalid --strategy");
+      }
+      i++;
+    } else if (arg === "--probe-budget" && i + 1 < argv.length) {
+      probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
+      i++;
+    } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
+      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      i++;
     }
   }
 
   if (!input && !shortlist) {
     console.error(
-      "Usage: pipeline --input <dois.json> [--shortlist <shortlist.json>] [--output <dir>] [--top N] [--no-rank] [--target-size N]",
+      "Usage: pipeline --input <dois.json> [--shortlist <shortlist.json>] [--output <dir>] [--top N] [--no-rank] [--target-size N] [--strategy legacy|attribution_first] [--probe-budget N] [--shortlist-cap N]",
     );
     process.exitCode = 1;
     throw new Error("Missing --input or --shortlist");
   }
 
-  return { input, shortlist, output, topN, noRank, targetSize };
+  return { input, shortlist, output, topN, noRank, targetSize, strategy, probeBudget, shortlistCap };
 }
 
 // ---------------------------------------------------------------------------
@@ -171,9 +198,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoveryInputSchema,
         "discovery input",
       );
+      const strategyLabel =
+        args.strategy === "attribution_first"
+          ? "attribution-first"
+          : "legacy";
       log(
         "discover",
-        `Extracting claims from ${String(inputData.dois.length)} paper(s)...`,
+        `Discovering from ${String(inputData.dois.length)} paper(s) [${strategyLabel}]...`,
       );
 
       const discoveryClient = createLLMClient({
@@ -181,40 +212,56 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         defaultModel: "claude-opus-4-6",
       });
 
+      const paperAdapters = buildPaperAdapters({
+        resolverConfig: {
+          openAlexBaseUrl: config.providerBaseUrls.openAlex,
+          semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+          openAlexEmail: config.openAlexEmail,
+          semanticScholarApiKey: config.semanticScholarApiKey,
+        },
+        biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+        openAlexBaseUrl: config.providerBaseUrls.openAlex,
+        openAlexEmail: config.openAlexEmail,
+        fullTextAdapters,
+        cache: { db: database, cachePolicy },
+      });
+
       const discoveryStage = await runDiscoveryStage(
         {
           dois: inputData.dois,
           topN: args.topN,
           rank: !args.noRank,
+          strategy: args.strategy,
+          ...(args.strategy === "attribution_first"
+            ? {
+                attributionAdapters: {
+                  ...paperAdapters,
+                  mentionHarvest: {
+                    fullText: fullTextAdapters,
+                    biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+                    cache: { db: database, cachePolicy },
+                  },
+                  llmClient: discoveryClient,
+                  groundingOptions: {
+                    apiKey: config.anthropicApiKey,
+                    llmClient: discoveryClient,
+                  },
+                },
+                attributionOptions: {
+                  probeBudget: args.probeBudget,
+                  shortlistCap: args.shortlistCap,
+                },
+              }
+            : {}),
         },
         {
-          resolvePaperByDoi: (doi) =>
-            resolvePaperByDoi(doi, {
-              openAlexBaseUrl: config.providerBaseUrls.openAlex,
-              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-              openAlexEmail: config.openAlexEmail,
-              semanticScholarApiKey: config.semanticScholarApiKey,
-            }),
-          materializeParsedPaper: (paper) =>
-            materializeParsedPaper(
-              paper,
-              config.providerBaseUrls.bioRxiv,
-              fullTextAdapters,
-              { db: database, cachePolicy },
-            ),
+          ...paperAdapters,
           discoverClaims: (paper, parsedDocument) =>
             discoverClaims({
               paper,
               parsedDocument,
               client: discoveryClient,
             }),
-          getCitingPapers: (openAlexId) =>
-            openalex.getCitingWorks(
-              openAlexId,
-              config.providerBaseUrls.openAlex,
-              200,
-              config.openAlexEmail,
-            ),
           rankClaimsByEngagement: (
             seedTitle,
             claims,
@@ -236,14 +283,31 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         },
       );
       seeds = discoveryStage.seeds;
-      const discoverArtifacts = writeDiscoveryArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        results: discoveryStage.results,
-        seeds: discoveryStage.seeds,
-        sourceArtifacts: [args.input!],
-      });
-      screenInputArtifactPath = discoverArtifacts.shortlistPath;
+
+      let shortlistPath: string;
+      if (
+        args.strategy === "attribution_first" &&
+        discoveryStage.attributionDiscovery
+      ) {
+        const artifacts = writeAttributionDiscoveryArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          results: discoveryStage.attributionDiscovery,
+          seeds: discoveryStage.seeds,
+          sourceArtifacts: [args.input!],
+        });
+        shortlistPath = artifacts.shortlistPath;
+      } else {
+        const artifacts = writeDiscoveryArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          results: discoveryStage.results,
+          seeds: discoveryStage.seeds,
+          sourceArtifacts: [args.input!],
+        });
+        shortlistPath = artifacts.shortlistPath;
+      }
+      screenInputArtifactPath = shortlistPath;
 
       const discoveryLedger = discoveryClient.getLedger();
       log(

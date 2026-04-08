@@ -1,9 +1,12 @@
 import type {
   EdgeExtractionResult,
   ExtractionOutcome,
+  HarvestedSeedMention,
+  MentionHarvestOutcome,
   PreScreenEdge,
   ResolvedPaper,
 } from "../domain/types.js";
+import type { ParsedCitationMention } from "../domain/parsing.js";
 import type { ParsedPaperCacheOptions } from "./parsed-paper.js";
 import { type FullTextFetchAdapters } from "./fulltext-fetch.js";
 import {
@@ -11,11 +14,11 @@ import {
   assessUsability,
   deduplicateMentions,
 } from "./mention-analysis.js";
+import { toCitationMention } from "./parsed-paper.js";
 import {
-  findReferenceByMetadata,
-  materializeParsedPaper,
-  toCitationMention,
-} from "./parsed-paper.js";
+  harvestSeedMentions,
+  type MentionHarvestAdapters,
+} from "./seed-mention-harvest.js";
 
 export type ExtractionAdapters = {
   fullText: FullTextFetchAdapters;
@@ -23,58 +26,28 @@ export type ExtractionAdapters = {
   cache?: ParsedPaperCacheOptions;
 };
 
-// --- Classify error strings into structured outcomes ---
-
-function classifyFailure(error: string): ExtractionOutcome {
-  if (/403/i.test(error)) return "fail_http_403";
-  if (/grobid/i.test(error)) return "fail_grobid_parse_error";
-  if (
-    /pdf\s*parse/i.test(error) ||
-    /invalid\s*pdf/i.test(error) ||
-    /html_instead_of_pdf/i.test(error) ||
-    /invalid_pdf_payload/i.test(error)
-  )
-    return "fail_pdf_parse_error";
-  return "fail_unknown";
-}
-
-// --- Build a result object with consistent shape ---
-
-function makeResult(
-  base: Pick<
-    EdgeExtractionResult,
-    | "citingPaperId"
-    | "citedPaperId"
-    | "citingPaperTitle"
-    | "citingPaperAcquisition"
-  >,
-  outcome: ExtractionOutcome,
-  sourceType: EdgeExtractionResult["sourceType"],
-  failureReason: string | undefined,
-  rawMentions: ReturnType<typeof annotateMention>[] = [],
-): EdgeExtractionResult {
-  const annotated = rawMentions.map(annotateMention);
-  const { unique, rawCount } = deduplicateMentions(annotated);
-
-  const extractionSuccess =
-    outcome === "success_structured" ||
-    outcome === "success_pdf" ||
-    outcome === "success_grobid";
-  const usableForGrounding = extractionSuccess
-    ? assessUsability(unique)
-    : false;
-
-  return {
-    ...base,
-    sourceType,
-    extractionOutcome: outcome,
-    extractionSuccess,
-    usableForGrounding,
-    rawMentionCount: rawCount,
-    deduplicatedMentionCount: unique.length,
-    mentions: unique,
-    failureReason,
-  };
+// Map MentionHarvestOutcome → ExtractionOutcome so callers of extractEdgeContext
+// see the same outcome vocabulary as before. Only non-success outcomes need
+// mapping — the success branch is handled inline after mention conversion.
+function toFailureOutcome(
+  harvestOutcome: MentionHarvestOutcome,
+): ExtractionOutcome {
+  switch (harvestOutcome) {
+    case "no_fulltext":
+      return "skipped_not_auditable";
+    case "http_403":
+      return "fail_http_403";
+    case "parse_failed":
+      return "fail_pdf_parse_error";
+    case "ref_list_empty":
+      return "fail_ref_list_empty";
+    case "no_reference_match":
+      return "fail_no_reference_match";
+    case "ref_found_but_no_in_text_xref":
+      return "fail_ref_found_but_no_in_text_xref";
+    default:
+      return "fail_unknown";
+  }
 }
 
 export async function extractEdgeContext(
@@ -83,108 +56,99 @@ export async function extractEdgeContext(
   seedPaper: ResolvedPaper,
   adapters: ExtractionAdapters,
 ): Promise<EdgeExtractionResult> {
+  const harvestAdapters: MentionHarvestAdapters = {
+    fullText: adapters.fullText,
+    biorxivBaseUrl: adapters.biorxivBaseUrl,
+    ...(adapters.cache != null ? { cache: adapters.cache } : {}),
+  };
+
+  const harvest = await harvestSeedMentions(citingPaper, seedPaper, harvestAdapters);
+
   const base = {
     citingPaperId: edge.citingPaperId,
     citedPaperId: edge.citedPaperId,
     citingPaperTitle: citingPaper.title,
-    citingPaperAcquisition: undefined,
+    citingPaperAcquisition: harvest.acquisition,
   };
 
-  if (citingPaper.fullTextHints.providerAvailability !== "available") {
-    return makeResult(
-      base,
-      "skipped_not_auditable",
-      "not_attempted",
-      "Full text not available",
-    );
+  if (harvest.outcome !== "success" || harvest.mentions.length === 0) {
+    const outcome = toFailureOutcome(harvest.outcome);
+    return {
+      ...base,
+      sourceType: "not_attempted",
+      extractionOutcome: outcome,
+      extractionSuccess: false,
+      usableForGrounding: false,
+      rawMentionCount: 0,
+      deduplicatedMentionCount: 0,
+      mentions: [],
+      failureReason: harvest.failureReason,
+    };
   }
 
-  const parsedResult = await materializeParsedPaper(
-    citingPaper,
-    adapters.biorxivBaseUrl,
-    adapters.fullText,
-    adapters.cache,
-  );
-
-  if (!parsedResult.ok) {
-    return makeResult(
-      {
-        ...base,
-        citingPaperAcquisition: parsedResult.acquisition,
-      },
-      classifyFailure(parsedResult.error),
-      "not_attempted",
-      parsedResult.error,
-    );
-  }
-
-  const { parsedDocument } = parsedResult.data;
-  const refs = parsedDocument.references;
-
-  if (refs.length === 0) {
-    return makeResult(
-      {
-        ...base,
-        citingPaperAcquisition: parsedResult.data.acquisition,
-      },
-      "fail_ref_list_empty",
-      parsedDocument.parserKind === "grobid_tei" ? "grobid_tei" : "jats_xml",
-      "Reference list parsed but empty",
-    );
-  }
-
-  const seedRef = findReferenceByMetadata(refs, {
-    title: seedPaper.title,
-    ...(seedPaper.doi ? { doi: seedPaper.doi } : {}),
-  });
-
-  const sourceType =
-    parsedDocument.parserKind === "grobid_tei"
+  // Convert HarvestedSeedMention → ParsedCitationMention-compatible shape for
+  // existing mention-analysis helpers, then build CitationMention objects.
+  const sourceType = harvest.mentions[0]!.sourceType;
+  const edgeSourceType: EdgeExtractionResult["sourceType"] =
+    sourceType === "grobid_tei"
       ? "grobid_tei"
-      : parsedDocument.parserKind === "jats"
+      : sourceType === "jats_xml"
         ? "jats_xml"
         : "pdf_text";
 
-  if (!seedRef) {
-    return makeResult(
-      {
-        ...base,
-        citingPaperAcquisition: parsedResult.data.acquisition,
-      },
-      "fail_no_reference_match",
-      sourceType,
-      `Seed paper not found in reference list (${String(refs.length)} refs parsed)`,
-    );
-  }
-
-  const mentions = parsedDocument.mentions
-    .filter((mention) => mention.refId === seedRef.refId)
-    .map(toCitationMention);
-
-  if (mentions.length === 0) {
-    return makeResult(
-      {
-        ...base,
-        citingPaperAcquisition: parsedResult.data.acquisition,
-      },
-      "fail_ref_found_but_no_in_text_xref",
-      sourceType,
-      "Seed ref found in reference list but no in-text citation mentions located",
-    );
-  }
-
-  return makeResult(
-    {
-      ...base,
-      citingPaperAcquisition: parsedResult.data.acquisition,
-    },
-    sourceType === "grobid_tei"
-      ? "success_grobid"
-      : sourceType === "jats_xml"
-        ? "success_structured"
-        : "success_pdf",
-    sourceType,
-    undefined,
-    mentions,
+  // Reconstruct ParsedCitationMention-compatible objects from harvested mentions
+  // so we can run them through the existing annotation/dedup pipeline.
+  const rawMentions = harvest.mentions.map((m) =>
+    toCitationMentionFromHarvested(m, edgeSourceType),
   );
+  const annotated = rawMentions.map(annotateMention);
+  const { unique, rawCount } = deduplicateMentions(annotated);
+  const usableForGrounding = assessUsability(unique);
+
+  const extractionOutcome: ExtractionOutcome =
+    edgeSourceType === "grobid_tei"
+      ? "success_grobid"
+      : edgeSourceType === "jats_xml"
+        ? "success_structured"
+        : "success_pdf";
+
+  return {
+    ...base,
+    sourceType: edgeSourceType,
+    extractionOutcome,
+    extractionSuccess: true,
+    usableForGrounding,
+    rawMentionCount: rawCount,
+    deduplicatedMentionCount: unique.length,
+    mentions: unique,
+    failureReason: undefined,
+  };
+}
+
+/**
+ * Re-hydrate a `HarvestedSeedMention` into the shape that `toCitationMention`
+ * and `annotateMention` expect. We cannot call `toCitationMention` directly
+ * because `HarvestedSeedMention` does not preserve `mentionIndex` or bundle
+ * fields — so we synthesise minimal defaults here.
+ */
+function toCitationMentionFromHarvested(
+  mention: HarvestedSeedMention,
+  sourceType: "jats_xml" | "grobid_tei" | "pdf_text",
+) {
+  const parsed: ParsedCitationMention = {
+    mentionIndex: 0,
+    rawContext: mention.rawContext,
+    citationMarker: mention.citationMarker,
+    sectionTitle: mention.sectionTitle,
+    refId: undefined,
+    charOffsetStart: undefined,
+    charOffsetEnd: undefined,
+    isBundledCitation: false,
+    bundleSize: 1,
+    bundleRefIds: [],
+    bundlePattern: "single",
+    sourceType,
+    parser: sourceType,
+  };
+  return toCitationMention(parsed);
 }

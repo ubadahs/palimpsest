@@ -1,7 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { getStageDefinition, stageKeyValues } from "../ui-contract/stages.js";
+import type { stageKeyValues } from "../ui-contract/stages.js";
+import { getStageDefinition } from "../ui-contract/stages.js";
 
 type StageKey = (typeof stageKeyValues)[number];
 
