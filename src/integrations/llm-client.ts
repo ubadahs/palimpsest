@@ -23,6 +23,7 @@ export const llmPurposeValues = [
   "claim-family-filter",
   "adjudication",
   "evidence-rerank",
+  "attributed-claim-extraction",
 ] as const;
 
 export type LLMPurpose = (typeof llmPurposeValues)[number];

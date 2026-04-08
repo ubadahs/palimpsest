@@ -30,10 +30,45 @@ import {
   summarizeFailureDetail,
 } from "./workflow.js";
 
+/** Attribution-first discovery primary JSON shape (compact summaries). */
+const attributionDiscoverySummarySchema = z.array(
+  z
+    .object({
+      doi: z.string(),
+      resolvedPaper: z.unknown().optional(),
+      neighborhood: z
+        .object({
+          totalCitingPapers: z.number(),
+          fullTextAvailableCount: z.number(),
+        })
+        .passthrough(),
+      probeSelection: z
+        .object({
+          strategy: z.string(),
+          selectedCount: z.number(),
+          excludedCount: z.number(),
+        })
+        .passthrough(),
+      mentionsHarvested: z.number(),
+      inScopeExtractions: z.number(),
+      familyCandidateCount: z.number(),
+      shortlistEntries: z.array(z.record(z.string(), z.unknown())),
+      warnings: z.array(z.string()),
+    })
+    .passthrough(),
+);
+type AttributionDiscoverySummary = z.infer<
+  typeof attributionDiscoverySummarySchema
+>;
+
 type ArtifactLoadResult =
   | {
       kind: "discover";
       data: ReturnType<typeof claimDiscoveryResultSchema.parse>[];
+    }
+  | {
+      kind: "discover-attribution";
+      data: AttributionDiscoverySummary;
     }
   | {
       kind: "screen";
@@ -84,12 +119,19 @@ function loadArtifactForStage(
   artifactPath: string,
 ): ArtifactLoadResult {
   if (stageKey === "discover") {
+    // Try legacy schema first; if it fails, try attribution-first shape.
+    const legacyResult = discoveryResultsArraySchema.safeParse(
+      JSON.parse(readFileSync(artifactPath, "utf8")) as unknown,
+    );
+    if (legacyResult.success) {
+      return { kind: "discover", data: legacyResult.data };
+    }
     return {
-      kind: stageKey,
+      kind: "discover-attribution",
       data: loadJsonArtifact(
         artifactPath,
-        discoveryResultsArraySchema,
-        "discovery results",
+        attributionDiscoverySummarySchema,
+        "attribution discovery results",
       ),
     };
   }
@@ -292,6 +334,36 @@ export function deriveStageSummary(
     };
   }
 
+  if (artifact.kind === "discover-attribution") {
+    const mentions = artifact.data.reduce(
+      (s, r) => s + r.mentionsHarvested,
+      0,
+    );
+    const families = artifact.data.reduce(
+      (s, r) => s + r.familyCandidateCount,
+      0,
+    );
+    const shortlisted = artifact.data.reduce(
+      (s, r) => s + r.shortlistEntries.length,
+      0,
+    );
+
+    return {
+      headline:
+        failureHeadline ??
+        (failedStage
+          ? "Attribution-first discovery did not complete."
+          : "Attribution-first discovery"),
+      metrics: [
+        metric("DOIs", artifact.data.length),
+        metric("Mentions", mentions),
+        metric("Families", families),
+        metric("Shortlisted", shortlisted),
+      ],
+      artifacts: artifactPointers,
+    };
+  }
+
   if (artifact.kind === "screen") {
     const greenlit = artifact.data.filter(
       (entry) => entry.decision === "greenlight",
@@ -378,6 +450,7 @@ export function buildStageInspectorPayload(
 
   if (artifact.kind === "discover") {
     return {
+      strategy: "legacy",
       papers: artifact.data.map((result) => ({
         doi: result.doi,
         title: result.resolvedPaper?.title,
@@ -406,6 +479,22 @@ export function buildStageInspectorPayload(
             indirectCount: engagement?.indirectCount ?? 0,
           };
         }),
+      })),
+    };
+  }
+
+  if (artifact.kind === "discover-attribution") {
+    return {
+      strategy: "attribution_first",
+      results: artifact.data.map((r) => ({
+        doi: r.doi,
+        neighborhood: r.neighborhood,
+        probeSelection: r.probeSelection,
+        mentionsHarvested: r.mentionsHarvested,
+        inScopeExtractions: r.inScopeExtractions,
+        familyCandidateCount: r.familyCandidateCount,
+        shortlistEntries: r.shortlistEntries,
+        warnings: r.warnings,
       })),
     };
   }

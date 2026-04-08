@@ -48,9 +48,12 @@ export default async function handler(
         curateTargetSize: 40,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: true,
+        discoverStrategy: "legacy",
         discoverTopN: 5,
         discoverRank: true,
         discoverModel: "claude-opus-4-6",
+        discoverProbeBudget: 20,
+        discoverShortlistCap: 10,
         ...payload.config,
       }),
     });

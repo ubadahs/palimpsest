@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 type GenericRecord = Record<string, unknown>;
 
-function DiscoverInspector({ payload }: { payload: GenericRecord }) {
+function LegacyDiscoverInspector({ payload }: { payload: GenericRecord }) {
   const papers = (payload["papers"] as GenericRecord[] | undefined) ?? [];
   const rows = papers.flatMap((paper) =>
     ((paper["claims"] as GenericRecord[] | undefined) ?? []).map((claim) => ({
@@ -44,6 +44,50 @@ function DiscoverInspector({ payload }: { payload: GenericRecord }) {
       searchPlaceholder="Filter extracted claims"
     />
   );
+}
+
+function AttributionDiscoverInspector({
+  payload,
+}: {
+  payload: GenericRecord;
+}) {
+  const results =
+    (payload["results"] as GenericRecord[] | undefined) ?? [];
+
+  const rows = results.flatMap((result) =>
+    (
+      (result["shortlistEntries"] as GenericRecord[] | undefined) ?? []
+    ).map((entry) => ({
+      doi: String(result["doi"] ?? ""),
+      trackedClaim: String(entry["trackedClaim"] ?? ""),
+      grounding: String(entry["seedGroundingStatus"] ?? "—"),
+      mentions: String(entry["supportingMentionCount"] ?? 0),
+      papers: String(entry["supportingPaperCount"] ?? 0),
+    })),
+  );
+
+  const column = createColumnHelper<GenericRecord>();
+
+  return (
+    <DataTable
+      columns={[
+        column.accessor("doi", { header: "DOI" }),
+        column.accessor("trackedClaim", { header: "Tracked Claim" }),
+        column.accessor("grounding", { header: "Grounding" }),
+        column.accessor("mentions", { header: "Mentions" }),
+        column.accessor("papers", { header: "Papers" }),
+      ]}
+      data={rows}
+      searchPlaceholder="Filter shortlisted families"
+    />
+  );
+}
+
+function DiscoverInspector({ payload }: { payload: GenericRecord }) {
+  if (payload["strategy"] === "attribution_first") {
+    return <AttributionDiscoverInspector payload={payload} />;
+  }
+  return <LegacyDiscoverInspector payload={payload} />;
 }
 
 function ScreenInspector({ payload }: { payload: GenericRecord }) {
