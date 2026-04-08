@@ -71,6 +71,11 @@ function parseArgs(argv: string[]): {
   strategy: DiscoveryStrategy;
   probeBudget: number;
   shortlistCap: number;
+  screenGroundingModel: string | undefined;
+  screenFilterModel: string | undefined;
+  screenFilterConcurrency: number | undefined;
+  rerankModel: string | undefined;
+  rerankTopN: number | undefined;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -81,6 +86,11 @@ function parseArgs(argv: string[]): {
   let strategy: DiscoveryStrategy = "legacy";
   let probeBudget = 20;
   let shortlistCap = 10;
+  let screenGroundingModel: string | undefined;
+  let screenFilterModel: string | undefined;
+  let screenFilterConcurrency: number | undefined;
+  let rerankModel: string | undefined;
+  let rerankTopN: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -119,18 +129,48 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
       shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
       i++;
+    } else if (arg === "--screen-grounding-model" && i + 1 < argv.length) {
+      screenGroundingModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--screen-filter-model" && i + 1 < argv.length) {
+      screenFilterModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--screen-filter-concurrency" && i + 1 < argv.length) {
+      screenFilterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      i++;
+    } else if (arg === "--rerank-model" && i + 1 < argv.length) {
+      rerankModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
+      rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      i++;
     }
   }
 
   if (!input && !shortlist) {
     console.error(
-      "Usage: pipeline --input <dois.json> [--shortlist <shortlist.json>] [--output <dir>] [--top N] [--no-rank] [--target-size N] [--strategy legacy|attribution_first] [--probe-budget N] [--shortlist-cap N]",
+      "Usage: pipeline --input <dois.json> [--shortlist <shortlist.json>] [--output <dir>] [--top N] [--no-rank] [--target-size N] [--strategy legacy|attribution_first] [--probe-budget N] [--shortlist-cap N] [--screen-grounding-model <model>] [--screen-filter-model <model>] [--screen-filter-concurrency N] [--rerank-model <model>] [--rerank-top-n N]",
     );
     process.exitCode = 1;
     throw new Error("Missing --input or --shortlist");
   }
 
-  return { input, shortlist, output, topN, noRank, targetSize, strategy, probeBudget, shortlistCap };
+  return {
+    input,
+    shortlist,
+    output,
+    topN,
+    noRank,
+    targetSize,
+    strategy,
+    probeBudget,
+    shortlistCap,
+    screenGroundingModel,
+    screenFilterModel,
+    screenFilterConcurrency,
+    rerankModel,
+    rerankTopN,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -365,7 +405,23 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       {
         llmGrounding: {
           anthropicApiKey: config.anthropicApiKey,
+          ...(args.screenGroundingModel != null
+            ? { model: args.screenGroundingModel }
+            : {}),
         },
+        ...(args.screenFilterModel != null ||
+        args.screenFilterConcurrency != null
+          ? {
+              llmFilter: {
+                ...(args.screenFilterModel != null
+                  ? { model: args.screenFilterModel }
+                  : {}),
+                ...(args.screenFilterConcurrency != null
+                  ? { concurrency: args.screenFilterConcurrency }
+                  : {}),
+              },
+            }
+          : {}),
       },
       (event) => {
         if (event.status === "completed") {
@@ -412,7 +468,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     };
 
     const reranker = createLocalReranker(config.localRerankerBaseUrl);
-    const rerankModelId = "claude-haiku-4-5";
+    const rerankModelId = args.rerankModel ?? "claude-haiku-4-5";
 
     for (let fi = 0; fi < processable.length; fi++) {
       const family = processable[fi]!;
@@ -533,7 +589,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         {
           ...(reranker ? { reranker } : {}),
           llmClient,
-          llmRerankerOptions: { model: rerankModelId, useThinking: true },
+          llmRerankerOptions: {
+            model: rerankModelId,
+            useThinking: true,
+            ...(args.rerankTopN != null ? { topN: args.rerankTopN } : {}),
+          },
         },
       );
 

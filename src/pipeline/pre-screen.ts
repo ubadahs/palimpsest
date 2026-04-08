@@ -49,6 +49,11 @@ export type PreScreenOptions = {
     anthropicApiKey: string;
     model?: string;
   };
+  /** Options for the LLM claim-family filter step. */
+  llmFilter?: {
+    model?: string;
+    concurrency?: number;
+  };
 };
 
 export type PreScreenRunResult = {
@@ -646,6 +651,14 @@ async function processOneSeed(
         claimGrounding.normalizedClaim,
         seedPaper.title,
         candidates,
+        {
+          ...(options.llmFilter?.model != null
+            ? { model: options.llmFilter.model }
+            : {}),
+          ...(options.llmFilter?.concurrency != null
+            ? { concurrency: options.llmFilter.concurrency }
+            : {}),
+        },
       );
 
       const excluded = new Set(
@@ -771,6 +784,7 @@ export async function runPreScreen(
         ? { model: options.llmGrounding.model }
         : {}),
     },
+    ...(options.llmFilter != null ? { llmFilter: options.llmFilter } : {}),
   };
   const paperCache = new Map<string, ResolvedPaper>();
 
