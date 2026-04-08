@@ -86,13 +86,14 @@ async function filterOneCandidate(
   seedTitle: string,
   candidate: ClaimFamilyCandidate,
   thinkingBudget: number,
+  model: string,
 ): Promise<Result<LLMClaimFamilyFilterResult>> {
   const prompt = buildFilterPrompt(seedClaim, seedTitle, candidate);
 
   try {
     const result = await client.generateText({
       purpose: "claim-family-filter",
-      model: "claude-haiku-4-5",
+      model,
       prompt,
       thinking: { type: "enabled", budgetTokens: thinkingBudget },
     });
@@ -127,6 +128,8 @@ export type LLMClaimFamilyFilterOptions = {
   thinkingBudget?: number;
   /** Max concurrent LLM calls. Default 10. */
   concurrency?: number;
+  /** Model to use. Default "claude-haiku-4-5". */
+  model?: string;
 };
 
 /**
@@ -148,6 +151,7 @@ export async function llmFilterClaimFamily(
 
   const thinkingBudget = options.thinkingBudget ?? 4096;
   const concurrency = options.concurrency ?? 10;
+  const model = options.model ?? "claude-haiku-4-5";
 
   const results: LLMClaimFamilyFilterResult[] = [];
 
@@ -162,6 +166,7 @@ export async function llmFilterClaimFamily(
           seedTitle,
           candidate,
           thinkingBudget,
+          model,
         ),
       ),
     );

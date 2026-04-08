@@ -51,6 +51,11 @@ export const analysisRunConfigObjectSchema = z
     discoverModel: z.string().min(1).default("claude-opus-4-6"),
     discoverProbeBudget: z.number().int().positive().default(20),
     discoverShortlistCap: z.number().int().positive().default(10),
+    screenGroundingModel: z.string().min(1).default("claude-opus-4-6"),
+    screenFilterModel: z.string().min(1).default("claude-haiku-4-5"),
+    screenFilterConcurrency: z.number().int().positive().default(10),
+    evidenceRerankModel: z.string().min(1).default("claude-haiku-4-5"),
+    evidenceRerankTopN: z.number().int().positive().default(5),
   })
   .passthrough();
 

@@ -30,6 +30,7 @@ function parseArgs(argv: string[]): {
   forceRefresh: boolean;
   llmRerank: boolean;
   rerankModel: string | undefined;
+  rerankTopN: number | undefined;
   rerankThinking: boolean;
 } {
   let classificationPath: string | undefined;
@@ -37,6 +38,7 @@ function parseArgs(argv: string[]): {
   let forceRefresh = false;
   let llmRerank = true;
   let rerankModel: string | undefined;
+  let rerankTopN: number | undefined;
   let rerankThinking = true;
 
   for (let i = 0; i < argv.length; i++) {
@@ -54,6 +56,9 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--rerank-model" && i + 1 < argv.length) {
       rerankModel = argv[i + 1];
       i++;
+    } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
+      rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      i++;
     } else if (arg === "--rerank-thinking") {
       rerankThinking = true;
     } else if (arg === "--no-rerank-thinking") {
@@ -63,7 +68,7 @@ function parseArgs(argv: string[]): {
 
   if (!classificationPath) {
     console.error(
-      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh] [--no-llm-rerank] [--rerank-model <id>] [--rerank-thinking]",
+      "Usage: evidence --classification <path> [--output <dir>] [--force-refresh] [--no-llm-rerank] [--rerank-model <id>] [--rerank-top-n <n>] [--rerank-thinking]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -75,6 +80,7 @@ function parseArgs(argv: string[]): {
     forceRefresh,
     llmRerank,
     rerankModel,
+    rerankTopN,
     rerankThinking,
   };
 }
@@ -188,6 +194,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
               llmRerankerOptions: {
                 model: rerankModelId,
                 useThinking: args.rerankThinking,
+                ...(args.rerankTopN != null ? { topN: args.rerankTopN } : {}),
               },
             }
           : {}),
