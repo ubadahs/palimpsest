@@ -290,7 +290,7 @@ async function retrieveForTask(
       )
     : await rerankBlocksLocal(query, bm25Ranked, adapters.reranker);
 
-  const spans = reranked.slice(0, 5).map(toEvidenceSpan);
+  const spans = reranked.slice(0, adapters.llmRerankerOptions?.topN ?? 5).map(toEvidenceSpan);
 
   return {
     ...task,

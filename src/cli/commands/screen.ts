@@ -24,10 +24,14 @@ function parseArgs(argv: string[]): {
   input: string;
   output: string;
   llmGroundingModel: string | undefined;
+  filterModel: string | undefined;
+  filterConcurrency: number | undefined;
 } {
   let input: string | undefined;
   let output = "data/pre-screen";
   let llmGroundingModel: string | undefined;
+  let filterModel: string | undefined;
+  let filterConcurrency: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -39,6 +43,12 @@ function parseArgs(argv: string[]): {
       i++;
     } else if (arg === "--llm-grounding-model" && i + 1 < argv.length) {
       llmGroundingModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--filter-model" && i + 1 < argv.length) {
+      filterModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--filter-concurrency" && i + 1 < argv.length) {
+      filterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
       i++;
     }
   }
@@ -53,6 +63,8 @@ function parseArgs(argv: string[]): {
     input,
     output,
     llmGroundingModel,
+    filterModel,
+    filterConcurrency,
   };
 }
 
@@ -154,6 +166,18 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
               ? { model: args.llmGroundingModel }
               : {}),
           },
+          ...(args.filterModel != null || args.filterConcurrency != null
+            ? {
+                llmFilter: {
+                  ...(args.filterModel != null
+                    ? { model: args.filterModel }
+                    : {}),
+                  ...(args.filterConcurrency != null
+                    ? { concurrency: args.filterConcurrency }
+                    : {}),
+                },
+              }
+            : {}),
         },
         (event) => {
           if (event.status === "running") {
