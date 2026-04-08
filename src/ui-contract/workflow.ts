@@ -402,6 +402,50 @@ const workflowDefinitions = [
   },
 ] as const satisfies readonly StageWorkflowDefinition[];
 
+/**
+ * Alternative step list used when discover runs with `strategy: "attribution_first"`.
+ * The UI can swap this in once it knows the run's strategy from the config.
+ */
+export const attributionFirstDiscoverSteps: readonly WorkflowStepDefinition[] =
+  [
+    {
+      id: "resolve_paper",
+      label: "Resolve paper metadata",
+      description:
+        "Find the paper record via DOI and establish a canonical identity.",
+    },
+    {
+      id: "fetch_and_parse_full_text",
+      label: "Fetch and parse full text",
+      description:
+        "Retrieve the open-access full text and parse it into structured blocks with section labels.",
+    },
+    {
+      id: "gather_neighborhood",
+      label: "Gather citing neighborhood",
+      description:
+        "Pull all citing papers around the seed and select a probe set for full-text inspection.",
+    },
+    {
+      id: "harvest_and_extract",
+      label: "Harvest mentions and extract attributions (LLM)",
+      description:
+        "For each probe paper, find in-text mentions of the seed and ask the LLM what empirical claims are being attributed to it.",
+    },
+    {
+      id: "ground_families",
+      label: "Ground family candidates in seed text (LLM)",
+      description:
+        "Verify each candidate family claim against the seed paper's full text.",
+    },
+    {
+      id: "emit_shortlist",
+      label: "Emit shortlist for screening",
+      description:
+        "Select the top-ranked families and write a shortlist artifact ready to feed into the screen stage.",
+    },
+  ];
+
 const workflowDefinitionsByStage = Object.fromEntries(
   workflowDefinitions.map((definition) => [definition.stageKey, definition]),
 ) as unknown as Record<StageKey, StageWorkflowDefinition>;
@@ -590,13 +634,24 @@ export function buildFallbackStageWorkflowSnapshot(input: {
   };
 }
 
+/** Check whether log events contain attribution-first discover step IDs. */
+function detectAttributionFirstDiscover(
+  stageKey: StageKey,
+  events: StageProgressEvent[],
+): boolean {
+  if (stageKey !== "discover") return false;
+  const attrStepIds = new Set(
+    attributionFirstDiscoverSteps.map((s) => s.id),
+  );
+  return events.some((e) => attrStepIds.has(e.step));
+}
+
 export function buildStageWorkflowSnapshot(input: {
   stageKey: StageKey;
   stageStatus: StageStatusForWorkflow;
   logContent?: string;
   errorMessage?: string;
 }): StageWorkflowSnapshot {
-  const definition = getStageWorkflowDefinition(input.stageKey);
   const events = (input.logContent ?? "")
     .split("\n")
     .map(parseProgressEventLine)
@@ -620,13 +675,22 @@ export function buildStageWorkflowSnapshot(input: {
     );
   }
 
-  const steps = buildPendingSteps(input.stageKey);
+  // Use attribution-first step definitions when the log contains those step IDs.
+  const isAttrFirst = detectAttributionFirstDiscover(input.stageKey, events);
+  const definition = getStageWorkflowDefinition(input.stageKey);
+  const stepDefs = isAttrFirst
+    ? attributionFirstDiscoverSteps
+    : definition.steps;
+  const steps: StageWorkflowStep[] = stepDefs.map((step) => ({
+    ...step,
+    status: "pending" as const,
+  }));
   let summary: string | undefined;
   let counts: StageWorkflowCount | undefined;
   let lastStepIndex = -1;
 
   for (const event of events) {
-    const stepIndex = definition.steps.findIndex(
+    const stepIndex = stepDefs.findIndex(
       (step) => step.id === event.step,
     );
     if (stepIndex < 0) {

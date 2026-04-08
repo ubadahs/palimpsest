@@ -5,19 +5,21 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type { CachePolicy, ClaimDiscoveryResult } from "../../domain/types.js";
 import { discoveryInputSchema } from "../../domain/discovery.js";
-import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
-import * as openalex from "../../integrations/openalex.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import type { DiscoveryStrategy } from "../../pipeline/discovery-stage.js";
 import { runDiscoveryStage } from "../../pipeline/discovery-stage.js";
-import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
-import { writeDiscoveryArtifacts } from "../stage-artifact-writers.js";
+import {
+  writeAttributionDiscoveryArtifacts,
+  writeDiscoveryArtifacts,
+} from "../stage-artifact-writers.js";
+import { buildPaperAdapters } from "../paper-adapters.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 // ---------------------------------------------------------------------------
@@ -54,12 +56,18 @@ function parseArgs(argv: string[]): {
   model: string | undefined;
   rank: boolean;
   topN: number;
+  strategy: DiscoveryStrategy;
+  probeBudget: number;
+  shortlistCap: number;
 } {
   let input: string | undefined;
   let output = "data/discover";
   let model: string | undefined;
   let rank = true;
   let topN = DEFAULT_TOP_N;
+  let strategy: DiscoveryStrategy = "legacy";
+  let probeBudget = 20;
+  let shortlistCap = 10;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -77,6 +85,24 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--top" && i + 1 < argv.length) {
       topN = Math.max(1, parseInt(argv[i + 1]!, 10) || DEFAULT_TOP_N);
       i++;
+    } else if (arg === "--strategy" && i + 1 < argv.length) {
+      const val = argv[i + 1]!;
+      if (val === "attribution_first" || val === "legacy") {
+        strategy = val;
+      } else {
+        console.error(
+          `Invalid --strategy value "${val}". Use "legacy" or "attribution_first".`,
+        );
+        process.exitCode = 1;
+        throw new Error("Invalid --strategy");
+      }
+      i++;
+    } else if (arg === "--probe-budget" && i + 1 < argv.length) {
+      probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
+      i++;
+    } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
+      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      i++;
     }
   }
 
@@ -86,7 +112,7 @@ function parseArgs(argv: string[]): {
     throw new Error("Missing --input");
   }
 
-  return { input, output, model, rank, topN };
+  return { input, output, model, rank, topN, strategy, probeBudget, shortlistCap };
 }
 
 // ---------------------------------------------------------------------------
@@ -106,8 +132,15 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
       discoveryInputSchema,
       "discovery input",
     );
+
+    const strategyLabel =
+      args.strategy === "attribution_first"
+        ? " (attribution-first)"
+        : args.rank
+          ? " (with ranking)"
+          : "";
     console.info(
-      `Discovering claims for ${String(input.dois.length)} paper(s)...${args.rank ? " (with ranking)" : ""}`,
+      `Discovering claims for ${String(input.dois.length)} paper(s)...${strategyLabel}`,
     );
 
     if (!config.anthropicApiKey?.trim()) {
@@ -131,28 +164,51 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         defaultModel: args.model ?? "claude-opus-4-6",
       });
 
-      const { results, seeds } = await runDiscoveryStage(
+      const paperAdapters = buildPaperAdapters({
+        resolverConfig: {
+          openAlexBaseUrl: config.providerBaseUrls.openAlex,
+          semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+          openAlexEmail: config.openAlexEmail,
+          semanticScholarApiKey: config.semanticScholarApiKey,
+        },
+        biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+        openAlexBaseUrl: config.providerBaseUrls.openAlex,
+        openAlexEmail: config.openAlexEmail,
+        fullTextAdapters,
+        cache: { db: database, cachePolicy },
+      });
+
+      const stageResult = await runDiscoveryStage(
         {
           dois: input.dois,
           topN: args.topN,
           rank: args.rank,
           model: args.model,
+          strategy: args.strategy,
+          ...(args.strategy === "attribution_first"
+            ? {
+                attributionAdapters: {
+                  ...paperAdapters,
+                  mentionHarvest: {
+                    fullText: fullTextAdapters,
+                    biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
+                    cache: { db: database, cachePolicy },
+                  },
+                  llmClient: client,
+                  groundingOptions: {
+                    apiKey: config.anthropicApiKey,
+                    llmClient: client,
+                  },
+                },
+                attributionOptions: {
+                  probeBudget: args.probeBudget,
+                  shortlistCap: args.shortlistCap,
+                },
+              }
+            : {}),
         },
         {
-          resolvePaperByDoi: (doi) =>
-            resolvePaperByDoi(doi, {
-              openAlexBaseUrl: config.providerBaseUrls.openAlex,
-              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-              openAlexEmail: config.openAlexEmail,
-              semanticScholarApiKey: config.semanticScholarApiKey,
-            }),
-          materializeParsedPaper: (paper) =>
-            materializeParsedPaper(
-              paper,
-              config.providerBaseUrls.bioRxiv,
-              fullTextAdapters,
-              { db: database, cachePolicy },
-            ),
+          ...paperAdapters,
           discoverClaims: (paper, parsedDocument, model) =>
             discoverClaims({
               paper,
@@ -160,13 +216,6 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
               client,
               ...(model ? { options: { model } } : {}),
             }),
-          getCitingPapers: (openAlexId) =>
-            openalex.getCitingWorks(
-              openAlexId,
-              config.providerBaseUrls.openAlex,
-              200,
-              config.openAlexEmail,
-            ),
           rankClaimsByEngagement: (
             seedTitle,
             claims,
@@ -194,25 +243,40 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         },
       );
 
-      // Step 5: write artifacts and emit shortlist
-      progress.startStep("emit_shortlist", {
-        detail: "Writing artifacts.",
-      });
+      // Write artifacts
+      progress.startStep("emit_shortlist", { detail: "Writing artifacts." });
 
       const outputDir = resolve(process.cwd(), args.output);
       mkdirSync(outputDir, { recursive: true });
-
       const stamp = nextRunStamp(outputDir);
-      const { jsonPath, mdPath, shortlistPath } = writeDiscoveryArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        results,
-        seeds,
-        sourceArtifacts: [args.input],
-      });
 
-      if (seeds.length === 0) {
-        const detail = buildNoSeedsDetail(results);
+      const artifacts =
+        args.strategy === "attribution_first" &&
+        stageResult.attributionDiscovery
+          ? writeAttributionDiscoveryArtifacts({
+              outputRoot: outputDir,
+              stamp,
+              results: stageResult.attributionDiscovery,
+              seeds: stageResult.seeds,
+              sourceArtifacts: [args.input],
+            })
+          : writeDiscoveryArtifacts({
+              outputRoot: outputDir,
+              stamp,
+              results: stageResult.results,
+              seeds: stageResult.seeds,
+              sourceArtifacts: [args.input],
+            });
+      console.info(`\nResults written to:`);
+      console.info(`  JSON: ${artifacts.jsonPath}`);
+      console.info(`  Markdown: ${artifacts.mdPath}`);
+      console.info(`  Shortlist: ${artifacts.shortlistPath}`);
+
+      if (stageResult.seeds.length === 0) {
+        const detail =
+          args.strategy === "attribution_first"
+            ? "No families shortlisted — check harvest and extraction sidecars."
+            : buildNoSeedsDetail(stageResult.results);
         progress.failStep("emit_shortlist", { detail });
         console.error(`\n${detail}`);
         process.exitCode = 1;
@@ -220,20 +284,39 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
       }
 
       progress.completeStep("emit_shortlist", {
-        detail: `${String(seeds.length)} seed(s) in shortlist`,
+        detail: `${String(stageResult.seeds.length)} seed(s) in shortlist`,
       });
 
-      console.info(`\nResults written to:`);
-      console.info(`  JSON: ${jsonPath}`);
-      console.info(`  Markdown: ${mdPath}`);
-      console.info(`  Shortlist: ${shortlistPath}`);
-
-      const totalFindings = results.reduce((s, r) => s + r.findingCount, 0);
-      const totalClaims = results.reduce((s, r) => s + r.totalClaimCount, 0);
-      const completed = results.filter((r) => r.status === "completed").length;
-      console.info(
-        `\n${String(completed)}/${String(results.length)} papers processed, ${String(totalClaims)} claims (${String(totalFindings)} findings), ${String(seeds.length)} seeds in shortlist`,
-      );
+      // Summary
+      if (args.strategy === "attribution_first") {
+        const attrResults = stageResult.attributionDiscovery ?? [];
+        const totalMentions = attrResults.reduce(
+          (n, r) => n + r.mentions.length,
+          0,
+        );
+        const totalFamilies = attrResults.reduce(
+          (n, r) => n + r.familyCandidates.length,
+          0,
+        );
+        console.info(
+          `\n${String(totalMentions)} mentions harvested, ${String(totalFamilies)} family candidates, ${String(stageResult.seeds.length)} shortlisted`,
+        );
+      } else {
+        const totalFindings = stageResult.results.reduce(
+          (s, r) => s + r.findingCount,
+          0,
+        );
+        const totalClaims = stageResult.results.reduce(
+          (s, r) => s + r.totalClaimCount,
+          0,
+        );
+        const completed = stageResult.results.filter(
+          (r) => r.status === "completed",
+        ).length;
+        console.info(
+          `\n${String(completed)}/${String(stageResult.results.length)} papers processed, ${String(totalClaims)} claims (${String(totalFindings)} findings), ${String(stageResult.seeds.length)} seeds in shortlist`,
+        );
+      }
 
       const ledger = client.getLedger();
       if (ledger.totalCalls > 0) {

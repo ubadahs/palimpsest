@@ -8,6 +8,12 @@ import type {
 } from "../domain/types.js";
 import { formatAcquisitionSummary } from "../retrieval/fulltext-fetch.js";
 import type { ParsedPaperMaterializeResult } from "../retrieval/parsed-paper.js";
+import {
+  runAttributionDiscovery,
+  type AttributionDiscoveryAdapters,
+  type AttributionDiscoveryOptions,
+  type AttributionDiscoveryResult,
+} from "./discovery-family-probe.js";
 
 export type DiscoverySeedEntry = {
   doi: string;
@@ -15,11 +21,17 @@ export type DiscoverySeedEntry = {
   notes?: string | undefined;
 };
 
+export type DiscoveryStrategy = "legacy" | "attribution_first";
+
 export type DiscoveryStageOptions = {
   dois: string[];
   topN: number;
   rank: boolean;
   model?: string | undefined;
+  strategy?: DiscoveryStrategy;
+  /** Required when strategy is "attribution_first". */
+  attributionAdapters?: AttributionDiscoveryAdapters;
+  attributionOptions?: AttributionDiscoveryOptions;
 };
 
 export type DiscoveryStageEvent = {
@@ -27,7 +39,12 @@ export type DiscoveryStageEvent = {
     | "resolve_paper"
     | "fetch_and_parse_full_text"
     | "extract_claims"
-    | "rank_claims";
+    | "rank_claims"
+    // Attribution-first steps:
+    | "gather_neighborhood"
+    | "harvest_and_extract"
+    | "ground_families"
+    | "emit_shortlist";
   status: "started" | "updated" | "completed";
   detail: string;
   doi: string;
@@ -57,6 +74,8 @@ export type DiscoveryStageAdapters = {
 export type DiscoveryStageResult = {
   results: ClaimDiscoveryResult[];
   seeds: DiscoverySeedEntry[];
+  /** Present when strategy is "attribution_first". */
+  attributionDiscovery?: AttributionDiscoveryResult[];
 };
 
 function emit(
@@ -159,6 +178,10 @@ export async function runDiscoveryStage(
   adapters: DiscoveryStageAdapters,
   onEvent?: (event: DiscoveryStageEvent) => void,
 ): Promise<DiscoveryStageResult> {
+  if (options.strategy === "attribution_first") {
+    return runAttributionFirstPath(options, onEvent);
+  }
+
   const results: ClaimDiscoveryResult[] = [];
   const total = options.dois.length;
 
@@ -328,5 +351,59 @@ export async function runDiscoveryStage(
   return {
     results,
     seeds: buildDiscoverySeeds(results, options.topN),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Attribution-first strategy
+// ---------------------------------------------------------------------------
+
+async function runAttributionFirstPath(
+  options: DiscoveryStageOptions,
+  onEvent?: (event: DiscoveryStageEvent) => void,
+): Promise<DiscoveryStageResult> {
+  if (!options.attributionAdapters) {
+    throw new Error(
+      "attributionAdapters are required when strategy is 'attribution_first'",
+    );
+  }
+
+  const total = options.dois.length;
+  const allAttributionResults: AttributionDiscoveryResult[] = [];
+  const allSeeds: DiscoverySeedEntry[] = [];
+
+  for (let index = 0; index < options.dois.length; index++) {
+    const doi = options.dois[index]!;
+
+    const result = await runAttributionDiscovery(
+      doi,
+      options.attributionAdapters,
+      options.attributionOptions,
+      (event) => {
+        emit(onEvent, {
+          step: event.step as DiscoveryStageEvent["step"],
+          status: event.status,
+          detail: event.detail,
+          doi,
+          index,
+          total,
+        });
+      },
+    );
+
+    allAttributionResults.push(result);
+    for (const entry of result.shortlistEntries) {
+      allSeeds.push({
+        doi: entry.doi,
+        trackedClaim: entry.trackedClaim,
+        notes: entry.notes,
+      });
+    }
+  }
+
+  return {
+    results: [],
+    seeds: allSeeds,
+    attributionDiscovery: allAttributionResults,
   };
 }

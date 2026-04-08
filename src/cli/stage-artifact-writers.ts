@@ -10,7 +10,11 @@ import type {
   FamilyExtractionResult,
   PreScreenGroundingTraceFile,
 } from "../domain/types.js";
-import { toDiscoveryMarkdown } from "../reporting/discovery-report.js";
+import type { AttributionDiscoveryResult } from "../pipeline/discovery-family-probe.js";
+import {
+  toAttributionDiscoveryMarkdown,
+  toDiscoveryMarkdown,
+} from "../reporting/discovery-report.js";
 import {
   toCalibrationJson,
   toCalibrationMarkdown,
@@ -34,13 +38,13 @@ import {
   writeArtifactManifest,
   writeJsonArtifact,
 } from "../shared/artifact-io.js";
-import { getStageDefinition, stageKeyValues } from "../ui-contract/stages.js";
+import type { StageKey } from "../ui-contract/run-types.js";
+import { getStageDefinition } from "../ui-contract/stages.js";
 import {
   resolveStageArtifactPaths,
   resolveStageExtraArtifactPath,
 } from "./stage-output.js";
 
-type StageKey = (typeof stageKeyValues)[number];
 type ArtifactContentFormat = "json" | "json-string" | "text";
 
 type PrimaryReportWriteOptions = {
@@ -193,6 +197,116 @@ export function writeDiscoveryArtifacts(options: {
     generator: "discover",
     sourceArtifacts: options.sourceArtifacts,
     relatedArtifacts: [shortlist.path],
+  });
+
+  return {
+    jsonPath: primary.primaryPath,
+    mdPath: primary.reportPath,
+    shortlistPath: shortlist.path,
+    manifestPath: primary.manifestPath,
+  };
+}
+
+export function writeAttributionDiscoveryArtifacts(options: {
+  outputRoot: string;
+  stamp: string;
+  results: AttributionDiscoveryResult[];
+  seeds: Array<{
+    doi: string;
+    trackedClaim: string;
+    notes?: string | undefined;
+  }>;
+  sourceArtifacts: string[];
+}): {
+  jsonPath: string;
+  mdPath: string;
+  shortlistPath: string;
+  manifestPath: string;
+} {
+  const write = (suffix: string, content: unknown) =>
+    writeSidecarArtifact({
+      outputRoot: options.outputRoot,
+      stageKey: "discover",
+      stamp: options.stamp,
+      suffix,
+      content,
+      format: "json",
+    });
+
+  // Shortlist
+  const shortlist = write("_discovery-shortlist.json", {
+    seeds: options.seeds,
+  });
+
+  // Aggregate sidecars across all DOIs — each file contains data from every result.
+  const neighborhoods = write(
+    "_discovery-neighborhood.json",
+    options.results.map((r) => r.neighborhood),
+  );
+  const probes = write(
+    "_discovery-probe.json",
+    options.results.map((r) => r.probeSelection),
+  );
+  const mentions = write(
+    "_discovery-mentions.json",
+    options.results.flatMap((r) => r.mentions),
+  );
+  const extractions = write(
+    "_discovery-attributed-claims.json",
+    options.results.flatMap((r) => r.extractionRecords),
+  );
+  const families = write(
+    "_discovery-family-candidates.json",
+    options.results.flatMap((r) => r.familyCandidates),
+  );
+  const groundingTrace = write(
+    "_discovery-grounding-trace.json",
+    options.results.flatMap((r) => r.groundingTraces),
+  );
+
+  const sidecarPaths = [
+    shortlist.path,
+    neighborhoods.path,
+    probes.path,
+    mentions.path,
+    extractions.path,
+    families.path,
+    groundingTrace.path,
+  ];
+
+  // Primary JSON: compact summary (not the full trace)
+  const primaryContent = options.results.map((r) => ({
+    doi: r.doi,
+    resolvedPaper: r.resolvedPaper,
+    neighborhood: {
+      totalCitingPapers: r.neighborhood.totalCitingPapers,
+      fullTextAvailableCount: r.neighborhood.fullTextAvailableCount,
+    },
+    probeSelection: {
+      strategy: r.probeSelection.strategy,
+      selectedCount: r.probeSelection.selectedCount,
+      excludedCount: r.probeSelection.excludedCount,
+    },
+    mentionsHarvested: r.mentions.length,
+    inScopeExtractions: r.extractionRecords.filter(
+      (rec) => rec.inScopeEmpiricalAttribution,
+    ).length,
+    familyCandidateCount: r.familyCandidates.length,
+    shortlistEntries: r.shortlistEntries,
+    warnings: r.warnings,
+  }));
+
+  const primary = writePrimaryReportArtifacts({
+    outputRoot: options.outputRoot,
+    stageKey: "discover",
+    stamp: options.stamp,
+    primaryContent,
+    primaryFormat: "json",
+    reportContent: toAttributionDiscoveryMarkdown(options.results),
+    artifactType: "discovery-results",
+    generator: "discover-attribution-first",
+    sourceArtifacts: options.sourceArtifacts,
+    relatedArtifacts: sidecarPaths,
   });
 
   return {

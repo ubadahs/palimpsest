@@ -60,7 +60,7 @@ describe("fetchFullText acquisition policy", () => {
   it("prefers PMC XML via the original DOI input over the resolver DOI", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL) => {
+      vi.fn((input: string | URL) => {
         const url = String(input);
         if (!url.includes("/pmc/utils/idconv/")) {
           throw new Error(`Unexpected fetchJson request: ${url}`);
@@ -72,10 +72,10 @@ describe("fetchFullText acquisition policy", () => {
             ? { records: [{ pmcid: "PMC10092647" }] }
             : { records: [{ errmsg: "No PMCID found for DOI" }] };
 
-        return {
+        return Promise.resolve({
           ok: true,
-          json: async () => body,
-        };
+          json: () => Promise.resolve(body),
+        });
       }),
     );
 

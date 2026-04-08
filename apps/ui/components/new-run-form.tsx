@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/utils";
 
+type DiscoverStrategy = "legacy" | "attribution_first";
+
 type FormState = {
   seedDoi: string;
   trackedClaim: string;
@@ -23,9 +25,12 @@ type FormState = {
   adjudicateModel: string;
   adjudicateThinking: boolean;
   evidenceLlmRerank: boolean;
+  discoverStrategy: DiscoverStrategy;
   discoverTopN: number;
   discoverRank: boolean;
   discoverModel: string;
+  discoverProbeBudget: number;
+  discoverShortlistCap: number;
 };
 
 export function NewRunForm() {
@@ -43,9 +48,12 @@ export function NewRunForm() {
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
     evidenceLlmRerank: true,
+    discoverStrategy: "legacy",
     discoverTopN: 5,
     discoverRank: true,
     discoverModel: "claude-opus-4-6",
+    discoverProbeBudget: 20,
+    discoverShortlistCap: 10,
   });
 
   function update<K extends keyof FormState>(
@@ -85,9 +93,12 @@ export function NewRunForm() {
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
               evidenceLlmRerank: state.evidenceLlmRerank,
+              discoverStrategy: state.discoverStrategy,
               discoverTopN: state.discoverTopN,
               discoverRank: state.discoverRank,
               discoverModel: state.discoverModel,
+              discoverProbeBudget: state.discoverProbeBudget,
+              discoverShortlistCap: state.discoverShortlistCap,
             },
           }),
         });
@@ -245,22 +256,85 @@ export function NewRunForm() {
               </label>
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  Max claims to shortlist
+                  Discovery strategy
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  Upper limit on claims passed from discovery to screen. Only
-                  claims with direct citing-paper engagement qualify, so fewer
-                  may pass through if the literature is sparse.
+                  Legacy extracts claims from the seed paper. Attribution-first
+                  harvests what citing papers actually attribute to the seed.
                 </span>
-                <Input
-                  min={1}
-                  type="number"
-                  value={state.discoverTopN}
+                <select
+                  className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
+                  value={state.discoverStrategy}
                   onChange={(event) =>
-                    update("discoverTopN", Number(event.target.value))
+                    update(
+                      "discoverStrategy",
+                      event.target.value as DiscoverStrategy,
+                    )
                   }
-                />
+                >
+                  <option value="legacy">Legacy (seed-side extraction)</option>
+                  <option value="attribution_first">
+                    Attribution-first (citing-side harvesting)
+                  </option>
+                </select>
               </label>
+              {state.discoverStrategy === "attribution_first" ? (
+                <>
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-[var(--text)]">
+                      Probe budget
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Maximum citing papers to inspect for in-text mentions of
+                      the seed.
+                    </span>
+                    <Input
+                      min={1}
+                      type="number"
+                      value={state.discoverProbeBudget}
+                      onChange={(event) =>
+                        update("discoverProbeBudget", Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-[var(--text)]">
+                      Shortlist cap
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Maximum family candidates passed from discovery to screen.
+                    </span>
+                    <Input
+                      min={1}
+                      type="number"
+                      value={state.discoverShortlistCap}
+                      onChange={(event) =>
+                        update(
+                          "discoverShortlistCap",
+                          Number(event.target.value),
+                        )
+                      }
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Max claims to shortlist
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Upper limit on claims passed from discovery to screen.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discoverTopN}
+                    onChange={(event) =>
+                      update("discoverTopN", Number(event.target.value))
+                    }
+                  />
+                </label>
+              )}
               <label className="grid gap-2 md:col-span-2">
                 <span className="text-sm font-semibold text-[var(--text)]">
                   Discovery model
@@ -312,23 +386,25 @@ export function NewRunForm() {
                     relevance. Better accuracy, higher cost.
                   </span>
                 </label>
-                <label className="grid cursor-pointer gap-1">
-                  <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                    <input
-                      checked={state.discoverRank}
-                      className="size-4 accent-[var(--accent)]"
-                      type="checkbox"
-                      onChange={(event) =>
-                        update("discoverRank", event.target.checked)
-                      }
-                    />
-                    Rank discovered claims
-                  </span>
-                  <span className="pl-7 text-xs text-[var(--text-muted)]">
-                    Score claims by how often citing papers engage with them.
-                    Off takes claims in extraction order.
-                  </span>
-                </label>
+                {state.discoverStrategy === "legacy" ? (
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.discoverRank}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update("discoverRank", event.target.checked)
+                        }
+                      />
+                      Rank discovered claims
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      Score claims by how often citing papers engage with them.
+                      Off takes claims in extraction order.
+                    </span>
+                  </label>
+                ) : null}
                 <label className="grid cursor-pointer gap-1">
                   <span className="flex items-center gap-3 text-sm text-[var(--text)]">
                     <input
