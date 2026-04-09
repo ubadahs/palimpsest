@@ -27,6 +27,7 @@ import {
 } from "./llm-claim-family-filter.js";
 import { runLlmFullDocumentClaimGrounding } from "./seed-claim-grounding-llm.js";
 import type { SeedClaimGroundingAdapters } from "./seed-claim-grounding.js";
+import { pMap } from "../shared/p-map.js";
 
 // --- Adapter interface for dependency injection ---
 
@@ -54,6 +55,14 @@ export type PreScreenOptions = {
     model?: string;
     concurrency?: number;
   };
+  /** Max concurrent seed processing. Default 3. */
+  seedConcurrency?: number;
+  /**
+   * Skip the BM25 + LLM claim-family filter and include all edges.
+   * Use this for attribution-first discovery, where citer→claim associations
+   * were already established from full-text analysis during discovery.
+   */
+  skipClaimFamilyFilter?: boolean;
 };
 
 export type PreScreenRunResult = {
@@ -80,6 +89,7 @@ const DEFAULT_NUMERIC_OPTIONS = {
   minAuditableCoverage: 0.3,
   minAuditableEdges: 3,
 } as const;
+
 
 // --- Metrics: describes citation population composition ---
 
@@ -614,6 +624,20 @@ async function processOneSeed(
       edge.inClaimFamily = false;
       edge.claimRelevanceScore = 0;
     }
+  } else if (options.skipClaimFamilyFilter) {
+    // Attribution-first discovery already established citer→claim associations
+    // from full-text analysis.  Re-filtering on title/abstract is strictly
+    // weaker and drops valid edges.  Include all edges and let downstream
+    // extraction/classification handle relevance.
+    for (const edge of edges) {
+      edge.inClaimFamily = true;
+      edge.claimRelevanceScore = 1;
+    }
+    onProgress?.({
+      step: "filter_claim_family",
+      status: "completed",
+      detail: `Claim-family filter skipped (attribution-first) — all ${String(edges.length)} edges included`,
+    });
   } else {
     // Stage 1: BM25 pre-filter (cheap, removes obviously irrelevant papers).
     const claimQuery = buildRetrievalQuery([
@@ -785,22 +809,29 @@ export async function runPreScreen(
         : {}),
     },
     ...(options.llmFilter != null ? { llmFilter: options.llmFilter } : {}),
+    ...(options.seedConcurrency != null
+      ? { seedConcurrency: options.seedConcurrency }
+      : {}),
+    ...(options.skipClaimFamilyFilter != null
+      ? { skipClaimFamilyFilter: options.skipClaimFamilyFilter }
+      : {}),
   };
   const paperCache = new Map<string, ResolvedPaper>();
+  const concurrency = mergedOptions.seedConcurrency ?? 3;
+
+  const seedResults = await pMap(
+    seeds,
+    async (seed) =>
+      processOneSeed(seed, adapters, paperCache, mergedOptions, onProgress),
+    { concurrency },
+  );
 
   const results: ClaimFamilyPreScreen[] = [];
   const recordsBySeedDoi: PreScreenGroundingTraceFile["recordsBySeedDoi"] = {};
-
-  for (const seed of seeds) {
-    const { family, traceRecord } = await processOneSeed(
-      seed,
-      adapters,
-      paperCache,
-      mergedOptions,
-      onProgress,
-    );
+  for (const { family, traceRecord } of seedResults) {
     results.push(family);
-    recordsBySeedDoi[normalizeSeedDoiForTraceKey(seed.doi)] = traceRecord;
+    recordsBySeedDoi[normalizeSeedDoiForTraceKey(family.seed.doi)] =
+      traceRecord;
   }
 
   assignM2Priorities(results);

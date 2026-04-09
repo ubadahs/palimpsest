@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { LLMClient } from "../integrations/llm-client.js";
 import type { Result } from "../domain/types.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+import { pMap } from "../shared/p-map.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,38 +154,27 @@ export async function llmFilterClaimFamily(
   const concurrency = options.concurrency ?? 10;
   const model = options.model ?? "claude-haiku-4-5";
 
-  const results: LLMClaimFamilyFilterResult[] = [];
-
-  // Process in batches to limit concurrency.
-  for (let i = 0; i < candidates.length; i += concurrency) {
-    const batch = candidates.slice(i, i + concurrency);
-    const batchResults = await Promise.all(
-      batch.map((candidate) =>
-        filterOneCandidate(
-          client,
-          seedClaim,
-          seedTitle,
-          candidate,
-          thinkingBudget,
-          model,
-        ),
-      ),
-    );
-
-    for (let j = 0; j < batchResults.length; j++) {
-      const r = batchResults[j]!;
-      if (r.ok) {
-        results.push(r.data);
-      } else {
-        // Fail-open: keep the paper.
-        results.push({
-          citingPaperId: batch[j]!.citingPaperId,
-          relevant: true,
-          reason: `LLM filter failed (kept by default): ${r.error}`,
-        });
-      }
-    }
-  }
+  const results = await pMap(
+    candidates,
+    async (candidate) => {
+      const r = await filterOneCandidate(
+        client,
+        seedClaim,
+        seedTitle,
+        candidate,
+        thinkingBudget,
+        model,
+      );
+      if (r.ok) return r.data;
+      // Fail-open: keep the paper.
+      return {
+        citingPaperId: candidate.citingPaperId,
+        relevant: true,
+        reason: `LLM filter failed (kept by default): ${r.error}`,
+      } satisfies LLMClaimFamilyFilterResult;
+    },
+    { concurrency },
+  );
 
   return results;
 }
