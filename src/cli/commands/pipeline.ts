@@ -46,6 +46,7 @@ import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 import {
   createAnalysisRun,
+  ensureFamilyStageRow,
   getAnalysisRun,
   getRunStage,
   markRunInterrupted,
@@ -92,6 +93,7 @@ function parseArgs(argv: string[]): {
   screenFilterConcurrency: number | undefined;
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
+  familyConcurrency: number | undefined;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -107,6 +109,7 @@ function parseArgs(argv: string[]): {
   let screenFilterConcurrency: number | undefined;
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
+  let familyConcurrency: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -160,6 +163,9 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
       rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
+    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
+      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
+      i++;
     }
   }
 
@@ -186,6 +192,7 @@ function parseArgs(argv: string[]): {
     screenFilterConcurrency,
     rerankModel,
     rerankTopN,
+    familyConcurrency,
   };
 }
 
@@ -225,20 +232,28 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     return;
   }
   const runId = existingRun?.id ?? randomUUID();
-  let currentStageKey: StageKey | undefined;
+  const activeStages = new Set<string>(); // "stageKey:familyIndex" pairs
 
   // --- Run tracking ---------------------------------------------------------
-  function trackStageStart(stageKey: StageKey): void {
-    currentStageKey = stageKey;
+  function trackStageStart(stageKey: StageKey, familyIndex = 0): void {
+    if (familyIndex > 0) {
+      ensureFamilyStageRow(database, runId, stageKey, familyIndex);
+    }
+    const key = `${stageKey}:${String(familyIndex)}`;
+    activeStages.add(key);
     updateStageStatus(database, runId, stageKey, "running", {
+      familyIndex,
       startedAt: new Date().toISOString(),
       processId: process.pid,
     });
-    setRunStatus(database, runId, "running", stageKey);
+    if (familyIndex === 0) {
+      setRunStatus(database, runId, "running", stageKey);
+    }
   }
 
   function trackStageSuccess(
     stageKey: StageKey,
+    familyIndex: number,
     artifacts: {
       primaryArtifactPath?: string;
       reportArtifactPath?: string;
@@ -246,8 +261,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       inputArtifactPath?: string;
     },
   ): void {
+    const key = `${stageKey}:${String(familyIndex)}`;
+    activeStages.delete(key);
     const summary = deriveStageSummary(stageKey, artifacts.primaryArtifactPath);
     updateStageStatus(database, runId, stageKey, "succeeded", {
+      familyIndex,
       ...artifacts,
       finishedAt: new Date().toISOString(),
       exitCode: 0,
@@ -256,13 +274,17 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   }
 
   function trackRunFailed(error: unknown): void {
-    if (!currentStageKey) return;
-    updateStageStatus(database, runId, currentStageKey, "failed", {
-      errorMessage: error instanceof Error ? error.message : String(error),
-      finishedAt: new Date().toISOString(),
-      exitCode: 1,
-    });
-    setRunStatus(database, runId, "failed", currentStageKey);
+    const msg = error instanceof Error ? error.message : String(error);
+    for (const key of activeStages) {
+      const [stageKey, fi] = key.split(":") as [StageKey, string];
+      updateStageStatus(database, runId, stageKey, "failed", {
+        familyIndex: parseInt(fi, 10),
+        errorMessage: msg,
+        finishedAt: new Date().toISOString(),
+        exitCode: 1,
+      });
+    }
+    setRunStatus(database, runId, "failed");
   }
 
   function succeededArtifact(stageKey: StageKey): string | undefined {
@@ -272,8 +294,17 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   }
 
   const handleSignal = (): void => {
-    if (currentStageKey) {
-      markRunInterrupted(database, runId, currentStageKey, "Interrupted by signal.");
+    for (const key of activeStages) {
+      const [stageKey, fi] = key.split(":") as [StageKey, string];
+      markRunInterrupted(database, runId, stageKey, "Interrupted by signal.");
+      // markRunInterrupted only handles one stage; manually mark others
+      if (fi !== "0") {
+        updateStageStatus(database, runId, stageKey, "interrupted", {
+          familyIndex: parseInt(fi, 10),
+          errorMessage: "Interrupted by signal.",
+          finishedAt: new Date().toISOString(),
+        });
+      }
     }
     database.close();
     process.exit(130);
@@ -296,6 +327,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         ...(args.screenFilterConcurrency != null ? { screenFilterConcurrency: args.screenFilterConcurrency } : {}),
         ...(args.rerankModel != null ? { evidenceRerankModel: args.rerankModel } : {}),
         ...(args.rerankTopN != null ? { evidenceRerankTopN: args.rerankTopN } : {}),
+        ...(args.familyConcurrency != null ? { familyConcurrency: args.familyConcurrency } : {}),
       });
 
   try {
@@ -503,7 +535,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoverPrimaryPath = artifacts.jsonPath;
       }
       screenInputArtifactPath = shortlistPath;
-      trackStageSuccess("discover", { primaryArtifactPath: discoverPrimaryPath });
+      trackStageSuccess("discover", 0, { primaryArtifactPath: discoverPrimaryPath });
 
       const discoveryLedger = discoveryClient.getLedger();
       log(
@@ -593,7 +625,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         sourceArtifacts: screenInputArtifactPath ? [screenInputArtifactPath] : [],
       });
       screenJsonPath = screenArtifacts.jsonPath;
-      trackStageSuccess("screen", {
+      trackStageSuccess("screen", 0, {
         primaryArtifactPath: screenJsonPath,
         ...(screenInputArtifactPath != null ? { inputArtifactPath: screenInputArtifactPath } : {}),
       });
@@ -634,7 +666,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     log(
       "pipeline",
-      `Processing ${String(processable.length)} families`,
+      `Processing ${String(processable.length)} families (concurrency: ${String(runConfig.familyConcurrency)})`,
     );
 
     await pMap(
@@ -648,7 +680,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Extract ---
         fLog("extract", "Extracting citation contexts...");
-        trackStageStart("extract");
+        trackStageStart("extract", fi);
         const extraction = await runM2Extraction(
           family,
           extractionAdapters,
@@ -666,7 +698,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [screenJsonPath],
           familyIndex: fi,
         });
-        trackStageSuccess("extract", {
+        trackStageSuccess("extract", fi, {
           primaryArtifactPath: extractJsonPath,
           inputArtifactPath: screenJsonPath,
         });
@@ -685,7 +717,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Classify ---
         fLog("classify", "Classifying citation roles...");
-        trackStageStart("classify");
+        trackStageStart("classify", fi);
         const edgeClassifications: Record<string, EdgeClassification> = {};
         const preScreenEdges: Record<string, PreScreenEdge> = {};
         for (const edge of family.edges) {
@@ -707,7 +739,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [extractJsonPath, screenJsonPath],
           familyIndex: fi,
         });
-        trackStageSuccess("classify", {
+        trackStageSuccess("classify", fi, {
           primaryArtifactPath: classifyJsonPath,
           inputArtifactPath: extractJsonPath,
         });
@@ -726,7 +758,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Evidence ---
         fLog("evidence", "Resolving cited paper and retrieving evidence...");
-        trackStageStart("evidence");
+        trackStageStart("evidence", fi);
         const citedPaperMaterialized = await resolveCitedPaperSource(
           classification,
           {
@@ -786,7 +818,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [classifyJsonPath],
           familyIndex: fi,
         });
-        trackStageSuccess("evidence", {
+        trackStageSuccess("evidence", fi, {
           primaryArtifactPath: evidenceJsonPath,
           inputArtifactPath: classifyJsonPath,
         });
@@ -805,7 +837,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Curate ---
         fLog("curate", "Sampling calibration set...");
-        trackStageStart("curate");
+        trackStageStart("curate", fi);
         const calibrationSet = sampleCalibrationSet(
           evidenceResult,
           undefined,
@@ -819,7 +851,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [evidenceJsonPath],
           familyIndex: fi,
         });
-        trackStageSuccess("curate", {
+        trackStageSuccess("curate", fi, {
           primaryArtifactPath: curateJsonPath,
           inputArtifactPath: evidenceJsonPath,
         });
@@ -838,7 +870,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Adjudicate ---
         fLog("adjudicate", "Running LLM adjudication...");
-        trackStageStart("adjudicate");
+        trackStageStart("adjudicate", fi);
         const adjudicationResult = await adjudicateCalibrationSet(
           calibrationSet,
           {
@@ -861,7 +893,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           model: "claude-opus-4-6",
           familyIndex: fi,
         });
-        trackStageSuccess("adjudicate", {
+        trackStageSuccess("adjudicate", fi, {
           primaryArtifactPath: adjudicateJsonPath,
           inputArtifactPath: curateJsonPath,
         });
@@ -883,7 +915,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
         );
       },
-      { concurrency: 1 },
+      { concurrency: runConfig.familyConcurrency },
     );
 
     setRunStatus(database, runId, "succeeded");
