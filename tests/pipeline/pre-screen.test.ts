@@ -261,7 +261,7 @@ describe("runPreScreen", () => {
     expect(runLlmFullDocumentClaimGrounding).not.toHaveBeenCalled();
   });
 
-  it("deprioritizes when LLM grounding does not support the claim", async () => {
+  it("proceeds when LLM grounding does not support the claim (not_found is a fidelity signal)", async () => {
     const seed = makePaper("seed-1");
     const citing1 = makePaper("citing-1");
     const citing2 = makePaper("citing-2");
@@ -304,8 +304,8 @@ describe("runPreScreen", () => {
 
     const result = results[0]!;
     expect(result.claimGrounding?.status).toBe("not_found");
-    expect(result.decision).toBe("deprioritize");
-    expect(result.decisionReason).toContain("not grounded");
+    expect(result.claimGrounding?.blocksDownstream).toBe(false);
+    expect(result.decision).toBe("greenlight");
   });
 
   it("handles mixed auditability across edges", async () => {
