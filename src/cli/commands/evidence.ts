@@ -174,6 +174,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
         ? createLLMClient({
             apiKey: config.anthropicApiKey,
             defaultModel: rerankModelId,
+            defaultContext: { stageKey: "evidence", familyIndex: 0 },
           })
         : undefined;
 
@@ -252,7 +253,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
       const rerankSummary = ledger.byPurpose["evidence-rerank"];
       if (rerankSummary) {
         console.info(
-          `  LLM reranking (${rerankModelId}${args.rerankThinking ? "+thinking" : ""}): ${String(rerankSummary.calls)} calls, ~$${rerankSummary.estimatedCostUsd.toFixed(4)} estimated cost`,
+          `  LLM reranking (${rerankModelId}${args.rerankThinking ? "+thinking" : ""}): ${String(rerankSummary.attempted)} attempted, ${String(rerankSummary.failed)} failed, ~$${rerankSummary.estimatedCostUsd.toFixed(4)} estimated cost`,
         );
       }
     }

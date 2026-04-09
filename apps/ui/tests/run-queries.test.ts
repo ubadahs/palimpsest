@@ -64,7 +64,7 @@ describe("run creation", () => {
       config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
-        curateTargetSize: 40,
+        curateTargetSize: 20,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: true,
         discoverTopN: 5,
@@ -92,7 +92,7 @@ describe("run creation", () => {
       config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
-        curateTargetSize: 40,
+        curateTargetSize: 20,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: true,
         discoverTopN: 5,
@@ -145,7 +145,7 @@ describe("run queries workflow integration", () => {
       config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
-        curateTargetSize: 40,
+        curateTargetSize: 20,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: false,
       }),
@@ -203,7 +203,7 @@ describe("run queries workflow integration", () => {
       config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
-        curateTargetSize: 40,
+        curateTargetSize: 20,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: true,
         discoverTopN: 5,

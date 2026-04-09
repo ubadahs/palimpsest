@@ -179,7 +179,7 @@ function aggregate(
 // Public API
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "claude-haiku-4-5";
 const DEFAULT_THINKING_BUDGET = 4096;
 const CONCURRENCY = 8;
 

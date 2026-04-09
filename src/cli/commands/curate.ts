@@ -14,7 +14,7 @@ function parseArgs(argv: string[]): {
   output: string;
 } {
   let evidencePath: string | undefined;
-  let targetSize = 40;
+  let targetSize = 20;
   let output = "data/curation";
 
   for (let i = 0; i < argv.length; i++) {
@@ -33,7 +33,7 @@ function parseArgs(argv: string[]): {
 
   if (!evidencePath) {
     console.error(
-      "Usage: curate --evidence <path> [--target-size 40] [--output <dir>]",
+      "Usage: curate --evidence <path> [--target-size 20] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");

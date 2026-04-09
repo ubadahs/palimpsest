@@ -5,8 +5,10 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type { CachePolicy } from "../../domain/types.js";
 import { shortlistInputSchema } from "../../domain/types.js";
+import { groupTraceRecordsBySeedDoi } from "../../domain/pre-screen-grounding-trace.js";
 import * as openalex from "../../integrations/openalex.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
+import { createLLMClient } from "../../integrations/llm-client.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
@@ -24,6 +26,7 @@ function parseArgs(argv: string[]): {
   input: string;
   output: string;
   llmGroundingModel: string | undefined;
+  llmGroundingThinking: boolean;
   filterModel: string | undefined;
   filterConcurrency: number | undefined;
   skipClaimFilter: boolean;
@@ -31,6 +34,7 @@ function parseArgs(argv: string[]): {
   let input: string | undefined;
   let output = "data/pre-screen";
   let llmGroundingModel: string | undefined;
+  let llmGroundingThinking = true;
   let filterModel: string | undefined;
   let filterConcurrency: number | undefined;
   let skipClaimFilter = false;
@@ -46,6 +50,10 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--llm-grounding-model" && i + 1 < argv.length) {
       llmGroundingModel = argv[i + 1]!;
       i++;
+    } else if (arg === "--llm-grounding-thinking") {
+      llmGroundingThinking = true;
+    } else if (arg === "--no-llm-grounding-thinking") {
+      llmGroundingThinking = false;
     } else if (arg === "--filter-model" && i + 1 < argv.length) {
       filterModel = argv[i + 1]!;
       i++;
@@ -67,6 +75,7 @@ function parseArgs(argv: string[]): {
     input,
     output,
     llmGroundingModel,
+    llmGroundingThinking,
     filterModel,
     filterConcurrency,
     skipClaimFilter,
@@ -160,6 +169,11 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
         database,
         "prefer_cache",
       );
+      const sharedLlmClient = createLLMClient({
+        apiKey: config.anthropicApiKey,
+        defaultModel: args.llmGroundingModel ?? "claude-sonnet-4-6",
+        defaultContext: { stageKey: "screen", familyIndex: 0 },
+      });
 
       const { families, groundingTrace } = await runPreScreen(
         shortlist.seeds,
@@ -170,6 +184,8 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
             ...(args.llmGroundingModel != null
               ? { model: args.llmGroundingModel }
               : {}),
+            useThinking: args.llmGroundingThinking,
+            llmClient: sharedLlmClient,
           },
           ...(args.filterModel != null || args.filterConcurrency != null
             ? {
@@ -180,6 +196,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
                   ...(args.filterConcurrency != null
                     ? { concurrency: args.filterConcurrency }
                     : {}),
+                  llmClient: sharedLlmClient,
                 },
               }
             : {}),
@@ -235,18 +252,26 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
       let totalInput = 0;
       let totalOutput = 0;
       let totalUsd = 0;
-      for (const rec of Object.values(groundingTrace.recordsBySeedDoi)) {
-        const c = rec.llmCall;
-        if (!c) {
-          continue;
+      for (const records of Object.values(groupTraceRecordsBySeedDoi(groundingTrace))) {
+        for (const rec of records) {
+          const c = rec.llmCall;
+          if (!c) {
+            continue;
+          }
+          totalInput += c.inputTokens ?? 0;
+          totalOutput += c.outputTokens ?? 0;
+          totalUsd += c.estimatedCostUsd ?? 0;
         }
-        totalInput += c.inputTokens ?? 0;
-        totalOutput += c.outputTokens ?? 0;
-        totalUsd += c.estimatedCostUsd ?? 0;
       }
       if (totalInput > 0 || totalOutput > 0) {
         console.info(
           `\nLLM grounding (this run): ~${totalInput.toLocaleString()} input + ~${totalOutput.toLocaleString()} output tokens; est. $${totalUsd.toFixed(4)} USD (list-price heuristic; per-seed detail in trace artifact).`,
+        );
+      }
+      const ledger = sharedLlmClient.getLedger();
+      if (ledger.totalAttemptedCalls > 0) {
+        console.info(
+          `LLM calls recorded: ${String(ledger.totalAttemptedCalls)} attempted, ${String(ledger.totalFailedCalls)} failed.`,
         );
       }
     } finally {

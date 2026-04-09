@@ -148,6 +148,9 @@ export function toAttributionDiscoveryMarkdown(
     lines.push(
       `- **Family candidates:** ${String(result.familyCandidates.length)}`,
     );
+    lines.push(
+      `- **Duplicates merged before screen:** ${String(inScope.length - result.familyCandidates.length)}`,
+    );
     lines.push(`- **Shortlisted:** ${String(result.shortlistEntries.length)}`);
 
     if (result.warnings.length > 0) {
@@ -195,6 +198,9 @@ export function toAttributionDiscoveryMarkdown(
             `- **Supporting papers:** ${String(entry.supportingPaperCount)}`,
           );
         }
+        if (entry.dedupeStatus) {
+          lines.push(`- **Dedupe:** ${entry.dedupeStatus}`);
+        }
         if (entry.notes) {
           lines.push(`- **Notes:** ${entry.notes}`);
         }
@@ -214,7 +220,11 @@ export function toAttributionDiscoveryMarkdown(
           f.canonicalTrackedClaim.length > 80
             ? `${f.canonicalTrackedClaim.slice(0, 77)}…`
             : f.canonicalTrackedClaim;
-        lines.push(`- ${truncated} — ${f.shortlistReason}`);
+        const dedupeNote =
+          f.dedupe.mergedFamilyIds.length > 0
+            ? ` [merged ${String(f.dedupe.mergedFamilyIds.length)} duplicate${f.dedupe.mergedFamilyIds.length === 1 ? "" : "s"}]`
+            : "";
+        lines.push(`- ${truncated}${dedupeNote} — ${f.shortlistReason}`);
       }
       lines.push("");
     }

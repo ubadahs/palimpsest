@@ -4,7 +4,7 @@ import { fullTextAcquisitionSchema } from "./common.js";
 import { claimGroundingSchema, seedPaperInputSchema } from "./pre-screen.js";
 
 /** Increment when the trace envelope or required fields change. */
-export const PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION = 1;
+export const PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION = 2;
 
 /**
  * Structured JSON the model is instructed to return (parsed from raw text).
@@ -85,19 +85,76 @@ export type PreScreenGroundingTraceRecord = z.infer<
   typeof preScreenGroundingTraceRecordSchema
 >;
 
-export const preScreenGroundingTraceFileSchema = z
+export const preScreenGroundingTraceEntrySchema = z
   .object({
-    artifactKind: z.literal("pre-screen-grounding-trace"),
-    schemaVersion: z.number().int().positive(),
-    generatedAt: z.string().min(1),
-    /** Keys are normalized seed DOI (trimmed, lowercased). */
-    recordsBySeedDoi: z.record(z.string(), preScreenGroundingTraceRecordSchema),
+    seedDoiKey: z.string().min(1),
+    record: preScreenGroundingTraceRecordSchema,
   })
   .passthrough();
+export type PreScreenGroundingTraceEntry = z.infer<
+  typeof preScreenGroundingTraceEntrySchema
+>;
+
+function migrateTraceFileShape(val: unknown): unknown {
+  if (typeof val !== "object" || val === null) {
+    return val;
+  }
+  const obj = val as Record<string, unknown>;
+  if (Array.isArray(obj["records"])) {
+    return obj;
+  }
+  const legacy = obj["recordsBySeedDoi"];
+  if (typeof legacy !== "object" || legacy === null) {
+    return obj;
+  }
+
+  const records = Object.entries(legacy as Record<string, unknown>).map(
+    ([seedDoiKey, record]) => ({
+      seedDoiKey,
+      record,
+    }),
+  );
+  return {
+    ...obj,
+    schemaVersion:
+      typeof obj["schemaVersion"] === "number"
+        ? obj["schemaVersion"]
+        : PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
+    records,
+  };
+}
+
+export const preScreenGroundingTraceFileSchema = z
+  .preprocess(
+    migrateTraceFileShape,
+    z
+      .object({
+        artifactKind: z.literal("pre-screen-grounding-trace"),
+        schemaVersion: z.number().int().positive(),
+        generatedAt: z.string().min(1),
+        records: z.array(preScreenGroundingTraceEntrySchema),
+      })
+      .passthrough(),
+  );
 export type PreScreenGroundingTraceFile = z.infer<
   typeof preScreenGroundingTraceFileSchema
 >;
 
 export function normalizeSeedDoiForTraceKey(doi: string): string {
   return doi.trim().toLowerCase();
+}
+
+export function groupTraceRecordsBySeedDoi(
+  trace: PreScreenGroundingTraceFile,
+): Record<string, PreScreenGroundingTraceRecord[]> {
+  const grouped: Record<string, PreScreenGroundingTraceRecord[]> = {};
+  for (const entry of trace.records) {
+    const existing = grouped[entry.seedDoiKey];
+    if (existing) {
+      existing.push(entry.record);
+    } else {
+      grouped[entry.seedDoiKey] = [entry.record];
+    }
+  }
+  return grouped;
 }

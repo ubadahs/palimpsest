@@ -275,6 +275,8 @@ function buildRunTelemetry(
   let totalInput = 0;
   let totalOutput = 0;
   let totalReasoning = 0;
+  let totalCacheRead = 0;
+  let totalCacheWrite = 0;
   let totalAll = 0;
   let totalLatency = 0;
 
@@ -282,6 +284,8 @@ function buildRunTelemetry(
     totalInput += c.inputTokens ?? 0;
     totalOutput += c.outputTokens ?? 0;
     totalReasoning += c.reasoningTokens ?? 0;
+    totalCacheRead += c.cacheReadTokens ?? 0;
+    totalCacheWrite += c.cacheWriteTokens ?? 0;
     totalAll += c.totalTokens ?? 0;
     totalLatency += c.latencyMs;
   }
@@ -299,7 +303,13 @@ function buildRunTelemetry(
     totalLatencyMs: totalLatency,
     averageLatencyMs:
       calls.length > 0 ? Math.round(totalLatency / calls.length) : 0,
-    estimatedCostUsd: estimateAnthropicUsd(model, totalInput, totalOutput),
+    estimatedCostUsd: estimateAnthropicUsd(model, {
+      inputTokens: totalInput,
+      outputTokens: totalOutput,
+      reasoningTokens: totalReasoning,
+      cacheReadTokens: totalCacheRead,
+      cacheWriteTokens: totalCacheWrite,
+    }),
     calls,
   };
 }

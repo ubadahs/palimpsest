@@ -98,6 +98,10 @@ export const discoveryShortlistEntrySchema = z
     supportingPaperCount: z.number().int().nonnegative().optional(),
     /** Seed-grounding status at discovery time (may be refined by screen). */
     seedGroundingStatus: claimGroundingStatusSchema.optional(),
+    dedupeGroupId: z.string().optional(),
+    dedupeStatus: z
+      .enum(["unique", "canonical_exact", "canonical_near_duplicate"])
+      .optional(),
     /** Path to the discovery sidecar containing the full family candidate. */
     sourceDiscoveryArtifact: z.string().optional(),
   })
