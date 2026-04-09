@@ -18,12 +18,13 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Human adjudication set | `curate` | Done | Samples calibration worksheet + JSON from evidence results |
 | LLM adjudication | `adjudicate` | Done | Anthropic via centralized LLM client, telemetry, agreement reports; default is `claude-opus-4-6` with extended thinking (`--no-thinking` to disable) |
 | Benchmark workflow | `benchmark:*` | Done | Blind export, keyed diff, candidate summary, and approved-delta apply for adjudication datasets; excluded-only adjudication diffs are ignored |
+| Full pipeline | `pipeline` | Done | `--input` / `--shortlist` / `--run-id`. Fresh CLI runs default `discover` strategy to `attribution_first`. Resuming with `--run-id` (as the UI does) reads persisted `analysis_runs.config_json`: `stopAfterStage` halts after the named stage, `forceRefresh` maps to paper-cache policy, `evidenceLlmRerank` toggles LLM evidence reranking, `adjudicateModel` / `adjudicateThinking` pass through to adjudication, `familyConcurrency` bounds parallel extract→adjudicate work across greenlit families after `screen` |
 
 ## Local UI
 
 | Area | Surface | Status | Notes |
 |------|---------|--------|--------|
-| Run orchestration UI | `apps/ui` | Done | Local-only Next.js App Router workspace for run creation, orchestration, live logs, and stage inspection; discover stage fully orchestrated (DOI-only default, shortlist auto-copied to inputs/ after discover succeeds); manual claim entry optional |
+| Run orchestration UI | `apps/ui` | Done | Local-only Next.js App Router workspace for run creation, orchestration, live logs, and stage inspection. Run overview and APIs expose one **logical stage per `stageKey`** (`LogicalStageGroup`) with rolled-up status and optional multi-family summaries; stage detail supports per-`familyIndex` logs and artifacts (`?familyIndex=`). New-run defaults: `discoverStrategy` **attribution_first**, configurable `familyConcurrency`. Discover fully orchestrated (DOI-only default, shortlist copied to `inputs/` after discover succeeds); manual claim entry skips discover |
 | Run registry | SQLite `analysis_runs`, `analysis_run_stages` | Done | Durable run/stage status, pointers to latest artifacts, log paths, stale downstream tracking |
 | Local supervisor | UI server runtime | Done | One active subprocess pipeline at a time, startup reconciliation to `interrupted`, per-stage cancel/rerun/continue |
 
@@ -39,7 +40,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence`; acquisition provenance persisted with cached raw papers |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
-| UI workspace tests | Partial | Targeted command-builder coverage in `apps/ui/tests`; broader component/E2E coverage not added yet |
+| UI workspace tests | Done | Vitest in `apps/ui/tests` (run-queries, run-focus-stage, run-supervisor, component smoke); full browser E2E not added |
 
 ## Retrieval and Parsing Notes
 

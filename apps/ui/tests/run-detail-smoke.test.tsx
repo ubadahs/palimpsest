@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RunDetail, StageWorkflowSnapshot } from "palimpsest/ui-contract";
+import {
+  analysisRunConfigSchema,
+  computeAggregateStageStatus,
+  type AnalysisRunStage,
+  type RunDetail,
+  type StageWorkflowSnapshot,
+} from "palimpsest/ui-contract";
 
 import { RunDetailClient } from "../components/run-detail-client";
 
@@ -59,6 +65,7 @@ function buildWorkflow(detail: string, current: number): StageWorkflowSnapshot {
 function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
   const stageBase = {
     runId: "run-smoke",
+    familyIndex: 0,
     inputArtifactPath: undefined,
     primaryArtifactPath: undefined,
     reportArtifactPath: undefined,
@@ -71,47 +78,47 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     processId: undefined,
   };
 
-  const stages = [
+  const members: AnalysisRunStage[] = [
     {
       ...stageBase,
-      stageKey: "screen" as const,
+      stageKey: "screen",
       stageOrder: 1,
-      status: "succeeded" as const,
+      status: "succeeded",
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "extract" as const,
+      stageKey: "extract",
       stageOrder: 2,
-      status: "succeeded" as const,
+      status: "succeeded",
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "classify" as const,
+      stageKey: "classify",
       stageOrder: 3,
-      status: "succeeded" as const,
+      status: "succeeded",
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "evidence" as const,
+      stageKey: "evidence",
       stageOrder: 4,
-      status: "succeeded" as const,
+      status: "succeeded",
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "curate" as const,
+      stageKey: "curate",
       stageOrder: 5,
-      status: "succeeded" as const,
+      status: "succeeded",
       summary: { headline: "Done", metrics: [], artifacts: [] },
     },
     {
       ...stageBase,
-      stageKey: "adjudicate" as const,
+      stageKey: "adjudicate",
       stageOrder: 6,
-      status: "running" as const,
+      status: "running",
       summary: {
         headline: workflow.summary,
         metrics: workflow.counts
@@ -127,6 +134,14 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     },
   ];
 
+  const stages = members.map((m) => ({
+    stageKey: m.stageKey,
+    stageOrder: m.stageOrder,
+    aggregateStatus: computeAggregateStageStatus([m]),
+    members: [m],
+    ...(m.summary !== undefined ? { summary: m.summary } : {}),
+  }));
+
   return {
     id: "run-smoke",
     seedDoi: "10.1234/smoke",
@@ -135,13 +150,13 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     status: "running",
     currentStage: "adjudicate",
     runRoot: "/tmp/run-smoke",
-    config: {
+    config: analysisRunConfigSchema.parse({
       stopAfterStage: "adjudicate",
       forceRefresh: false,
       curateTargetSize: 40,
       adjudicateModel: "claude-opus-4-6",
       adjudicateThinking: false,
-    },
+    }),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     stages,

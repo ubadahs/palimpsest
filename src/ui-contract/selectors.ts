@@ -248,6 +248,75 @@ export function listStageArtifacts(
   return artifactSet;
 }
 
+/**
+ * Resolve artifacts for a known primary filename stem (e.g. per-family outputs under one stage dir).
+ * Prefer this over {@link listStageArtifacts} when multiple families share a stage directory.
+ */
+export function listStageArtifactsForStem(
+  stageKey: StageKey,
+  stageDirectory: string,
+  artifactStem: string,
+): StageArtifactSet {
+  const definition = getStageDefinition(stageKey);
+  const entries = existsSync(stageDirectory) ? readdirSync(stageDirectory) : [];
+
+  function pathForSuffix(suffix: string): string | undefined {
+    const name = `${artifactStem}${suffix}`;
+    return entries.includes(name) ? resolve(stageDirectory, name) : undefined;
+  }
+
+  const primaryArtifactPath = pathForSuffix(
+    definition.artifactGlobs.primarySuffix,
+  );
+  const reportArtifactPath = pathForSuffix(
+    definition.artifactGlobs.reportSuffix,
+  );
+  const manifestPath =
+    primaryArtifactPath &&
+    existsSync(manifestPathForArtifact(primaryArtifactPath))
+      ? manifestPathForArtifact(primaryArtifactPath)
+      : undefined;
+
+  const extraArtifacts = definition.artifactGlobs.extraSuffixes
+    .map((suffix) => {
+      const match = pathForSuffix(suffix);
+      return match
+        ? {
+            kind: suffix.replace(/^_/, "").replace(/\.[^.]+$/, ""),
+            path: match,
+          }
+        : undefined;
+    })
+    .filter((item): item is StageArtifactPointer => item != null);
+
+  const artifactSet: StageArtifactSet = { extraArtifacts };
+  if (primaryArtifactPath) {
+    artifactSet.primaryArtifactPath = primaryArtifactPath;
+  }
+  if (reportArtifactPath) {
+    artifactSet.reportArtifactPath = reportArtifactPath;
+  }
+  if (manifestPath) {
+    artifactSet.manifestPath = manifestPath;
+  }
+
+  return artifactSet;
+}
+
+/** Derive artifact stem from a stored primary artifact path (basename minus primary suffix). */
+export function artifactStemFromPrimaryPath(
+  primaryPath: string,
+  stageKey: StageKey,
+): string {
+  const definition = getStageDefinition(stageKey);
+  const base = basename(primaryPath);
+  const suf = definition.artifactGlobs.primarySuffix;
+  if (!base.endsWith(suf)) {
+    return base.replace(/\.[^.]+$/, "");
+  }
+  return base.slice(0, base.length - suf.length);
+}
+
 export function readArtifactManifest(
   manifestPath: string | undefined,
 ): ArtifactManifest | undefined {
@@ -315,7 +384,9 @@ export function deriveStageSummary(
     const completed = artifact.data.filter((r) => r.status === "completed");
     const findings = artifact.data.reduce((s, r) => s + r.findingCount, 0);
     const total = artifact.data.reduce((s, r) => s + r.totalClaimCount, 0);
-    const firstFailure = artifact.data.find((result) => result.status !== "completed");
+    const firstFailure = artifact.data.find(
+      (result) => result.status !== "completed",
+    );
 
     return {
       headline:
@@ -335,10 +406,7 @@ export function deriveStageSummary(
   }
 
   if (artifact.kind === "discover-attribution") {
-    const mentions = artifact.data.reduce(
-      (s, r) => s + r.mentionsHarvested,
-      0,
-    );
+    const mentions = artifact.data.reduce((s, r) => s + r.mentionsHarvested, 0);
     const families = artifact.data.reduce(
       (s, r) => s + r.familyCandidateCount,
       0,
@@ -556,6 +624,8 @@ export function buildStageInspectorPayload(
       packets: artifact.data.packets.map((packet) => ({
         packetId: packet.packetId,
         citingPaperTitle: packet.citingPaper.title,
+        citingPaperDoi: packet.citingPaper.doi,
+        citedPaperDoi: packet.citedPaper.doi,
         extractionState: packet.extractionState,
         citationRoles: packet.rolesPresent,
         isReviewMediated: packet.isReviewMediated,
@@ -613,6 +683,7 @@ export function buildStageInspectorPayload(
 
   if (artifact.kind === "curate") {
     return {
+      seed: artifact.data.seed,
       summary: artifact.data.samplingStrategy,
       records: artifact.data.records.map((record) => ({
         recordId: record.recordId,
@@ -634,6 +705,7 @@ export function buildStageInspectorPayload(
   );
 
   return {
+    seed: artifact.data.seed,
     runTelemetry: artifact.data.runTelemetry,
     defaultVerdictFilter: "partially_supported",
     verdictCounts: {

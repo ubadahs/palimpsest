@@ -95,15 +95,11 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(
-      paper,
-      "https://api.biorxiv.org",
-      {
-        fetchUrl,
-        processPdfWithGrobid: grobid,
-        email: undefined,
-      },
-    );
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: grobid,
+      email: undefined,
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -129,19 +125,16 @@ describe("fetchFullText acquisition policy", () => {
         providerAvailability: "available",
         providerSourceHint: "pmc_xml",
         pdfUrl: "https://example.com/paper.pdf",
-        repositoryUrl: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10092647/pdf/mbc-34-ar24.pdf",
+        repositoryUrl:
+          "https://pmc.ncbi.nlm.nih.gov/articles/PMC10092647/pdf/mbc-34-ar24.pdf",
       },
     });
 
-    const result = await fetchFullText(
-      paper,
-      "https://api.biorxiv.org",
-      {
-        fetchUrl,
-        processPdfWithGrobid: grobid,
-        email: undefined,
-      },
-    );
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: grobid,
+      email: undefined,
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -166,7 +159,9 @@ describe("fetchFullText acquisition policy", () => {
           finalUrl: url,
           status: 200,
           contentType: "text/html",
-          body: Buffer.from("<html><head><title>challenge</title></head></html>"),
+          body: Buffer.from(
+            "<html><head><title>challenge</title></head></html>",
+          ),
         },
       }),
     );

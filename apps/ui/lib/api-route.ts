@@ -9,6 +9,21 @@ export function readQueryParam(request: NextApiRequest, key: string): string {
   throw new Error(`Missing query param: ${key}`);
 }
 
+/** Optional non-negative integer query param (e.g. `familyIndex` for per-family stage rows). */
+export function readOptionalFamilyIndex(
+  request: NextApiRequest,
+): number | undefined {
+  const value = request.query["familyIndex"];
+  if (typeof value !== "string" || value.length === 0) {
+    return undefined;
+  }
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
 export function allowMethods(
   request: NextApiRequest,
   response: NextApiResponse,

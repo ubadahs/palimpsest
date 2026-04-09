@@ -30,7 +30,7 @@ You can run that workflow end to end with `pipeline`, or run the stages individu
 
 ### DOI-first run
 
-Use this when you want the tool to extract claim candidates from the seed paper first.
+Use this when discovery should run from a seed DOI list (default strategy is **attribution-first**: citing-side mentions and grounded families; **legacy** still extracts seed-side claim units and can rank by engagement).
 
 - Entry command: `discover` or `pipeline --input path/to/dois.json`
 - Input shape: a JSON object with a `dois` array
@@ -332,9 +332,9 @@ Some stages are batch-oriented and some are family-oriented.
 
 - `discover` can start from multiple seed DOIs
 - `screen` evaluates one or more shortlisted seed claims
-- `extract`, `classify`, `evidence`, `curate`, and `adjudicate` operate on one screened claim family at a time
+- `extract`, `classify`, `evidence`, `curate`, and `adjudicate` operate per screened claim family; the full `pipeline` runs those stages for **all greenlit families**, with concurrency bounded by stored config `familyConcurrency` (CLI: `--family-concurrency`)
 
-The `pipeline` command handles that handoff for you. The UI does the same orchestration stage by stage and stores the resulting pointers in SQLite.
+The `pipeline` command handles that handoff for you. The local UI spawns `pipeline --run-id …`, reuses the same artifact layout, and records **one SQLite stage row per `(stageKey, familyIndex)`** so parallel families do not overwrite each other’s status or paths.
 
 When `pipeline` writes artifacts, it mirrors the canonical stage layout under the chosen output root (`00-discover/`, `01-screen/`, `02-extract/`, and so on) and preserves the same stage-specific filename suffixes used by the standalone commands.
 

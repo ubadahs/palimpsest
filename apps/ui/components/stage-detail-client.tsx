@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type {
   RunDetail,
   RunStageDetail,
+  RunStageGroupDetail,
   StageKey,
 } from "palimpsest/ui-contract";
 
@@ -14,11 +15,12 @@ import { StageInspector } from "@/components/stage-inspector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { fetchJson, formatDateTime } from "@/lib/utils";
+import { DoiLink, RichText } from "@/lib/rich-text";
+import { cn, fetchJson, formatDuration, formatTime } from "@/lib/utils";
 
 const stageDescriptions: Record<StageKey, string> = {
   discover:
-    "Extracts empirical claim units that a paper advances as its own contribution.",
+    "Harvests citing-paper mentions, extracts attributed claims, grounds family candidates to the seed, and builds a shortlist for screening.",
   screen:
     "Finds citing papers and checks whether the tracked claim can be grounded in the seed paper.",
   extract: "Extracts citation context from each citing paper's full text.",
@@ -35,8 +37,8 @@ function getDiscoverDescription(payload: unknown): string {
     payload !== null &&
     "strategy" in payload &&
     (payload as Record<string, unknown>)["strategy"];
-  if (strategy === "attribution_first") {
-    return "Harvests what citing papers attribute to the seed paper, then builds grounded family candidates.";
+  if (strategy === "legacy") {
+    return "Legacy path: seed-side claim extraction and optional citing-paper engagement ranking.";
   }
   return stageDescriptions.discover;
 }
@@ -52,43 +54,79 @@ function badgeVariant(
   return "neutral";
 }
 
+function defaultFamilyIndex(group: RunStageGroupDetail): number {
+  const running = group.members.find((m) => m.status === "running");
+  return running?.familyIndex ?? group.members[0]?.familyIndex ?? 0;
+}
+
+type PayloadWithSeed = { seed?: { trackedClaim?: string; doi?: string } };
+
+function extractTrackedClaim(detail: RunStageDetail): string | undefined {
+  const payload = detail.inspectorPayload as PayloadWithSeed | undefined;
+  return payload?.seed?.trackedClaim;
+}
+
+function familyHasFailures(group: RunStageGroupDetail): boolean {
+  return group.members.some((m) =>
+    ["failed", "cancelled", "interrupted"].includes(m.status),
+  );
+}
+
 export function StageDetailClient({
   initialRun,
-  initialDetail,
+  initialGroup,
 }: {
   initialRun: RunDetail;
-  initialDetail: RunStageDetail;
+  initialGroup: RunStageGroupDetail;
 }) {
   const [run, setRun] = useState(initialRun);
-  const [detail, setDetail] = useState(initialDetail);
+  const [group, setGroup] = useState(initialGroup);
+  const [selectedFamilyIndex, setSelectedFamilyIndex] = useState(() =>
+    defaultFamilyIndex(initialGroup),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const detail: RunStageDetail | undefined = useMemo(
+    () => group.members.find((m) => m.familyIndex === selectedFamilyIndex),
+    [group.members, selectedFamilyIndex],
+  );
+
   useEffect(() => {
-    if (run.status !== "running" && detail.status !== "running") {
+    if (!group.members.some((m) => m.familyIndex === selectedFamilyIndex)) {
+      setSelectedFamilyIndex(defaultFamilyIndex(group));
+    }
+  }, [group, selectedFamilyIndex]);
+
+  const anyRunning =
+    run.status === "running" ||
+    group.members.some((m) => m.status === "running");
+
+  useEffect(() => {
+    if (!anyRunning) {
       return;
     }
 
     const interval = window.setInterval(async () => {
-      const [nextRun, nextDetail] = await Promise.all([
+      const [nextRun, nextGroup] = await Promise.all([
         fetchJson<RunDetail>(`/api/runs/${run.id}`),
-        fetchJson<RunStageDetail>(
-          `/api/runs/${run.id}/stages/${detail.stageKey}`,
+        fetchJson<RunStageGroupDetail>(
+          `/api/runs/${run.id}/stages/${group.stageKey}`,
         ),
       ]);
       setRun(nextRun);
-      setDetail(nextDetail);
+      setGroup(nextGroup);
     }, 2_000);
 
     return () => window.clearInterval(interval);
-  }, [detail.stageKey, detail.status, run.id, run.status]);
+  }, [anyRunning, group.stageKey, run.id]);
 
   function rerunStage(): void {
     startTransition(async () => {
       try {
         setError(null);
         await fetchJson<{ ok: true }>(
-          `/api/runs/${run.id}/stages/${detail.stageKey}/rerun`,
+          `/api/runs/${run.id}/stages/${group.stageKey}/rerun`,
           { method: "POST" },
         );
       } catch (nextError) {
@@ -99,47 +137,103 @@ export function StageDetailClient({
     });
   }
 
+  if (!detail) {
+    return null;
+  }
+
+  const screenDeprioritized =
+    group.stageKey === "screen" &&
+    group.aggregateStatus === "succeeded" &&
+    (
+      detail.inspectorPayload as
+        | { families?: { decision?: string }[] }
+        | undefined
+    )?.families?.some((f) => f.decision === "deprioritize");
+
   return (
     <div className="space-y-6">
       <Breadcrumbs
         crumbs={[
           { label: "Dashboard", href: "/" },
           { label: run.seedDoi, href: `/runs/${run.id}` },
-          { label: detail.stageTitle },
+          { label: group.stageTitle },
         ]}
       />
       <Card className="overflow-hidden">
         <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Badge variant={badgeVariant(detail.status)}>
-                {detail.status}
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant={badgeVariant(group.aggregateStatus)}>
+                {group.aggregateStatus}
               </Badge>
-              {detail.stageKey === "screen" &&
-              detail.status === "succeeded" &&
-              (
-                detail.inspectorPayload as
-                  | { families?: { decision?: string }[] }
-                  | undefined
-              )?.families?.[0]?.decision === "deprioritize" ? (
+              {screenDeprioritized ? (
                 <Badge variant="warning">deprioritized</Badge>
               ) : null}
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                {detail.stageKey}
+                {group.stageKey}
               </span>
             </div>
             <h2 className="font-[var(--font-instrument)] text-4xl tracking-[-0.03em]">
-              {detail.stageTitle}
+              {group.stageTitle}
             </h2>
             <p className="max-w-xl text-sm text-[var(--text-muted)]">
-              {detail.stageKey === "discover"
+              {group.stageKey === "discover"
                 ? getDiscoverDescription(detail.inspectorPayload)
-                : stageDescriptions[detail.stageKey]}
+                : stageDescriptions[group.stageKey]}
             </p>
-            <p className="text-xs text-[var(--text-muted)]">
-              {run.seedDoi} · {formatDateTime(detail.startedAt)} →{" "}
-              {formatDateTime(detail.finishedAt)}
+            <p className="text-xs text-[var(--text-muted)]" suppressHydrationWarning>
+              <DoiLink doi={run.seedDoi} className="text-[var(--text-muted)] hover:text-[var(--accent)] hover:underline" />
+              {" · "}
+              {formatTime(detail.startedAt)} → {formatTime(detail.finishedAt)}
+              {detail.startedAt && detail.finishedAt ? (
+                <span className="ml-1 font-semibold">
+                  ({formatDuration(detail.startedAt, detail.finishedAt)})
+                </span>
+              ) : null}
             </p>
+            {group.members.length > 1 ? (
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="mr-2 text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                    {String(group.members.length)} claims
+                  </span>
+                  {group.members.map((m) => {
+                    const isFailed = ["failed", "cancelled", "interrupted"].includes(m.status);
+                    return (
+                      <button
+                        key={m.familyIndex}
+                        onClick={() => setSelectedFamilyIndex(m.familyIndex)}
+                        type="button"
+                        title={extractTrackedClaim(m) ?? `Claim ${m.familyIndex + 1}`}
+                        className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition",
+                          m.familyIndex === selectedFamilyIndex
+                            ? "bg-[var(--accent)] text-white"
+                            : "border border-[var(--border)] bg-white/60 text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
+                          isFailed &&
+                            m.familyIndex !== selectedFamilyIndex &&
+                            "border-[rgba(154,64,54,0.4)] text-[var(--danger)]",
+                        )}
+                      >
+                        {m.familyIndex + 1}
+                      </button>
+                    );
+                  })}
+                  {familyHasFailures(group) ? (
+                    <span className="ml-2 text-xs text-[var(--danger)]">
+                      {group.members.filter((m) => ["failed", "cancelled", "interrupted"].includes(m.status)).length} failed
+                    </span>
+                  ) : null}
+                </div>
+                {extractTrackedClaim(detail) ? (
+                  <RichText
+                    html={extractTrackedClaim(detail)!}
+                    as="p"
+                    className="max-w-2xl text-sm leading-6 text-[var(--text)]"
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -158,14 +252,15 @@ export function StageDetailClient({
         ) : null}
       </Card>
 
+      <StageInspector detail={detail} />
       <CurrentWorkPanel
         progressVariant={detail.status === "running" ? "live" : "archive"}
         title="Stage workflow"
         workflow={detail.workflow}
       />
-      <StageInspector detail={detail} />
       <ArtifactTabs
         artifactPointers={detail.artifactPointers}
+        familyIndex={detail.familyIndex}
         runId={run.id}
         stageKey={detail.stageKey}
       />

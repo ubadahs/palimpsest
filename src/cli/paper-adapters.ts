@@ -38,8 +38,7 @@ export type PaperAdapters = {
 
 export function buildPaperAdapters(config: PaperAdapterConfig): PaperAdapters {
   return {
-    resolvePaperByDoi: (doi) =>
-      resolvePaperByDoi(doi, config.resolverConfig),
+    resolvePaperByDoi: (doi) => resolvePaperByDoi(doi, config.resolverConfig),
     materializeParsedPaper: (paper) =>
       materializeParsedPaper(
         paper,

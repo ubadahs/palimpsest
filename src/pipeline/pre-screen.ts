@@ -90,7 +90,6 @@ const DEFAULT_NUMERIC_OPTIONS = {
   minAuditableEdges: 3,
 } as const;
 
-
 // --- Metrics: describes citation population composition ---
 
 function rate(count: number, total: number): number {

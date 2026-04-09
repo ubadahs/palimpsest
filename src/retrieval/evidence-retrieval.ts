@@ -293,7 +293,9 @@ async function retrieveForTask(
       )
     : await rerankBlocksLocal(query, bm25Ranked, adapters.reranker);
 
-  const spans = reranked.slice(0, adapters.llmRerankerOptions?.topN ?? 5).map(toEvidenceSpan);
+  const spans = reranked
+    .slice(0, adapters.llmRerankerOptions?.topN ?? 5)
+    .map(toEvidenceSpan);
 
   return {
     ...task,
@@ -333,7 +335,13 @@ export async function retrieveEvidence(
     flatTasks,
     async ({ task }) => {
       if (isNotAttemptedMode(task)) {
-        return retrieveForTask(task, citedPaperSource, blocks, adapters, seedClaimBoost);
+        return retrieveForTask(
+          task,
+          citedPaperSource,
+          blocks,
+          adapters,
+          seedClaimBoost,
+        );
       }
 
       let status: TaskEvidenceRetrievalStatus | undefined;
@@ -352,7 +360,13 @@ export async function retrieveEvidence(
         } satisfies TaskWithEvidence;
       }
 
-      return retrieveForTask(task, citedPaperSource, blocks, adapters, seedClaimBoost);
+      return retrieveForTask(
+        task,
+        citedPaperSource,
+        blocks,
+        adapters,
+        seedClaimBoost,
+      );
     },
     { concurrency },
   );

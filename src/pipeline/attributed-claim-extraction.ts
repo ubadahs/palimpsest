@@ -162,7 +162,11 @@ export async function extractAttributedClaims(params: {
   if (mentions.length === 0) return [];
 
   const modelId = options?.model ?? DEFAULT_MODEL;
-  const prompt = buildExtractionPrompt({ seedPaper, citingPaperTitle, mentions });
+  const prompt = buildExtractionPrompt({
+    seedPaper,
+    citingPaperTitle,
+    mentions,
+  });
 
   let rawText: string;
   let record: LLMCallRecord;
@@ -183,7 +187,11 @@ export async function extractAttributedClaims(params: {
   const parsed = parseLlmResponse(rawText);
   if (!parsed.ok) {
     return mentions.map((m) =>
-      makeFallbackRecord(m, record.model, `LLM returned invalid JSON: ${parsed.error}`),
+      makeFallbackRecord(
+        m,
+        record.model,
+        `LLM returned invalid JSON: ${parsed.error}`,
+      ),
     );
   }
 
