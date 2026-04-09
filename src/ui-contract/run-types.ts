@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
+import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeyValues } from "./stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
 
@@ -186,7 +187,28 @@ export const runStageDetailSchema = analysisRunStageSchema.extend({
   inspectorPayload: z.unknown().optional(),
   workflow: stageWorkflowSnapshotSchema,
 });
-export type RunStageDetail = z.infer<typeof runStageDetailSchema>;
+type StripIndexSignature<T> = {
+  [K in keyof T as string extends K
+    ? never
+    : number extends K
+      ? never
+      : symbol extends K
+        ? never
+        : K]: T[K];
+};
+type RunStageDetailBase = StripIndexSignature<
+  z.infer<typeof runStageDetailSchema>
+>;
+type RunStageDetailMap = {
+  [K in StageKey]: Omit<
+    RunStageDetailBase,
+    "stageKey" | "inspectorPayload"
+  > & {
+    stageKey: K;
+    inspectorPayload?: StageInspectorPayload<K>;
+  };
+};
+export type RunStageDetail<K extends StageKey = StageKey> = RunStageDetailMap[K];
 
 export const runStageGroupDetailSchema = z.object({
   stageKey: stageKeySchema,
@@ -194,7 +216,17 @@ export const runStageGroupDetailSchema = z.object({
   aggregateStatus: analysisRunStageStatusSchema,
   members: z.array(runStageDetailSchema),
 });
-export type RunStageGroupDetail = z.infer<typeof runStageGroupDetailSchema>;
+type RunStageGroupDetailBase = StripIndexSignature<
+  z.infer<typeof runStageGroupDetailSchema>
+>;
+type RunStageGroupDetailMap = {
+  [K in StageKey]: Omit<RunStageGroupDetailBase, "stageKey" | "members"> & {
+    stageKey: K;
+    members: RunStageDetail<K>[];
+  };
+};
+export type RunStageGroupDetail<K extends StageKey = StageKey> =
+  RunStageGroupDetailMap[K];
 
 export const stageMetricSchema = z
   .object({

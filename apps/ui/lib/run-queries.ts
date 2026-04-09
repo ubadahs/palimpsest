@@ -17,6 +17,7 @@ import {
   type AnalysisRunStage,
   type LogicalStageGroup,
   type RunDetail,
+  type StageInspectorPayload,
   type RunStageDetail,
   type RunStageGroupDetail,
   type RunSummary,
@@ -280,10 +281,10 @@ export function getRunDetailOrThrow(runId: string): RunDetail {
   };
 }
 
-export function buildRunStageDetail(
+export function buildRunStageDetail<K extends StageKey>(
   runId: string,
-  stage: AnalysisRunStage,
-): RunStageDetail {
+  stage: AnalysisRunStage & { stageKey: K },
+): RunStageDetail<K> {
   const stageKey = stage.stageKey;
   const artifacts = resolveArtifactSetForRow(runId, stage);
   const primaryArtifactPath =
@@ -303,7 +304,7 @@ export function buildRunStageDetail(
     ...artifacts.extraArtifacts,
   ];
 
-  let inspectorPayload: unknown = undefined;
+  let inspectorPayload: StageInspectorPayload<K> | undefined = undefined;
   const stageLogContent = readStageLogContent(runId, stage);
   let errorMessage = resolveStageErrorMessage(stage, stageLogContent);
 
@@ -342,15 +343,15 @@ export function buildRunStageDetail(
       ...(stageLogContent ? { logContent: stageLogContent } : {}),
       ...(errorMessage ? { errorMessage } : {}),
     }),
-  };
+  } as RunStageDetail<K>;
 }
 
 /** Single family row (default family 0). */
-export function getStageDetailOrThrow(
+export function getStageDetailOrThrow<K extends StageKey>(
   runId: string,
-  stageKey: StageKey,
+  stageKey: K,
   familyIndex = 0,
-): RunStageDetail {
+): RunStageDetail<K> {
   const database = getDatabase();
   const run = getAnalysisRun(database, runId);
   const stage = getRunStage(database, runId, stageKey, familyIndex);
@@ -360,13 +361,13 @@ export function getStageDetailOrThrow(
   }
 
   const enriched = attachStageSummaries([stage], runId)[0]!;
-  return buildRunStageDetail(runId, enriched);
+  return buildRunStageDetail(runId, enriched as AnalysisRunStage & { stageKey: K });
 }
 
-export function getStageGroupDetailOrThrow(
+export function getStageGroupDetailOrThrow<K extends StageKey>(
   runId: string,
-  stageKey: StageKey,
-): RunStageGroupDetail {
+  stageKey: K,
+): RunStageGroupDetail<K> {
   const database = getDatabase();
   const run = getAnalysisRun(database, runId);
   if (!run) {
@@ -386,8 +387,10 @@ export function getStageGroupDetailOrThrow(
     stageKey,
     stageTitle: getStageDefinition(stageKey).title,
     aggregateStatus: computeAggregateStageStatus(members),
-    members: members.map((m) => buildRunStageDetail(runId, m)),
-  };
+    members: members.map((m) =>
+      buildRunStageDetail(runId, m as AnalysisRunStage & { stageKey: K }),
+    ),
+  } as RunStageGroupDetail<K>;
 }
 
 export function getLogTail(
