@@ -31,13 +31,10 @@ const stageDescriptions: Record<StageKey, string> = {
   adjudicate: "Runs LLM adjudication to produce fidelity verdicts.",
 };
 
-function getDiscoverDescription(payload: unknown): string {
-  const strategy =
-    typeof payload === "object" &&
-    payload !== null &&
-    "strategy" in payload &&
-    (payload as Record<string, unknown>)["strategy"];
-  if (strategy === "legacy") {
+function getDiscoverDescription(
+  payload: RunStageDetail<"discover">["inspectorPayload"],
+): string {
+  if (payload?.strategy === "legacy") {
     return "Legacy path: seed-side claim extraction and optional citing-paper engagement ranking.";
   }
   return stageDescriptions.discover;
@@ -59,11 +56,17 @@ function defaultFamilyIndex(group: RunStageGroupDetail): number {
   return running?.familyIndex ?? group.members[0]?.familyIndex ?? 0;
 }
 
-type PayloadWithSeed = { seed?: { trackedClaim?: string; doi?: string } };
-
 function extractTrackedClaim(detail: RunStageDetail): string | undefined {
-  const payload = detail.inspectorPayload as PayloadWithSeed | undefined;
-  return payload?.seed?.trackedClaim;
+  switch (detail.stageKey) {
+    case "extract":
+    case "classify":
+    case "evidence":
+    case "curate":
+    case "adjudicate":
+      return detail.inspectorPayload?.seed?.trackedClaim;
+    default:
+      return undefined;
+  }
 }
 
 function familyHasFailures(group: RunStageGroupDetail): boolean {
@@ -144,11 +147,10 @@ export function StageDetailClient({
   const screenDeprioritized =
     group.stageKey === "screen" &&
     group.aggregateStatus === "succeeded" &&
-    (
-      detail.inspectorPayload as
-        | { families?: { decision?: string }[] }
-        | undefined
-    )?.families?.some((f) => f.decision === "deprioritize");
+    detail.stageKey === "screen" &&
+    detail.inspectorPayload?.families?.some((family) =>
+      family.decision === "deprioritize",
+    );
 
   return (
     <div className="space-y-6">
@@ -177,7 +179,7 @@ export function StageDetailClient({
               {group.stageTitle}
             </h2>
             <p className="max-w-xl text-sm text-[var(--text-muted)]">
-              {group.stageKey === "discover"
+              {detail.stageKey === "discover"
                 ? getDiscoverDescription(detail.inspectorPayload)
                 : stageDescriptions[group.stageKey]}
             </p>
