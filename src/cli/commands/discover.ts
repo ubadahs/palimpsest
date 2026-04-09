@@ -54,6 +54,7 @@ function parseArgs(argv: string[]): {
   input: string;
   output: string;
   model: string | undefined;
+  thinking: boolean;
   rank: boolean;
   topN: number;
   strategy: DiscoveryStrategy;
@@ -63,11 +64,12 @@ function parseArgs(argv: string[]): {
   let input: string | undefined;
   let output = "data/discover";
   let model: string | undefined;
+  let thinking = false;
   let rank = true;
   let topN = DEFAULT_TOP_N;
   let strategy: DiscoveryStrategy = "legacy";
   let probeBudget = 20;
-  let shortlistCap = 10;
+  let shortlistCap = 5;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -80,6 +82,10 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--model" && i + 1 < argv.length) {
       model = argv[i + 1]!;
       i++;
+    } else if (arg === "--thinking") {
+      thinking = true;
+    } else if (arg === "--no-thinking") {
+      thinking = false;
     } else if (arg === "--no-rank") {
       rank = false;
     } else if (arg === "--top" && i + 1 < argv.length) {
@@ -101,7 +107,7 @@ function parseArgs(argv: string[]): {
       probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
-      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
     }
   }
@@ -116,6 +122,7 @@ function parseArgs(argv: string[]): {
     input,
     output,
     model,
+    thinking,
     rank,
     topN,
     strategy,
@@ -168,9 +175,11 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         config.providerBaseUrls.grobid,
         config.openAlexEmail,
       );
+      const discoverDefaultModel = args.model ?? "claude-haiku-4-5";
       const client = createLLMClient({
         apiKey: config.anthropicApiKey,
-        defaultModel: args.model ?? "claude-opus-4-6",
+        defaultModel: discoverDefaultModel,
+        defaultContext: { stageKey: "discover", familyIndex: 0 },
       });
 
       const paperAdapters = buildPaperAdapters({
@@ -193,6 +202,7 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
           topN: args.topN,
           rank: args.rank,
           model: args.model,
+          useThinking: args.thinking,
           strategy: args.strategy,
           ...(args.strategy === "attribution_first"
             ? {
@@ -207,23 +217,30 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
                   groundingOptions: {
                     apiKey: config.anthropicApiKey,
                     llmClient: client,
+                    model: discoverDefaultModel,
+                    useThinking: args.thinking,
                   },
                 },
                 attributionOptions: {
                   probeBudget: args.probeBudget,
                   shortlistCap: args.shortlistCap,
+                  extractionModel: discoverDefaultModel,
+                  extractionThinking: args.thinking,
                 },
               }
             : {}),
         },
         {
           ...paperAdapters,
-          discoverClaims: (paper, parsedDocument, model) =>
+          discoverClaims: (paper, parsedDocument, model, useThinking) =>
             discoverClaims({
               paper,
               parsedDocument,
               client,
-              ...(model ? { options: { model } } : {}),
+              options: {
+                ...(model ? { model } : {}),
+                useThinking: useThinking ?? args.thinking,
+              },
             }),
           rankClaimsByEngagement: (
             seedTitle,
@@ -236,6 +253,7 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
               claims,
               citingPapers,
               client,
+              options: { model: discoverDefaultModel },
               ...(onProgress ? { onProgress } : {}),
             }),
         },
@@ -328,9 +346,9 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
       }
 
       const ledger = client.getLedger();
-      if (ledger.totalCalls > 0) {
+      if (ledger.totalAttemptedCalls > 0) {
         console.info(
-          `\nLLM (this run): ${ledger.totalCalls} calls, ~${ledger.totalEstimatedCostUsd.toFixed(4)} USD`,
+          `\nLLM (this run): ${ledger.totalAttemptedCalls} attempted, ${ledger.totalFailedCalls} failed, ~${ledger.totalEstimatedCostUsd.toFixed(4)} USD`,
         );
       }
     } finally {

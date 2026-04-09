@@ -91,16 +91,31 @@ What happens (attribution-first strategy, `--strategy attribution_first`):
 - resolve the seed paper by DOI
 - gather the citing neighborhood from OpenAlex
 - select a bounded probe set of citing papers with accessible full text
-- harvest in-text mentions of the seed paper from probe papers
-- extract attributed claims from those mention contexts via LLM
+- harvest in-text mentions from probe papers and extract attributed claims via LLM (**bounded parallel** across papers)
 - construct singleton family candidates (one per in-scope attributed claim)
-- ground each family candidate back to quoted seed-paper spans
-- score families by observable viability (mention count, auditable edges, grounding status)
-- emit a shortlist ready for `screen`
+- **collapse** families that share the same normalized `canonicalTrackedClaim` for the seed DOI **before** grounding, so the seed is not grounded twice for the same attributable sentence
+- ground each remaining family candidate back to quoted seed-paper spans (**bounded parallel**)
+- conservatively dedupe exact and near-duplicate grounded families before shortlist emission (exact matching includes identical normalized tracked-claim text even when grounded paraphrases differ)
+- rank families by observable viability (mention count, auditable edges, grounding status)
+- emit a shortlist ready for `screen` using a **greedy diversity pass**: walk the ranked list and skip a candidate if its citing-paper id set is almost the same as an already chosen family (Jaccard similarity ≥ 0.85 on `memberCitingPaperIds`)
 
 The legacy strategy (`--strategy legacy`) is still available and follows the older seed-side claim extraction and ranking path.
 
-Additional flags: `--probe-budget` (max probe papers, default 20), `--shortlist-cap` (max shortlisted families, default 10).
+Default model behavior:
+
+- discover (legacy extraction, attribution-first extraction, and seed-family grounding during discover) defaults to `claude-haiku-4-5` with thinking **disabled** (`--thinking` / `--discover-thinking` to enable)
+- seed grounding in `screen` still defaults to `claude-sonnet-4-6` with thinking enabled
+- adjudication remains `claude-opus-4-6` with thinking enabled by default
+
+Additional flags for `discover` and `pipeline --input`: `--probe-budget` (max probe papers, default **20**), `--shortlist-cap` (max shortlisted families per seed after diversity selection, default **5**).
+
+For the full **`pipeline`** command, `--target-size` is the per-family calibration sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **3**).
+
+Important behavior:
+
+- attribution-first dedupe is deterministic and conservative, not LLM-based
+- dedupe metadata is written into discovery family candidates and shortlist entries so this heuristic remains visible and reversible
+- families excluded only because of citing-paper overlap with a higher-ranked pick carry an explicit shortlist reason (vs. cap-only exclusions)
 
 What can block it:
 
@@ -147,6 +162,10 @@ What can block or downgrade it:
 
 Important behavior:
 
+- the grounding trace now stores an ordered `records[]` collection so same-DOI tracked claims do not overwrite one another
+- `manual_review_role_ambiguous` remains visible as its own label downstream, but those tasks are still adjudication-eligible because they represent real citation edges
+- fatal Anthropic billing, quota, authentication, or authorization failures fail the run and mark later family stages as `blocked` with the provider reason
+- retryable errors such as rate limits are not treated as fatal-provider breakers by default
 - `screen` can succeed and still block later stages
 - papers outside the grounded claim family remain visible in reports but are excluded from downstream analysis
 
@@ -178,6 +197,10 @@ What happens:
 - locate the in-text mentions that point back to the seed paper
 - deduplicate redundant mentions
 - keep only contexts that can support later evidence grounding
+
+Important behavior:
+
+- the pipeline caches extraction outputs by citing-paper neighborhood within a run, so equivalent families do not re-fetch and re-parse the same citing papers
 
 What can block or downgrade it:
 
@@ -211,6 +234,12 @@ What happens:
 - derive the evaluation mode for each mention or edge
 - build `EdgeEvaluationPacket` structures for downstream retrieval
 - summarize the task load and any manual-review-heavy cases
+
+Important behavior:
+
+- `manual_review_role_ambiguous` remains a first-class evaluation mode
+- those tasks are still adjudication-eligible because the citation edge is real even when citation role inference is unresolved
+- the pipeline caches classification outputs by citing-paper neighborhood within a run
 
 What can block or downgrade it:
 
@@ -281,9 +310,13 @@ What happens:
 
 - collect eligible tasks
 - surface edge cases
-- allocate a mode-balanced sample
+- allocate a mode-balanced sample up to the requested target size (default **20** in run config / UI and when the standalone `curate` command omits `--target-size`)
 - build adjudication-ready calibration records
 - write the worksheet and sampling summary
+
+Important behavior:
+
+- `manual_review_role_ambiguous` tasks remain adjudication-eligible, but the sampler **caps** how many are included: at most **25%** of the calibration target (rounded down), including any fill from the “remaining tasks” pass
 
 What can block or downgrade it:
 

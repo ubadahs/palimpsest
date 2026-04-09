@@ -291,7 +291,13 @@ export function writeAttributionDiscoveryArtifacts(options: {
     inScopeExtractions: r.extractionRecords.filter(
       (rec) => rec.inScopeEmpiricalAttribution,
     ).length,
+    rawFamilyCandidateCount: r.extractionRecords.filter(
+      (rec) => rec.inScopeEmpiricalAttribution,
+    ).length,
     familyCandidateCount: r.familyCandidates.length,
+    dedupeMergedCount:
+      r.extractionRecords.filter((rec) => rec.inScopeEmpiricalAttribution)
+        .length - r.familyCandidates.length,
     shortlistEntries: r.shortlistEntries,
     warnings: r.warnings,
   }));

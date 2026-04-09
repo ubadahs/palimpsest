@@ -74,40 +74,68 @@ describe("preScreenGroundingTraceFileSchema", () => {
   it("round-trips a file envelope", () => {
     const payload = {
       artifactKind: "pre-screen-grounding-trace" as const,
+      schemaVersion: 2,
+      generatedAt: "2026-04-05T00:00:00.000Z",
+      records: [
+        {
+          seedDoiKey: "10.1234/x",
+          record: {
+            seed: { doi: "10.1234/x", trackedClaim: "c" },
+            seedResolutionOk: true,
+            resolvedSeedPaperId: "p",
+            resolvedSeedTitle: "T",
+            materialization: {
+              materializationSource: "network",
+              attempts: [],
+              selectedMethod: "pmc_xml",
+              selectedLocatorKind: "doi_input",
+              selectedUrl: "https://example.com/paper.xml",
+              fullTextFormat: "jats_xml",
+            },
+            finalClaimGrounding: {
+              status: "grounded",
+              analystClaim: "c",
+              normalizedClaim: "c",
+              supportSpans: [{ text: "span" }],
+              blocksDownstream: false,
+              detailReason: "grounded",
+            },
+          },
+        },
+      ],
+    };
+    const parsed = preScreenGroundingTraceFileSchema.parse(payload);
+    expect(parsed.records[0]?.record.materialization?.selectedMethod).toBe(
+      "pmc_xml",
+    );
+    const again = preScreenGroundingTraceFileSchema.parse(
+      JSON.parse(JSON.stringify(parsed)),
+    );
+    expect(again).toEqual(parsed);
+  });
+
+  it("migrates legacy DOI-keyed trace files", () => {
+    const parsed = preScreenGroundingTraceFileSchema.parse({
+      artifactKind: "pre-screen-grounding-trace",
       schemaVersion: 1,
       generatedAt: "2026-04-05T00:00:00.000Z",
       recordsBySeedDoi: {
         "10.1234/x": {
           seed: { doi: "10.1234/x", trackedClaim: "c" },
           seedResolutionOk: true,
-          resolvedSeedPaperId: "p",
-          resolvedSeedTitle: "T",
-          materialization: {
-            materializationSource: "network",
-            attempts: [],
-            selectedMethod: "pmc_xml",
-            selectedLocatorKind: "doi_input",
-            selectedUrl: "https://example.com/paper.xml",
-            fullTextFormat: "jats_xml",
-          },
           finalClaimGrounding: {
             status: "grounded",
             analystClaim: "c",
             normalizedClaim: "c",
-            supportSpans: [{ text: "span" }],
+            supportSpans: [],
             blocksDownstream: false,
             detailReason: "grounded",
           },
         },
       },
-    };
-    const parsed = preScreenGroundingTraceFileSchema.parse(payload);
-    expect(
-      parsed.recordsBySeedDoi["10.1234/x"]?.materialization?.selectedMethod,
-    ).toBe("pmc_xml");
-    const again = preScreenGroundingTraceFileSchema.parse(
-      JSON.parse(JSON.stringify(parsed)),
-    );
-    expect(again).toEqual(parsed);
+    });
+
+    expect(parsed.records).toHaveLength(1);
+    expect(parsed.records[0]?.seedDoiKey).toBe("10.1234/x");
   });
 });

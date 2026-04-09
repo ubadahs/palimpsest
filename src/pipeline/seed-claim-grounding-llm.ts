@@ -36,6 +36,7 @@ export type SeedClaimLlmGroundingOptions = {
   apiKey: string;
   /** Anthropic model id (e.g. claude-opus-4-6). */
   model?: string;
+  useThinking?: boolean;
   /** Optional pre-existing LLM client for shared ledger tracking. */
   llmClient?: LLMClient;
 };
@@ -188,7 +189,8 @@ export async function runLlmFullDocumentClaimGrounding(params: {
   const { seed, seedPaper, parsedDocument, options } = params;
   const analystClaim = seed.trackedClaim.trim();
   const manuscript = buildSeedFullTextForLlm(parsedDocument);
-  const modelId = options.model ?? "claude-opus-4-6";
+  const modelId = options.model ?? "claude-sonnet-4-6";
+  const useThinking = options.useThinking ?? true;
 
   if (manuscript.length === 0) {
     return {
@@ -229,6 +231,9 @@ export async function runLlmFullDocumentClaimGrounding(params: {
       purpose: "seed-grounding",
       model: modelId,
       prompt: promptText,
+      ...(useThinking
+        ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
+        : {}),
     });
     const rawResponseText = result.text;
 

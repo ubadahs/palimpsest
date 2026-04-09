@@ -23,11 +23,13 @@ type FormState = {
   forceRefresh: boolean;
   discoverStrategy: DiscoverStrategy;
   discoverModel: string;
+  discoverThinking: boolean;
   discoverTopN: number;
   discoverRank: boolean;
   discoverProbeBudget: number;
   discoverShortlistCap: number;
   screenGroundingModel: string;
+  screenGroundingThinking: boolean;
   screenFilterModel: string;
   screenFilterConcurrency: number;
   evidenceLlmRerank: boolean;
@@ -51,18 +53,20 @@ export function NewRunForm() {
     targetStage: "adjudicate",
     forceRefresh: false,
     discoverStrategy: "attribution_first",
-    discoverModel: "claude-opus-4-6",
+    discoverModel: "claude-haiku-4-5",
+    discoverThinking: false,
     discoverTopN: 5,
     discoverRank: true,
     discoverProbeBudget: 20,
-    discoverShortlistCap: 10,
-    screenGroundingModel: "claude-opus-4-6",
+    discoverShortlistCap: 5,
+    screenGroundingModel: "claude-sonnet-4-6",
+    screenGroundingThinking: true,
     screenFilterModel: "claude-haiku-4-5",
     screenFilterConcurrency: 10,
     evidenceLlmRerank: true,
     evidenceRerankModel: "claude-haiku-4-5",
     evidenceRerankTopN: 5,
-    curateTargetSize: 40,
+    curateTargetSize: 20,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
     familyConcurrency: 3,
@@ -103,11 +107,13 @@ export function NewRunForm() {
               forceRefresh: state.forceRefresh,
               discoverStrategy: state.discoverStrategy,
               discoverModel: state.discoverModel,
+              discoverThinking: state.discoverThinking,
               discoverTopN: state.discoverTopN,
               discoverRank: state.discoverRank,
               discoverProbeBudget: state.discoverProbeBudget,
               discoverShortlistCap: state.discoverShortlistCap,
               screenGroundingModel: state.screenGroundingModel,
+              screenGroundingThinking: state.screenGroundingThinking,
               screenFilterModel: state.screenFilterModel,
               screenFilterConcurrency: state.screenFilterConcurrency,
               evidenceLlmRerank: state.evidenceLlmRerank,
@@ -264,7 +270,7 @@ export function NewRunForm() {
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
                     Claude model used for discovery LLM steps (legacy extraction
-                    / ranking or attribution-first grounding).
+                    / ranking or attribution-first extraction and grounding).
                   </span>
                   <Input
                     autoComplete="off"
@@ -274,6 +280,25 @@ export function NewRunForm() {
                     }
                   />
                 </label>
+                <div className="grid gap-1 self-end pb-1">
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.discoverThinking}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update("discoverThinking", event.target.checked)
+                        }
+                      />
+                      Thinking
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      Enable Anthropic thinking for discovery extraction and
+                      grounding calls.
+                    </span>
+                  </label>
+                </div>
                 {state.discoverStrategy === "legacy" ? (
                   <>
                     <label className="grid gap-2">
@@ -383,6 +408,28 @@ export function NewRunForm() {
                     }
                   />
                 </label>
+                <div className="grid gap-1 self-end pb-1">
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.screenGroundingThinking}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update(
+                            "screenGroundingThinking",
+                            event.target.checked,
+                          )
+                        }
+                      />
+                      Thinking
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      Enable Anthropic thinking when grounding tracked claims
+                      against the seed paper.
+                    </span>
+                  </label>
+                </div>
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
                     Filter model

@@ -52,6 +52,8 @@ The `pipeline` command writes into one chosen output root, but it now mirrors th
 
 Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_m2-extraction-results.json`.
 
+Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, and adjudication. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups.
+
 ### UI runs
 
 The local UI stores run-scoped data under:
@@ -123,6 +125,12 @@ This validation applies to:
 
 Historical artifacts remain loadable as long as their payload shape is still compatible with the current schema.
 
+This includes:
+
+- legacy pre-screen grounding traces keyed by DOI
+- older discovery summaries without dedupe metadata
+- older run-cost files that only recorded total cost and call count
+
 ## Parsing And Evidence Metadata
 
 The `extract` and `evidence` artifacts carry structured parsing and retrieval metadata.
@@ -177,6 +185,38 @@ Task-level evidence retrieval statuses distinguish:
 - `not_attempted`
 
 `abstract_only_matches` is deliberate. It means lexical matching surfaced only abstract material, so the task is treated as downgraded rather than silently upgraded to ordinary retrieval success.
+
+## Discovery And Screen Metadata
+
+### Attribution-first dedupe metadata
+
+Attribution-first discovery now writes dedupe metadata into family candidates and shortlist entries:
+
+- dedupe status (`unique`, `canonical_exact`, `canonical_near_duplicate`)
+- a stable dedupe group id
+- merged family ids and merged canonical claims when a family absorbed duplicates
+
+This is intentional and should stay visible in artifacts so the heuristic can be revisited later.
+
+Shortlist emission also applies a **diversity filter** on citing-paper overlap (high Jaccard similarity on `memberCitingPaperIds` vs an already selected family). Families that rank highly but are skipped for overlap carry an explicit `shortlistReason` distinguishing them from cap-only exclusions.
+
+### Pre-screen grounding trace shape
+
+New pre-screen grounding traces use:
+
+- `records[]`
+- each entry carries `seedDoiKey` plus the full trace record
+
+This avoids the old lossy `recordsBySeedDoi` map, which could overwrite multiple tracked claims that shared the same DOI. Legacy DOI-keyed traces are still readable through the current loader.
+
+## Run-Scoped Reuse
+
+Pipeline execution can reuse expensive work across equivalent families within the same run:
+
+- `extract` reuses citation-context extraction for identical citing-paper neighborhoods
+- `classify` reuses packet construction for the same effective neighborhood inputs
+
+Artifacts remain canonical per family even when computation was reused. The cache is run-scoped only; there is no new persistent cross-run execution cache in this storage contract.
 
 ## Benchmark Workflow
 

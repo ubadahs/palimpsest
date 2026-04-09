@@ -24,7 +24,7 @@ import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
 export const ATTRIBUTED_CLAIM_PROMPT_TEMPLATE_VERSION = "2026-04-08-v1";
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "claude-haiku-4-5";
 
 function buildExtractionPrompt(params: {
   seedPaper: ResolvedPaper;
@@ -142,6 +142,7 @@ function parseLlmResponse(
 
 export type AttributedClaimExtractionOptions = {
   model?: string | undefined;
+  useThinking?: boolean | undefined;
 };
 
 /**
@@ -162,6 +163,7 @@ export async function extractAttributedClaims(params: {
   if (mentions.length === 0) return [];
 
   const modelId = options?.model ?? DEFAULT_MODEL;
+  const useThinking = options?.useThinking ?? false;
   const prompt = buildExtractionPrompt({
     seedPaper,
     citingPaperTitle,
@@ -175,6 +177,9 @@ export async function extractAttributedClaims(params: {
       purpose: "attributed-claim-extraction",
       model: modelId,
       prompt,
+      ...(useThinking
+        ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
+        : {}),
     });
     rawText = result.text;
     record = result.record;

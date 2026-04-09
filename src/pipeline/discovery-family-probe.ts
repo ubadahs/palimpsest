@@ -29,7 +29,13 @@ import type {
 import { harvestSeedMentions } from "../retrieval/seed-mention-harvest.js";
 import type { LLMClient } from "../integrations/llm-client.js";
 import { extractAttributedClaims } from "./attributed-claim-extraction.js";
-import { buildSingletonFamilies } from "./attributed-claim-families.js";
+import {
+  buildSingletonFamilies,
+  collapseExactDuplicateTrackedClaimFamilies,
+  dedupeAttributedClaimFamilies,
+  selectDiverseShortlistFamilies,
+} from "./attributed-claim-families.js";
+import { pMap } from "../shared/p-map.js";
 import {
   runLlmFullDocumentClaimGrounding,
   buildSeedFullTextForLlm,
@@ -49,12 +55,21 @@ export type FamilyGroundingTrace = {
 
 const DEFAULT_PROBE_BUDGET = 20;
 
+const DEFAULT_HARVEST_CONCURRENCY = 8;
+const DEFAULT_GROUNDING_CONCURRENCY = 5;
+
 export type AttributionDiscoveryOptions = {
   probeBudget?: number;
   extractionModel?: string;
+  extractionThinking?: boolean;
   groundingModel?: string;
+  groundingThinking?: boolean;
   /** Max families to include in shortlist (by grounding status then mention count). */
   shortlistCap?: number;
+  /** Parallel citing-paper harvest + extraction (bounded). */
+  harvestConcurrency?: number;
+  /** Parallel per-family seed grounding LLM calls (bounded). */
+  groundingConcurrency?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -199,6 +214,7 @@ function toSeedGrounding(
   const spanTexts = grounding.supportSpans.map((s) => s.text);
   return {
     status: grounding.status,
+    normalizedClaim: grounding.normalizedClaim,
     supportSpanText: spanTexts.length > 0 ? spanTexts.join(" … ") : undefined,
     groundingDetail: grounding.detailReason,
   };
@@ -216,6 +232,8 @@ function toShortlistEntry(
     supportingPaperCount: family.memberCitingPaperIds.length,
     seedGroundingStatus: family.seedGrounding.status,
     notes: family.shortlistReason,
+    dedupeGroupId: family.dedupe.dedupeGroupId,
+    dedupeStatus: family.dedupe.dedupeStatus,
   };
 }
 
@@ -346,36 +364,53 @@ export async function runAttributionDiscovery(
   const allSummaries: PaperHarvestSummary[] = [];
   const allRecords: AttributedClaimExtractionRecord[] = [];
 
-  for (let i = 0; i < selectedPapers.length; i++) {
-    const citingPaper = selectedPapers[i]!;
-    emit(
-      onEvent,
-      "harvest_and_extract",
-      "updated",
-      `[${String(i + 1)}/${String(selectedPapers.length)}] ${citingPaper.title.slice(0, 60)}`,
-    );
+  const harvestConcurrency =
+    options.harvestConcurrency ?? DEFAULT_HARVEST_CONCURRENCY;
+  const probeTotal = selectedPapers.length;
+  let harvestCompleted = 0;
 
-    const harvest: MentionHarvestResult = await harvestSeedMentions(
-      citingPaper,
-      seedPaper,
-      adapters.mentionHarvest,
-    );
+  const harvestChunks = await pMap(
+    selectedPapers,
+    async (citingPaper) => {
+      const harvest: MentionHarvestResult = await harvestSeedMentions(
+        citingPaper,
+        seedPaper,
+        adapters.mentionHarvest,
+      );
+
+      let records: AttributedClaimExtractionRecord[] = [];
+      if (harvest.outcome === "success" && harvest.mentions.length > 0) {
+        records = await extractAttributedClaims({
+          seedPaper,
+          citingPaperTitle: citingPaper.title,
+          mentions: harvest.mentions,
+          client: adapters.llmClient,
+          options: {
+            ...(options.extractionModel ? { model: options.extractionModel } : {}),
+            useThinking: options.extractionThinking ?? false,
+          },
+        });
+      }
+
+      harvestCompleted += 1;
+      emit(
+        onEvent,
+        "harvest_and_extract",
+        "updated",
+        `[${String(harvestCompleted)}/${String(probeTotal)}] ${citingPaper.title.slice(0, 60)}`,
+      );
+
+      return { harvest, records };
+    },
+    { concurrency: harvestConcurrency },
+  );
+
+  for (const { harvest, records } of harvestChunks) {
     allSummaries.push(harvest.summary);
-
     if (harvest.outcome !== "success" || harvest.mentions.length === 0) {
       continue;
     }
     allMentions.push(...harvest.mentions);
-
-    const records = await extractAttributedClaims({
-      seedPaper,
-      citingPaperTitle: citingPaper.title,
-      mentions: harvest.mentions,
-      client: adapters.llmClient,
-      ...(options.extractionModel
-        ? { options: { model: options.extractionModel } }
-        : {}),
-    });
     allRecords.push(...records);
   }
 
@@ -387,12 +422,13 @@ export async function runAttributionDiscovery(
   );
 
   // --- 5. Build singleton families ---
-  const families = buildSingletonFamilies({
+  const singletonFamilies = buildSingletonFamilies({
     doi,
     records: allRecords,
     mentions: allMentions,
     harvestSummaries: allSummaries,
   });
+  let families = collapseExactDuplicateTrackedClaimFamilies(singletonFamilies);
 
   // --- 6. Ground families against seed ---
   const groundingTraces: FamilyGroundingTrace[] = [];
@@ -407,28 +443,41 @@ export async function runAttributionDiscovery(
 
     const manuscript = buildSeedFullTextForLlm(seedParsedDocument);
     if (manuscript.length > 0) {
-      for (let i = 0; i < families.length; i++) {
-        const fam = families[i]!;
-        emit(
-          onEvent,
-          "ground_families",
-          "updated",
-          `[${String(i + 1)}/${String(families.length)}] ${fam.canonicalTrackedClaim.slice(0, 60)}`,
-        );
+      const groundingConcurrency =
+        options.groundingConcurrency ?? DEFAULT_GROUNDING_CONCURRENCY;
+      const groundTotal = families.length;
+      let groundCompleted = 0;
 
-        const { grounding } = await runLlmFullDocumentClaimGrounding({
-          seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
-          seedPaper,
-          parsedDocument: seedParsedDocument,
-          options: adapters.groundingOptions,
-        });
-        fam.seedGrounding = toSeedGrounding(grounding);
-        groundingTraces.push({
-          familyId: fam.familyId,
-          canonicalTrackedClaim: fam.canonicalTrackedClaim,
-          grounding,
-        });
-      }
+      const traces = await pMap(
+        families,
+        async (fam) => {
+          const { grounding } = await runLlmFullDocumentClaimGrounding({
+            seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
+            seedPaper,
+            parsedDocument: seedParsedDocument,
+            options: adapters.groundingOptions,
+          });
+          fam.seedGrounding = toSeedGrounding(grounding);
+
+          groundCompleted += 1;
+          emit(
+            onEvent,
+            "ground_families",
+            "updated",
+            `[${String(groundCompleted)}/${String(groundTotal)}] ${fam.canonicalTrackedClaim.slice(0, 60)}`,
+          );
+
+          return {
+            familyId: fam.familyId,
+            canonicalTrackedClaim: fam.canonicalTrackedClaim,
+            grounding,
+          } satisfies FamilyGroundingTrace;
+        },
+        { concurrency: groundingConcurrency },
+      );
+
+      traces.sort((a, b) => a.familyId.localeCompare(b.familyId));
+      groundingTraces.push(...traces);
     } else {
       for (const fam of families) {
         fam.seedGrounding = {
@@ -457,6 +506,8 @@ export async function runAttributionDiscovery(
     emit(onEvent, "ground_families", "completed", "Skipped");
   }
 
+  families = dedupeAttributedClaimFamilies(families);
+
   // --- 7. Score + shortlist ---
   emit(onEvent, "emit_shortlist", "started", "Ranking families…");
 
@@ -469,12 +520,21 @@ export async function runAttributionDiscovery(
     return b.memberMentionIds.length - a.memberMentionIds.length;
   });
 
-  const cap = options.shortlistCap ?? 10;
-  const shortlisted = ranked.slice(0, cap);
+  const cap = options.shortlistCap ?? 5;
+  const topCapByRank = new Set(ranked.slice(0, cap));
+  const shortlisted = selectDiverseShortlistFamilies(ranked, cap);
+  const shortlistedSet = new Set(shortlisted);
+
   for (const fam of families) {
-    const isShortlisted = shortlisted.includes(fam);
-    fam.shortlistEligible = isShortlisted;
-    if (!isShortlisted) {
+    if (shortlistedSet.has(fam)) {
+      fam.shortlistEligible = true;
+      continue;
+    }
+    fam.shortlistEligible = false;
+    if (topCapByRank.has(fam)) {
+      fam.shortlistReason =
+        "Excluded from shortlist: near-identical citing papers vs a higher-ranked family";
+    } else {
       fam.shortlistReason = "Excluded from shortlist by cap";
     }
   }
@@ -485,7 +545,7 @@ export async function runAttributionDiscovery(
     onEvent,
     "emit_shortlist",
     "completed",
-    `${String(shortlistEntries.length)} families shortlisted from ${String(families.length)} candidates`,
+    `${String(shortlistEntries.length)} families shortlisted from ${String(families.length)} candidates (${String(singletonFamilies.length - families.length)} duplicates merged)`,
   );
 
   return {

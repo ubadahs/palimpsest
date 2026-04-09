@@ -31,7 +31,9 @@ export const attributionDiscoverySummarySchema = z.array(
         .passthrough(),
       mentionsHarvested: z.number(),
       inScopeExtractions: z.number(),
+      rawFamilyCandidateCount: z.number().optional(),
       familyCandidateCount: z.number(),
+      dedupeMergedCount: z.number().optional(),
       shortlistEntries: z.array(z.record(z.string(), z.unknown())),
       warnings: z.array(z.string()),
     })
@@ -90,7 +92,15 @@ export function buildAttributionDiscoverInspectorPayload(
       probeSelection: result.probeSelection,
       mentionsHarvested: result.mentionsHarvested,
       inScopeExtractions: result.inScopeExtractions,
+      rawFamilyCandidateCount:
+        "rawFamilyCandidateCount" in result
+          ? result.rawFamilyCandidateCount
+          : undefined,
       familyCandidateCount: result.familyCandidateCount,
+      dedupeMergedCount:
+        "dedupeMergedCount" in result
+          ? result.dedupeMergedCount
+          : undefined,
       shortlistEntries: result.shortlistEntries,
       warnings: result.warnings,
     })),
