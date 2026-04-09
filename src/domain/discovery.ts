@@ -237,12 +237,37 @@ export type FamilyProbeMetrics = z.infer<typeof familyProbeMetricsSchema>;
 export const familyCandidateSeedGroundingSchema = z
   .object({
     status: claimGroundingStatusSchema,
+    normalizedClaim: undefinedable(z.string()),
     supportSpanText: undefinedable(z.string()),
     groundingDetail: undefinedable(z.string()),
   })
   .passthrough();
 export type FamilyCandidateSeedGrounding = z.infer<
   typeof familyCandidateSeedGroundingSchema
+>;
+
+export const familyCandidateDedupeStatusSchema = z.enum([
+  "unique",
+  "canonical_exact",
+  "canonical_near_duplicate",
+]);
+export type FamilyCandidateDedupeStatus = z.infer<
+  typeof familyCandidateDedupeStatusSchema
+>;
+
+export const familyCandidateDedupeMetadataSchema = z
+  .object({
+    dedupeStatus: familyCandidateDedupeStatusSchema,
+    dedupeGroupId: z.string().min(1),
+    dedupeStrategy: z
+      .enum(["none", "exact_normalized_claim", "near_duplicate_claim"])
+      .default("none"),
+    mergedFamilyIds: z.array(z.string().min(1)).default([]),
+    mergedCanonicalClaims: z.array(z.string().min(1)).default([]),
+  })
+  .passthrough();
+export type FamilyCandidateDedupeMetadata = z.infer<
+  typeof familyCandidateDedupeMetadataSchema
 >;
 
 // A cluster of attributed claims that represent the same seed-paper contribution.
@@ -258,6 +283,7 @@ export const attributedClaimFamilyCandidateSchema = z
     probeMetrics: familyProbeMetricsSchema,
     shortlistEligible: z.boolean(),
     shortlistReason: z.string().min(1),
+    dedupe: familyCandidateDedupeMetadataSchema,
   })
   .passthrough();
 export type AttributedClaimFamilyCandidate = z.infer<

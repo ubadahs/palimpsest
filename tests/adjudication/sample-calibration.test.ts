@@ -113,11 +113,11 @@ describe("sampleCalibrationSet", () => {
       makeTask("methods_materials", "fidelity_methods_use"),
     ];
     const evidence = makeEvidence(tasks);
-    const set = sampleCalibrationSet(evidence, undefined, 40);
+    const set = sampleCalibrationSet(evidence, undefined, 20);
 
-    expect(set.records.length).toBeLessThanOrEqual(40);
+    expect(set.records.length).toBeLessThanOrEqual(20);
     expect(set.records.length).toBe(3);
-    expect(set.targetSize).toBe(40);
+    expect(set.targetSize).toBe(20);
   });
 
   it("produces records with correct structure", () => {
@@ -177,5 +177,40 @@ describe("sampleCalibrationSet", () => {
     expect(set.seed.doi).toBe("10.1234/seed");
     expect(set.studyMode).toBe("all_functions_census");
     expect(set.createdAt).toBeDefined();
+  });
+
+  it("explicitly keeps ambiguous-role tasks adjudication-eligible", () => {
+    const tasks = [
+      makeTask("substantive_attribution", "fidelity_specific_claim"),
+      makeTask("unclear", "manual_review_role_ambiguous"),
+    ];
+    const evidence = makeEvidence(tasks);
+    const set = sampleCalibrationSet(evidence, undefined, 4);
+
+    expect(
+      set.records.some(
+        (record) => record.evaluationMode === "manual_review_role_ambiguous",
+      ),
+    ).toBe(true);
+  });
+
+  it("caps manual_review_role_ambiguous at 25% of totalTarget", () => {
+    const ambiguousTasks = Array.from({ length: 12 }, (_, i) =>
+      makeTask("unclear", "manual_review_role_ambiguous", {
+        taskId: `amb-${String(i)}`,
+      }),
+    );
+    const other = makeTask(
+      "substantive_attribution",
+      "fidelity_specific_claim",
+      { taskId: "spec-1" },
+    );
+    const evidence = makeEvidence([other, ...ambiguousTasks]);
+    const set = sampleCalibrationSet(evidence, undefined, 20);
+
+    const ambiguousCount = set.records.filter(
+      (r) => r.evaluationMode === "manual_review_role_ambiguous",
+    ).length;
+    expect(ambiguousCount).toBeLessThanOrEqual(5);
   });
 });

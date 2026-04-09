@@ -153,7 +153,7 @@ function buildRunDetail(workflow: StageWorkflowSnapshot): RunDetail {
     config: analysisRunConfigSchema.parse({
       stopAfterStage: "adjudicate",
       forceRefresh: false,
-      curateTargetSize: 40,
+      curateTargetSize: 20,
       adjudicateModel: "claude-opus-4-6",
       adjudicateThinking: false,
     }),

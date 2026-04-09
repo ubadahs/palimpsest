@@ -196,9 +196,10 @@ function verifySourceSpans(
 
 export type ClaimDiscoveryOptions = {
   model?: string | undefined;
+  useThinking?: boolean | undefined;
 };
 
-const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_MODEL = "claude-haiku-4-5";
 
 export async function discoverClaims(params: {
   paper: ResolvedPaper;
@@ -208,6 +209,7 @@ export async function discoverClaims(params: {
 }): Promise<ClaimDiscoveryResult> {
   const { paper, parsedDocument, client, options } = params;
   const modelId = options?.model ?? DEFAULT_MODEL;
+  const useThinking = options?.useThinking ?? false;
   const manuscript = buildManuscriptForDiscovery(parsedDocument);
 
   if (manuscript.length === 0) {
@@ -236,6 +238,9 @@ export async function discoverClaims(params: {
       purpose: "claim-discovery",
       model: modelId,
       prompt,
+      ...(useThinking
+        ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
+        : {}),
     });
     rawText = result.text;
     record = result.record;

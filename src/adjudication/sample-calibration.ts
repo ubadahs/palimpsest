@@ -19,7 +19,7 @@ const MODE_PROPORTIONS: SamplingTarget = {
   review_transmission: 0.15,
 };
 
-const DEFAULT_TOTAL = 40;
+const DEFAULT_TOTAL = 20;
 
 function scaleTargets(
   proportions: SamplingTarget,
@@ -42,6 +42,38 @@ function scaleTargets(
   }
 
   return scaled;
+}
+
+function ensureAmbiguousRoleCoverage(
+  targets: SamplingTarget,
+  tasks: TaskWithEvidence[],
+  totalTarget: number,
+): SamplingTarget {
+  if (
+    totalTarget <= 0 ||
+    targets["manual_review_role_ambiguous"] != null ||
+    !tasks.some((task) => task.evaluationMode === "manual_review_role_ambiguous")
+  ) {
+    return targets;
+  }
+
+  const adjusted: SamplingTarget = { ...targets };
+  adjusted["manual_review_role_ambiguous"] = 1;
+
+  const reducibleModes = Object.entries(adjusted)
+    .filter(
+      ([mode, value]) =>
+        mode !== "manual_review_role_ambiguous" && (value ?? 0) > 0,
+    )
+    .sort(([, left], [, right]) => (right ?? 0) - (left ?? 0));
+
+  const entry = reducibleModes[0];
+  if (entry) {
+    const [mode, value] = entry;
+    adjusted[mode as EvaluationMode] = Math.max(0, (value ?? 0) - 1);
+  }
+
+  return adjusted;
 }
 
 type ScoredTask = {
@@ -139,8 +171,6 @@ export function sampleCalibrationSet(
   targets?: SamplingTarget,
   totalTarget: number = DEFAULT_TOTAL,
 ): CalibrationSet {
-  const effectiveTargets =
-    targets ?? scaleTargets(MODE_PROPORTIONS, totalTarget);
   const allTasks: ScoredTask[] = [];
 
   for (const edge of evidence.edges) {
@@ -156,6 +186,22 @@ export function sampleCalibrationSet(
         oversampled: tags,
       });
     }
+  }
+
+  const effectiveTargetsRaw = ensureAmbiguousRoleCoverage(
+    targets ?? scaleTargets(MODE_PROPORTIONS, totalTarget),
+    allTasks.map((task) => task.task),
+    totalTarget,
+  );
+
+  const maxAmbiguous = Math.max(0, Math.floor(totalTarget * 0.25));
+  const effectiveTargets: SamplingTarget = { ...effectiveTargetsRaw };
+  const ambiguousTarget = effectiveTargets["manual_review_role_ambiguous"];
+  if (ambiguousTarget != null) {
+    effectiveTargets["manual_review_role_ambiguous"] = Math.min(
+      ambiguousTarget,
+      maxAmbiguous,
+    );
   }
 
   const records: AdjudicationRecord[] = [];
@@ -209,6 +255,14 @@ export function sampleCalibrationSet(
 
     for (const st of remaining) {
       if (records.length >= totalTarget) break;
+      if (st.task.evaluationMode === "manual_review_role_ambiguous") {
+        const ambiguousCount = records.filter(
+          (r) => r.evaluationMode === "manual_review_role_ambiguous",
+        ).length;
+        if (ambiguousCount >= maxAmbiguous) {
+          continue;
+        }
+      }
       selectedIds.add(st.task.taskId);
       records.push(
         taskToRecord(

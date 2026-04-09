@@ -440,11 +440,19 @@ export function getArtifactContent(
 export type RunCostSummary = {
   totalEstimatedCostUsd: number;
   totalCalls: number;
+  totalAttemptedCalls: number;
+  totalSuccessfulCalls: number;
+  totalFailedCalls: number;
+  totalBillableCalls: number;
   byStage: Array<{
     stage: string;
     familyIndex: number;
     estimatedCostUsd: number;
     calls: number;
+    attemptedCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    billableCalls: number;
   }>;
   source: "cost_file" | "adjudicate_artifacts";
 };
@@ -469,7 +477,21 @@ export function getRunCostSummary(runId: string): RunCostSummary | undefined {
       return {
         totalEstimatedCostUsd: Number(raw["totalEstimatedCostUsd"] ?? 0),
         totalCalls: Number(raw["totalCalls"] ?? 0),
-        byStage: (raw["byStage"] as RunCostSummary["byStage"]) ?? [],
+        totalAttemptedCalls: Number(
+          raw["totalAttemptedCalls"] ?? raw["totalCalls"] ?? 0,
+        ),
+        totalSuccessfulCalls: Number(raw["totalSuccessfulCalls"] ?? 0),
+        totalFailedCalls: Number(raw["totalFailedCalls"] ?? 0),
+        totalBillableCalls: Number(raw["totalBillableCalls"] ?? 0),
+        byStage: ((raw["byStage"] as RunCostSummary["byStage"]) ?? []).map(
+          (entry) => ({
+            ...entry,
+            attemptedCalls: Number(entry.attemptedCalls ?? entry.calls ?? 0),
+            successfulCalls: Number(entry.successfulCalls ?? 0),
+            failedCalls: Number(entry.failedCalls ?? 0),
+            billableCalls: Number(entry.billableCalls ?? 0),
+          }),
+        ),
         source: "cost_file",
       };
     } catch {
@@ -503,6 +525,10 @@ export function getRunCostSummary(runId: string): RunCostSummary | undefined {
           familyIndex: stage.familyIndex ?? 0,
           estimatedCostUsd: telemetry["estimatedCostUsd"],
           calls: Number(telemetry["totalCalls"] ?? 0),
+          attemptedCalls: Number(telemetry["totalCalls"] ?? 0),
+          successfulCalls: Number(telemetry["successfulCalls"] ?? 0),
+          failedCalls: Number(telemetry["failedCalls"] ?? 0),
+          billableCalls: Number(telemetry["successfulCalls"] ?? 0),
         });
       }
     } catch {
@@ -518,6 +544,13 @@ export function getRunCostSummary(runId: string): RunCostSummary | undefined {
       0,
     ),
     totalCalls: entries.reduce((sum, e) => sum + e.calls, 0),
+    totalAttemptedCalls: entries.reduce((sum, e) => sum + e.attemptedCalls, 0),
+    totalSuccessfulCalls: entries.reduce(
+      (sum, e) => sum + e.successfulCalls,
+      0,
+    ),
+    totalFailedCalls: entries.reduce((sum, e) => sum + e.failedCalls, 0),
+    totalBillableCalls: entries.reduce((sum, e) => sum + e.billableCalls, 0),
     byStage: entries,
     source: "adjudicate_artifacts",
   };

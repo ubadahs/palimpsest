@@ -28,6 +28,7 @@ export type DiscoveryStageOptions = {
   topN: number;
   rank: boolean;
   model?: string | undefined;
+  useThinking?: boolean | undefined;
   strategy?: DiscoveryStrategy;
   /** Required when strategy is "attribution_first". */
   attributionAdapters?: AttributionDiscoveryAdapters;
@@ -61,6 +62,7 @@ export type DiscoveryStageAdapters = {
     paper: ResolvedPaper,
     parsedDocument: ParsedPaperDocument,
     model?: string,
+    useThinking?: boolean,
   ) => Promise<ClaimDiscoveryResult>;
   getCitingPapers: (openAlexId: string) => Promise<Result<ResolvedPaper[]>>;
   rankClaimsByEngagement: (
@@ -270,6 +272,7 @@ export async function runDiscoveryStage(
       resolved.data,
       materialized.data.parsedDocument,
       options.model,
+      options.useThinking,
     );
     emit(onEvent, {
       step: "extract_claims",

@@ -18,6 +18,7 @@ import {
   PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
   normalizeSeedDoiForTraceKey,
 } from "../domain/pre-screen-grounding-trace.js";
+import type { LLMClient } from "../integrations/llm-client.js";
 import { createLLMClient } from "../integrations/llm-client.js";
 import { buildRetrievalQuery, rankDocumentsByBm25 } from "../retrieval/bm25.js";
 import { deduplicatePapers } from "./dedup.js";
@@ -49,11 +50,14 @@ export type PreScreenOptions = {
   llmGrounding: {
     anthropicApiKey: string;
     model?: string;
+    useThinking?: boolean;
+    llmClient?: LLMClient;
   };
   /** Options for the LLM claim-family filter step. */
   llmFilter?: {
     model?: string;
     concurrency?: number;
+    llmClient?: LLMClient;
   };
   /** Max concurrent seed processing. Default 3. */
   seedConcurrency?: number;
@@ -464,6 +468,12 @@ async function processOneSeed(
       ...(options.llmGrounding.model != null
         ? { model: options.llmGrounding.model }
         : {}),
+      ...(options.llmGrounding.useThinking != null
+        ? { useThinking: options.llmGrounding.useThinking }
+        : {}),
+      ...(options.llmGrounding.llmClient != null
+        ? { llmClient: options.llmGrounding.llmClient }
+        : {}),
     };
     const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding({
       seed,
@@ -666,9 +676,11 @@ async function processOneSeed(
         detail: `LLM filtering ${String(candidates.length)} BM25 survivors.`,
       });
 
-      const llmClient = createLLMClient({
-        apiKey: options.llmGrounding.anthropicApiKey,
-      });
+      const llmClient =
+        options.llmFilter?.llmClient ??
+        createLLMClient({
+          apiKey: options.llmGrounding.anthropicApiKey,
+        });
       const llmResults = await llmFilterClaimFamily(
         llmClient,
         claimGrounding.normalizedClaim,
@@ -806,6 +818,12 @@ export async function runPreScreen(
       ...(options.llmGrounding?.model != null
         ? { model: options.llmGrounding.model }
         : {}),
+      ...(options.llmGrounding?.useThinking != null
+        ? { useThinking: options.llmGrounding.useThinking }
+        : {}),
+      ...(options.llmGrounding?.llmClient != null
+        ? { llmClient: options.llmGrounding.llmClient }
+        : {}),
     },
     ...(options.llmFilter != null ? { llmFilter: options.llmFilter } : {}),
     ...(options.seedConcurrency != null
@@ -826,11 +844,13 @@ export async function runPreScreen(
   );
 
   const results: ClaimFamilyPreScreen[] = [];
-  const recordsBySeedDoi: PreScreenGroundingTraceFile["recordsBySeedDoi"] = {};
+  const records: PreScreenGroundingTraceFile["records"] = [];
   for (const { family, traceRecord } of seedResults) {
     results.push(family);
-    recordsBySeedDoi[normalizeSeedDoiForTraceKey(family.seed.doi)] =
-      traceRecord;
+    records.push({
+      seedDoiKey: normalizeSeedDoiForTraceKey(family.seed.doi),
+      record: traceRecord,
+    });
   }
 
   assignM2Priorities(results);
@@ -841,7 +861,7 @@ export async function runPreScreen(
       artifactKind: "pre-screen-grounding-trace",
       schemaVersion: PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
       generatedAt: new Date().toISOString(),
-      recordsBySeedDoi,
+      records,
     },
   };
 }

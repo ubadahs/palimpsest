@@ -19,7 +19,12 @@ import {
   resolvePaperByDoi,
   resolvePaperByMetadata,
 } from "../../integrations/paper-resolver.js";
-import { createLLMClient } from "../../integrations/llm-client.js";
+import {
+  createLLMClient,
+  createLLMTelemetryCollector,
+  isFatalProviderError,
+  type LLMRunLedger,
+} from "../../integrations/llm-client.js";
 import * as openalex from "../../integrations/openalex.js";
 import { buildPaperAdapters } from "../paper-adapters.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
@@ -88,9 +93,11 @@ function parseArgs(argv: string[]): {
   noRank: boolean;
   targetSize: number;
   strategy: DiscoveryStrategy;
+  discoverThinking: boolean;
   probeBudget: number;
   shortlistCap: number;
   screenGroundingModel: string | undefined;
+  screenGroundingThinking: boolean;
   screenFilterModel: string | undefined;
   screenFilterConcurrency: number | undefined;
   rerankModel: string | undefined;
@@ -102,11 +109,13 @@ function parseArgs(argv: string[]): {
   let runId: string | undefined;
   let topN = 5;
   let noRank = false;
-  let targetSize = 40;
+  let targetSize = 20;
   let strategy: DiscoveryStrategy = "attribution_first";
+  let discoverThinking = false;
   let probeBudget = 20;
-  let shortlistCap = 10;
+  let shortlistCap = 5;
   let screenGroundingModel: string | undefined;
+  let screenGroundingThinking = true;
   let screenFilterModel: string | undefined;
   let screenFilterConcurrency: number | undefined;
   let rerankModel: string | undefined;
@@ -130,7 +139,7 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--no-rank") {
       noRank = true;
     } else if (arg === "--target-size" && i + 1 < argv.length) {
-      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 40);
+      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
     } else if (arg === "--strategy" && i + 1 < argv.length) {
       const val = argv[i + 1]!;
@@ -144,15 +153,23 @@ function parseArgs(argv: string[]): {
         throw new Error("Invalid --strategy");
       }
       i++;
+    } else if (arg === "--discover-thinking") {
+      discoverThinking = true;
+    } else if (arg === "--no-discover-thinking") {
+      discoverThinking = false;
     } else if (arg === "--probe-budget" && i + 1 < argv.length) {
       probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
-      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
     } else if (arg === "--screen-grounding-model" && i + 1 < argv.length) {
       screenGroundingModel = argv[i + 1]!;
       i++;
+    } else if (arg === "--screen-grounding-thinking") {
+      screenGroundingThinking = true;
+    } else if (arg === "--no-screen-grounding-thinking") {
+      screenGroundingThinking = false;
     } else if (arg === "--screen-filter-model" && i + 1 < argv.length) {
       screenFilterModel = argv[i + 1]!;
       i++;
@@ -187,9 +204,11 @@ function parseArgs(argv: string[]): {
     noRank,
     targetSize,
     strategy,
+    discoverThinking,
     probeBudget,
     shortlistCap,
     screenGroundingModel,
+    screenGroundingThinking,
     screenFilterModel,
     screenFilterConcurrency,
     rerankModel,
@@ -270,6 +289,69 @@ function createStageReporter(
   return { onProgress, log: stageLog, logPath };
 }
 
+type RunCostStageSummary = {
+  stage: string;
+  familyIndex: number;
+  estimatedCostUsd: number;
+  calls: number;
+  attemptedCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  billableCalls: number;
+};
+
+function summarizeLedgerByStage(ledger: LLMRunLedger): {
+  totalEstimatedCostUsd: number;
+  totalCalls: number;
+  totalAttemptedCalls: number;
+  totalSuccessfulCalls: number;
+  totalFailedCalls: number;
+  totalBillableCalls: number;
+  byStage: RunCostStageSummary[];
+  generatedAt: string;
+} {
+  const stageMap = new Map<string, RunCostStageSummary>();
+
+  for (const call of ledger.calls) {
+    const stage = call.stageKey ?? "unknown";
+    const familyIndex = call.familyIndex ?? 0;
+    const key = `${stage}:${String(familyIndex)}`;
+    const existing = stageMap.get(key);
+    if (existing) {
+      existing.estimatedCostUsd += call.estimatedCostUsd;
+      existing.calls += 1;
+      existing.attemptedCalls += 1;
+      existing.successfulCalls += call.successful ? 1 : 0;
+      existing.failedCalls += call.failed ? 1 : 0;
+      existing.billableCalls += call.billable ? 1 : 0;
+    } else {
+      stageMap.set(key, {
+        stage,
+        familyIndex,
+        estimatedCostUsd: call.estimatedCostUsd,
+        calls: 1,
+        attemptedCalls: 1,
+        successfulCalls: call.successful ? 1 : 0,
+        failedCalls: call.failed ? 1 : 0,
+        billableCalls: call.billable ? 1 : 0,
+      });
+    }
+  }
+
+  return {
+    totalEstimatedCostUsd: ledger.totalEstimatedCostUsd,
+    totalCalls: ledger.totalCalls,
+    totalAttemptedCalls: ledger.totalAttemptedCalls,
+    totalSuccessfulCalls: ledger.totalSuccessfulCalls,
+    totalFailedCalls: ledger.totalFailedCalls,
+    totalBillableCalls: ledger.totalBillableCalls,
+    byStage: [...stageMap.values()].sort(
+      (a, b) => a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
+    ),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline command
 // ---------------------------------------------------------------------------
@@ -301,6 +383,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   }
   const runId = existingRun?.id ?? randomUUID();
   const activeStages = new Set<string>(); // "stageKey:familyIndex" pairs
+  let totalProcessableFamilies = 0;
+  let writeCostSummary = (): void => {};
 
   // --- Run tracking ---------------------------------------------------------
   function trackStageStart(
@@ -359,6 +443,38 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     setRunStatus(database, runId, "failed");
   }
 
+  function trackStageBlocked(
+    stageKey: StageKey,
+    familyIndex: number,
+    message: string,
+  ): void {
+    updateStageStatus(database, runId, stageKey, "blocked", {
+      familyIndex,
+      errorMessage: message,
+      finishedAt: new Date().toISOString(),
+      exitCode: 1,
+    });
+  }
+
+  function blockPendingFamilyStages(message: string): void {
+    const stageKeys: StageKey[] = [
+      "extract",
+      "classify",
+      "evidence",
+      "curate",
+      "adjudicate",
+    ];
+
+    for (const stageKey of stageKeys) {
+      for (let familyIndex = 0; familyIndex < totalProcessableFamilies; familyIndex++) {
+        const stage = getRunStage(database, runId, stageKey, familyIndex);
+        if (stage?.status === "not_started") {
+          trackStageBlocked(stageKey, familyIndex, message);
+        }
+      }
+    }
+  }
+
   function succeededArtifact(stageKey: StageKey): string | undefined {
     if (!existingRun) return undefined;
     const stage = getRunStage(database, runId, stageKey);
@@ -393,12 +509,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoverStrategy: args.strategy,
         discoverTopN: args.topN,
         discoverRank: !args.noRank,
+        discoverThinking: args.discoverThinking,
         discoverProbeBudget: args.probeBudget,
         discoverShortlistCap: args.shortlistCap,
         curateTargetSize: args.targetSize,
         ...(args.screenGroundingModel != null
           ? { screenGroundingModel: args.screenGroundingModel }
           : {}),
+        screenGroundingThinking: args.screenGroundingThinking,
         ...(args.screenFilterModel != null
           ? { screenFilterModel: args.screenFilterModel }
           : {}),
@@ -443,31 +561,21 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         resolveStageOutputDir(outputDir, stage.key),
       ),
     ]);
-
-    const costEntries: Array<{
-      stage: string;
-      familyIndex: number;
-      estimatedCostUsd: number;
-      calls: number;
-    }> = [];
-
-    function writeCostSummary(): void {
-      const total = costEntries.reduce(
-        (sum, e) => sum + e.estimatedCostUsd,
-        0,
-      );
-      const totalCalls = costEntries.reduce((sum, e) => sum + e.calls, 0);
-      const summary = {
-        totalEstimatedCostUsd: total,
-        totalCalls,
-        byStage: costEntries,
-        generatedAt: new Date().toISOString(),
-      };
+    const telemetryCollector = createLLMTelemetryCollector();
+    let fatalProviderFailure:
+      | {
+          message: string;
+          stageKey: StageKey;
+          familyIndex: number;
+        }
+      | undefined;
+    writeCostSummary = (): void => {
+      const summary = summarizeLedgerByStage(telemetryCollector.getLedger());
       writeFileSync(
         resolve(outputDir, `${stamp}_run-cost.json`),
         JSON.stringify(summary, null, 2),
       );
-    }
+    };
 
     // -----------------------------------------------------------------------
     // Resolve input files. For --run-id, inputs are in the run directory.
@@ -572,6 +680,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       const discoveryClient = createLLMClient({
         apiKey,
         defaultModel: runConfig.discoverModel,
+        collector: telemetryCollector,
+        defaultContext: { stageKey: "discover", familyIndex: 0 },
       });
 
       const paperAdapters = buildPaperAdapters({
@@ -607,11 +717,15 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                   groundingOptions: {
                     apiKey,
                     llmClient: discoveryClient,
+                    model: runConfig.discoverModel,
+                    useThinking: runConfig.discoverThinking,
                   },
                 },
                 attributionOptions: {
                   probeBudget: runConfig.discoverProbeBudget,
                   shortlistCap: runConfig.discoverShortlistCap,
+                  extractionModel: runConfig.discoverModel,
+                  extractionThinking: runConfig.discoverThinking,
                 },
               }
             : {}),
@@ -623,6 +737,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               paper,
               parsedDocument,
               client: discoveryClient,
+              options: {
+                model: runConfig.discoverModel,
+                useThinking: runConfig.discoverThinking,
+              },
             }),
           rankClaimsByEngagement: (
             seedTitle,
@@ -635,6 +753,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               claims,
               citingPapers,
               client: discoveryClient,
+              options: { model: runConfig.discoverModel },
               ...(onProgress ? { onProgress } : {}),
             }),
         },
@@ -674,14 +793,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       });
 
       const discoveryLedger = discoveryClient.getLedger();
-      costEntries.push({
-        stage: "discover",
-        familyIndex: 0,
-        estimatedCostUsd: discoveryLedger.totalEstimatedCostUsd,
-        calls: discoveryLedger.totalCalls,
-      });
       discoverReporter.log(
-        `Done. ${String(seeds.length)} seeds. LLM: ${discoveryLedger.totalCalls} calls, ~$${discoveryLedger.totalEstimatedCostUsd.toFixed(4)}`,
+        `Done. ${String(seeds.length)} seeds. LLM: ${discoveryLedger.totalAttemptedCalls} attempted, ${discoveryLedger.totalFailedCalls} failed, ~$${discoveryLedger.totalEstimatedCostUsd.toFixed(4)}`,
       );
     }
 
@@ -751,10 +864,23 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           llmGrounding: {
             anthropicApiKey: apiKey,
             model: runConfig.screenGroundingModel,
+            useThinking: runConfig.screenGroundingThinking,
+            llmClient: createLLMClient({
+              apiKey,
+              defaultModel: runConfig.screenGroundingModel,
+              collector: telemetryCollector,
+              defaultContext: { stageKey: "screen", familyIndex: 0 },
+            }),
           },
           llmFilter: {
             model: runConfig.screenFilterModel,
             concurrency: runConfig.screenFilterConcurrency,
+            llmClient: createLLMClient({
+              apiKey,
+              defaultModel: runConfig.screenFilterModel,
+              collector: telemetryCollector,
+              defaultContext: { stageKey: "screen", familyIndex: 0 },
+            }),
           },
           skipClaimFamilyFilter:
             runConfig.discoverStrategy === "attribution_first",
@@ -799,6 +925,26 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     const processable = families.filter(
       (f) => f.decision === "greenlight" && !claimFamilyBlocksDownstream(f),
     );
+    totalProcessableFamilies = processable.length;
+
+    for (let familyIndex = 0; familyIndex < processable.length; familyIndex++) {
+      for (const stageKey of [
+        "extract",
+        "classify",
+        "evidence",
+        "curate",
+        "adjudicate",
+      ] as const) {
+        const reporter = createStageReporter(stageKey, outputDir, familyIndex);
+        ensureFamilyStageRow(
+          database,
+          runId,
+          stageKey,
+          familyIndex,
+          reporter.logPath,
+        );
+      }
+    }
 
     if (processable.length === 0) {
       setRunStatus(database, runId, "succeeded");
@@ -825,6 +971,63 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     const reranker = createLocalReranker(config.localRerankerBaseUrl);
     const rerankModelId = runConfig.evidenceRerankModel;
+    const extractionCache = new Map<
+      string,
+      {
+        resolvedSeedPaper: Awaited<ReturnType<typeof runM2Extraction>>["resolvedSeedPaper"];
+        edgeResults: Awaited<ReturnType<typeof runM2Extraction>>["edgeResults"];
+        summary: Awaited<ReturnType<typeof runM2Extraction>>["summary"];
+      }
+    >();
+    const classificationCache = new Map<
+      string,
+      {
+        resolvedSeedPaperTitle: string;
+        packets: ReturnType<typeof buildPackets>["packets"];
+        summary: ReturnType<typeof buildPackets>["summary"];
+        studyMode: ReturnType<typeof buildPackets>["studyMode"];
+      }
+    >();
+
+    function buildExtractionCacheKey(
+      family: (typeof processable)[number],
+    ): string {
+      const eligibleEdges = family.edges
+        .filter((edge) => edge.inClaimFamily !== false)
+        .map((edge) => `${edge.citingPaperId}:${edge.citedPaperId}`)
+        .sort();
+      return JSON.stringify({
+        version: "extract-v1",
+        seedPaperId: family.resolvedSeedPaper?.id ?? family.seed.doi,
+        edges: eligibleEdges,
+      });
+    }
+
+    function buildClassificationCacheKey(
+      family: (typeof processable)[number],
+      extractionCacheKey: string,
+      studyMode: "all_functions_census",
+    ): string {
+      const edgeInputs = family.edges
+        .map((edge) => ({
+          citingPaperId: edge.citingPaperId,
+          inClaimFamily: edge.inClaimFamily ?? null,
+          isPrimaryLike: edge.classification.isPrimaryLike,
+          isReview: edge.classification.isReview,
+          isCommentary: edge.classification.isCommentary,
+          isLetter: edge.classification.isLetter,
+          isBookChapter: edge.classification.isBookChapter,
+          isJournalArticle: edge.classification.isJournalArticle,
+          isPreprint: edge.classification.isPreprint,
+        }))
+        .sort((a, b) => a.citingPaperId.localeCompare(b.citingPaperId));
+      return JSON.stringify({
+        version: "classify-v1",
+        extractionCacheKey,
+        studyMode,
+        edgeInputs,
+      });
+    }
 
     log(
       "pipeline",
@@ -834,342 +1037,430 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     await pMap(
       processable,
       async (family, fi) => {
+        if (fatalProviderFailure) {
+          return;
+        }
+
         const familyTag = `F${String(fi + 1)}`;
+        let currentStageKey: StageKey = "extract";
         log(familyTag, family.seed.trackedClaim.slice(0, 70));
+        try {
+          // --- Extract ---
+          currentStageKey = "extract";
+          const extractReporter = createStageReporter("extract", outputDir, fi);
+          extractReporter.log("Extracting citation contexts...");
+          trackStageStart("extract", fi, extractReporter.logPath);
+          const extractionCacheKey = buildExtractionCacheKey(family);
+          const cachedExtraction = extractionCache.get(extractionCacheKey);
+          const extraction = cachedExtraction
+            ? {
+                seed: family.seed,
+                resolvedSeedPaper: cachedExtraction.resolvedSeedPaper,
+                groundedSeedClaimText:
+                  family.claimGrounding &&
+                  (family.claimGrounding.status === "grounded" ||
+                    family.claimGrounding.status === "ambiguous")
+                    ? family.claimGrounding.normalizedClaim
+                    : undefined,
+                edgeResults: cachedExtraction.edgeResults,
+                summary: cachedExtraction.summary,
+              }
+            : await runM2Extraction(
+                family,
+                extractionAdapters,
+                extractReporter.onProgress,
+              );
 
-        // --- Extract ---
-        const extractReporter = createStageReporter("extract", outputDir, fi);
-        extractReporter.log("Extracting citation contexts...");
-        trackStageStart("extract", fi, extractReporter.logPath);
-        const extraction = await runM2Extraction(
-          family,
-          extractionAdapters,
-          extractReporter.onProgress,
-        );
-
-        const { jsonPath: extractJsonPath } = writeExtractionArtifacts({
-          outputRoot: outputDir,
-          stamp,
-          result: extraction,
-          sourceArtifacts: [screenJsonPath],
-          familyIndex: fi,
-        });
-        trackStageSuccess("extract", fi, {
-          primaryArtifactPath: extractJsonPath,
-          inputArtifactPath: screenJsonPath,
-        });
-        extractReporter.log(
-          `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
-        );
-
-        if (runConfig.stopAfterStage === "extract") {
-          return;
-        }
-
-        if (extraction.summary.successfulEdgesUsable === 0) {
-          extractReporter.log(
-            "No usable edges — skipping downstream stages for this family.",
-          );
-          return;
-        }
-
-        // --- Classify ---
-        const classifyReporter = createStageReporter("classify", outputDir, fi);
-        classifyReporter.log("Classifying citation roles...");
-        trackStageStart("classify", fi, classifyReporter.logPath);
-
-        classifyReporter.onProgress({
-          step: "load_extracted_mentions",
-          status: "running",
-        });
-        const edgeClassifications: Record<string, EdgeClassification> = {};
-        const preScreenEdges: Record<string, PreScreenEdge> = {};
-        for (const edge of family.edges) {
-          edgeClassifications[edge.citingPaperId] = edge.classification;
-          preScreenEdges[edge.citingPaperId] = edge;
-        }
-
-        const classification = buildPackets(
-          extraction,
-          "all_functions_census",
-          edgeClassifications,
-          preScreenEdges,
-        );
-        classifyReporter.onProgress({
-          step: "summarize_literature_structure",
-          status: "completed",
-          detail: `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
-        });
-
-        const { jsonPath: classifyJsonPath } = writeClassificationArtifacts({
-          outputRoot: outputDir,
-          stamp,
-          result: classification,
-          sourceArtifacts: [extractJsonPath, screenJsonPath],
-          familyIndex: fi,
-        });
-        trackStageSuccess("classify", fi, {
-          primaryArtifactPath: classifyJsonPath,
-          inputArtifactPath: extractJsonPath,
-        });
-        classifyReporter.log(
-          `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
-        );
-
-        if (runConfig.stopAfterStage === "classify") {
-          return;
-        }
-
-        if (classification.summary.literatureStructure.totalTasks === 0) {
-          classifyReporter.log(
-            "No evaluation tasks — skipping downstream stages for this family.",
-          );
-          return;
-        }
-
-        // --- Evidence ---
-        const evidenceReporter = createStageReporter("evidence", outputDir, fi);
-        evidenceReporter.log(
-          "Resolving cited paper and retrieving evidence...",
-        );
-        trackStageStart("evidence", fi, evidenceReporter.logPath);
-        const citedPaperMaterialized = await resolveCitedPaperSource(
-          classification,
-          {
-            resolveByDoi: (doi) =>
-              resolvePaperByDoi(doi, {
-                openAlexBaseUrl: config.providerBaseUrls.openAlex,
-                semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-                openAlexEmail: config.openAlexEmail,
-                semanticScholarApiKey: config.semanticScholarApiKey,
-              }),
-            resolveByMetadata: (locator) =>
-              resolvePaperByMetadata(locator, {
-                openAlexBaseUrl: config.providerBaseUrls.openAlex,
-                semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-                openAlexEmail: config.openAlexEmail,
-                semanticScholarApiKey: config.semanticScholarApiKey,
-              }),
-            materializeParsedPaper: (paper) =>
-              materializeParsedPaper(
-                paper,
-                config.providerBaseUrls.bioRxiv,
-                fullTextAdapters,
-                { db: database, cachePolicy },
-              ),
-          },
-          evidenceReporter.onProgress,
-        );
-
-        const llmClient = runConfig.evidenceLlmRerank
-          ? createLLMClient({
-              apiKey,
-              defaultModel: rerankModelId,
-            })
-          : undefined;
-
-        evidenceReporter.onProgress({
-          step: "retrieve_candidate_evidence",
-          status: "running",
-        });
-        const evidenceResult = await retrieveEvidence(
-          classification,
-          citedPaperMaterialized.citedPaperSource,
-          citedPaperMaterialized.citedPaperParsedDocument,
-          {
-            ...(reranker ? { reranker } : {}),
-            ...(llmClient
-              ? {
-                  llmClient,
-                  llmRerankerOptions: {
-                    model: rerankModelId,
-                    useThinking: true,
-                    topN: runConfig.evidenceRerankTopN,
-                  },
-                }
-              : {}),
-          },
-        );
-        evidenceReporter.onProgress({
-          step: "summarize_grounded_coverage",
-          status: "completed",
-          detail: `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
-        });
-
-        const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
-          outputRoot: outputDir,
-          stamp,
-          result: evidenceResult,
-          sourceArtifacts: [classifyJsonPath],
-          familyIndex: fi,
-        });
-        trackStageSuccess("evidence", fi, {
-          primaryArtifactPath: evidenceJsonPath,
-          inputArtifactPath: classifyJsonPath,
-        });
-        evidenceReporter.log(
-          `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
-        );
-
-        if (llmClient) {
-          const evidenceLedger = llmClient.getLedger();
-          if (evidenceLedger.totalCalls > 0) {
-            costEntries.push({
-              stage: "evidence",
-              familyIndex: fi,
-              estimatedCostUsd: evidenceLedger.totalEstimatedCostUsd,
-              calls: evidenceLedger.totalCalls,
+          if (!cachedExtraction) {
+            extractionCache.set(extractionCacheKey, {
+              resolvedSeedPaper: extraction.resolvedSeedPaper,
+              edgeResults: extraction.edgeResults,
+              summary: extraction.summary,
             });
-            evidenceReporter.log(
-              `LLM reranking: ${evidenceLedger.totalCalls} calls, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
+          } else {
+            extractReporter.log(
+              "Reused cached extract output for an identical citing-paper neighborhood.",
             );
           }
-        }
 
-        if (runConfig.stopAfterStage === "evidence") {
-          return;
-        }
-
-        // --- Curate ---
-        const curateReporter = createStageReporter("curate", outputDir, fi);
-        curateReporter.log("Sampling calibration set...");
-        trackStageStart("curate", fi, curateReporter.logPath);
-
-        curateReporter.onProgress({
-          step: "collect_eligible_tasks",
-          status: "running",
-        });
-        const calibrationSet = sampleCalibrationSet(
-          evidenceResult,
-          undefined,
-          runConfig.curateTargetSize,
-        );
-        curateReporter.onProgress({
-          step: "write_sampling_outputs",
-          status: "completed",
-          detail: `${String(calibrationSet.records.length)} calibration records`,
-        });
-
-        const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
-          outputRoot: outputDir,
-          stamp,
-          result: calibrationSet,
-          sourceArtifacts: [evidenceJsonPath],
-          familyIndex: fi,
-        });
-        trackStageSuccess("curate", fi, {
-          primaryArtifactPath: curateJsonPath,
-          inputArtifactPath: evidenceJsonPath,
-        });
-        curateReporter.log(
-          `${String(calibrationSet.records.length)} calibration records`,
-        );
-
-        if (runConfig.stopAfterStage === "curate") {
-          return;
-        }
-
-        if (calibrationSet.records.length === 0) {
-          curateReporter.log(
-            "No calibration records — skipping adjudication for this family.",
-          );
-          return;
-        }
-
-        // --- Adjudicate ---
-        const adjudicateReporter = createStageReporter(
-          "adjudicate",
-          outputDir,
-          fi,
-        );
-        adjudicateReporter.log("Running LLM adjudication...");
-        trackStageStart("adjudicate", fi, adjudicateReporter.logPath);
-
-        adjudicateReporter.onProgress({
-          step: "load_active_records",
-          status: "completed",
-          detail: `${String(calibrationSet.records.length)} records`,
-        });
-        adjudicateReporter.onProgress({
-          step: "adjudicate_records",
-          status: "running",
-        });
-        const adjudicationResult = await adjudicateCalibrationSet(
-          calibrationSet,
-          {
-            apiKey,
-            model: runConfig.adjudicateModel,
-            useExtendedThinking: runConfig.adjudicateThinking,
-          },
-          (i, total) => {
-            if (i % 5 === 0 || i === total) {
-              adjudicateReporter.onProgress({
-                step: "adjudicate_records",
-                status: "running",
-                detail: `${String(i)}/${String(total)} records`,
-                current: i,
-                total,
-              });
-            }
-          },
-        );
-
-        const { jsonPath: adjudicateJsonPath } = writeAdjudicationArtifacts({
-          outputRoot: outputDir,
-          stamp,
-          result: adjudicationResult,
-          sourceArtifacts: [curateJsonPath],
-          model: runConfig.adjudicateModel,
-          familyIndex: fi,
-        });
-        if (adjudicationResult.runTelemetry) {
-          costEntries.push({
-            stage: "adjudicate",
+          const { jsonPath: extractJsonPath } = writeExtractionArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: extraction,
+            sourceArtifacts: [screenJsonPath],
             familyIndex: fi,
-            estimatedCostUsd:
-              adjudicationResult.runTelemetry.estimatedCostUsd,
-            calls: adjudicationResult.runTelemetry.totalCalls,
           });
-        }
-        trackStageSuccess("adjudicate", fi, {
-          primaryArtifactPath: adjudicateJsonPath,
-          inputArtifactPath: curateJsonPath,
-        });
+          trackStageSuccess("extract", fi, {
+            primaryArtifactPath: extractJsonPath,
+            inputArtifactPath: screenJsonPath,
+          });
+          extractReporter.log(
+            `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
+          );
 
-        const verdicts = adjudicationResult.records.filter(
-          (r) => !r.excluded && r.verdict != null,
-        );
-        const supported = verdicts.filter(
-          (r) => r.verdict === "supported",
-        ).length;
-        const partial = verdicts.filter(
-          (r) => r.verdict === "partially_supported",
-        ).length;
-        const notSupported = verdicts.filter(
-          (r) => r.verdict === "not_supported",
-        ).length;
-        adjudicateReporter.onProgress({
-          step: "write_final_outputs",
-          status: "completed",
-          detail: `${String(verdicts.length)} verdicts: ${String(supported)} S, ${String(partial)} P, ${String(notSupported)} N`,
-        });
-        adjudicateReporter.log(
-          `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
-        );
+          if (runConfig.stopAfterStage === "extract") {
+            return;
+          }
+
+          if (extraction.summary.successfulEdgesUsable === 0) {
+            extractReporter.log(
+              "No usable edges — skipping downstream stages for this family.",
+            );
+            return;
+          }
+
+          if (fatalProviderFailure) {
+            return;
+          }
+
+          // --- Classify ---
+          currentStageKey = "classify";
+          const classifyReporter = createStageReporter("classify", outputDir, fi);
+          classifyReporter.log("Classifying citation roles...");
+          trackStageStart("classify", fi, classifyReporter.logPath);
+
+          classifyReporter.onProgress({
+            step: "load_extracted_mentions",
+            status: "running",
+          });
+          const edgeClassifications: Record<string, EdgeClassification> = {};
+          const preScreenEdges: Record<string, PreScreenEdge> = {};
+          for (const edge of family.edges) {
+            edgeClassifications[edge.citingPaperId] = edge.classification;
+            preScreenEdges[edge.citingPaperId] = edge;
+          }
+
+          const classificationCacheKey = buildClassificationCacheKey(
+            family,
+            extractionCacheKey,
+            "all_functions_census",
+          );
+          const cachedClassification = classificationCache.get(
+            classificationCacheKey,
+          );
+          const classification = cachedClassification
+            ? {
+                seed: extraction.seed,
+                resolvedSeedPaperTitle:
+                  cachedClassification.resolvedSeedPaperTitle,
+                studyMode: cachedClassification.studyMode,
+                groundedSeedClaimText: extraction.groundedSeedClaimText,
+                packets: cachedClassification.packets,
+                summary: cachedClassification.summary,
+              }
+            : buildPackets(
+                extraction,
+                "all_functions_census",
+                edgeClassifications,
+                preScreenEdges,
+              );
+
+          if (!cachedClassification) {
+            classificationCache.set(classificationCacheKey, {
+              resolvedSeedPaperTitle: classification.resolvedSeedPaperTitle,
+              packets: classification.packets,
+              summary: classification.summary,
+              studyMode: classification.studyMode,
+            });
+          } else {
+            classifyReporter.log(
+              "Reused cached classify output for an identical citing-paper neighborhood.",
+            );
+          }
+
+          classifyReporter.onProgress({
+            step: "summarize_literature_structure",
+            status: "completed",
+            detail: `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
+          });
+
+          const { jsonPath: classifyJsonPath } = writeClassificationArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: classification,
+            sourceArtifacts: [extractJsonPath, screenJsonPath],
+            familyIndex: fi,
+          });
+          trackStageSuccess("classify", fi, {
+            primaryArtifactPath: classifyJsonPath,
+            inputArtifactPath: extractJsonPath,
+          });
+          classifyReporter.log(
+            `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
+          );
+
+          if (runConfig.stopAfterStage === "classify") {
+            return;
+          }
+
+          if (classification.summary.literatureStructure.totalTasks === 0) {
+            classifyReporter.log(
+              "No evaluation tasks — skipping downstream stages for this family.",
+            );
+            return;
+          }
+
+          if (fatalProviderFailure) {
+            return;
+          }
+
+          // --- Evidence ---
+          currentStageKey = "evidence";
+          const evidenceReporter = createStageReporter("evidence", outputDir, fi);
+          evidenceReporter.log(
+            "Resolving cited paper and retrieving evidence...",
+          );
+          trackStageStart("evidence", fi, evidenceReporter.logPath);
+          const citedPaperMaterialized = await resolveCitedPaperSource(
+            classification,
+            {
+              resolveByDoi: (doi) =>
+                resolvePaperByDoi(doi, {
+                  openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                  semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+                  openAlexEmail: config.openAlexEmail,
+                  semanticScholarApiKey: config.semanticScholarApiKey,
+                }),
+              resolveByMetadata: (locator) =>
+                resolvePaperByMetadata(locator, {
+                  openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                  semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+                  openAlexEmail: config.openAlexEmail,
+                  semanticScholarApiKey: config.semanticScholarApiKey,
+                }),
+              materializeParsedPaper: (paper) =>
+                materializeParsedPaper(
+                  paper,
+                  config.providerBaseUrls.bioRxiv,
+                  fullTextAdapters,
+                  { db: database, cachePolicy },
+                ),
+            },
+            evidenceReporter.onProgress,
+          );
+
+          const llmClient = runConfig.evidenceLlmRerank
+            ? createLLMClient({
+                apiKey,
+                defaultModel: rerankModelId,
+                collector: telemetryCollector,
+                defaultContext: { stageKey: "evidence", familyIndex: fi },
+              })
+            : undefined;
+
+          evidenceReporter.onProgress({
+            step: "retrieve_candidate_evidence",
+            status: "running",
+          });
+          const evidenceResult = await retrieveEvidence(
+            classification,
+            citedPaperMaterialized.citedPaperSource,
+            citedPaperMaterialized.citedPaperParsedDocument,
+            {
+              ...(reranker ? { reranker } : {}),
+              ...(llmClient
+                ? {
+                    llmClient,
+                    llmRerankerOptions: {
+                      model: rerankModelId,
+                      useThinking: true,
+                      topN: runConfig.evidenceRerankTopN,
+                    },
+                  }
+                : {}),
+            },
+          );
+          evidenceReporter.onProgress({
+            step: "summarize_grounded_coverage",
+            status: "completed",
+            detail: `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
+          });
+
+          const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: evidenceResult,
+            sourceArtifacts: [classifyJsonPath],
+            familyIndex: fi,
+          });
+          trackStageSuccess("evidence", fi, {
+            primaryArtifactPath: evidenceJsonPath,
+            inputArtifactPath: classifyJsonPath,
+          });
+          evidenceReporter.log(
+            `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
+          );
+
+          if (llmClient) {
+            const evidenceLedger = llmClient.getLedger();
+            if (evidenceLedger.totalAttemptedCalls > 0) {
+              evidenceReporter.log(
+                `LLM reranking: ${evidenceLedger.totalAttemptedCalls} attempted, ${evidenceLedger.totalFailedCalls} failed, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
+              );
+            }
+          }
+
+          if (runConfig.stopAfterStage === "evidence") {
+            return;
+          }
+
+          if (fatalProviderFailure) {
+            return;
+          }
+
+          // --- Curate ---
+          currentStageKey = "curate";
+          const curateReporter = createStageReporter("curate", outputDir, fi);
+          curateReporter.log("Sampling calibration set...");
+          trackStageStart("curate", fi, curateReporter.logPath);
+
+          curateReporter.onProgress({
+            step: "collect_eligible_tasks",
+            status: "running",
+          });
+          const calibrationSet = sampleCalibrationSet(
+            evidenceResult,
+            undefined,
+            runConfig.curateTargetSize,
+          );
+          curateReporter.onProgress({
+            step: "write_sampling_outputs",
+            status: "completed",
+            detail: `${String(calibrationSet.records.length)} calibration records`,
+          });
+
+          const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: calibrationSet,
+            sourceArtifacts: [evidenceJsonPath],
+            familyIndex: fi,
+          });
+          trackStageSuccess("curate", fi, {
+            primaryArtifactPath: curateJsonPath,
+            inputArtifactPath: evidenceJsonPath,
+          });
+          curateReporter.log(
+            `${String(calibrationSet.records.length)} calibration records`,
+          );
+
+          if (runConfig.stopAfterStage === "curate") {
+            return;
+          }
+
+          if (calibrationSet.records.length === 0) {
+            curateReporter.log(
+              "No calibration records — skipping adjudication for this family.",
+            );
+            return;
+          }
+
+          if (fatalProviderFailure) {
+            return;
+          }
+
+          // --- Adjudicate ---
+          currentStageKey = "adjudicate";
+          const adjudicateReporter = createStageReporter(
+            "adjudicate",
+            outputDir,
+            fi,
+          );
+          adjudicateReporter.log("Running LLM adjudication...");
+          trackStageStart("adjudicate", fi, adjudicateReporter.logPath);
+
+          adjudicateReporter.onProgress({
+            step: "load_active_records",
+            status: "completed",
+            detail: `${String(calibrationSet.records.length)} records`,
+          });
+          adjudicateReporter.onProgress({
+            step: "adjudicate_records",
+            status: "running",
+          });
+          const adjudicationClient = createLLMClient({
+            apiKey,
+            defaultModel: runConfig.adjudicateModel,
+            collector: telemetryCollector,
+            defaultContext: { stageKey: "adjudicate", familyIndex: fi },
+          });
+          const adjudicationResult = await adjudicateCalibrationSet(
+            calibrationSet,
+            {
+              apiKey,
+              model: runConfig.adjudicateModel,
+              useExtendedThinking: runConfig.adjudicateThinking,
+              llmClient: adjudicationClient,
+            },
+            (i, total) => {
+              if (i % 5 === 0 || i === total) {
+                adjudicateReporter.onProgress({
+                  step: "adjudicate_records",
+                  status: "running",
+                  detail: `${String(i)}/${String(total)} records`,
+                  current: i,
+                  total,
+                });
+              }
+            },
+          );
+
+          const { jsonPath: adjudicateJsonPath } = writeAdjudicationArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: adjudicationResult,
+            sourceArtifacts: [curateJsonPath],
+            model: runConfig.adjudicateModel,
+            familyIndex: fi,
+          });
+          trackStageSuccess("adjudicate", fi, {
+            primaryArtifactPath: adjudicateJsonPath,
+            inputArtifactPath: curateJsonPath,
+          });
+
+          const verdicts = adjudicationResult.records.filter(
+            (r) => !r.excluded && r.verdict != null,
+          );
+          const supported = verdicts.filter(
+            (r) => r.verdict === "supported",
+          ).length;
+          const partial = verdicts.filter(
+            (r) => r.verdict === "partially_supported",
+          ).length;
+          const notSupported = verdicts.filter(
+            (r) => r.verdict === "not_supported",
+          ).length;
+          adjudicateReporter.onProgress({
+            step: "write_final_outputs",
+            status: "completed",
+            detail: `${String(verdicts.length)} verdicts: ${String(supported)} S, ${String(partial)} P, ${String(notSupported)} N`,
+          });
+          adjudicateReporter.log(
+            `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
+          );
+        } catch (error) {
+          if (isFatalProviderError(error)) {
+            fatalProviderFailure ??= {
+              message: error.message,
+              stageKey: currentStageKey,
+              familyIndex: fi,
+            };
+            blockPendingFamilyStages(error.message);
+          }
+          throw error;
+        }
       },
       { concurrency: runConfig.familyConcurrency },
     );
 
     writeCostSummary();
-    const totalCost = costEntries.reduce(
-      (sum, e) => sum + e.estimatedCostUsd,
-      0,
-    );
+    const totalCost = telemetryCollector.getLedger().totalEstimatedCostUsd;
     setRunStatus(database, runId, "succeeded");
     log("pipeline", `\nPipeline complete. Run ${runId}`);
     log("pipeline", `Artifacts in ${outputDir}`);
     log("pipeline", `Estimated total LLM cost: ~$${totalCost.toFixed(4)}`);
   } catch (error) {
+    writeCostSummary();
     trackRunFailed(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
