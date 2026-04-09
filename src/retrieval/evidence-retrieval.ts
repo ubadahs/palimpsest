@@ -20,11 +20,14 @@ import type { LLMClient } from "../integrations/llm-client.js";
 import { llmRerankBlocks } from "./llm-reranker.js";
 import type { LLMRerankerOptions } from "./llm-reranker.js";
 import { extractCitingWindow } from "../shared/citation-context-window.js";
+import { pMap } from "../shared/p-map.js";
 
 export type EvidenceRetrievalAdapters = {
   reranker?: LocalReranker;
   llmClient?: LLMClient;
   llmRerankerOptions?: LLMRerankerOptions;
+  /** Max concurrent evidence retrieval tasks. Default 8. */
+  concurrency?: number;
 };
 
 type RankedBlock = {
@@ -313,40 +316,24 @@ export async function retrieveEvidence(
   const blocks = parsedDocument?.blocks ?? [];
   const hasFullText = blocks.length > 0;
 
-  const edges: EdgeWithEvidence[] = [];
-  let totalTasks = 0;
-  let tasksWithEvidence = 0;
-  let tasksNoMatches = 0;
-  let tasksAbstractOnlyMatches = 0;
-  let tasksNoFulltext = 0;
-  let tasksUnresolvedCitedPaper = 0;
-  let tasksNotAttempted = 0;
-  let totalSpans = 0;
-  const tasksByMode: Partial<Record<EvaluationMode, number>> = {};
-
-  for (const packet of classification.packets) {
-    if (packet.tasks.length === 0) {
-      continue;
+  // Flatten all tasks across packets so we can run them through pMap.
+  type FlatTask = { packetIndex: number; task: EvaluationTask };
+  const flatTasks: FlatTask[] = [];
+  for (let pi = 0; pi < classification.packets.length; pi++) {
+    for (const task of classification.packets[pi]!.tasks) {
+      flatTasks.push({ packetIndex: pi, task });
     }
+  }
 
-    const tasksWithEvidenceForPacket: TaskWithEvidence[] = [];
+  // Resolve each task — skip modes and missing-fulltext are handled inline
+  // (no LLM call needed), so concurrency only matters for actual retrieval.
+  const concurrency = adapters.concurrency ?? 8;
 
-    for (const task of packet.tasks) {
-      totalTasks++;
-      tasksByMode[task.evaluationMode] =
-        (tasksByMode[task.evaluationMode] ?? 0) + 1;
-
+  const resolvedTasks = await pMap(
+    flatTasks,
+    async ({ task }) => {
       if (isNotAttemptedMode(task)) {
-        const result = await retrieveForTask(
-          task,
-          citedPaperSource,
-          blocks,
-          adapters,
-          seedClaimBoost,
-        );
-        tasksWithEvidenceForPacket.push(result);
-        tasksNotAttempted++;
-        continue;
+        return retrieveForTask(task, citedPaperSource, blocks, adapters, seedClaimBoost);
       }
 
       let status: TaskEvidenceRetrievalStatus | undefined;
@@ -357,38 +344,70 @@ export async function retrieveEvidence(
       }
 
       if (status) {
-        tasksWithEvidenceForPacket.push({
+        return {
           ...task,
           rubricQuestion: getRubric(task.evaluationMode).question,
           citedPaperEvidenceSpans: [],
           evidenceRetrievalStatus: status,
-        });
-        if (status === "no_fulltext") {
-          tasksNoFulltext++;
-        } else {
-          tasksUnresolvedCitedPaper++;
-        }
-        continue;
+        } satisfies TaskWithEvidence;
       }
 
-      const result = await retrieveForTask(
-        task,
-        citedPaperSource,
-        blocks,
-        adapters,
-        seedClaimBoost,
-      );
-      tasksWithEvidenceForPacket.push(result);
+      return retrieveForTask(task, citedPaperSource, blocks, adapters, seedClaimBoost);
+    },
+    { concurrency },
+  );
 
-      if (result.evidenceRetrievalStatus === "retrieved") {
+  // Reassemble into per-packet edges and accumulate summary counters.
+  const tasksByPacket = new Map<number, TaskWithEvidence[]>();
+  const tasksByMode: Partial<Record<EvaluationMode, number>> = {};
+  let tasksWithEvidence = 0;
+  let tasksNoMatches = 0;
+  let tasksAbstractOnlyMatches = 0;
+  let tasksNoFulltext = 0;
+  let tasksUnresolvedCitedPaper = 0;
+  let tasksNotAttempted = 0;
+  let totalSpans = 0;
+
+  for (let i = 0; i < resolvedTasks.length; i++) {
+    const result = resolvedTasks[i]!;
+    const { packetIndex, task } = flatTasks[i]!;
+
+    tasksByMode[task.evaluationMode] =
+      (tasksByMode[task.evaluationMode] ?? 0) + 1;
+
+    if (!tasksByPacket.has(packetIndex)) {
+      tasksByPacket.set(packetIndex, []);
+    }
+    tasksByPacket.get(packetIndex)!.push(result);
+
+    switch (result.evidenceRetrievalStatus) {
+      case "retrieved":
         tasksWithEvidence++;
         totalSpans += result.citedPaperEvidenceSpans.length;
-      } else if (result.evidenceRetrievalStatus === "no_matches") {
+        break;
+      case "no_matches":
         tasksNoMatches++;
-      } else if (result.evidenceRetrievalStatus === "abstract_only_matches") {
+        break;
+      case "abstract_only_matches":
         tasksAbstractOnlyMatches++;
-      }
+        break;
+      case "no_fulltext":
+        tasksNoFulltext++;
+        break;
+      case "unresolved_cited_paper":
+        tasksUnresolvedCitedPaper++;
+        break;
+      case "not_attempted":
+        tasksNotAttempted++;
+        break;
     }
+  }
+
+  const edges: EdgeWithEvidence[] = [];
+  for (let pi = 0; pi < classification.packets.length; pi++) {
+    const packet = classification.packets[pi]!;
+    const tasks = tasksByPacket.get(pi);
+    if (!tasks || tasks.length === 0) continue;
 
     edges.push({
       packetId: packet.packetId,
@@ -397,7 +416,7 @@ export async function retrieveEvidence(
       extractionState: packet.extractionState,
       extractionOutcome: packet.extractionOutcome,
       isReviewMediated: packet.isReviewMediated,
-      tasks: tasksWithEvidenceForPacket,
+      tasks,
     });
   }
 
@@ -410,7 +429,7 @@ export async function retrieveEvidence(
     citedPaperSource,
     edges,
     summary: {
-      totalTasks,
+      totalTasks: flatTasks.length,
       tasksWithEvidence,
       tasksNoFulltext,
       tasksUnresolvedCitedPaper,
