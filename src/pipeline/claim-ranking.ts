@@ -16,6 +16,7 @@ import type {
 } from "../domain/types.js";
 import type { LLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+import { pMap } from "../shared/p-map.js";
 
 // ---------------------------------------------------------------------------
 // LLM response schema
@@ -202,17 +203,17 @@ export async function rankClaimsByEngagement(params: {
     (p) => p.abstract != null && p.abstract.length > 50,
   );
 
-  const paperResults: PaperMatchResult[] = [];
-  for (let i = 0; i < usable.length; i += CONCURRENCY) {
-    const batch = usable.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      batch.map((paper) =>
-        matchOnePaper(seedTitle, claims, paper, client, model),
-      ),
-    );
-    paperResults.push(...batchResults);
-    onProgress?.(Math.min(i + CONCURRENCY, usable.length), usable.length);
-  }
+  let completed = 0;
+  const paperResults = await pMap(
+    usable,
+    async (paper) => {
+      const result = await matchOnePaper(seedTitle, claims, paper, client, model);
+      completed++;
+      onProgress?.(completed, usable.length);
+      return result;
+    },
+    { concurrency: CONCURRENCY },
+  );
 
   const engagements = aggregate(claims, paperResults);
   engagements.sort(

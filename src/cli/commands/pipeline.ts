@@ -56,6 +56,7 @@ import {
 } from "../stage-artifact-writers.js";
 import { nextRunStampFromDirectories } from "../run-stamp.js";
 import { stageDefinitions } from "../../ui-contract/stages.js";
+import { pMap } from "../../shared/p-map.js";
 
 // ---------------------------------------------------------------------------
 // Args
@@ -76,6 +77,7 @@ function parseArgs(argv: string[]): {
   screenFilterConcurrency: number | undefined;
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
+  familyConcurrency: number;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -91,6 +93,7 @@ function parseArgs(argv: string[]): {
   let screenFilterConcurrency: number | undefined;
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
+  let familyConcurrency = 3;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -144,6 +147,9 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
       rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
+    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
+      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
+      i++;
     }
   }
 
@@ -170,6 +176,7 @@ function parseArgs(argv: string[]): {
     screenFilterConcurrency,
     rerankModel,
     rerankTopN,
+    familyConcurrency,
   };
 }
 
@@ -195,6 +202,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  const apiKey: string = config.anthropicApiKey;
 
   const database = openDatabase(config.databasePath);
 
@@ -248,7 +256,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       );
 
       const discoveryClient = createLLMClient({
-        apiKey: config.anthropicApiKey,
+        apiKey,
         defaultModel: "claude-opus-4-6",
       });
 
@@ -283,7 +291,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                   },
                   llmClient: discoveryClient,
                   groundingOptions: {
-                    apiKey: config.anthropicApiKey,
+                    apiKey,
                     llmClient: discoveryClient,
                   },
                 },
@@ -404,7 +412,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       preScreenAdapters,
       {
         llmGrounding: {
-          anthropicApiKey: config.anthropicApiKey,
+          anthropicApiKey: apiKey,
           ...(args.screenGroundingModel != null
             ? { model: args.screenGroundingModel }
             : {}),
@@ -422,6 +430,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               },
             }
           : {}),
+        skipClaimFamilyFilter: args.strategy === "attribution_first",
       },
       (event) => {
         if (event.status === "completed") {
@@ -458,7 +467,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     // -----------------------------------------------------------------------
     // Stages 3-7: Extract → Classify → Evidence → Curate → Adjudicate
-    // (per family, sequential)
+    // (per family, concurrent up to --family-concurrency)
     // -----------------------------------------------------------------------
 
     const extractionAdapters = {
@@ -470,223 +479,234 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     const reranker = createLocalReranker(config.localRerankerBaseUrl);
     const rerankModelId = args.rerankModel ?? "claude-haiku-4-5";
 
-    for (let fi = 0; fi < processable.length; fi++) {
-      const family = processable[fi]!;
-      const familyLabel = `[${String(fi + 1)}/${String(processable.length)}] ${family.seed.trackedClaim.slice(0, 60)}...`;
-      log("pipeline", `\nProcessing family: ${familyLabel}`);
+    log(
+      "pipeline",
+      `Processing ${String(processable.length)} families (concurrency: ${String(args.familyConcurrency)})`,
+    );
 
-      // --- Extract ---
-      log("extract", "Extracting citation contexts...");
-      const extraction = await runM2Extraction(
-        family,
-        extractionAdapters,
-        (event) => {
-          if (event.status === "completed") {
-            log("extract", `${event.step}: ${event.detail ?? "done"}`);
-          }
-        },
-      );
+    await pMap(
+      processable,
+      async (family, fi) => {
+        const fTag = `F${String(fi + 1)}`;
+        const fLog = (stage: string, message: string): void =>
+          log(`${fTag}:${stage}`, message);
 
-      const { jsonPath: extractJsonPath } = writeExtractionArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        result: extraction,
-        sourceArtifacts: [screenJsonPath],
-        familyIndex: fi,
-      });
-      log(
-        "extract",
-        `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
-      );
+        fLog("pipeline", family.seed.trackedClaim.slice(0, 70));
 
-      if (extraction.summary.successfulEdgesUsable === 0) {
-        log(
-          "extract",
-          "No usable edges — skipping downstream stages for this family.",
-        );
-        continue;
-      }
-
-      // --- Classify ---
-      log("classify", "Classifying citation roles...");
-      const edgeClassifications: Record<string, EdgeClassification> = {};
-      const preScreenEdges: Record<string, PreScreenEdge> = {};
-      for (const edge of family.edges) {
-        edgeClassifications[edge.citingPaperId] = edge.classification;
-        preScreenEdges[edge.citingPaperId] = edge;
-      }
-
-      const classification = buildPackets(
-        extraction,
-        "all_functions_census",
-        edgeClassifications,
-        preScreenEdges,
-      );
-
-      const { jsonPath: classifyJsonPath } = writeClassificationArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        result: classification,
-        sourceArtifacts: [extractJsonPath, screenJsonPath],
-        familyIndex: fi,
-      });
-      log(
-        "classify",
-        `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
-      );
-
-      if (classification.summary.literatureStructure.totalTasks === 0) {
-        log(
-          "classify",
-          "No evaluation tasks — skipping downstream stages for this family.",
-        );
-        continue;
-      }
-
-      // --- Evidence ---
-      log("evidence", "Resolving cited paper and retrieving evidence...");
-      const citedPaperMaterialized = await resolveCitedPaperSource(
-        classification,
-        {
-          resolveByDoi: (doi) =>
-            resolvePaperByDoi(doi, {
-              openAlexBaseUrl: config.providerBaseUrls.openAlex,
-              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-              openAlexEmail: config.openAlexEmail,
-              semanticScholarApiKey: config.semanticScholarApiKey,
-            }),
-          resolveByMetadata: (locator) =>
-            resolvePaperByMetadata(locator, {
-              openAlexBaseUrl: config.providerBaseUrls.openAlex,
-              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-              openAlexEmail: config.openAlexEmail,
-              semanticScholarApiKey: config.semanticScholarApiKey,
-            }),
-          materializeParsedPaper: (paper) =>
-            materializeParsedPaper(
-              paper,
-              config.providerBaseUrls.bioRxiv,
-              fullTextAdapters,
-              { db: database, cachePolicy },
-            ),
-        },
-        (event) => {
-          if (event.status === "completed") {
-            log("evidence", `${event.step}: ${event.detail ?? "done"}`);
-          }
-        },
-      );
-
-      const llmClient = createLLMClient({
-        apiKey: config.anthropicApiKey,
-        defaultModel: rerankModelId,
-      });
-
-      const evidenceResult = await retrieveEvidence(
-        classification,
-        citedPaperMaterialized.citedPaperSource,
-        citedPaperMaterialized.citedPaperParsedDocument,
-        {
-          ...(reranker ? { reranker } : {}),
-          llmClient,
-          llmRerankerOptions: {
-            model: rerankModelId,
-            useThinking: true,
-            ...(args.rerankTopN != null ? { topN: args.rerankTopN } : {}),
+        // --- Extract ---
+        fLog("extract", "Extracting citation contexts...");
+        const extraction = await runM2Extraction(
+          family,
+          extractionAdapters,
+          (event) => {
+            if (event.status === "completed") {
+              fLog("extract", `${event.step}: ${event.detail ?? "done"}`);
+            }
           },
-        },
-      );
+        );
 
-      const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        result: evidenceResult,
-        sourceArtifacts: [classifyJsonPath],
-        familyIndex: fi,
-      });
-      log(
-        "evidence",
-        `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
-      );
+        const { jsonPath: extractJsonPath } = writeExtractionArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          result: extraction,
+          sourceArtifacts: [screenJsonPath],
+          familyIndex: fi,
+        });
+        fLog(
+          "extract",
+          `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
+        );
 
-      const evidenceLedger = llmClient.getLedger();
-      if (evidenceLedger.totalCalls > 0) {
-        log(
+        if (extraction.summary.successfulEdgesUsable === 0) {
+          fLog(
+            "extract",
+            "No usable edges — skipping downstream stages for this family.",
+          );
+          return;
+        }
+
+        // --- Classify ---
+        fLog("classify", "Classifying citation roles...");
+        const edgeClassifications: Record<string, EdgeClassification> = {};
+        const preScreenEdges: Record<string, PreScreenEdge> = {};
+        for (const edge of family.edges) {
+          edgeClassifications[edge.citingPaperId] = edge.classification;
+          preScreenEdges[edge.citingPaperId] = edge;
+        }
+
+        const classification = buildPackets(
+          extraction,
+          "all_functions_census",
+          edgeClassifications,
+          preScreenEdges,
+        );
+
+        const { jsonPath: classifyJsonPath } = writeClassificationArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          result: classification,
+          sourceArtifacts: [extractJsonPath, screenJsonPath],
+          familyIndex: fi,
+        });
+        fLog(
+          "classify",
+          `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
+        );
+
+        if (classification.summary.literatureStructure.totalTasks === 0) {
+          fLog(
+            "classify",
+            "No evaluation tasks — skipping downstream stages for this family.",
+          );
+          return;
+        }
+
+        // --- Evidence ---
+        fLog("evidence", "Resolving cited paper and retrieving evidence...");
+        const citedPaperMaterialized = await resolveCitedPaperSource(
+          classification,
+          {
+            resolveByDoi: (doi) =>
+              resolvePaperByDoi(doi, {
+                openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+                openAlexEmail: config.openAlexEmail,
+                semanticScholarApiKey: config.semanticScholarApiKey,
+              }),
+            resolveByMetadata: (locator) =>
+              resolvePaperByMetadata(locator, {
+                openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+                openAlexEmail: config.openAlexEmail,
+                semanticScholarApiKey: config.semanticScholarApiKey,
+              }),
+            materializeParsedPaper: (paper) =>
+              materializeParsedPaper(
+                paper,
+                config.providerBaseUrls.bioRxiv,
+                fullTextAdapters,
+                { db: database, cachePolicy },
+              ),
+          },
+          (event) => {
+            if (event.status === "completed") {
+              fLog("evidence", `${event.step}: ${event.detail ?? "done"}`);
+            }
+          },
+        );
+
+        const llmClient = createLLMClient({
+          apiKey,
+          defaultModel: rerankModelId,
+        });
+
+        const evidenceResult = await retrieveEvidence(
+          classification,
+          citedPaperMaterialized.citedPaperSource,
+          citedPaperMaterialized.citedPaperParsedDocument,
+          {
+            ...(reranker ? { reranker } : {}),
+            llmClient,
+            llmRerankerOptions: {
+              model: rerankModelId,
+              useThinking: true,
+              ...(args.rerankTopN != null ? { topN: args.rerankTopN } : {}),
+            },
+          },
+        );
+
+        const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          result: evidenceResult,
+          sourceArtifacts: [classifyJsonPath],
+          familyIndex: fi,
+        });
+        fLog(
           "evidence",
-          `LLM reranking: ${evidenceLedger.totalCalls} calls, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
+          `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
         );
-      }
 
-      // --- Curate ---
-      log("curate", "Sampling calibration set...");
-      const calibrationSet = sampleCalibrationSet(
-        evidenceResult,
-        undefined,
-        args.targetSize,
-      );
+        const evidenceLedger = llmClient.getLedger();
+        if (evidenceLedger.totalCalls > 0) {
+          fLog(
+            "evidence",
+            `LLM reranking: ${evidenceLedger.totalCalls} calls, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
+          );
+        }
 
-      const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        result: calibrationSet,
-        sourceArtifacts: [evidenceJsonPath],
-        familyIndex: fi,
-      });
-      log(
-        "curate",
-        `${String(calibrationSet.records.length)} calibration records`,
-      );
+        // --- Curate ---
+        fLog("curate", "Sampling calibration set...");
+        const calibrationSet = sampleCalibrationSet(
+          evidenceResult,
+          undefined,
+          args.targetSize,
+        );
 
-      if (calibrationSet.records.length === 0) {
-        log(
+        const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          result: calibrationSet,
+          sourceArtifacts: [evidenceJsonPath],
+          familyIndex: fi,
+        });
+        fLog(
           "curate",
-          "No calibration records — skipping adjudication for this family.",
+          `${String(calibrationSet.records.length)} calibration records`,
         );
-        continue;
-      }
 
-      // --- Adjudicate ---
-      log("adjudicate", "Running LLM adjudication...");
-      const adjudicationResult = await adjudicateCalibrationSet(
-        calibrationSet,
-        {
-          apiKey: config.anthropicApiKey,
+        if (calibrationSet.records.length === 0) {
+          fLog(
+            "curate",
+            "No calibration records — skipping adjudication for this family.",
+          );
+          return;
+        }
+
+        // --- Adjudicate ---
+        fLog("adjudicate", "Running LLM adjudication...");
+        const adjudicationResult = await adjudicateCalibrationSet(
+          calibrationSet,
+          {
+            apiKey,
+            model: "claude-opus-4-6",
+            useExtendedThinking: true,
+          },
+          (i, total) => {
+            if (i % 5 === 0 || i === total) {
+              fLog("adjudicate", `${String(i)}/${String(total)} records`);
+            }
+          },
+        );
+
+        writeAdjudicationArtifacts({
+          outputRoot: outputDir,
+          stamp,
+          result: adjudicationResult,
+          sourceArtifacts: [curateJsonPath],
           model: "claude-opus-4-6",
-          useExtendedThinking: true,
-        },
-        (i, total) => {
-          if (i % 5 === 0 || i === total) {
-            log("adjudicate", `${String(i)}/${String(total)} records`);
-          }
-        },
-      );
+          familyIndex: fi,
+        });
 
-      writeAdjudicationArtifacts({
-        outputRoot: outputDir,
-        stamp,
-        result: adjudicationResult,
-        sourceArtifacts: [curateJsonPath],
-        model: "claude-opus-4-6",
-        familyIndex: fi,
-      });
-
-      const verdicts = adjudicationResult.records.filter(
-        (r) => !r.excluded && r.verdict != null,
-      );
-      const supported = verdicts.filter(
-        (r) => r.verdict === "supported",
-      ).length;
-      const partial = verdicts.filter(
-        (r) => r.verdict === "partially_supported",
-      ).length;
-      const notSupported = verdicts.filter(
-        (r) => r.verdict === "not_supported",
-      ).length;
-      log(
-        "adjudicate",
-        `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
-      );
-    }
+        const verdicts = adjudicationResult.records.filter(
+          (r) => !r.excluded && r.verdict != null,
+        );
+        const supported = verdicts.filter(
+          (r) => r.verdict === "supported",
+        ).length;
+        const partial = verdicts.filter(
+          (r) => r.verdict === "partially_supported",
+        ).length;
+        const notSupported = verdicts.filter(
+          (r) => r.verdict === "not_supported",
+        ).length;
+        fLog(
+          "adjudicate",
+          `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
+        );
+      },
+      { concurrency: args.familyConcurrency },
+    );
 
     log("pipeline", `\nPipeline complete. All artifacts in ${outputDir}`);
   } catch (error) {
