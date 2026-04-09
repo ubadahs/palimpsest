@@ -52,6 +52,7 @@ describe("analysis runs repository", () => {
           screenFilterConcurrency: 10,
           evidenceRerankModel: "claude-haiku-4-5",
           evidenceRerankTopN: 5,
+          familyConcurrency: 3,
         },
       });
 
@@ -96,6 +97,7 @@ describe("analysis runs repository", () => {
           screenFilterConcurrency: 10,
           evidenceRerankModel: "claude-haiku-4-5",
           evidenceRerankTopN: 5,
+          familyConcurrency: 3,
         },
       });
 
