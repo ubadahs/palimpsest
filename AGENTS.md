@@ -6,7 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What This Project Is
 
-CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers, focused on empirical-attribution citations in bioRxiv preprints. Local SQLite storage. **CLI and JSON/Markdown artifacts are canonical; there is no hosted multi-user product. A local-only Next.js app in `apps/ui` may orchestrate CLI subprocesses and inspect artifacts.**
+CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers — domain-agnostic and not limited to any single citation function. Local SQLite storage. **CLI and JSON/Markdown artifacts are canonical; there is no hosted multi-user product. A local-only Next.js app in `apps/ui` may orchestrate CLI subprocesses and inspect artifacts.**
 
 The project follows a milestone-based implementation plan in `docs/implementation-plan.md`. **What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). The canonical design documents live in `docs/` (PRD, build spec, evaluation protocol, concept memo). Do not build infrastructure for later milestones early.
 
@@ -24,9 +24,9 @@ npx vitest run tests/domain/taxonomy.test.ts  # single test file
 npm run dev            # run CLI: tsx src/cli/index.ts
 npm run dev -- doctor  # check config and taxonomy
 npm run dev -- db:migrate  # apply pending SQLite migrations
-npm run dev -- discover --input dois.json      # extract claims, rank by citing-paper engagement, emit shortlist (needs ANTHROPIC_API_KEY)
-npm run dev -- discover --input dois.json --no-rank  # extract claims only, skip ranking
-npm run dev -- pipeline --input dois.json     # full e2e: discover → screen → extract → classify → evidence → curate → adjudicate
+npm run dev -- discover --input dois.json      # attribution-first discovery: harvest citing mentions, extract attributed claims, ground to seed, emit shortlist (needs ANTHROPIC_API_KEY)
+npm run dev -- discover --input dois.json --strategy legacy  # legacy seed-side claim extraction with optional ranking
+npm run dev -- pipeline --input dois.json     # full e2e: discover → screen → … → adjudicate (tracked in DB, visible in UI)
 npm run dev -- pipeline --shortlist shortlist.json  # e2e from existing shortlist (skip discover)
 npm run dev -- screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_KEY; writes *_pre-screen-grounding-trace.json)
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
@@ -67,7 +67,7 @@ tests/          Mirrors src/ structure
 
 ### Domain Model
 
-Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability gates (`auditable`, `partially_auditable`, `not_auditable`) must pass before fidelity scoring. The only citation function in POC scope is `empirical_attribution`.
+Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability gates (`auditable`, `partially_auditable`, `not_auditable`) must pass before fidelity scoring. The current implementation focuses on `empirical_attribution` but the taxonomy is designed to extend to other citation functions.
 
 ## TypeScript Strictness
 

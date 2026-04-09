@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-04-07
+**Last updated:** 2026-04-09
 
 This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md).
 
@@ -8,10 +8,10 @@ This file tracks **what exists in the codebase today**. For product intent and p
 
 | Area | Command | Status | Notes |
 |------|---------|--------|--------|
-| Claim discovery | `discover` | Done | Extracts empirical claim units from a paper via Opus 4.6; optional `--rank` uses Haiku to score claims by citing-paper engagement (direct/indirect); JSON + Markdown artifacts |
+| Claim discovery | `discover` | Done | Two strategies selectable via `--strategy`: `attribution_first` (default in pipeline) harvests real citing mentions from a probe set, extracts attributed claims, constructs singleton families, grounds each back to the seed, and shortlists by observable viability; `legacy` extracts seed-side claim units and optionally ranks by citing-paper engagement. New flags: `--probe-budget`, `--shortlist-cap`. JSON + Markdown artifacts plus persistent sidecars (neighborhood, probe, mentions, attributed claims, family candidates, grounding trace) |
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
-| Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); centralized full-text acquisition for seed parsing with provenance; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports |
+| Claim-family pre-screen | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` sidecar (prompt, raw response, usage); centralized full-text acquisition for seed parsing with provenance; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports. Accepts both legacy shortlist entries and attribution-first family candidates. Ungrounded claims (`not_found` grounding) no longer block downstream — treated as a fidelity finding worth surfacing |
 | Citation context extraction | `extract` | Done | Centralized full-text acquisition, JATS-first parsing, validated PDF -> GROBID parsing, normalized citation mentions, extraction outcomes + inspection artifacts |
 | Citation function + packets | `classify` | Done | Roles, evaluation modes, `EdgeEvaluationPacket`, classification reports |
 | Cited-paper evidence | `evidence` | Done | DOI/PMCID/PMID/title+author+year resolution, centralized full-text acquisition with method tracking, BM25 retrieval, LLM-based reranking (Haiku, default on) or optional local HTTP sidecar reranker, abstract-only downgrade, parsed-paper cache reuse; `--no-llm-rerank` to disable |
@@ -35,7 +35,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Artifact schemas + validated loaders | Done | Stage artifacts are schema-validated on load |
 | Artifact manifests | Done | Primary JSON outputs get adjacent manifest files |
 | OpenAlex + Semantic Scholar adapters | Done | `src/integrations/`; separate PDF vs landing-page URLs and conservative metadata fallback |
-| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`), run-level cost ledger |
+| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`, `attributed-claim-extraction`), run-level cost ledger |
 | SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence`; acquisition provenance persisted with cached raw papers |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
