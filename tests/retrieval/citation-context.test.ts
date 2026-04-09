@@ -97,7 +97,7 @@ describe("extractEdgeContext", () => {
               finalUrl: url,
               status: 200,
               contentType: "application/xml",
-              body: Buffer.from("<?xml version=\"1.0\"?><article />"),
+              body: Buffer.from('<?xml version="1.0"?><article />'),
             },
           }),
         processPdfWithGrobid: async () =>
@@ -222,7 +222,7 @@ describe("extractEdgeContext", () => {
                 : "application/xml",
               body: options?.accept?.includes("pdf")
                 ? Buffer.from("%PDF-1.7 fixture")
-                : Buffer.from("<?xml version=\"1.0\"?><article />"),
+                : Buffer.from('<?xml version="1.0"?><article />'),
             },
           }),
         processPdfWithGrobid: async () =>

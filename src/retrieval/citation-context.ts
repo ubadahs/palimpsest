@@ -62,7 +62,11 @@ export async function extractEdgeContext(
     ...(adapters.cache != null ? { cache: adapters.cache } : {}),
   };
 
-  const harvest = await harvestSeedMentions(citingPaper, seedPaper, harvestAdapters);
+  const harvest = await harvestSeedMentions(
+    citingPaper,
+    seedPaper,
+    harvestAdapters,
+  );
 
   const base = {
     citingPaperId: edge.citingPaperId,

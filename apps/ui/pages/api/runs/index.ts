@@ -45,7 +45,7 @@ export default async function handler(
       config: analysisRunConfigSchema.parse({
         stopAfterStage: payload.targetStage,
         forceRefresh: false,
-        discoverStrategy: "legacy",
+        discoverStrategy: "attribution_first",
         discoverModel: "claude-opus-4-6",
         discoverTopN: 5,
         discoverRank: true,
@@ -60,6 +60,7 @@ export default async function handler(
         curateTargetSize: 40,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: true,
+        familyConcurrency: 3,
         ...payload.config,
       }),
     });

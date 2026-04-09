@@ -229,7 +229,7 @@ export function listRunStages(
 ): AnalysisRunStage[] {
   const rows = database
     .prepare(
-      "SELECT * FROM analysis_run_stages WHERE run_id = ? ORDER BY stage_order ASC",
+      "SELECT * FROM analysis_run_stages WHERE run_id = ? ORDER BY stage_order ASC, family_index ASC",
     )
     .all(runId) as StageRow[];
 
@@ -335,17 +335,18 @@ export function ensureFamilyStageRow(
   runId: string,
   stageKey: StageKey,
   familyIndex: number,
+  logPath?: string,
 ): void {
   const definition = getStageDefinition(stageKey);
   database
     .prepare(
       `
       INSERT OR IGNORE INTO analysis_run_stages (
-        run_id, stage_key, stage_order, family_index, status
-      ) VALUES (?, ?, ?, ?, 'not_started')
+        run_id, stage_key, stage_order, family_index, status, log_path
+      ) VALUES (?, ?, ?, ?, 'not_started', ?)
     `,
     )
-    .run(runId, stageKey, definition.order, familyIndex);
+    .run(runId, stageKey, definition.order, familyIndex, logPath ?? null);
 }
 
 export function setStageInputArtifact(

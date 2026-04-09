@@ -112,7 +112,16 @@ function parseArgs(argv: string[]): {
     throw new Error("Missing --input");
   }
 
-  return { input, output, model, rank, topN, strategy, probeBudget, shortlistCap };
+  return {
+    input,
+    output,
+    model,
+    rank,
+    topN,
+    strategy,
+    probeBudget,
+    shortlistCap,
+  };
 }
 
 // ---------------------------------------------------------------------------

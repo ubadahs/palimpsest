@@ -44,7 +44,6 @@ export const seedPaperInputSchema = z
   .passthrough();
 export type SeedPaperInput = z.infer<typeof seedPaperInputSchema>;
 
-
 export const preScreenEdgeSchema = z
   .object({
     citingPaperId: z.string().min(1),
