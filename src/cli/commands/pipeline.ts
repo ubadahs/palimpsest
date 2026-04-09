@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
@@ -10,6 +11,7 @@ import type {
 } from "../../domain/types.js";
 import {
   claimFamilyBlocksDownstream,
+  preScreenResultsSchema,
   shortlistInputSchema,
 } from "../../domain/types.js";
 import { discoveryInputSchema } from "../../domain/discovery.js";
@@ -42,6 +44,14 @@ import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
+import {
+  createAnalysisRun,
+  getAnalysisRun,
+  getRunStage,
+  markRunInterrupted,
+  setRunStatus,
+  updateStageStatus,
+} from "../../storage/analysis-runs.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { resolveStageOutputDir } from "../stage-output.js";
 import {
@@ -56,6 +66,11 @@ import {
 } from "../stage-artifact-writers.js";
 import { nextRunStampFromDirectories } from "../run-stamp.js";
 import { stageDefinitions } from "../../ui-contract/stages.js";
+import {
+  analysisRunConfigSchema,
+  type StageKey,
+} from "../../ui-contract/run-types.js";
+import { deriveStageSummary } from "../../ui-contract/selectors.js";
 import { pMap } from "../../shared/p-map.js";
 
 // ---------------------------------------------------------------------------
@@ -65,7 +80,7 @@ import { pMap } from "../../shared/p-map.js";
 function parseArgs(argv: string[]): {
   input: string | undefined;
   shortlist: string | undefined;
-  output: string;
+  runId: string | undefined;
   topN: number;
   noRank: boolean;
   targetSize: number;
@@ -77,11 +92,10 @@ function parseArgs(argv: string[]): {
   screenFilterConcurrency: number | undefined;
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
-  familyConcurrency: number;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
-  let output = "data/pipeline";
+  let runId: string | undefined;
   let topN = 5;
   let noRank = false;
   let targetSize = 40;
@@ -93,18 +107,17 @@ function parseArgs(argv: string[]): {
   let screenFilterConcurrency: number | undefined;
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
-  let familyConcurrency = 3;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--input" && i + 1 < argv.length) {
+    if (arg === "--run-id" && i + 1 < argv.length) {
+      runId = argv[i + 1];
+      i++;
+    } else if (arg === "--input" && i + 1 < argv.length) {
       input = argv[i + 1];
       i++;
     } else if (arg === "--shortlist" && i + 1 < argv.length) {
       shortlist = argv[i + 1];
-      i++;
-    } else if (arg === "--output" && i + 1 < argv.length) {
-      output = argv[i + 1]!;
       i++;
     } else if (arg === "--top" && i + 1 < argv.length) {
       topN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
@@ -147,24 +160,21 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
       rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
-    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
-      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
-      i++;
     }
   }
 
-  if (!input && !shortlist) {
+  if (!input && !shortlist && !runId) {
     console.error(
-      "Usage: pipeline --input <dois.json> [--shortlist <shortlist.json>] [--output <dir>] [--top N] [--no-rank] [--target-size N] [--strategy legacy|attribution_first] [--probe-budget N] [--shortlist-cap N] [--screen-grounding-model <model>] [--screen-filter-model <model>] [--screen-filter-concurrency N] [--rerank-model <model>] [--rerank-top-n N]",
+      "Usage: pipeline --input <dois.json> | --shortlist <shortlist.json> | --run-id <uuid>",
     );
     process.exitCode = 1;
-    throw new Error("Missing --input or --shortlist");
+    throw new Error("Missing --input, --shortlist, or --run-id");
   }
 
   return {
     input,
     shortlist,
-    output,
+    runId,
     topN,
     noRank,
     targetSize,
@@ -176,7 +186,6 @@ function parseArgs(argv: string[]): {
     screenFilterConcurrency,
     rerankModel,
     rerankTopN,
-    familyConcurrency,
   };
 }
 
@@ -206,17 +215,108 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
   const database = openDatabase(config.databasePath);
 
-  try {
-    runMigrations(database);
+  // --- Resolve run identity -------------------------------------------------
+  runMigrations(database);
+  const existingRun = args.runId ? getAnalysisRun(database, args.runId) : undefined;
+  if (args.runId && !existingRun) {
+    console.error(`Run not found: ${args.runId}`);
+    process.exitCode = 1;
+    database.close();
+    return;
+  }
+  const runId = existingRun?.id ?? randomUUID();
+  let currentStageKey: StageKey | undefined;
 
+  // --- Run tracking ---------------------------------------------------------
+  function trackStageStart(stageKey: StageKey): void {
+    currentStageKey = stageKey;
+    updateStageStatus(database, runId, stageKey, "running", {
+      startedAt: new Date().toISOString(),
+      processId: process.pid,
+    });
+    setRunStatus(database, runId, "running", stageKey);
+  }
+
+  function trackStageSuccess(
+    stageKey: StageKey,
+    artifacts: {
+      primaryArtifactPath?: string;
+      reportArtifactPath?: string;
+      manifestPath?: string;
+      inputArtifactPath?: string;
+    },
+  ): void {
+    const summary = deriveStageSummary(stageKey, artifacts.primaryArtifactPath);
+    updateStageStatus(database, runId, stageKey, "succeeded", {
+      ...artifacts,
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      ...(summary ? { summary } : {}),
+    });
+  }
+
+  function trackRunFailed(error: unknown): void {
+    if (!currentStageKey) return;
+    updateStageStatus(database, runId, currentStageKey, "failed", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date().toISOString(),
+      exitCode: 1,
+    });
+    setRunStatus(database, runId, "failed", currentStageKey);
+  }
+
+  function succeededArtifact(stageKey: StageKey): string | undefined {
+    if (!existingRun) return undefined;
+    const stage = getRunStage(database, runId, stageKey);
+    return stage?.status === "succeeded" ? stage.primaryArtifactPath : undefined;
+  }
+
+  const handleSignal = (): void => {
+    if (currentStageKey) {
+      markRunInterrupted(database, runId, currentStageKey, "Interrupted by signal.");
+    }
+    database.close();
+    process.exit(130);
+  };
+  process.on("SIGINT", handleSignal);
+  process.on("SIGTERM", handleSignal);
+
+  // --- Build run config ------------------------------------------------------
+  const runConfig = existingRun
+    ? existingRun.config
+    : analysisRunConfigSchema.parse({
+        discoverStrategy: args.strategy,
+        discoverTopN: args.topN,
+        discoverRank: !args.noRank,
+        discoverProbeBudget: args.probeBudget,
+        discoverShortlistCap: args.shortlistCap,
+        curateTargetSize: args.targetSize,
+        ...(args.screenGroundingModel != null ? { screenGroundingModel: args.screenGroundingModel } : {}),
+        ...(args.screenFilterModel != null ? { screenFilterModel: args.screenFilterModel } : {}),
+        ...(args.screenFilterConcurrency != null ? { screenFilterConcurrency: args.screenFilterConcurrency } : {}),
+        ...(args.rerankModel != null ? { evidenceRerankModel: args.rerankModel } : {}),
+        ...(args.rerankTopN != null ? { evidenceRerankTopN: args.rerankTopN } : {}),
+      });
+
+  try {
     const cachePolicy: CachePolicy = "prefer_cache";
     const fullTextAdapters = createDefaultAdapters(
       config.providerBaseUrls.grobid,
       config.openAlexEmail,
     );
 
-    const outputDir = resolve(process.cwd(), args.output);
-    mkdirSync(outputDir, { recursive: true });
+    // --- Output directory: data/runs/{runId}/ --------------------------------
+    const outputDir = existingRun
+      ? resolve(existingRun.runRoot)
+      : resolve(process.cwd(), "data", "runs", runId);
+    if (!existingRun) {
+      mkdirSync(resolve(outputDir, "inputs"), { recursive: true });
+      mkdirSync(resolve(outputDir, "logs"), { recursive: true });
+      for (const stage of stageDefinitions) {
+        mkdirSync(resolve(outputDir, stage.directoryName), { recursive: true });
+      }
+    }
+
     const stamp = nextRunStampFromDirectories([
       outputDir,
       ...stageDefinitions.map((stage) =>
@@ -225,39 +325,83 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     ]);
 
     // -----------------------------------------------------------------------
-    // Stage 1: Discover (or load shortlist)
+    // Resolve input files. For --run-id, inputs are in the run directory.
+    // For direct CLI, resolve from args and create the run row.
+    // -----------------------------------------------------------------------
+
+    const inputFile = existingRun
+      ? resolve(outputDir, "inputs", "dois.json")
+      : args.input;
+    const shortlistFile = existingRun
+      ? resolve(outputDir, "inputs", "shortlist.json")
+      : args.shortlist;
+
+    // Determine if this is a shortlist-based run (discover skipped)
+    const hasTrackedClaim = existingRun
+      ? existingRun.trackedClaim != null
+      : args.shortlist != null;
+
+    // Create DB row for fresh CLI runs (existingRun already has one)
+    if (!existingRun) {
+      if (hasTrackedClaim && shortlistFile) {
+        const loaded = loadJsonArtifact(shortlistFile, shortlistInputSchema, "shortlist input");
+        if (loaded.seeds[0]) {
+          createAnalysisRun(database, {
+            id: runId,
+            seedDoi: loaded.seeds[0].doi,
+            trackedClaim: loaded.seeds[0].trackedClaim,
+            targetStage: "adjudicate",
+            runRoot: outputDir,
+            config: runConfig,
+          });
+        }
+      } else if (inputFile) {
+        const inputData = loadJsonArtifact(inputFile, discoveryInputSchema, "discovery input");
+        if (inputData.dois[0]) {
+          createAnalysisRun(database, {
+            id: runId,
+            seedDoi: inputData.dois[0],
+            targetStage: "adjudicate",
+            runRoot: outputDir,
+            config: runConfig,
+          });
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Stage 1: Discover (or load shortlist / skip if succeeded)
     // -----------------------------------------------------------------------
 
     let seeds: DiscoverySeedEntry[];
-    let screenInputArtifactPath: string | undefined = args.shortlist;
+    let screenInputArtifactPath: string | undefined;
 
-    if (args.shortlist) {
-      log("discover", `Loading shortlist from ${args.shortlist}`);
-      const loaded = loadJsonArtifact(
-        args.shortlist,
-        shortlistInputSchema,
-        "shortlist input",
-      );
+    if (succeededArtifact("discover")) {
+      // Resume: shortlist was written by prior discover run
+      const slFile = resolve(outputDir, "inputs", "shortlist.json");
+      const loaded = loadJsonArtifact(slFile, shortlistInputSchema, "shortlist input");
+      seeds = loaded.seeds;
+      log("discover", `Skipped (already succeeded) — ${String(seeds.length)} seed(s)`);
+    } else if (hasTrackedClaim) {
+      const slFile = shortlistFile ?? resolve(outputDir, "inputs", "shortlist.json");
+      log("discover", `Loading shortlist from ${slFile}`);
+      const loaded = loadJsonArtifact(slFile, shortlistInputSchema, "shortlist input");
       seeds = loaded.seeds;
       log("discover", `${String(seeds.length)} seed(s) loaded`);
     } else {
-      const inputData = loadJsonArtifact(
-        args.input!,
-        discoveryInputSchema,
-        "discovery input",
-      );
-      const strategyLabel =
-        args.strategy === "attribution_first"
-          ? "attribution-first"
-          : "legacy";
+      const doisPath = inputFile!;
+      const inputData = loadJsonArtifact(doisPath, discoveryInputSchema, "discovery input");
+      const strategy = runConfig.discoverStrategy;
+      const strategyLabel = strategy === "attribution_first" ? "attribution-first" : "legacy";
       log(
         "discover",
         `Discovering from ${String(inputData.dois.length)} paper(s) [${strategyLabel}]...`,
       );
+      trackStageStart("discover");
 
       const discoveryClient = createLLMClient({
         apiKey,
-        defaultModel: "claude-opus-4-6",
+        defaultModel: runConfig.discoverModel,
       });
 
       const paperAdapters = buildPaperAdapters({
@@ -277,10 +421,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       const discoveryStage = await runDiscoveryStage(
         {
           dois: inputData.dois,
-          topN: args.topN,
-          rank: !args.noRank,
-          strategy: args.strategy,
-          ...(args.strategy === "attribution_first"
+          topN: runConfig.discoverTopN,
+          rank: runConfig.discoverRank,
+          strategy,
+          ...(strategy === "attribution_first"
             ? {
                 attributionAdapters: {
                   ...paperAdapters,
@@ -296,8 +440,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                   },
                 },
                 attributionOptions: {
-                  probeBudget: args.probeBudget,
-                  shortlistCap: args.shortlistCap,
+                  probeBudget: runConfig.discoverProbeBudget,
+                  shortlistCap: runConfig.discoverShortlistCap,
                 },
               }
             : {}),
@@ -333,8 +477,9 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       seeds = discoveryStage.seeds;
 
       let shortlistPath: string;
+      let discoverPrimaryPath: string;
       if (
-        args.strategy === "attribution_first" &&
+        strategy === "attribution_first" &&
         discoveryStage.attributionDiscovery
       ) {
         const artifacts = writeAttributionDiscoveryArtifacts({
@@ -342,20 +487,23 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           stamp,
           results: discoveryStage.attributionDiscovery,
           seeds: discoveryStage.seeds,
-          sourceArtifacts: [args.input!],
+          sourceArtifacts: [doisPath],
         });
         shortlistPath = artifacts.shortlistPath;
+        discoverPrimaryPath = artifacts.jsonPath;
       } else {
         const artifacts = writeDiscoveryArtifacts({
           outputRoot: outputDir,
           stamp,
           results: discoveryStage.results,
           seeds: discoveryStage.seeds,
-          sourceArtifacts: [args.input!],
+          sourceArtifacts: [doisPath],
         });
         shortlistPath = artifacts.shortlistPath;
+        discoverPrimaryPath = artifacts.jsonPath;
       }
       screenInputArtifactPath = shortlistPath;
+      trackStageSuccess("discover", { primaryArtifactPath: discoverPrimaryPath });
 
       const discoveryLedger = discoveryClient.getLedger();
       log(
@@ -365,6 +513,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     }
 
     if (seeds.length === 0) {
+      setRunStatus(database, runId, "succeeded");
       log("pipeline", "No seeds to process. Exiting.");
       return;
     }
@@ -373,94 +522,98 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     // Stage 2: Screen
     // -----------------------------------------------------------------------
 
-    log("screen", `Pre-screening ${String(seeds.length)} seed(s)...`);
-    const preScreenAdapters: PreScreenAdapters = {
-      resolveByDoi: (doi) =>
-        resolvePaperByDoi(doi, {
-          openAlexBaseUrl: config.providerBaseUrls.openAlex,
-          semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-          openAlexEmail: config.openAlexEmail,
-          semanticScholarApiKey: config.semanticScholarApiKey,
-        }),
-      getCitingPapers: (openAlexId) =>
-        openalex.getCitingWorks(
-          openAlexId,
-          config.providerBaseUrls.openAlex,
-          50,
-          config.openAlexEmail,
-        ),
-      findPublishedVersion: (title, excludeId) =>
-        openalex.findPublishedVersion(
-          title,
-          excludeId,
-          config.providerBaseUrls.openAlex,
-          config.openAlexEmail,
-        ),
-      seedClaimGrounding: {
-        materializeSeedPaper: (paper) =>
-          materializeParsedPaper(
-            paper,
-            config.providerBaseUrls.bioRxiv,
-            fullTextAdapters,
-            { db: database, cachePolicy },
+    let screenJsonPath: string;
+    const existingScreenArtifact = succeededArtifact("screen");
+
+    if (existingScreenArtifact) {
+      screenJsonPath = existingScreenArtifact;
+      log("screen", "Skipped (already succeeded)");
+    } else {
+      log("screen", `Pre-screening ${String(seeds.length)} seed(s)...`);
+      trackStageStart("screen");
+      const preScreenAdapters: PreScreenAdapters = {
+        resolveByDoi: (doi) =>
+          resolvePaperByDoi(doi, {
+            openAlexBaseUrl: config.providerBaseUrls.openAlex,
+            semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+            openAlexEmail: config.openAlexEmail,
+            semanticScholarApiKey: config.semanticScholarApiKey,
+          }),
+        getCitingPapers: (openAlexId) =>
+          openalex.getCitingWorks(
+            openAlexId,
+            config.providerBaseUrls.openAlex,
+            50,
+            config.openAlexEmail,
           ),
-      },
-    };
-
-    const { families, groundingTrace } = await runPreScreen(
-      seeds,
-      preScreenAdapters,
-      {
-        llmGrounding: {
-          anthropicApiKey: apiKey,
-          ...(args.screenGroundingModel != null
-            ? { model: args.screenGroundingModel }
-            : {}),
+        findPublishedVersion: (title, excludeId) =>
+          openalex.findPublishedVersion(
+            title,
+            excludeId,
+            config.providerBaseUrls.openAlex,
+            config.openAlexEmail,
+          ),
+        seedClaimGrounding: {
+          materializeSeedPaper: (paper) =>
+            materializeParsedPaper(
+              paper,
+              config.providerBaseUrls.bioRxiv,
+              fullTextAdapters,
+              { db: database, cachePolicy },
+            ),
         },
-        ...(args.screenFilterModel != null ||
-        args.screenFilterConcurrency != null
-          ? {
-              llmFilter: {
-                ...(args.screenFilterModel != null
-                  ? { model: args.screenFilterModel }
-                  : {}),
-                ...(args.screenFilterConcurrency != null
-                  ? { concurrency: args.screenFilterConcurrency }
-                  : {}),
-              },
-            }
-          : {}),
-        skipClaimFamilyFilter: args.strategy === "attribution_first",
-      },
-      (event) => {
-        if (event.status === "completed") {
-          log("screen", `${event.step}: ${event.detail ?? "done"}`);
-        }
-      },
-    );
+      };
 
-    // Write screen artifacts
-    const { jsonPath: screenJsonPath } = writeScreenArtifacts({
-      outputRoot: outputDir,
-      stamp,
-      families,
-      groundingTrace,
-      sourceArtifacts: screenInputArtifactPath ? [screenInputArtifactPath] : [],
-    });
+      const { families: screenedFamilies, groundingTrace } = await runPreScreen(
+        seeds,
+        preScreenAdapters,
+        {
+          llmGrounding: {
+            anthropicApiKey: apiKey,
+            model: runConfig.screenGroundingModel,
+          },
+          llmFilter: {
+            model: runConfig.screenFilterModel,
+            concurrency: runConfig.screenFilterConcurrency,
+          },
+          skipClaimFamilyFilter: runConfig.discoverStrategy === "attribution_first",
+        },
+        (event) => {
+          if (event.status === "completed") {
+            log("screen", `${event.step}: ${event.detail ?? "done"}`);
+          }
+        },
+      );
 
-    const greenlit = families.filter((f) => f.decision === "greenlight");
-    const blocked = families.filter((f) => claimFamilyBlocksDownstream(f));
-    log(
-      "screen",
-      `${String(greenlit.length)} greenlit, ${String(blocked.length)} blocked, ${String(families.length - greenlit.length - blocked.length)} deprioritized`,
-    );
+      const screenArtifacts = writeScreenArtifacts({
+        outputRoot: outputDir,
+        stamp,
+        families: screenedFamilies,
+        groundingTrace,
+        sourceArtifacts: screenInputArtifactPath ? [screenInputArtifactPath] : [],
+      });
+      screenJsonPath = screenArtifacts.jsonPath;
+      trackStageSuccess("screen", {
+        primaryArtifactPath: screenJsonPath,
+        ...(screenInputArtifactPath != null ? { inputArtifactPath: screenInputArtifactPath } : {}),
+      });
 
-    // Filter to families that can proceed
+      const greenlit = screenedFamilies.filter((f) => f.decision === "greenlight");
+      const blocked = screenedFamilies.filter((f) => claimFamilyBlocksDownstream(f));
+      log(
+        "screen",
+        `${String(greenlit.length)} greenlit, ${String(blocked.length)} blocked, ${String(screenedFamilies.length - greenlit.length - blocked.length)} deprioritized`,
+      );
+    }
+
+    // Load screen results (from artifact) to determine processable families
+    const families = loadJsonArtifact(screenJsonPath, preScreenResultsSchema, "screen results");
     const processable = families.filter(
       (f) => f.decision === "greenlight" && !claimFamilyBlocksDownstream(f),
     );
 
     if (processable.length === 0) {
+      setRunStatus(database, runId, "succeeded");
       log("pipeline", "No greenlit families to process further. Stopping.");
       return;
     }
@@ -477,11 +630,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     };
 
     const reranker = createLocalReranker(config.localRerankerBaseUrl);
-    const rerankModelId = args.rerankModel ?? "claude-haiku-4-5";
+    const rerankModelId = runConfig.evidenceRerankModel;
 
     log(
       "pipeline",
-      `Processing ${String(processable.length)} families (concurrency: ${String(args.familyConcurrency)})`,
+      `Processing ${String(processable.length)} families`,
     );
 
     await pMap(
@@ -495,6 +648,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Extract ---
         fLog("extract", "Extracting citation contexts...");
+        trackStageStart("extract");
         const extraction = await runM2Extraction(
           family,
           extractionAdapters,
@@ -512,6 +666,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [screenJsonPath],
           familyIndex: fi,
         });
+        trackStageSuccess("extract", {
+          primaryArtifactPath: extractJsonPath,
+          inputArtifactPath: screenJsonPath,
+        });
         fLog(
           "extract",
           `${String(extraction.summary.successfulEdgesUsable)} usable edges, ${String(extraction.summary.usableMentionCount)} usable mentions`,
@@ -527,6 +685,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Classify ---
         fLog("classify", "Classifying citation roles...");
+        trackStageStart("classify");
         const edgeClassifications: Record<string, EdgeClassification> = {};
         const preScreenEdges: Record<string, PreScreenEdge> = {};
         for (const edge of family.edges) {
@@ -548,6 +707,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           sourceArtifacts: [extractJsonPath, screenJsonPath],
           familyIndex: fi,
         });
+        trackStageSuccess("classify", {
+          primaryArtifactPath: classifyJsonPath,
+          inputArtifactPath: extractJsonPath,
+        });
         fLog(
           "classify",
           `${String(classification.summary.literatureStructure.totalTasks)} tasks from ${String(classification.summary.literatureStructure.edgesWithMentions)} edges`,
@@ -563,6 +726,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Evidence ---
         fLog("evidence", "Resolving cited paper and retrieving evidence...");
+        trackStageStart("evidence");
         const citedPaperMaterialized = await resolveCitedPaperSource(
           classification,
           {
@@ -610,7 +774,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             llmRerankerOptions: {
               model: rerankModelId,
               useThinking: true,
-              ...(args.rerankTopN != null ? { topN: args.rerankTopN } : {}),
+              topN: runConfig.evidenceRerankTopN,
             },
           },
         );
@@ -621,6 +785,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           result: evidenceResult,
           sourceArtifacts: [classifyJsonPath],
           familyIndex: fi,
+        });
+        trackStageSuccess("evidence", {
+          primaryArtifactPath: evidenceJsonPath,
+          inputArtifactPath: classifyJsonPath,
         });
         fLog(
           "evidence",
@@ -637,10 +805,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Curate ---
         fLog("curate", "Sampling calibration set...");
+        trackStageStart("curate");
         const calibrationSet = sampleCalibrationSet(
           evidenceResult,
           undefined,
-          args.targetSize,
+          runConfig.curateTargetSize,
         );
 
         const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
@@ -649,6 +818,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           result: calibrationSet,
           sourceArtifacts: [evidenceJsonPath],
           familyIndex: fi,
+        });
+        trackStageSuccess("curate", {
+          primaryArtifactPath: curateJsonPath,
+          inputArtifactPath: evidenceJsonPath,
         });
         fLog(
           "curate",
@@ -665,6 +838,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
         // --- Adjudicate ---
         fLog("adjudicate", "Running LLM adjudication...");
+        trackStageStart("adjudicate");
         const adjudicationResult = await adjudicateCalibrationSet(
           calibrationSet,
           {
@@ -679,13 +853,17 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           },
         );
 
-        writeAdjudicationArtifacts({
+        const { jsonPath: adjudicateJsonPath } = writeAdjudicationArtifacts({
           outputRoot: outputDir,
           stamp,
           result: adjudicationResult,
           sourceArtifacts: [curateJsonPath],
           model: "claude-opus-4-6",
           familyIndex: fi,
+        });
+        trackStageSuccess("adjudicate", {
+          primaryArtifactPath: adjudicateJsonPath,
+          inputArtifactPath: curateJsonPath,
         });
 
         const verdicts = adjudicationResult.records.filter(
@@ -705,14 +883,19 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           `${String(verdicts.length)} verdicts: ${String(supported)} supported, ${String(partial)} partial, ${String(notSupported)} not supported`,
         );
       },
-      { concurrency: args.familyConcurrency },
+      { concurrency: 1 },
     );
 
-    log("pipeline", `\nPipeline complete. All artifacts in ${outputDir}`);
+    setRunStatus(database, runId, "succeeded");
+    log("pipeline", `\nPipeline complete. Run ${runId}`);
+    log("pipeline", `Artifacts in ${outputDir}`);
   } catch (error) {
+    trackRunFailed(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
     database.close();
   }
 }
