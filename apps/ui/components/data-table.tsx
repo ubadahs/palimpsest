@@ -18,7 +18,7 @@ export function DataTable<TData>({
   data,
   searchPlaceholder = "Filter rows",
 }: {
-  columns: ColumnDef<TData>[];
+  columns: ColumnDef<TData, string>[];
   data: TData[];
   searchPlaceholder?: string;
 }) {

@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { RunDetail, RunStageGroupDetail } from "palimpsest/ui-contract";
+import type {
+  AdjudicateInspectorPayload,
+  RunDetail,
+  RunStageGroupDetail,
+} from "palimpsest/ui-contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RichText } from "@/lib/rich-text";
 import { fetchJson } from "@/lib/utils";
-
-type GenericRecord = Record<string, unknown>;
 
 type VerdictCounts = {
   supported: number;
@@ -43,7 +45,9 @@ const VERDICT_TEXT_COLORS: Record<string, string> = {
   cannot_determine: "text-[var(--text-muted)]",
 };
 
-function countVerdicts(records: GenericRecord[]): VerdictCounts {
+function countVerdicts(
+  records: AdjudicateInspectorPayload["records"],
+): VerdictCounts {
   let supported = 0;
   let partially_supported = 0;
   let overstated_or_generalized = 0;
@@ -52,9 +56,9 @@ function countVerdicts(records: GenericRecord[]): VerdictCounts {
   let total = 0;
 
   for (const record of records) {
-    if (record["excluded"]) continue;
+    if (record.excluded) continue;
     total++;
-    const v = String(record["verdict"] ?? "");
+    const v = record.verdict ?? "";
     if (v === "supported") supported++;
     else if (v === "partially_supported") partially_supported++;
     else if (v === "overstated_or_generalized") overstated_or_generalized++;
@@ -80,10 +84,14 @@ function buildHeadline(counts: VerdictCounts): string {
 }
 
 export function RunResultsSummary({ run }: { run: RunDetail }) {
-  const [group, setGroup] = useState<RunStageGroupDetail | null>(null);
+  const [group, setGroup] = useState<RunStageGroupDetail<"adjudicate"> | null>(
+    null,
+  );
 
   useEffect(() => {
-    void fetchJson<RunStageGroupDetail>(`/api/runs/${run.id}/stages/adjudicate`)
+    void fetchJson<RunStageGroupDetail<"adjudicate">>(
+      `/api/runs/${run.id}/stages/adjudicate`,
+    )
       .then(setGroup)
       .catch(() => null);
   }, [run.id]);
@@ -92,10 +100,7 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
     return null;
   }
 
-  const records = group.members.flatMap((m) => {
-    const payload = (m.inspectorPayload as GenericRecord | undefined) ?? {};
-    return (payload["records"] as GenericRecord[] | undefined) ?? [];
-  });
+  const records = group.members.flatMap((member) => member.inspectorPayload?.records ?? []);
   if (records.length === 0) return null;
 
   const counts = countVerdicts(records);
@@ -110,11 +115,12 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
   ] as const;
 
   // Flagged = not_supported or overstated
-  const flagged = records.filter((r) => {
-    const v = String(r["verdict"] ?? "");
+  const flagged = records.filter((record) => {
+    const verdict = record.verdict ?? "";
     return (
-      (v === "not_supported" || v === "overstated_or_generalized") &&
-      !r["excluded"]
+      (verdict === "not_supported" ||
+        verdict === "overstated_or_generalized") &&
+      !record.excluded
     );
   });
 
@@ -179,26 +185,22 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
               {flagged.slice(0, 5).map((record) => (
                 <div
                   className="rounded-[20px] border border-[rgba(154,64,54,0.15)] bg-[rgba(154,64,54,0.04)] p-4"
-                  key={String(
-                    record["taskId"] ??
-                      record["citingPaperTitle"] ??
-                      Math.random(),
-                  )}
+                  key={record.taskId}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--danger)]">
-                        {VERDICT_LABELS[String(record["verdict"] ?? "")] ??
-                          String(record["verdict"] ?? "")}
+                        {VERDICT_LABELS[record.verdict ?? ""] ??
+                          (record.verdict ?? "")}
                       </p>
                       <RichText
-                        html={String(record["citingPaperTitle"] ?? "")}
+                        html={record.citingPaperTitle}
                         as="p"
                         className="mt-1 text-sm font-semibold text-[var(--text)]"
                       />
-                      {record["citingSpan"] ? (
+                      {record.citingSpan ? (
                         <p className="mt-2 line-clamp-2 text-sm text-[var(--text-muted)]">
-                          {String(record["citingSpan"])}
+                          {record.citingSpan}
                         </p>
                       ) : null}
                     </div>
