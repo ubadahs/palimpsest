@@ -71,7 +71,7 @@ Those filenames are intentional compatibility details. Treat the stage key as th
 
 ### Discover
 
-Purpose: turn one or more seed DOIs into concrete, screenable claim candidates.
+Purpose: turn one or more seed DOIs into concrete, screenable claim candidates by observing how the literature actually cites the seed paper.
 
 Command: `discover`
 
@@ -84,20 +84,30 @@ Writes:
 - `*_discovery-results.json`
 - `*_discovery-report.md`
 - `*_discovery-shortlist.json`
+- sidecars: `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json`
 
-What happens:
+What happens (attribution-first strategy, `--strategy attribution_first`):
 
 - resolve the seed paper by DOI
-- fetch and parse available full text
-- extract empirical claim units from claim-bearing sections
-- optionally rank those claims by downstream citing-paper engagement
+- gather the citing neighborhood from OpenAlex
+- select a bounded probe set of citing papers with accessible full text
+- harvest in-text mentions of the seed paper from probe papers
+- extract attributed claims from those mention contexts via LLM
+- construct singleton family candidates (one per in-scope attributed claim)
+- ground each family candidate back to quoted seed-paper spans
+- score families by observable viability (mention count, auditable edges, grounding status)
 - emit a shortlist ready for `screen`
+
+The legacy strategy (`--strategy legacy`) is still available and follows the older seed-side claim extraction and ranking path.
+
+Additional flags: `--probe-budget` (max probe papers, default 20), `--shortlist-cap` (max shortlisted families, default 10).
 
 What can block it:
 
 - unresolved DOI
-- no usable full text
+- no usable full text for the seed paper
 - missing `ANTHROPIC_API_KEY`
+- no auditable citing papers in the probe set (attribution-first)
 
 What the next stage consumes:
 
