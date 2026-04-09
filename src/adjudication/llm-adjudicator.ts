@@ -11,6 +11,7 @@ import { createLLMClient } from "../integrations/llm-client.js";
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { extractCitingWindow } from "../shared/citation-context-window.js";
+import { pMap } from "../shared/p-map.js";
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned
@@ -164,6 +165,8 @@ export type AdjudicatorOptions = {
   useExtendedThinking?: boolean;
   /** Optional pre-existing LLM client for shared ledger tracking. */
   llmClient?: LLMClient;
+  /** Max concurrent adjudication LLM calls. Default 5. */
+  concurrency?: number;
 };
 
 function toLLMCallTelemetry(record: LLMCallRecord): LLMCallTelemetry {
@@ -317,42 +320,62 @@ export async function adjudicateCalibrationSet(
   const ts = new Date().toISOString();
   const adjudicatorLabel = `llm:${modelId}${options.useExtendedThinking ? ":thinking" : ""}`;
 
+  let completed = 0;
+  const concurrency = options.concurrency ?? 5;
+
+  const adjudicated = await pMap(
+    active,
+    async (record) => {
+      try {
+        const { verdict, telemetry } = await callLLM(record, options, client);
+        completed++;
+        onProgress?.(completed, active.length);
+        return {
+          record: {
+            ...record,
+            comparison: verdict.comparison,
+            verdict: verdict.verdict,
+            rationale: verdict.rationale,
+            retrievalQuality: verdict.retrievalQuality,
+            judgeConfidence: verdict.judgeConfidence,
+            adjudicator: adjudicatorLabel,
+            adjudicatedAt: ts,
+            telemetry,
+          } satisfies AdjudicationRecord,
+          telemetry,
+          failed: false as const,
+        };
+      } catch (err) {
+        completed++;
+        onProgress?.(completed, active.length);
+        return {
+          record: {
+            ...record,
+            comparison: undefined,
+            verdict: "cannot_determine",
+            rationale: `LLM error: ${err instanceof Error ? err.message : String(err)}`,
+            retrievalQuality: undefined,
+            judgeConfidence: undefined,
+            adjudicator: `${adjudicatorLabel}:error`,
+            adjudicatedAt: ts,
+            telemetry: undefined,
+          } satisfies AdjudicationRecord,
+          telemetry: undefined,
+          failed: true as const,
+        };
+      }
+    },
+    { concurrency },
+  );
+
   const telemetryCalls: LLMCallTelemetry[] = [];
   let failedCount = 0;
-
-  for (let i = 0; i < active.length; i++) {
-    const record = active[i]!;
-    onProgress?.(i + 1, active.length);
-
-    try {
-      const { verdict, telemetry } = await callLLM(record, options, client);
-
-      records.push({
-        ...record,
-        comparison: verdict.comparison,
-        verdict: verdict.verdict,
-        rationale: verdict.rationale,
-        retrievalQuality: verdict.retrievalQuality,
-        judgeConfidence: verdict.judgeConfidence,
-        adjudicator: adjudicatorLabel,
-        adjudicatedAt: ts,
-        telemetry,
-      });
-
-      telemetryCalls.push(telemetry);
-    } catch (err) {
+  for (const entry of adjudicated) {
+    records.push(entry.record);
+    if (entry.failed) {
       failedCount++;
-      records.push({
-        ...record,
-        comparison: undefined,
-        verdict: "cannot_determine",
-        rationale: `LLM error: ${err instanceof Error ? err.message : String(err)}`,
-        retrievalQuality: undefined,
-        judgeConfidence: undefined,
-        adjudicator: `${adjudicatorLabel}:error`,
-        adjudicatedAt: ts,
-        telemetry: undefined,
-      });
+    } else if (entry.telemetry) {
+      telemetryCalls.push(entry.telemetry);
     }
   }
 

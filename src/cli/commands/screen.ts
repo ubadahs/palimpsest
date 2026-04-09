@@ -26,12 +26,14 @@ function parseArgs(argv: string[]): {
   llmGroundingModel: string | undefined;
   filterModel: string | undefined;
   filterConcurrency: number | undefined;
+  skipClaimFilter: boolean;
 } {
   let input: string | undefined;
   let output = "data/pre-screen";
   let llmGroundingModel: string | undefined;
   let filterModel: string | undefined;
   let filterConcurrency: number | undefined;
+  let skipClaimFilter = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -50,6 +52,8 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--filter-concurrency" && i + 1 < argv.length) {
       filterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
       i++;
+    } else if (arg === "--skip-claim-filter") {
+      skipClaimFilter = true;
     }
   }
 
@@ -65,6 +69,7 @@ function parseArgs(argv: string[]): {
     llmGroundingModel,
     filterModel,
     filterConcurrency,
+    skipClaimFilter,
   };
 }
 
@@ -178,6 +183,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
                 },
               }
             : {}),
+          skipClaimFamilyFilter: args.skipClaimFilter,
         },
         (event) => {
           if (event.status === "running") {
