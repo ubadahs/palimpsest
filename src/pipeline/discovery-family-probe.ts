@@ -165,8 +165,7 @@ function selectProbeSet(
   });
 
   const papers = sorted.map((p, i) => {
-    const hasFullText =
-      p.fullTextHints.providerAvailability === "available";
+    const hasFullText = p.fullTextHints.providerAvailability === "available";
     const selected = useAll ? hasFullText : i < budget && hasFullText;
     return {
       citingPaperId: p.id,
@@ -200,8 +199,7 @@ function toSeedGrounding(
   const spanTexts = grounding.supportSpans.map((s) => s.text);
   return {
     status: grounding.status,
-    supportSpanText:
-      spanTexts.length > 0 ? spanTexts.join(" … ") : undefined,
+    supportSpanText: spanTexts.length > 0 ? spanTexts.join(" … ") : undefined,
     groundingDetail: grounding.detailReason,
   };
 }
@@ -319,7 +317,12 @@ export async function runAttributionDiscovery(
   }
   const citingPapers = citingResult.data;
   const neighborhood = buildNeighborhood(doi, seedPaper.id, citingPapers);
-  const probeSelection = selectProbeSet(doi, seedPaper.id, citingPapers, budget);
+  const probeSelection = selectProbeSet(
+    doi,
+    seedPaper.id,
+    citingPapers,
+    budget,
+  );
   emit(
     onEvent,
     "gather_neighborhood",
@@ -459,7 +462,8 @@ export async function runAttributionDiscovery(
 
   // Sort: grounded first, then by grounding status, then by confidence.
   const ranked = [...families].sort((a, b) => {
-    const statusOrder = groundingStatusRank(a.seedGrounding.status) -
+    const statusOrder =
+      groundingStatusRank(a.seedGrounding.status) -
       groundingStatusRank(b.seedGrounding.status);
     if (statusOrder !== 0) return statusOrder;
     return b.memberMentionIds.length - a.memberMentionIds.length;

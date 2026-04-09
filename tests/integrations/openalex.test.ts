@@ -109,7 +109,9 @@ describe("resolveWorkByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.fullTextHints.pdfUrl).toBe("https://example.com/paper.pdf");
+    expect(result.data.fullTextHints.pdfUrl).toBe(
+      "https://example.com/paper.pdf",
+    );
     expect(result.data.fullTextHints.landingPageUrl).toBe(
       "https://example.com/landing",
     );

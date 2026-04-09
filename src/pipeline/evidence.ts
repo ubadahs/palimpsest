@@ -5,9 +5,7 @@ import type {
   ResolvedPaper,
   Result,
 } from "../domain/types.js";
-import type {
-  ParsedPaperMaterializeResult,
-} from "../retrieval/parsed-paper.js";
+import type { ParsedPaperMaterializeResult } from "../retrieval/parsed-paper.js";
 
 export type M4EvidenceAdapters = {
   resolveByDoi: (doi: string) => Promise<Result<ResolvedPaper>>;
@@ -168,11 +166,11 @@ export async function resolveCitedPaperSource(
       resolutionStatus: "resolved",
       resolutionError: undefined,
       resolvedPaper,
-        fetchStatus: "retrieved",
-        fetchError: undefined,
-        fullTextFormat: parsedPaperResult.data.fullText.format,
-        acquisition: parsedPaperResult.data.acquisition,
-      },
+      fetchStatus: "retrieved",
+      fetchError: undefined,
+      fullTextFormat: parsedPaperResult.data.fullText.format,
+      acquisition: parsedPaperResult.data.acquisition,
+    },
     citedPaperParsedDocument: parsedPaperResult.data.parsedDocument,
   };
 }

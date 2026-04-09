@@ -107,14 +107,27 @@ function spawnPipeline(run: AnalysisRun): void {
       // The pipeline's SIGTERM handler marks the run interrupted in DB,
       // but if it didn't get a chance, do it here.
       const currentRun = getAnalysisRun(database, run.id);
-      if (currentRun && currentRun.status === "running" && currentRun.currentStage) {
-        markRunInterrupted(database, run.id, currentRun.currentStage, "Cancelled by user.");
+      if (
+        currentRun &&
+        currentRun.status === "running" &&
+        currentRun.currentStage
+      ) {
+        markRunInterrupted(
+          database,
+          run.id,
+          currentRun.currentStage,
+          "Cancelled by user.",
+        );
       }
     } else if (exitCode !== 0 && exitCode !== null) {
       // Pipeline crashed without handling its own error.
       // Check if it already marked the run as failed.
       const currentRun = getAnalysisRun(database, run.id);
-      if (currentRun && currentRun.status === "running" && currentRun.currentStage) {
+      if (
+        currentRun &&
+        currentRun.status === "running" &&
+        currentRun.currentStage
+      ) {
         updateStageStatus(database, run.id, currentRun.currentStage, "failed", {
           errorMessage: `Pipeline process exited with code ${String(exitCode)}.`,
           finishedAt: new Date().toISOString(),
@@ -154,6 +167,11 @@ export function ensureRunSupervisorReady(): void {
 
 export async function startRun(runId: string): Promise<void> {
   ensureRunSupervisorReady();
+
+  if (getState().activeChildren.has(runId)) {
+    throw new Error("This run already has an active pipeline process.");
+  }
+
   const database = getDatabase();
   const run = getAnalysisRun(database, runId);
   if (!run) {
@@ -161,7 +179,10 @@ export async function startRun(runId: string): Promise<void> {
   }
 
   const active = findActiveRun(database);
-  if (active && active.id !== runId) {
+  if (active) {
+    if (active.id === runId) {
+      throw new Error("This run is already running.");
+    }
     throw new Error(`Run ${active.id} is already active.`);
   }
 
@@ -187,8 +208,11 @@ export async function rerunStage(
   const stages = listRunStages(database, runId);
   const previousKey = getPreviousStageKey(stageKey);
   if (previousKey) {
-    const previous = stages.find((s) => s.stageKey === previousKey);
-    if (previous?.status !== "succeeded") {
+    const previousMembers = stages.filter((s) => s.stageKey === previousKey);
+    if (
+      previousMembers.length === 0 ||
+      previousMembers.some((s) => s.status !== "succeeded")
+    ) {
       throw new Error(
         `Cannot rerun ${stageKey} before ${previousKey} succeeds.`,
       );
@@ -197,8 +221,12 @@ export async function rerunStage(
 
   // Mark this stage and everything downstream as stale so the pipeline re-runs them
   markDownstreamStagesStale(database, runId, stageKey);
-  // Also reset the target stage itself
-  updateStageStatus(database, runId, stageKey, "not_started");
+  // Reset every row for this stage key (including per-family downstream stages)
+  for (const row of stages.filter((s) => s.stageKey === stageKey)) {
+    updateStageStatus(database, runId, stageKey, "not_started", {
+      familyIndex: row.familyIndex,
+    });
+  }
 
   spawnPipeline(run);
 }
@@ -230,5 +258,10 @@ export function cancelRun(runId: string): void {
   if (runningStage.processId && isProcessAlive(runningStage.processId)) {
     process.kill(runningStage.processId, "SIGTERM");
   }
-  markRunInterrupted(database, runId, runningStage.stageKey, "Cancelled by user.");
+  markRunInterrupted(
+    database,
+    runId,
+    runningStage.stageKey,
+    "Cancelled by user.",
+  );
 }

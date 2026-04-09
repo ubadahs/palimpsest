@@ -122,11 +122,13 @@ const biorxivDetailSchema = z.object({
 
 const pmcIdConverterSchema = z.object({
   records: z.array(
-    z.object({
-      pmcid: z.string().optional(),
-      errmsg: z.string().optional(),
-      status: z.string().optional(),
-    }).passthrough(),
+    z
+      .object({
+        pmcid: z.string().optional(),
+        errmsg: z.string().optional(),
+        status: z.string().optional(),
+      })
+      .passthrough(),
   ),
 });
 
@@ -262,7 +264,10 @@ function resolveMaybeUrl(url: string, baseUrl: string): string | undefined {
   }
 }
 
-function extractLandingPageLinks(html: string, pageUrl: string): {
+function extractLandingPageLinks(
+  html: string,
+  pageUrl: string,
+): {
   xmlUrls: string[];
   pdfUrls: string[];
 } {
@@ -270,11 +275,30 @@ function extractLandingPageLinks(html: string, pageUrl: string): {
   const pdfUrls = new Set<string>();
 
   const metaPatterns = [
-    { regex: /<meta[^>]+name=["']citation_xml_url["'][^>]+content=["']([^"']+)["']/gi, target: xmlUrls },
-    { regex: /<meta[^>]+name=["']citation_pdf_url["'][^>]+content=["']([^"']+)["']/gi, target: pdfUrls },
-    { regex: /<link[^>]+type=["']application\/xml["'][^>]+href=["']([^"']+)["']/gi, target: xmlUrls },
-    { regex: /<link[^>]+type=["']application\/pdf["'][^>]+href=["']([^"']+)["']/gi, target: pdfUrls },
-    { regex: /<a[^>]+href=["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi, target: pdfUrls },
+    {
+      regex:
+        /<meta[^>]+name=["']citation_xml_url["'][^>]+content=["']([^"']+)["']/gi,
+      target: xmlUrls,
+    },
+    {
+      regex:
+        /<meta[^>]+name=["']citation_pdf_url["'][^>]+content=["']([^"']+)["']/gi,
+      target: pdfUrls,
+    },
+    {
+      regex:
+        /<link[^>]+type=["']application\/xml["'][^>]+href=["']([^"']+)["']/gi,
+      target: xmlUrls,
+    },
+    {
+      regex:
+        /<link[^>]+type=["']application\/pdf["'][^>]+href=["']([^"']+)["']/gi,
+      target: pdfUrls,
+    },
+    {
+      regex: /<a[^>]+href=["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi,
+      target: pdfUrls,
+    },
   ] as const;
 
   for (const { regex, target } of metaPatterns) {
@@ -311,7 +335,8 @@ function buildInitialCandidates(
       ? paper.resolutionProvenance.requestedIdentifier
       : undefined;
   const resolvedDoi = paper.doi;
-  const sourceHint = paper.fullTextHints.providerSourceHint?.toLowerCase() ?? "";
+  const sourceHint =
+    paper.fullTextHints.providerSourceHint?.toLowerCase() ?? "";
 
   if (
     requestedDoi?.startsWith("10.1101/") ||
@@ -804,7 +829,8 @@ async function executeLandingPageDiscoveryCandidate(
 ): Promise<AcquisitionCandidateResult> {
   const url = candidate.url ?? candidate.locatorValue;
   const response = await adapters.fetchUrl(url, {
-    accept: "text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8",
+    accept:
+      "text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8",
   });
   if (!response.ok) {
     pushAttempt(state, {
@@ -1031,7 +1057,9 @@ function decodeCachedAcquisition(
       : undefined;
   }
   try {
-    const parsed = JSON.parse(cached.acquisitionProvenanceJson) as FullTextAcquisition;
+    const parsed = JSON.parse(
+      cached.acquisitionProvenanceJson,
+    ) as FullTextAcquisition;
     return {
       ...parsed,
       materializationSource: "raw_cache",
@@ -1057,7 +1085,11 @@ async function acquireFullTextFromNetwork(
     let candidateResult: AcquisitionCandidateResult;
 
     if (candidate.candidateKind === "biorxiv_xml") {
-      candidateResult = await executeBiorxivCandidate(candidate, adapters, state);
+      candidateResult = await executeBiorxivCandidate(
+        candidate,
+        adapters,
+        state,
+      );
     } else if (candidate.candidateKind === "pmc_xml") {
       candidateResult = await executePmcCandidate(candidate, adapters, state);
     } else if (
@@ -1072,7 +1104,11 @@ async function acquireFullTextFromNetwork(
         state,
       );
     } else {
-      candidateResult = await executeXmlUrlCandidate(candidate, adapters, state);
+      candidateResult = await executeXmlUrlCandidate(
+        candidate,
+        adapters,
+        state,
+      );
     }
 
     if (candidateResult.kind === "selected") {

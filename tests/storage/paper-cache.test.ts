@@ -92,7 +92,7 @@ function makeAdapters(
             : "application/xml",
           body: options?.accept?.includes("pdf")
             ? Buffer.from("%PDF-1.7 fixture")
-            : Buffer.from("<?xml version=\"1.0\"?><article />"),
+            : Buffer.from('<?xml version="1.0"?><article />'),
         },
       });
     },
@@ -231,7 +231,9 @@ describe("paper cache integration", () => {
       expect(result.data.parsedDocument.blocks[0]?.sectionTitle).toBe(
         "Cached Section",
       );
-      expect(result.data.acquisition.materializationSource).toBe("parsed_cache");
+      expect(result.data.acquisition.materializationSource).toBe(
+        "parsed_cache",
+      );
     } finally {
       database.close();
     }

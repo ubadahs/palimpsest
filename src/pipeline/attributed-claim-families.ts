@@ -72,11 +72,15 @@ function buildShortlistReason(
 }
 
 /** Probe-level aggregate stats shared across all singletons in a run. */
-function computeProbeStats(
-  summaries: PaperHarvestSummary[],
-): { probePaperCount: number; successfulHarvestCount: number; harvestSuccessRate: number } {
+function computeProbeStats(summaries: PaperHarvestSummary[]): {
+  probePaperCount: number;
+  successfulHarvestCount: number;
+  harvestSuccessRate: number;
+} {
   const total = summaries.length;
-  const successful = summaries.filter((s) => s.harvestOutcome === "success").length;
+  const successful = summaries.filter(
+    (s) => s.harvestOutcome === "success",
+  ).length;
   return {
     probePaperCount: total,
     successfulHarvestCount: successful,
