@@ -19,6 +19,19 @@ import {
 import type { ArtifactManifest } from "../shared/artifact-io.js";
 import type { CalibrationSet } from "../domain/types.js";
 import { getStageDefinition } from "./stages.js";
+import {
+  attributionDiscoverySummarySchema,
+  buildAdjudicateInspectorPayload,
+  buildAttributionDiscoverInspectorPayload,
+  buildClassifyInspectorPayload,
+  buildCurateInspectorPayload,
+  buildEvidenceInspectorPayload,
+  buildExtractInspectorPayload,
+  buildLegacyDiscoverInspectorPayload,
+  buildScreenInspectorPayload,
+  type AttributionDiscoverySummary,
+  type StageInspectorPayload,
+} from "./inspector-payloads.js";
 import type {
   AnalysisRunStageStatus,
   AnalysisStageSummary,
@@ -29,37 +42,6 @@ import {
   isGenericStageErrorMessage,
   summarizeFailureDetail,
 } from "./workflow.js";
-
-/** Attribution-first discovery primary JSON shape (compact summaries). */
-const attributionDiscoverySummarySchema = z.array(
-  z
-    .object({
-      doi: z.string(),
-      resolvedPaper: z.unknown().optional(),
-      neighborhood: z
-        .object({
-          totalCitingPapers: z.number(),
-          fullTextAvailableCount: z.number(),
-        })
-        .passthrough(),
-      probeSelection: z
-        .object({
-          strategy: z.string(),
-          selectedCount: z.number(),
-          excludedCount: z.number(),
-        })
-        .passthrough(),
-      mentionsHarvested: z.number(),
-      inScopeExtractions: z.number(),
-      familyCandidateCount: z.number(),
-      shortlistEntries: z.array(z.record(z.string(), z.unknown())),
-      warnings: z.array(z.string()),
-    })
-    .passthrough(),
-);
-type AttributionDiscoverySummary = z.infer<
-  typeof attributionDiscoverySummarySchema
->;
 
 type ArtifactLoadResult =
   | {
@@ -510,238 +492,55 @@ export function deriveStageSummary(
   };
 }
 
-export function buildStageInspectorPayload(
-  stageKey: StageKey,
+export function buildStageInspectorPayload<K extends StageKey>(
+  stageKey: K,
   artifactPath: string,
-): unknown {
+): StageInspectorPayload<K> {
   const artifact = loadArtifactForStage(stageKey, artifactPath);
 
   if (artifact.kind === "discover") {
-    return {
-      strategy: "legacy",
-      papers: artifact.data.map((result) => ({
-        doi: result.doi,
-        title: result.resolvedPaper?.title,
-        status: result.status,
-        statusDetail: result.statusDetail,
-        findingCount: result.findingCount,
-        totalClaimCount: result.totalClaimCount,
-        ranking: result.ranking
-          ? { citingPapersAnalyzed: result.ranking.citingPapersAnalyzed }
-          : undefined,
-        claims: result.claims.map((claim, i) => {
-          const engagement = result.ranking?.engagements.find(
-            (e) => e.claimIndex === i,
-          );
-          const rank = engagement
-            ? result.ranking!.engagements.indexOf(engagement) + 1
-            : undefined;
-          return {
-            claimText: claim.claimText,
-            section: claim.section,
-            claimType: claim.claimType,
-            confidence: claim.confidence,
-            citedReferences: claim.citedReferences,
-            rank,
-            directCount: engagement?.directCount ?? 0,
-            indirectCount: engagement?.indirectCount ?? 0,
-          };
-        }),
-      })),
-    };
+    return buildLegacyDiscoverInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "discover-attribution") {
-    return {
-      strategy: "attribution_first",
-      results: artifact.data.map((r) => ({
-        doi: r.doi,
-        neighborhood: r.neighborhood,
-        probeSelection: r.probeSelection,
-        mentionsHarvested: r.mentionsHarvested,
-        inScopeExtractions: r.inScopeExtractions,
-        familyCandidateCount: r.familyCandidateCount,
-        shortlistEntries: r.shortlistEntries,
-        warnings: r.warnings,
-      })),
-    };
+    return buildAttributionDiscoverInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "screen") {
-    return {
-      families: artifact.data.map((family) => ({
-        seedDoi: family.seed.doi,
-        trackedClaim: family.seed.trackedClaim,
-        decision: family.decision,
-        decisionReason: family.decisionReason,
-        familyUseProfile: family.familyUseProfile,
-        m2Priority: family.m2Priority,
-        metrics: family.metrics,
-        edges: family.edges.map((edge) => ({
-          citingPaperId: edge.citingPaperId,
-          auditabilityStatus: edge.auditabilityStatus,
-          auditabilityReason: edge.auditabilityReason,
-          paperType: edge.paperType,
-          referencedWorksCount: edge.referencedWorksCount,
-          classification: edge.classification,
-        })),
-      })),
-    };
+    return buildScreenInspectorPayload(artifact.data) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "extract") {
-    return {
-      seed: artifact.data.seed,
-      summary: artifact.data.summary,
-      edgeResults: artifact.data.edgeResults.map((edge) => ({
-        citingPaperId: edge.citingPaperId,
-        citingPaperTitle: edge.citingPaperTitle,
-        extractionOutcome: edge.extractionOutcome,
-        extractionSuccess: edge.extractionSuccess,
-        usableForGrounding: edge.usableForGrounding,
-        mentionCount: edge.mentions.length,
-        failureReason: edge.failureReason,
-        mentions: edge.mentions.map((mention) => ({
-          mentionIndex: mention.mentionIndex,
-          rawContext: mention.rawContext,
-          citationMarker: mention.citationMarker,
-          sectionTitle: mention.sectionTitle,
-          markerStyle: mention.markerStyle,
-          contextType: mention.contextType,
-          confidence: mention.confidence,
-          isDuplicate: mention.isDuplicate,
-          isBundledCitation: mention.isBundledCitation,
-          bundlePattern: mention.bundlePattern,
-        })),
-      })),
-    };
+    return buildExtractInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "classify") {
-    return {
-      seed: artifact.data.seed,
-      summary: artifact.data.summary,
-      packets: artifact.data.packets.map((packet) => ({
-        packetId: packet.packetId,
-        citingPaperTitle: packet.citingPaper.title,
-        citingPaperDoi: packet.citingPaper.doi,
-        citedPaperDoi: packet.citedPaper.doi,
-        extractionState: packet.extractionState,
-        citationRoles: packet.rolesPresent,
-        isReviewMediated: packet.isReviewMediated,
-        requiresManualReview: packet.requiresManualReview,
-        tasks: packet.tasks.map((task) => ({
-          taskId: task.taskId,
-          evaluationMode: task.evaluationMode,
-          citationRole: task.citationRole,
-          mentionCount: task.mentionCount,
-          bundled: task.modifiers.isBundled,
-          reviewMediated: task.modifiers.isReviewMediated,
-        })),
-      })),
-    };
+    return buildClassifyInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "evidence") {
-    return {
-      seed: artifact.data.seed,
-      summary: artifact.data.summary,
-      citedPaperSource: artifact.data.citedPaperSource,
-      edges: artifact.data.edges.map((edge) => ({
-        packetId: edge.packetId,
-        citingPaperTitle: edge.citingPaperTitle,
-        citedPaperTitle: edge.citedPaperTitle,
-        extractionState: edge.extractionState,
-        isReviewMediated: edge.isReviewMediated,
-        tasks: edge.tasks.map((task) => ({
-          taskId: task.taskId,
-          evaluationMode: task.evaluationMode,
-          citationRole: task.citationRole,
-          modifiers: task.modifiers,
-          rubricQuestion: task.rubricQuestion,
-          evidenceRetrievalStatus: task.evidenceRetrievalStatus,
-          citingMentions: task.mentions.map((mention) => ({
-            mentionIndex: mention.mentionIndex,
-            rawContext: mention.rawContext,
-            citationMarker: mention.citationMarker,
-            sectionTitle: mention.sectionTitle,
-          })),
-          evidenceSpans: task.citedPaperEvidenceSpans.map((span) => ({
-            spanId: span.spanId,
-            text: span.text,
-            sectionTitle: span.sectionTitle,
-            blockKind: span.blockKind,
-            matchMethod: span.matchMethod,
-            relevanceScore: span.relevanceScore,
-            bm25Score: span.bm25Score,
-            rerankScore: span.rerankScore,
-          })),
-        })),
-      })),
-    };
+    return buildEvidenceInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "curate") {
-    return {
-      seed: artifact.data.seed,
-      summary: artifact.data.samplingStrategy,
-      records: artifact.data.records.map((record) => ({
-        recordId: record.recordId,
-        taskId: record.taskId,
-        evaluationMode: record.evaluationMode,
-        citationRole: record.citationRole,
-        citingPaperTitle: record.citingPaperTitle,
-        citedPaperTitle: record.citedPaperTitle,
-        excluded: record.excluded,
-        excludeReason: record.excludeReason,
-        evidenceRetrievalStatus: record.evidenceRetrievalStatus,
-        evidenceCount: record.evidenceSpans.length,
-      })),
-    };
+    return buildCurateInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
-  const partiallySupported = artifact.data.records.filter(
-    (record) => record.verdict === "partially_supported",
-  );
-
-  return {
-    seed: artifact.data.seed,
-    runTelemetry: artifact.data.runTelemetry,
-    defaultVerdictFilter: "partially_supported",
-    verdictCounts: {
-      supported: artifact.data.records.filter(
-        (record) => record.verdict === "supported",
-      ).length,
-      partially_supported: partiallySupported.length,
-      overstated_or_generalized: artifact.data.records.filter(
-        (record) => record.verdict === "overstated_or_generalized",
-      ).length,
-      not_supported: artifact.data.records.filter(
-        (record) => record.verdict === "not_supported",
-      ).length,
-      cannot_determine: artifact.data.records.filter(
-        (record) => record.verdict === "cannot_determine",
-      ).length,
-    },
-    highlightedTaskIds: partiallySupported.map((record) => record.taskId),
-    records: artifact.data.records.map((record) => ({
-      recordId: record.recordId,
-      taskId: record.taskId,
-      evaluationMode: record.evaluationMode,
-      citationRole: record.citationRole,
-      citingPaperTitle: record.citingPaperTitle,
-      citedPaperTitle: record.citedPaperTitle,
-      verdict: record.verdict,
-      rationale: record.rationale,
-      retrievalQuality: record.retrievalQuality,
-      judgeConfidence: record.judgeConfidence,
-      excluded: record.excluded,
-      excludeReason: record.excludeReason,
-      citingSpan: record.citingSpan,
-      rubricQuestion: record.rubricQuestion,
-      evidenceSpans: record.evidenceSpans,
-    })),
-  };
+  return buildAdjudicateInspectorPayload(
+    artifact.data,
+  ) as StageInspectorPayload<K>;
 }
 
 export function artifactLabel(path: string): string {
