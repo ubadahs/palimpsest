@@ -56,6 +56,7 @@ export const analysisRunConfigObjectSchema = z
     screenFilterConcurrency: z.number().int().positive().default(10),
     evidenceRerankModel: z.string().min(1).default("claude-haiku-4-5"),
     evidenceRerankTopN: z.number().int().positive().default(5),
+    familyConcurrency: z.number().int().positive().default(3),
   })
   .passthrough();
 
@@ -124,6 +125,7 @@ export const analysisRunStageSchema = z
     runId: z.string().min(1),
     stageKey: stageKeySchema,
     stageOrder: z.number().int().nonnegative(),
+    familyIndex: z.number().int().nonnegative().default(0),
     status: analysisRunStageStatusSchema,
     inputArtifactPath: undefinedable(z.string()),
     primaryArtifactPath: undefinedable(z.string()),
