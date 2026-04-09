@@ -19,14 +19,18 @@ export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = "2026-04-06-v1";
 
 const MAX_LLM_SUPPORT_SPANS = 8;
 
-/** Same blocking semantics as legacy BM25 grounding outcomes. */
+/**
+ * Statuses that block downstream analysis.
+ *
+ * `not_found` is intentionally excluded: if citers attribute a claim to the
+ * seed paper that the LLM cannot ground there, that is a fidelity finding
+ * worth surfacing — not a reason to discard the family.
+ *
+ * Infrastructure failures (`no_seed_fulltext`, `materialize_failed`) still
+ * block because evidence retrieval needs the seed paper's full text.
+ */
 const GROUNDING_BLOCKS_DOWNSTREAM: ReadonlySet<ClaimGrounding["status"]> =
-  new Set([
-    "not_attempted",
-    "not_found",
-    "no_seed_fulltext",
-    "materialize_failed",
-  ]);
+  new Set(["not_attempted", "no_seed_fulltext", "materialize_failed"]);
 
 export type SeedClaimLlmGroundingOptions = {
   apiKey: string;
