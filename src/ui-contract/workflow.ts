@@ -106,11 +106,11 @@ const workflowDefinitions = [
   {
     stageKey: "discover",
     title: "Current work",
-    pendingSummary: "Claim discovery has not started yet.",
+    pendingSummary: "Discovery has not started yet.",
     completedSummary:
-      "Claim extraction is complete — discovered claims are ready for screening.",
+      "Discovery is complete — candidate claim families are grounded and ready for screening.",
     failedSummary:
-      "Claim discovery stopped before extraction could be finalized.",
+      "Discovery stopped before a usable shortlist could be written.",
     steps: [
       {
         id: "resolve_paper",
@@ -126,21 +126,21 @@ const workflowDefinitions = [
       },
       {
         id: "extract_claims",
-        label: "Extract claim units (LLM)",
+        label: "Surface candidate claims (LLM)",
         description:
-          "Send claim-bearing sections to the LLM and extract discrete empirical assertions the paper advances as its own contribution.",
+          "Attribution-first: harvest in-text mentions from citing papers, extract attributed claims, and ground families to the seed. Legacy: extract discrete empirical assertions from the seed manuscript.",
       },
       {
         id: "rank_claims",
-        label: "Rank claims by citing-paper engagement",
+        label: "Rank or cap families",
         description:
-          "Pull citing papers via OpenAlex and ask an LLM which discovered claims each citing paper directly or indirectly engages with.",
+          "Legacy: rank seed-side claims by citing-paper engagement. Attribution-first: apply probe budget and shortlist caps so downstream stages stay bounded.",
       },
       {
         id: "emit_shortlist",
         label: "Emit shortlist for screening",
         description:
-          "Select the top-ranked claims and write a shortlist artifact ready to feed into the screen stage.",
+          "Write the shortlist artifact (families with tracked claims) for the screen stage.",
       },
     ],
   },
@@ -640,9 +640,7 @@ function detectAttributionFirstDiscover(
   events: StageProgressEvent[],
 ): boolean {
   if (stageKey !== "discover") return false;
-  const attrStepIds = new Set(
-    attributionFirstDiscoverSteps.map((s) => s.id),
-  );
+  const attrStepIds = new Set(attributionFirstDiscoverSteps.map((s) => s.id));
   return events.some((e) => attrStepIds.has(e.step));
 }
 
@@ -690,9 +688,7 @@ export function buildStageWorkflowSnapshot(input: {
   let lastStepIndex = -1;
 
   for (const event of events) {
-    const stepIndex = stepDefs.findIndex(
-      (step) => step.id === event.step,
-    );
+    const stepIndex = stepDefs.findIndex((step) => step.id === event.step);
     if (stepIndex < 0) {
       continue;
     }
@@ -784,11 +780,10 @@ export function buildStageWorkflowSnapshot(input: {
           input.stageStatus === "cancelled" ||
           input.stageStatus === "interrupted"
         ? summarizeFailureDetail(
-            [...steps]
-              .reverse()
-              .find((step) => step.status === "failed")
+            [...steps].reverse().find((step) => step.status === "failed")
               ?.detail ??
-              (input.errorMessage && !isGenericStageErrorMessage(input.errorMessage)
+              (input.errorMessage &&
+              !isGenericStageErrorMessage(input.errorMessage)
                 ? input.errorMessage
                 : definition.failedSummary),
           )

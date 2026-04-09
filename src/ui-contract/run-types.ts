@@ -45,7 +45,7 @@ export const analysisRunConfigObjectSchema = z
     evidenceLlmRerank: z.boolean().default(true),
     discoverStrategy: z
       .enum(["legacy", "attribution_first"])
-      .default("legacy"),
+      .default("attribution_first"),
     discoverTopN: z.number().int().positive().default(5),
     discoverRank: z.boolean().default(true),
     discoverModel: z.string().min(1).default("claude-opus-4-6"),
@@ -142,6 +142,15 @@ export const analysisRunStageSchema = z
   .passthrough();
 export type AnalysisRunStage = z.infer<typeof analysisRunStageSchema>;
 
+export const logicalStageGroupSchema = z.object({
+  stageKey: stageKeySchema,
+  stageOrder: z.number().int().nonnegative(),
+  aggregateStatus: analysisRunStageStatusSchema,
+  members: z.array(analysisRunStageSchema),
+  summary: undefinedable(analysisStageSummarySchema),
+});
+export type LogicalStageGroup = z.infer<typeof logicalStageGroupSchema>;
+
 export const analysisRunSchema = z
   .object({
     id: z.string().min(1),
@@ -159,13 +168,13 @@ export const analysisRunSchema = z
 export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
 export const runSummarySchema = analysisRunSchema.extend({
-  stages: z.array(analysisRunStageSchema),
+  stages: z.array(logicalStageGroupSchema),
   healthSummary: z.string().min(1),
 });
 export type RunSummary = z.infer<typeof runSummarySchema>;
 
 export const runDetailSchema = analysisRunSchema.extend({
-  stages: z.array(analysisRunStageSchema),
+  stages: z.array(logicalStageGroupSchema),
   activeWorkflow: stageWorkflowSnapshotSchema.optional(),
 });
 export type RunDetail = z.infer<typeof runDetailSchema>;
@@ -178,6 +187,14 @@ export const runStageDetailSchema = analysisRunStageSchema.extend({
   workflow: stageWorkflowSnapshotSchema,
 });
 export type RunStageDetail = z.infer<typeof runStageDetailSchema>;
+
+export const runStageGroupDetailSchema = z.object({
+  stageKey: stageKeySchema,
+  stageTitle: z.string().min(1),
+  aggregateStatus: analysisRunStageStatusSchema,
+  members: z.array(runStageDetailSchema),
+});
+export type RunStageGroupDetail = z.infer<typeof runStageGroupDetailSchema>;
 
 export const stageMetricSchema = z
   .object({

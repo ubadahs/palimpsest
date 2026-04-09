@@ -36,8 +36,9 @@ export function getCachedPaper(
     fetchStatus: row["fetch_status"] as string,
     contentHash: row["content_hash"] as string | undefined,
     fetchedAt: row["fetched_at"] as string,
-    acquisitionProvenanceJson:
-      row["acquisition_provenance_json"] as string | undefined,
+    acquisitionProvenanceJson: row["acquisition_provenance_json"] as
+      | string
+      | undefined,
     metadataJson: row["metadata_json"] as string | undefined,
   };
 }

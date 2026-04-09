@@ -207,7 +207,13 @@ export async function rankClaimsByEngagement(params: {
   const paperResults = await pMap(
     usable,
     async (paper) => {
-      const result = await matchOnePaper(seedTitle, claims, paper, client, model);
+      const result = await matchOnePaper(
+        seedTitle,
+        claims,
+        paper,
+        client,
+        model,
+      );
       completed++;
       onProgress?.(completed, usable.length);
       return result;

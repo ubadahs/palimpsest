@@ -1,4 +1,7 @@
-import type { AnalysisRunStage } from "palimpsest/ui-contract";
+import type {
+  AnalysisRunStage,
+  LogicalStageGroup,
+} from "palimpsest/ui-contract";
 
 function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
   return (
@@ -6,19 +9,26 @@ function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
   );
 }
 
+function flattenStageMembers(groups: LogicalStageGroup[]): AnalysisRunStage[] {
+  return groups
+    .flatMap((g) => g.members)
+    .sort(
+      (a, b) => a.stageOrder - b.stageOrder || a.familyIndex - b.familyIndex,
+    );
+}
+
 /**
- * Stage used for run overview log, artifacts, and workflow recap: running
- * stage if any, else first failed/cancelled stage, else last succeeded, else
- * the first stage in pipeline order.
+ * Member row used for run overview log, artifacts, and workflow recap: a
+ * running row if any, else first failed row, else last succeeded row, else
+ * the first row in pipeline / family order.
  */
 export function resolveFocusStage(
-  stages: AnalysisRunStage[],
+  groups: LogicalStageGroup[],
 ): AnalysisRunStage | undefined {
-  if (stages.length === 0) {
+  const ordered = flattenStageMembers(groups);
+  if (ordered.length === 0) {
     return undefined;
   }
-
-  const ordered = [...stages].sort((a, b) => a.stageOrder - b.stageOrder);
 
   const running = ordered.find((stage) => stage.status === "running");
   if (running) {

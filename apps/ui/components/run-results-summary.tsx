@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { RunDetail, RunStageDetail } from "palimpsest/ui-contract";
+import type { RunDetail, RunStageGroupDetail } from "palimpsest/ui-contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { RichText } from "@/lib/rich-text";
 import { fetchJson } from "@/lib/utils";
 
 type GenericRecord = Record<string, unknown>;
@@ -79,20 +80,22 @@ function buildHeadline(counts: VerdictCounts): string {
 }
 
 export function RunResultsSummary({ run }: { run: RunDetail }) {
-  const [detail, setDetail] = useState<RunStageDetail | null>(null);
+  const [group, setGroup] = useState<RunStageGroupDetail | null>(null);
 
   useEffect(() => {
-    void fetchJson<RunStageDetail>(`/api/runs/${run.id}/stages/adjudicate`)
-      .then(setDetail)
+    void fetchJson<RunStageGroupDetail>(`/api/runs/${run.id}/stages/adjudicate`)
+      .then(setGroup)
       .catch(() => null);
   }, [run.id]);
 
-  if (!detail) {
+  if (!group) {
     return null;
   }
 
-  const payload = (detail.inspectorPayload as GenericRecord | undefined) ?? {};
-  const records = (payload["records"] as GenericRecord[] | undefined) ?? [];
+  const records = group.members.flatMap((m) => {
+    const payload = (m.inspectorPayload as GenericRecord | undefined) ?? {};
+    return (payload["records"] as GenericRecord[] | undefined) ?? [];
+  });
   if (records.length === 0) return null;
 
   const counts = countVerdicts(records);
@@ -188,9 +191,11 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
                         {VERDICT_LABELS[String(record["verdict"] ?? "")] ??
                           String(record["verdict"] ?? "")}
                       </p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--text)]">
-                        {String(record["citingPaperTitle"] ?? "")}
-                      </p>
+                      <RichText
+                        html={String(record["citingPaperTitle"] ?? "")}
+                        as="p"
+                        className="mt-1 text-sm font-semibold text-[var(--text)]"
+                      />
                       {record["citingSpan"] ? (
                         <p className="mt-2 line-clamp-2 text-sm text-[var(--text-muted)]">
                           {String(record["citingSpan"])}

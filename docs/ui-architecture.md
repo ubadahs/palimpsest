@@ -30,10 +30,12 @@ Route handlers are local-only and back the client polling model:
 - `GET /api/runs/[runId]`
 - `POST /api/runs/[runId]/start`
 - `POST /api/runs/[runId]/cancel`
-- `GET /api/runs/[runId]/stages/[stageKey]`
+- `GET /api/runs/[runId]/stages/[stageKey]` — returns a **stage group** (`RunStageGroupDetail`: `aggregateStatus`, `members[]` each a full `RunStageDetail`)
 - `POST /api/runs/[runId]/stages/[stageKey]/rerun`
-- `GET /api/runs/[runId]/stages/[stageKey]/log`
-- `GET /api/runs/[runId]/stages/[stageKey]/artifacts/[kind]`
+- `GET /api/runs/[runId]/stages/[stageKey]/log` — optional query `familyIndex` when logs differ per family row
+- `GET /api/runs/[runId]/stages/[stageKey]/artifacts/[kind]` — optional query `familyIndex` (defaults to `0`) so parallel families do not collide on artifact paths
+
+The UI supervisor still launches `pipeline --run-id <uuid>`; the CLI pipeline reads the run’s stored config from SQLite (see [status.md](./status.md) pipeline row).
 
 ## Job Model
 
@@ -57,9 +59,12 @@ Route handlers are local-only and back the client polling model:
 The root package exposes a narrow shared contract for the UI:
 
 - stage keys and ordering
-- run and run-stage schemas
+- run schemas: dashboard/run detail use `stages: LogicalStageGroup[]` (one entry per `stageKey`, each with `aggregateStatus`, `members: AnalysisRunStage[]`, optional merged `summary`)
+- `RunStageGroupDetail` / `RunStageDetail` for stage pages and polling
+- `buildLogicalStageGroups`, `computeAggregateStageStatus` (`src/ui-contract/stage-groups.ts`)
 - environment health checks
-- artifact discovery and stage-summary selectors
+- artifact discovery and stage-summary selectors (including stem-aware resolution for per-family artifacts)
 - stage-specific inspector payload builders
+- workflow snapshot types derived from `CF_PROGRESS` telemetry
 
 Client components import only the client-safe `palimpsest/ui-contract` entrypoint. Server code uses `palimpsest/ui-contract/server`.

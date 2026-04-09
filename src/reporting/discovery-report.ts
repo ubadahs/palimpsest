@@ -148,9 +148,7 @@ export function toAttributionDiscoveryMarkdown(
     lines.push(
       `- **Family candidates:** ${String(result.familyCandidates.length)}`,
     );
-    lines.push(
-      `- **Shortlisted:** ${String(result.shortlistEntries.length)}`,
-    );
+    lines.push(`- **Shortlisted:** ${String(result.shortlistEntries.length)}`);
 
     if (result.warnings.length > 0) {
       lines.push("");
@@ -205,7 +203,9 @@ export function toAttributionDiscoveryMarkdown(
     }
 
     // Non-shortlisted families (for transparency)
-    const excluded = result.familyCandidates.filter((f) => !f.shortlistEligible);
+    const excluded = result.familyCandidates.filter(
+      (f) => !f.shortlistEligible,
+    );
     if (excluded.length > 0) {
       lines.push("### Excluded families");
       lines.push("");

@@ -89,7 +89,10 @@ describe("runDiscoveryStage", () => {
             return Promise.resolve({ ok: true, data: resolvedPaper });
           }
           if (doi === "10.1234/no-fulltext") {
-            return Promise.resolve({ ok: true, data: makePaper("paper-2", doi) });
+            return Promise.resolve({
+              ok: true,
+              data: makePaper("paper-2", doi),
+            });
           }
           return Promise.resolve({ ok: false, error: `Not found: ${doi}` });
         },
@@ -131,28 +134,32 @@ describe("runDiscoveryStage", () => {
         });
       }),
       discoverClaims: vi.fn(() => Promise.resolve(discoveryResult)),
-      getCitingPapers: vi.fn(() => Promise.resolve({
-        ok: true as const,
-        data: [makePaper("citing-1", "10.1234/citing-1")],
-      })),
+      getCitingPapers: vi.fn(() =>
+        Promise.resolve({
+          ok: true as const,
+          data: [makePaper("citing-1", "10.1234/citing-1")],
+        }),
+      ),
       rankClaimsByEngagement: vi.fn<
         DiscoveryStageAdapters["rankClaimsByEngagement"]
-      >((_seedTitle, claims) => Promise.resolve({
-        citingPapersAnalyzed: 1,
-        citingPapersTotal: 1,
-        rankingModel: "mock-ranker",
-        rankingEstimatedCostUsd: 0.002,
-        engagements: [
-          {
-            claimIndex: 0,
-            claimText: claims[0]!.claimText,
-            claimType: "finding" as const,
-            directCount: 1,
-            indirectCount: 0,
-            directPapers: ["Citing Paper 1"],
-          },
-        ],
-      })),
+      >((_seedTitle, claims) =>
+        Promise.resolve({
+          citingPapersAnalyzed: 1,
+          citingPapersTotal: 1,
+          rankingModel: "mock-ranker",
+          rankingEstimatedCostUsd: 0.002,
+          engagements: [
+            {
+              claimIndex: 0,
+              claimText: claims[0]!.claimText,
+              claimType: "finding" as const,
+              directCount: 1,
+              indirectCount: 0,
+              directPapers: ["Citing Paper 1"],
+            },
+          ],
+        }),
+      ),
     };
 
     const stage = await runDiscoveryStage(

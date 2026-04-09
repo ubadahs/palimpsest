@@ -16,6 +16,26 @@ export function formatDateTime(value: string | undefined): string {
   }).format(new Date(value));
 }
 
+/** Compact date+time: "Apr 9, 1:13 AM" */
+export function formatDateCompact(value: string | undefined): string {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+/** Time-only: "1:13 AM" */
+export function formatTime(value: string | undefined): string {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export function formatDuration(
   startedAt: string | undefined,
   finishedAt: string | undefined,

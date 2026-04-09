@@ -36,6 +36,7 @@ type FormState = {
   curateTargetSize: number;
   adjudicateModel: string;
   adjudicateThinking: boolean;
+  familyConcurrency: number;
 };
 
 export function NewRunForm() {
@@ -49,7 +50,7 @@ export function NewRunForm() {
     trackedClaim: "",
     targetStage: "adjudicate",
     forceRefresh: false,
-    discoverStrategy: "legacy",
+    discoverStrategy: "attribution_first",
     discoverModel: "claude-opus-4-6",
     discoverTopN: 5,
     discoverRank: true,
@@ -64,6 +65,7 @@ export function NewRunForm() {
     curateTargetSize: 40,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
+    familyConcurrency: 3,
   });
 
   function update<K extends keyof FormState>(
@@ -114,6 +116,7 @@ export function NewRunForm() {
               curateTargetSize: state.curateTargetSize,
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
+              familyConcurrency: state.familyConcurrency,
             },
           }),
         });
@@ -150,10 +153,12 @@ export function NewRunForm() {
           Start an analysis
         </h2>
         <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
-          Enter a paper DOI. The pipeline will extract empirical claims, rank
-          them by how often citing papers engage with each, then screen,
-          retrieve evidence, and adjudicate citation fidelity for the top
-          claims.
+          Enter a seed DOI. By default, discovery is attribution-first: harvest
+          what citing papers attribute to the seed, ground families, and build a
+          shortlist. You can switch to legacy seed-side claim extraction in
+          advanced settings. Then the run screens families, retrieves
+          cited-paper evidence, and adjudicates citation fidelity (per family,
+          in parallel when there are several).
         </p>
       </CardHeader>
       <CardContent>
@@ -231,8 +236,9 @@ export function NewRunForm() {
                     Strategy
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Legacy extracts claims from the seed paper. Attribution-first
-                    harvests what citing papers actually attribute to the seed.
+                    Legacy extracts claims from the seed paper.
+                    Attribution-first harvests what citing papers actually
+                    attribute to the seed.
                   </span>
                   <select
                     className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
@@ -244,7 +250,9 @@ export function NewRunForm() {
                       )
                     }
                   >
-                    <option value="legacy">Legacy (seed-side extraction)</option>
+                    <option value="legacy">
+                      Legacy (seed-side extraction)
+                    </option>
                     <option value="attribution_first">
                       Attribution-first (citing-side harvesting)
                     </option>
@@ -255,7 +263,8 @@ export function NewRunForm() {
                     Model
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Claude model used for claim extraction and ranking.
+                    Claude model used for discovery LLM steps (legacy extraction
+                    / ranking or attribution-first grounding).
                   </span>
                   <Input
                     autoComplete="off"
@@ -611,6 +620,23 @@ export function NewRunForm() {
                     </span>
                   </label>
                 </div>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Family parallelism
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    How many claim families run extract → adjudicate at once
+                    after screen.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.familyConcurrency}
+                    onChange={(event) =>
+                      update("familyConcurrency", Number(event.target.value))
+                    }
+                  />
+                </label>
               </div>
             </details>
           </div>

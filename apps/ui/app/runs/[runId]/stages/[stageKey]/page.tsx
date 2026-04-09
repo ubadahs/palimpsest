@@ -1,7 +1,10 @@
 import { stageKeySchema } from "palimpsest/ui-contract";
 
 import { StageDetailClient } from "@/components/stage-detail-client";
-import { getRunDetailOrThrow, getStageDetailOrThrow } from "@/lib/run-queries";
+import {
+  getRunDetailOrThrow,
+  getStageGroupDetailOrThrow,
+} from "@/lib/run-queries";
 import { ensureRunSupervisorReady } from "@/lib/run-supervisor";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +18,7 @@ export default async function StageDetailPage({
   const { runId, stageKey } = await params;
   return (
     <StageDetailClient
-      initialDetail={getStageDetailOrThrow(
+      initialGroup={getStageGroupDetailOrThrow(
         runId,
         stageKeySchema.parse(stageKey),
       )}

@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseConnection } from "palimpsest/storage";
 import { setRunStatus, updateStageStatus } from "palimpsest/storage";
-import { serializeProgressEvent } from "palimpsest/ui-contract";
+import {
+  analysisRunConfigSchema,
+  serializeProgressEvent,
+} from "palimpsest/ui-contract";
 
 import {
   createRun,
@@ -58,7 +61,7 @@ describe("run creation", () => {
       id: "run-auto",
       seedDoi: "10.1234/seed",
       targetStage: "adjudicate",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
         curateTargetSize: 40,
@@ -67,7 +70,7 @@ describe("run creation", () => {
         discoverTopN: 5,
         discoverRank: true,
         discoverModel: "claude-opus-4-6",
-      },
+      }),
     });
 
     expect(run.trackedClaim).toBeUndefined();
@@ -76,7 +79,7 @@ describe("run creation", () => {
 
     const detail = getRunDetailOrThrow(run.id);
     const discover = detail.stages.find((s) => s.stageKey === "discover");
-    expect(discover?.status).toBe("not_started");
+    expect(discover?.aggregateStatus).toBe("not_started");
     expect(detail.stages).toHaveLength(7);
   });
 
@@ -86,7 +89,7 @@ describe("run creation", () => {
       seedDoi: "10.1234/seed",
       trackedClaim: "Neurons form sublaminae.",
       targetStage: "adjudicate",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
         curateTargetSize: 40,
@@ -95,7 +98,7 @@ describe("run creation", () => {
         discoverTopN: 5,
         discoverRank: true,
         discoverModel: "claude-opus-4-6",
-      },
+      }),
     });
 
     expect(run.trackedClaim).toBe("Neurons form sublaminae.");
@@ -103,7 +106,7 @@ describe("run creation", () => {
 
     const detail = getRunDetailOrThrow(run.id);
     const discover = detail.stages.find((s) => s.stageKey === "discover");
-    expect(discover?.status).toBe("succeeded");
+    expect(discover?.aggregateStatus).toBe("succeeded");
     expect(discover?.summary?.headline).toContain("Skipped");
   });
 });
@@ -139,13 +142,13 @@ describe("run queries workflow integration", () => {
       seedDoi: "10.1234/seed",
       trackedClaim: "Tracked claim",
       targetStage: "adjudicate",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
         curateTargetSize: 40,
         adjudicateModel: "claude-opus-4-6",
         adjudicateThinking: false,
-      },
+      }),
     });
     const database = getDatabase();
     const logPath = getStageLogPath(run.id, "adjudicate");
@@ -197,7 +200,7 @@ describe("run queries workflow integration", () => {
       id: "run-discover-failure",
       seedDoi: "10.1234/seed",
       targetStage: "adjudicate",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "adjudicate",
         forceRefresh: false,
         curateTargetSize: 40,
@@ -206,7 +209,7 @@ describe("run queries workflow integration", () => {
         discoverTopN: 5,
         discoverRank: true,
         discoverModel: "claude-opus-4-6",
-      },
+      }),
     });
     const database = getDatabase();
     const logPath = getStageLogPath(run.id, "discover");
@@ -255,10 +258,14 @@ describe("run queries workflow integration", () => {
     );
 
     const detail = getRunDetailOrThrow(run.id);
-    const discover = detail.stages.find((stage) => stage.stageKey === "discover");
+    const discover = detail.stages.find(
+      (stage) => stage.stageKey === "discover",
+    );
     const stageDetail = getStageDetailOrThrow(run.id, "discover");
 
-    expect(discover?.errorMessage).toContain("Full text unavailable");
+    expect(discover?.members[0]?.errorMessage).toContain(
+      "Full text unavailable",
+    );
     expect(discover?.summary?.headline).toContain("Full text unavailable");
     expect(detail.activeWorkflow?.summary).toContain("Full text unavailable");
     expect(stageDetail.errorMessage).toContain("Full text unavailable");
