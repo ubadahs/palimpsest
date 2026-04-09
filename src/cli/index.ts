@@ -19,7 +19,7 @@ function printHelp(): void {
 Available commands:
   doctor        Print resolved configuration and taxonomy summary
   db:migrate    Apply pending SQLite migrations
-  discover      Extract claim units, rank by citing-paper engagement, emit shortlist (needs ANTHROPIC_API_KEY)
+  discover      Discover claim families from citing behavior, ground to seed, emit shortlist (needs ANTHROPIC_API_KEY)
   pipeline      Run full e2e: discover → screen → extract → classify → evidence → curate → adjudicate
   screen        Screen claim families (LLM full-doc claim grounding + trace sidecar; needs ANTHROPIC_API_KEY)
   extract       Extract citation contexts for a single claim family

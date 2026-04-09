@@ -18,7 +18,7 @@ Use the stage key as the canonical name. Some artifact suffixes intentionally pr
 
 | Order | Stage key | CLI command | UI run directory | Primary JSON | Markdown report | Extra companion artifacts |
 |------|-----------|-------------|------------------|--------------|-----------------|---------------------------|
-| 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json` | `*_discovery-report.md` | `*_discovery-shortlist.json` |
+| 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json` | `*_discovery-report.md` | `*_discovery-shortlist.json`, `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json` |
 | 1 | `screen` | `screen` | `01-screen/` | `*_pre-screen-results.json` | `*_pre-screen-report.md` | `*_pre-screen-grounding-trace.json` |
 | 2 | `extract` | `extract` | `02-extract/` | `*_m2-extraction-results.json` | `*_m2-extraction-report.md` | `*_m2-inspection.md` |
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
