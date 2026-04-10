@@ -484,28 +484,6 @@ function AdjudicateInspector({
   }, [records]);
 
   const activeRecords = records.filter((record) => !record.excluded);
-  const avgConfidence = useMemo(() => {
-    const levels = {
-      high: 3,
-      medium: 2,
-      low: 1,
-    } satisfies Record<string, number>;
-    const confidences = activeRecords
-      .map((record) => record.judgeConfidence)
-      .filter(
-        (confidence): confidence is keyof typeof levels => confidence != null,
-      );
-    if (confidences.length === 0) return undefined;
-    const sum = confidences.reduce(
-      (acc, confidence) => acc + (levels[confidence] ?? 0),
-      0,
-    );
-    const avg = sum / confidences.length;
-    if (avg >= 2.5) return "High";
-    if (avg >= 1.5) return "Medium";
-    return "Low";
-  }, [activeRecords]);
-
   return (
     <div className="space-y-5">
       {payload?.seed ? (
@@ -538,12 +516,6 @@ function AdjudicateInspector({
                 </strong>{" "}
                 active records
               </span>
-              {avgConfidence ? (
-                <span>
-                  Avg confidence:{" "}
-                  <strong className="text-[var(--text)]">{avgConfidence}</strong>
-                </span>
-              ) : null}
               {payload.runTelemetry ? (
                 <span>
                   LLM cost:{" "}
