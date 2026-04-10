@@ -16,11 +16,13 @@ import {
   listStageArtifactsForStem,
   type AnalysisRunStage,
   type LogicalStageGroup,
+  type DashboardStats,
   type RunDetail,
-  type StageInspectorPayload,
   type RunStageDetail,
   type RunStageGroupDetail,
   type RunSummary,
+  type RunVerdictSummary,
+  type StageInspectorPayload,
   type StageKey,
 } from "palimpsest/ui-contract/server";
 import {
@@ -60,6 +62,66 @@ function buildHealthSummary(groups: LogicalStageGroup[]): string {
     (g) => g.aggregateStatus === "succeeded",
   ).length;
   return `${String(succeeded)}/${String(groups.length)} stages complete`;
+}
+
+function countVerdictsFromAdjudicateInspectorRecords(
+  records: StageInspectorPayload<"adjudicate">["records"],
+): RunVerdictSummary {
+  let supported = 0;
+  let partially_supported = 0;
+  let overstated_or_generalized = 0;
+  let not_supported = 0;
+  let cannot_determine = 0;
+  let total = 0;
+
+  for (const record of records) {
+    if (record.excluded) continue;
+    total++;
+    const v = record.verdict ?? "";
+    if (v === "supported") supported++;
+    else if (v === "partially_supported") partially_supported++;
+    else if (v === "overstated_or_generalized") overstated_or_generalized++;
+    else if (v === "not_supported") not_supported++;
+    else if (v === "cannot_determine") cannot_determine++;
+  }
+
+  return {
+    supported,
+    partially_supported,
+    overstated_or_generalized,
+    not_supported,
+    cannot_determine,
+    total,
+  };
+}
+
+/**
+ * Loads adjudicate stage artifact(s) and aggregates verdict counts (non-excluded records only).
+ */
+function loadAdjudicateVerdictSummaryForRun(
+  database: ReturnType<typeof getDatabase>,
+  runId: string,
+): RunVerdictSummary | undefined {
+  const adjudicateRows = attachStageSummaries(
+    listRunStages(database, runId).filter((s) => s.stageKey === "adjudicate"),
+    runId,
+  );
+  const records: StageInspectorPayload<"adjudicate">["records"] = [];
+  for (const stage of adjudicateRows) {
+    if (stage.status !== "succeeded") continue;
+    const path = stage.primaryArtifactPath;
+    if (!path) continue;
+    try {
+      const payload = buildStageInspectorPayload("adjudicate", path);
+      records.push(...payload.records);
+    } catch {
+      /* artifact missing or invalid */
+    }
+  }
+  if (records.length === 0) {
+    return undefined;
+  }
+  return countVerdictsFromAdjudicateInspectorRecords(records);
 }
 
 function readStageLogContent(
@@ -219,23 +281,46 @@ function pickActiveStageForWorkflow(
   return undefined;
 }
 
-export async function getDashboardData(): Promise<{
+export type DashboardPollPayload = {
   health: Awaited<ReturnType<typeof getEnvironmentHealthSummary>>;
+  stats: DashboardStats;
   runs: RunSummary[];
-}> {
+};
+
+export async function getDashboardData(): Promise<DashboardPollPayload> {
   const database = getDatabase();
   const health = await getEnvironmentHealthSummary(getRepoRoot());
-  const runs = listAnalysisRuns(database).map((run) => {
+  const runs: RunSummary[] = listAnalysisRuns(database).map((run) => {
     const flat = attachStageSummaries(listRunStages(database, run.id), run.id);
     const stages = buildLogicalStageGroups(flat);
+    const verdictSummary =
+      run.status === "succeeded"
+        ? loadAdjudicateVerdictSummaryForRun(database, run.id)
+        : undefined;
     return {
       ...run,
       stages,
       healthSummary: buildHealthSummary(stages),
+      ...(verdictSummary ? { verdictSummary } : {}),
     };
   });
 
-  return { health, runs };
+  const stats: DashboardStats = {
+    totalRuns: runs.length,
+    activeRuns: runs.filter(
+      (r) => r.status === "running" || r.status === "queued",
+    ).length,
+    completedRuns: runs.filter((r) => r.status === "succeeded").length,
+    failedRuns: runs.filter((r) =>
+      ["failed", "cancelled", "interrupted"].includes(r.status),
+    ).length,
+    adjudicatedCitationTotal: runs.reduce(
+      (acc, r) => acc + (r.verdictSummary?.total ?? 0),
+      0,
+    ),
+  };
+
+  return { health, stats, runs };
 }
 
 export function createRun(

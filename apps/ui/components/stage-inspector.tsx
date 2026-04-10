@@ -20,7 +20,14 @@ import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { DoiLink, RichText } from "@/lib/rich-text";
+import {
+  formatVerdictSlug,
+  verdictBadgeVariant,
+  VERDICT_OPTIONS,
+  type VerdictKey,
+} from "@/lib/verdict-tokens";
 import { cn } from "@/lib/utils";
 
 type DiscoverInspectorPayload =
@@ -436,26 +443,6 @@ function CurateInspector({ payload }: { payload: CurateInspectorPayload | undefi
   );
 }
 
-const VERDICT_OPTIONS = [
-  "supported",
-  "partially_supported",
-  "overstated_or_generalized",
-  "not_supported",
-  "cannot_determine",
-] as const;
-
-type VerdictOption = (typeof VERDICT_OPTIONS)[number];
-
-function verdictBadgeVariant(
-  verdict: string,
-): "success" | "warning" | "failed" | "neutral" {
-  if (verdict === "supported") return "success";
-  if (verdict === "partially_supported") return "warning";
-  if (verdict === "not_supported" || verdict === "overstated_or_generalized")
-    return "failed";
-  return "neutral";
-}
-
 function AdjudicateInspector({
   payload,
 }: {
@@ -463,7 +450,7 @@ function AdjudicateInspector({
 }) {
   const records = payload?.records ?? [];
   const defaultFilter = payload?.defaultVerdictFilter ?? "partially_supported";
-  const [filter, setFilter] = useState<VerdictOption>(defaultFilter);
+  const [filter, setFilter] = useState<VerdictKey>(defaultFilter);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -540,7 +527,7 @@ function AdjudicateInspector({
               type="button"
               variant={filter === option ? "default" : "secondary"}
             >
-              {option.replaceAll("_", " ")}
+              {formatVerdictSlug(option)}
               {count > 0 ? (
                 <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
                   {count}
@@ -694,9 +681,7 @@ export function StageInspector({ detail }: { detail: RunStageDetail }) {
   return (
     <div className="space-y-4">
       {detail.errorMessage ? (
-        <div className="rounded-[24px] border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] px-5 py-4 text-sm text-[var(--danger)]">
-          {detail.errorMessage}
-        </div>
+        <ErrorBanner>{detail.errorMessage}</ErrorBanner>
       ) : null}
       {content}
     </div>

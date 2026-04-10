@@ -170,9 +170,30 @@ export const analysisRunSchema = z
   .passthrough();
 export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
+/** Verdict counts for non-excluded adjudicated records (dashboard / run cards). */
+export const runVerdictSummarySchema = z.object({
+  supported: z.number().int().nonnegative(),
+  partially_supported: z.number().int().nonnegative(),
+  overstated_or_generalized: z.number().int().nonnegative(),
+  not_supported: z.number().int().nonnegative(),
+  cannot_determine: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+export type RunVerdictSummary = z.infer<typeof runVerdictSummarySchema>;
+
+export const dashboardStatsSchema = z.object({
+  totalRuns: z.number().int().nonnegative(),
+  activeRuns: z.number().int().nonnegative(),
+  completedRuns: z.number().int().nonnegative(),
+  failedRuns: z.number().int().nonnegative(),
+  adjudicatedCitationTotal: z.number().int().nonnegative(),
+});
+export type DashboardStats = z.infer<typeof dashboardStatsSchema>;
+
 export const runSummarySchema = analysisRunSchema.extend({
   stages: z.array(logicalStageGroupSchema),
   healthSummary: z.string().min(1),
+  verdictSummary: runVerdictSummarySchema.optional(),
 });
 export type RunSummary = z.infer<typeof runSummarySchema>;
 

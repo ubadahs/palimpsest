@@ -31,8 +31,8 @@ export default async function handler(
     ensureRunSupervisorReady();
 
     if (request.method === "GET") {
-      const { runs } = await getDashboardData();
-      response.status(200).json(runs);
+      const payload = await getDashboardData();
+      response.status(200).json(payload);
       return;
     }
 

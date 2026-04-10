@@ -19,20 +19,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { DoiLink } from "@/lib/rich-text";
 import { resolveFocusStage } from "@/lib/run-focus-stage";
+import { runBadgeVariant } from "@/lib/status-variants";
+import { usePoll } from "@/lib/use-poll";
 import {
   fetchJson,
   formatDateCompact,
   formatDuration,
 } from "@/lib/utils";
-
-function badgeVariant(
-  status: string,
-): "neutral" | "running" | "success" | "failed" {
-  if (status === "running") return "running";
-  if (status === "succeeded") return "success";
-  if (status === "queued") return "neutral";
-  return "failed";
-}
 
 function sortGroups(groups: LogicalStageGroup[]): LogicalStageGroup[] {
   return [...groups].sort((a, b) => a.stageOrder - b.stageOrder);
@@ -94,18 +87,12 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
     [run],
   );
 
-  useEffect(() => {
-    if (run.status !== "running") {
-      return;
-    }
-
-    const interval = window.setInterval(async () => {
-      const nextRun = await fetchJson<RunDetail>(`/api/runs/${run.id}`);
-      setRun(nextRun);
-    }, 2_000);
-
-    return () => window.clearInterval(interval);
-  }, [run.id, run.status]);
+  usePoll({
+    fetch: () => fetchJson<RunDetail>(`/api/runs/${run.id}`),
+    onSuccess: setRun,
+    intervalMs: 2_000,
+    enabled: run.status === "running",
+  });
 
   useEffect(() => {
     if (run.status !== "succeeded") return;
@@ -152,7 +139,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
         <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <Badge variant={badgeVariant(run.status)}>{run.status}</Badge>
+              <Badge variant={runBadgeVariant(run.status)}>{run.status}</Badge>
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
                 target {run.targetStage}
               </span>

@@ -10,6 +10,12 @@ import type {
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RichText } from "@/lib/rich-text";
+import {
+  VERDICT_BG_COLORS,
+  VERDICT_LABELS,
+  VERDICT_ORDER,
+  VERDICT_TEXT_COLORS,
+} from "@/lib/verdict-tokens";
 import { fetchJson } from "@/lib/utils";
 
 type VerdictCounts = {
@@ -19,30 +25,6 @@ type VerdictCounts = {
   not_supported: number;
   cannot_determine: number;
   total: number;
-};
-
-const VERDICT_LABELS: Record<string, string> = {
-  supported: "Supported",
-  partially_supported: "Partially supported",
-  overstated_or_generalized: "Overstated",
-  not_supported: "Not supported",
-  cannot_determine: "Unclear",
-};
-
-const VERDICT_COLORS: Record<string, string> = {
-  supported: "bg-[var(--success)]",
-  partially_supported: "bg-[var(--warning)]",
-  overstated_or_generalized: "bg-[rgba(151,100,44,0.6)]",
-  not_supported: "bg-[var(--danger)]",
-  cannot_determine: "bg-[var(--border-strong)]",
-};
-
-const VERDICT_TEXT_COLORS: Record<string, string> = {
-  supported: "text-[var(--success)]",
-  partially_supported: "text-[var(--warning)]",
-  overstated_or_generalized: "text-[rgba(151,100,44,0.9)]",
-  not_supported: "text-[var(--danger)]",
-  cannot_determine: "text-[var(--text-muted)]",
 };
 
 function countVerdicts(
@@ -106,14 +88,6 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
   const counts = countVerdicts(records);
   const headline = buildHeadline(counts);
 
-  const VERDICT_ORDER = [
-    "supported",
-    "partially_supported",
-    "overstated_or_generalized",
-    "not_supported",
-    "cannot_determine",
-  ] as const;
-
   // Flagged = not_supported or overstated
   const flagged = records.filter((record) => {
     const verdict = record.verdict ?? "";
@@ -148,7 +122,7 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
               return (
                 <div
                   key={v}
-                  className={`h-3 ${VERDICT_COLORS[v]}`}
+                  className={`h-3 ${VERDICT_BG_COLORS[v]}`}
                   style={{ width: `${pct}%` }}
                   title={`${VERDICT_LABELS[v]}: ${String(count)}`}
                 />
