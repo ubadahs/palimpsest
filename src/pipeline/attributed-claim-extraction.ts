@@ -212,6 +212,12 @@ export async function extractAttributedClaims(params: {
     outputTokens: record.outputTokens,
     estimatedCostUsd: record.estimatedCostUsd,
     generatedAt: record.timestamp,
+    ...(record.cacheReadTokens != null
+      ? { cacheReadTokens: record.cacheReadTokens }
+      : {}),
+    ...(record.cacheWriteTokens != null
+      ? { cacheWriteTokens: record.cacheWriteTokens }
+      : {}),
   };
 
   return mentions.map((m): AttributedClaimExtractionRecord => {
