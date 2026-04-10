@@ -799,13 +799,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     }
 
     if (seeds.length === 0) {
-      setRunStatus(database, runId, "succeeded");
+      setRunStatus(database, runId, "succeeded", "discover");
       log("pipeline", "No seeds to process. Exiting.");
       return;
     }
 
     if (runConfig.stopAfterStage === "discover") {
-      setRunStatus(database, runId, "succeeded");
+      setRunStatus(database, runId, "succeeded", "discover");
       log("pipeline", "Stopping after discover (stopAfterStage).");
       return;
     }
@@ -947,13 +947,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     }
 
     if (processable.length === 0) {
-      setRunStatus(database, runId, "succeeded");
+      setRunStatus(database, runId, "succeeded", "screen");
       log("pipeline", "No greenlit families to process further. Stopping.");
       return;
     }
 
     if (runConfig.stopAfterStage === "screen") {
-      setRunStatus(database, runId, "succeeded");
+      setRunStatus(database, runId, "succeeded", "screen");
       log("pipeline", "Stopping after screen (stopAfterStage).");
       return;
     }
@@ -1455,7 +1455,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     writeCostSummary();
     const totalCost = telemetryCollector.getLedger().totalEstimatedCostUsd;
-    setRunStatus(database, runId, "succeeded");
+    setRunStatus(database, runId, "succeeded", runConfig.stopAfterStage);
     log("pipeline", `\nPipeline complete. Run ${runId}`);
     log("pipeline", `Artifacts in ${outputDir}`);
     log("pipeline", `Estimated total LLM cost: ~$${totalCost.toFixed(4)}`);

@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { DoiLink, RichText } from "@/lib/rich-text";
+import { stageBadgeVariant } from "@/lib/status-variants";
+import { usePoll } from "@/lib/use-poll";
 import { cn, fetchJson, formatDuration, formatTime } from "@/lib/utils";
 
 const stageDescriptions: Record<StageKey, string> = {
@@ -38,17 +40,6 @@ function getDiscoverDescription(
     return "Legacy path: seed-side claim extraction and optional citing-paper engagement ranking.";
   }
   return stageDescriptions.discover;
-}
-
-function badgeVariant(
-  status: string,
-): "neutral" | "running" | "success" | "failed" | "stale" {
-  if (status === "running") return "running";
-  if (status === "succeeded") return "success";
-  if (status === "stale") return "stale";
-  if (status === "failed" || status === "cancelled" || status === "interrupted")
-    return "failed";
-  return "neutral";
 }
 
 function defaultFamilyIndex(group: RunStageGroupDetail): number {
@@ -105,24 +96,21 @@ export function StageDetailClient({
     run.status === "running" ||
     group.members.some((m) => m.status === "running");
 
-  useEffect(() => {
-    if (!anyRunning) {
-      return;
-    }
-
-    const interval = window.setInterval(async () => {
-      const [nextRun, nextGroup] = await Promise.all([
+  usePoll({
+    fetch: () =>
+      Promise.all([
         fetchJson<RunDetail>(`/api/runs/${run.id}`),
         fetchJson<RunStageGroupDetail>(
           `/api/runs/${run.id}/stages/${group.stageKey}`,
         ),
-      ]);
+      ]),
+    onSuccess: ([nextRun, nextGroup]) => {
       setRun(nextRun);
       setGroup(nextGroup);
-    }, 2_000);
-
-    return () => window.clearInterval(interval);
-  }, [anyRunning, group.stageKey, run.id]);
+    },
+    intervalMs: 2_000,
+    enabled: anyRunning,
+  });
 
   function rerunStage(): void {
     startTransition(async () => {
@@ -165,7 +153,7 @@ export function StageDetailClient({
         <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant={badgeVariant(group.aggregateStatus)}>
+              <Badge variant={stageBadgeVariant(group.aggregateStatus)}>
                 {group.aggregateStatus}
               </Badge>
               {screenDeprioritized ? (
