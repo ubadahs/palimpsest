@@ -13,6 +13,9 @@ describe("loadEnvironment", () => {
     expect(environment.PALIMPSEST_DB_PATH).toBe("data/palimpsest.sqlite");
     expect(environment.OPENALEX_BASE_URL).toBe("https://api.openalex.org");
     expect(environment.GROBID_BASE_URL).toBe("http://localhost:8070");
+
+    const config = createAppConfig(environment, "/workspace");
+    expect(config.anthropicApiKey).toBeUndefined();
   });
 
   it("builds an absolute app config from environment values", () => {

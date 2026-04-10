@@ -142,13 +142,30 @@ export type PromptCachingOptions = {
   byPurpose?: Partial<Record<LLMPurpose, PromptCachePolicy | false>>;
 };
 
-export type GenerateTextParams = {
-  purpose: LLMPurpose;
-  model?: string;
-  prompt: string;
-  thinking?: ThinkingConfig;
-  context?: LLMCallContext;
-};
+export type GenerateTextParams =
+  | {
+      purpose: LLMPurpose;
+      model?: string;
+      prompt: string;
+      promptPrefix?: never;
+      promptSuffix?: never;
+      thinking?: ThinkingConfig;
+      context?: LLMCallContext;
+    }
+  | {
+      purpose: LLMPurpose;
+      model?: string;
+      prompt?: never;
+      /**
+       * Shared prompt prefix that can be cached independently from the
+       * request-specific suffix.
+       */
+      promptPrefix: string;
+      /** Request-specific tail appended after the cached prefix. */
+      promptSuffix: string;
+      thinking?: ThinkingConfig;
+      context?: LLMCallContext;
+    };
 
 export type GenerateTextResult = {
   text: string;
@@ -294,14 +311,6 @@ const DEFAULT_PROMPT_CACHE_POLICIES: Partial<Record<LLMPurpose, PromptCachePolic
     minPromptChars: 2_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
-  adjudication: {
-    minPromptChars: 2_500,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
-  "evidence-rerank": {
-    minPromptChars: 2_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
 };
 
 export function resolvePromptCacheControl(params: {
@@ -328,6 +337,87 @@ export function resolvePromptCacheControl(params: {
   }
 
   return policy.cacheControl;
+}
+
+type CachedPrefixTextPart = {
+  type: "text";
+  text: string;
+  providerOptions?: {
+    anthropic: {
+      cacheControl: PromptCacheControl;
+    };
+  };
+};
+
+function hasPromptPrefix(
+  request: GenerateTextParams,
+): request is Extract<
+  GenerateTextParams,
+  { promptPrefix: string; promptSuffix: string }
+> {
+  return typeof request.promptPrefix === "string";
+}
+
+function buildGenerateTextCallInput(params: {
+  request: GenerateTextParams;
+  promptCaching?: PromptCachingOptions | undefined;
+}):
+  | {
+      prompt: string;
+      messages?: never;
+      cacheControl?: PromptCacheControl | undefined;
+    }
+  | {
+      prompt?: never;
+      messages: [
+        {
+          role: "user";
+          content: [CachedPrefixTextPart, CachedPrefixTextPart];
+        },
+      ];
+      cacheControl?: never;
+    } {
+  const request = params.request;
+  if (hasPromptPrefix(request)) {
+    const cacheControl = resolvePromptCacheControl({
+      purpose: request.purpose,
+      prompt: request.promptPrefix,
+      options: params.promptCaching,
+    });
+    const prefixPart: CachedPrefixTextPart = cacheControl
+      ? {
+          type: "text",
+          text: request.promptPrefix,
+          providerOptions: { anthropic: { cacheControl } },
+        }
+      : {
+          type: "text",
+          text: request.promptPrefix,
+        };
+
+    return {
+      messages: [
+        {
+          role: "user",
+          content: [
+            prefixPart,
+            {
+              type: "text",
+              text: request.promptSuffix,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  const cacheControl = resolvePromptCacheControl({
+    purpose: request.purpose,
+    prompt: request.prompt,
+    options: params.promptCaching,
+  });
+
+  return { prompt: request.prompt, cacheControl };
 }
 
 function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
@@ -563,15 +653,16 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const modelId = params.model ?? defaultModel;
       const startMs = Date.now();
       const context = { ...options.defaultContext, ...params.context };
-      const cacheControl = resolvePromptCacheControl({
-        purpose: params.purpose,
-        prompt: params.prompt,
-        options: options.promptCaching,
+      const promptInput = buildGenerateTextCallInput({
+        request: params,
+        promptCaching: options.promptCaching,
       });
 
       const anthropicProviderOptions = {
         ...(params.thinking ? { thinking: params.thinking } : {}),
-        ...(cacheControl ? { cacheControl } : {}),
+        ...(promptInput.cacheControl
+          ? { cacheControl: promptInput.cacheControl }
+          : {}),
       };
       const providerOptions =
         Object.keys(anthropicProviderOptions).length > 0
@@ -580,7 +671,9 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       try {
         const result = await generateText({
           model: anthropic(modelId),
-          prompt: params.prompt,
+          ...(promptInput.prompt != null
+            ? { prompt: promptInput.prompt }
+            : { messages: promptInput.messages }),
           ...(providerOptions ? { providerOptions } : {}),
         });
 

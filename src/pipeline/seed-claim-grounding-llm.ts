@@ -129,23 +129,19 @@ export function mapLlmParsedResponseToClaimGrounding(params: {
   return { grounding, quoteVerification };
 }
 
-function buildLlmGroundingPrompt(params: {
+function buildLlmGroundingPromptPrefix(params: {
   seedPaper: ResolvedPaper;
-  analystClaim: string;
   manuscript: string;
 }): string {
   return `You are assisting a metascience project that audits citation fidelity.
 
 The analyst has named a **tracked claim** they believe appears in the **seed paper** below. Your job is to decide whether that claim is actually supported in the manuscript, using only the supplied full text.
+The specific tracked claim to judge appears after this shared manuscript context.
 
 ## Seed paper
 
 Title: ${params.seedPaper.title}
 DOI: ${params.seedPaper.doi}
-
-## Analyst tracked claim (hypothesis)
-
-"${params.analystClaim}"
 
 ## Full manuscript text (single document)
 
@@ -171,6 +167,16 @@ Respond with a single JSON object (no markdown fences) with exactly these fields
 }
 
 Quotes must be copy-paste exact substrings of the manuscript text.`;
+}
+
+function buildLlmGroundingPromptSuffix(analystClaim: string): string {
+  return `
+
+## Analyst tracked claim (hypothesis)
+
+"${analystClaim}"
+
+Evaluate only this tracked claim against the manuscript above and return the JSON object.`;
 }
 
 /**
@@ -207,11 +213,12 @@ export async function runLlmFullDocumentClaimGrounding(params: {
     };
   }
 
-  const promptText = buildLlmGroundingPrompt({
+  const promptPrefix = buildLlmGroundingPromptPrefix({
     seedPaper,
-    analystClaim,
     manuscript,
   });
+  const promptSuffix = buildLlmGroundingPromptSuffix(analystClaim);
+  const promptText = `${promptPrefix}${promptSuffix}`;
   const manuscriptSha256 = sha256Utf8(manuscript);
 
   const baseLlmFields = {
@@ -230,7 +237,8 @@ export async function runLlmFullDocumentClaimGrounding(params: {
     const result = await client.generateText({
       purpose: "seed-grounding",
       model: modelId,
-      prompt: promptText,
+      promptPrefix,
+      promptSuffix,
       ...(useThinking
         ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
         : {}),
@@ -259,6 +267,19 @@ export async function runLlmFullDocumentClaimGrounding(params: {
     const inT = result.record.inputTokens;
     const outT = result.record.outputTokens;
 
+    const cacheFields =
+      result.record.cacheReadTokens != null ||
+      result.record.cacheWriteTokens != null
+        ? {
+            ...(result.record.cacheReadTokens != null
+              ? { cacheReadTokens: result.record.cacheReadTokens }
+              : {}),
+            ...(result.record.cacheWriteTokens != null
+              ? { cacheWriteTokens: result.record.cacheWriteTokens }
+              : {}),
+          }
+        : {};
+
     if (!parsedResponse) {
       const grounding = applyCanonicalGroundingBlocksDownstream({
         status: "not_attempted",
@@ -281,6 +302,7 @@ export async function runLlmFullDocumentClaimGrounding(params: {
           latencyMs: result.record.latencyMs,
           finishReason: result.record.finishReason,
           estimatedCostUsd: result.record.estimatedCostUsd,
+          ...cacheFields,
         },
       };
     }
@@ -306,6 +328,7 @@ export async function runLlmFullDocumentClaimGrounding(params: {
         latencyMs: result.record.latencyMs,
         finishReason: result.record.finishReason,
         estimatedCostUsd: result.record.estimatedCostUsd,
+        ...cacheFields,
       },
     };
   } catch (err) {
