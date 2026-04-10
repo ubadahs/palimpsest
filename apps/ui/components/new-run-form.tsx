@@ -10,6 +10,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/utils";
@@ -688,11 +689,7 @@ export function NewRunForm() {
             </details>
           </div>
 
-          {error ? (
-            <p className="rounded-2xl border border-[rgba(154,64,54,0.2)] bg-[rgba(154,64,54,0.06)] px-4 py-3 text-sm text-[var(--danger)]">
-              {error}
-            </p>
-          ) : null}
+          {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
           <div className="flex justify-end">
             <Button disabled={isPending} size="lg" type="submit">

@@ -15,7 +15,7 @@ The UI does not reimplement pipeline logic. It:
 
 ## Routes
 
-- `/` dashboard with environment health and recent runs
+- `/` dashboard with stats ribbon, grouped runs (active / completed / failed), and expandable system health
 - `/runs/new` run creation
 - `/runs/[runId]` run overview, stage rail, live log, and quick artifact access
 - `/runs/[runId]/stages/[stageKey]` deep stage inspection
@@ -25,7 +25,7 @@ The UI does not reimplement pipeline logic. It:
 Route handlers are local-only and back the client polling model:
 
 - `GET /api/health`
-- `GET /api/runs`
+- `GET /api/runs` — returns `{ health, stats, runs }` (`DashboardPollPayload`: aggregate counts, `RunSummary[]` including optional per-run `verdictSummary` for succeeded runs)
 - `POST /api/runs`
 - `GET /api/runs/[runId]`
 - `POST /api/runs/[runId]/start`
