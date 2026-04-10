@@ -47,6 +47,12 @@ export type FamilyGroundingTrace = {
   familyId: string;
   canonicalTrackedClaim: string;
   grounding: ClaimGrounding;
+  /** Present when an LLM grounding call ran; includes Anthropic cache token fields when reported. */
+  llmUsage?: {
+    inputTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -451,7 +457,7 @@ export async function runAttributionDiscovery(
       const traces = await pMap(
         families,
         async (fam) => {
-          const { grounding } = await runLlmFullDocumentClaimGrounding({
+          const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding({
             seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
             seedPaper,
             parsedDocument: seedParsedDocument,
@@ -471,6 +477,24 @@ export async function runAttributionDiscovery(
             familyId: fam.familyId,
             canonicalTrackedClaim: fam.canonicalTrackedClaim,
             grounding,
+            ...(llmCall != null &&
+            (llmCall.inputTokens != null ||
+              typeof llmCall.cacheReadTokens === "number" ||
+              typeof llmCall.cacheWriteTokens === "number")
+              ? {
+                  llmUsage: {
+                    ...(llmCall.inputTokens != null
+                      ? { inputTokens: llmCall.inputTokens }
+                      : {}),
+                    ...(typeof llmCall.cacheReadTokens === "number"
+                      ? { cacheReadTokens: llmCall.cacheReadTokens }
+                      : {}),
+                    ...(typeof llmCall.cacheWriteTokens === "number"
+                      ? { cacheWriteTokens: llmCall.cacheWriteTokens }
+                      : {}),
+                  },
+                }
+              : {}),
           } satisfies FamilyGroundingTrace;
         },
         { concurrency: groundingConcurrency },

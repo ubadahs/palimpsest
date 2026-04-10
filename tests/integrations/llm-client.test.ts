@@ -30,6 +30,24 @@ describe("resolvePromptCacheControl", () => {
     expect(cacheControl).toBeUndefined();
   });
 
+  it("leaves evidence reranking uncached by default", () => {
+    const cacheControl = resolvePromptCacheControl({
+      purpose: "evidence-rerank",
+      prompt: "x".repeat(10_000),
+    });
+
+    expect(cacheControl).toBeUndefined();
+  });
+
+  it("leaves adjudication uncached by default", () => {
+    const cacheControl = resolvePromptCacheControl({
+      purpose: "adjudication",
+      prompt: "x".repeat(10_000),
+    });
+
+    expect(cacheControl).toBeUndefined();
+  });
+
   it("respects custom per-purpose overrides", () => {
     const cacheControl = resolvePromptCacheControl({
       purpose: "claim-discovery",
