@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-04-09
+**Last updated:** 2026-04-11
 
 This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md).
 
@@ -36,8 +36,9 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Artifact schemas + validated loaders | Done | Stage artifacts are schema-validated on load |
 | Artifact manifests | Done | Primary JSON outputs get adjacent manifest files |
 | OpenAlex + Semantic Scholar adapters | Done | `src/integrations/`; separate PDF vs landing-page URLs and conservative metadata fallback |
-| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`, `attributed-claim-extraction`), shared run-level telemetry collector, attempted/successful/failed/billable accounting, provider-error classification for fatal vs retryable failures |
+| Centralized LLM client | Done | `src/integrations/llm-client.ts`; single Anthropic client, per-call purpose tags (`claim-discovery`, `seed-grounding`, `claim-family-filter`, `evidence-rerank`, `adjudication`, `attributed-claim-extraction`), shared run-level telemetry collector, attempted/successful/failed/billable accounting, provider-error classification for fatal vs retryable failures. Opt-in persistent exact-result cache (`llm_result_cache` table) with SHA-256 key over canonical request data; enabled for evidence-rerank, adjudication, seed-grounding, and attributed-claim-extraction; `forceRefresh` bypasses reads and writes; per-purpose `keyVersion` constants auto-invalidate stale entries when prompt templates change |
 | SQLite paper cache (`paper_cache`, `paper_parsed`, …) | Done | Raw full text and parsed-paper cache reuse wired into `extract` and `evidence`; acquisition provenance persisted with cached raw papers |
+| SQLite LLM result cache (`llm_result_cache`) | Done | Persistent exact-result reuse for identical LLM requests across runs; dedicated table separate from paper cache; cache-hit telemetry surfaced in `LLMCallRecord`, `LLMRunLedger`, and `*_run-cost.json` |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
 | UI workspace tests | Done | Vitest in `apps/ui/tests` (run-queries, run-focus-stage, run-supervisor, component smoke); full browser E2E not added |

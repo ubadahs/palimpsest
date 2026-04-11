@@ -394,6 +394,7 @@ export async function runAttributionDiscovery(
           options: {
             ...(options.extractionModel ? { model: options.extractionModel } : {}),
             useThinking: options.extractionThinking ?? false,
+            enableExactCache: true,
           },
         });
       }
