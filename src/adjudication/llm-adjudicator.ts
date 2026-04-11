@@ -6,12 +6,19 @@ import type {
   LLMCallTelemetry,
   RunTelemetry,
 } from "../domain/types.js";
-import type { LLMClient, LLMCallRecord } from "../integrations/llm-client.js";
+import type {
+  ExactCacheConfig,
+  LLMClient,
+  LLMCallRecord,
+} from "../integrations/llm-client.js";
 import { createLLMClient } from "../integrations/llm-client.js";
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { extractCitingWindow } from "../shared/citation-context-window.js";
 import { pMap } from "../shared/p-map.js";
+
+/** Bump when the adjudication prompt template or verdict schema changes. */
+const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-11-v1";
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned
@@ -167,6 +174,8 @@ export type AdjudicatorOptions = {
   llmClient?: LLMClient;
   /** Max concurrent adjudication LLM calls. Default 5. */
   concurrency?: number;
+  /** Enable persistent exact-result caching. */
+  enableExactCache?: boolean;
 };
 
 function toLLMCallTelemetry(record: LLMCallRecord): LLMCallTelemetry {
@@ -195,6 +204,7 @@ async function callLLMWithThinking(
   record: AdjudicationRecord,
   client: LLMClient,
   modelId: string,
+  exactCache?: ExactCacheConfig,
 ): Promise<{
   verdict: z.infer<typeof verdictSchema>;
   telemetry: LLMCallTelemetry;
@@ -219,6 +229,7 @@ Respond with a JSON object (no markdown fencing needed) with exactly these field
     model: modelId,
     prompt: thinkingPrompt,
     thinking: { type: "enabled", budgetTokens: 10000 },
+    ...(exactCache ? { exactCache } : {}),
   });
 
   const parsed = verdictSchema.parse(
@@ -232,6 +243,7 @@ async function callLLMStructured(
   record: AdjudicationRecord,
   client: LLMClient,
   modelId: string,
+  exactCache?: ExactCacheConfig,
 ): Promise<{
   verdict: z.infer<typeof verdictSchema>;
   telemetry: LLMCallTelemetry;
@@ -241,6 +253,7 @@ async function callLLMStructured(
     model: modelId,
     prompt: buildPrompt(record),
     schema: verdictSchema,
+    ...(exactCache ? { exactCache } : {}),
   });
 
   return {
@@ -258,12 +271,15 @@ async function callLLM(
   telemetry: LLMCallTelemetry;
 }> {
   const modelId = options.model ?? "claude-opus-4-6";
+  const exactCache: ExactCacheConfig | undefined = options.enableExactCache
+    ? { keyVersion: ADJUDICATION_CACHE_KEY_VERSION }
+    : undefined;
 
   if (options.useExtendedThinking) {
-    return callLLMWithThinking(record, client, modelId);
+    return callLLMWithThinking(record, client, modelId, exactCache);
   }
 
-  return callLLMStructured(record, client, modelId);
+  return callLLMStructured(record, client, modelId, exactCache);
 }
 
 function buildRunTelemetry(

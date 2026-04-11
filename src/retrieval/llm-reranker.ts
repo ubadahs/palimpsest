@@ -11,9 +11,12 @@
 
 import { z } from "zod";
 
-import type { LLMClient } from "../integrations/llm-client.js";
+import type { ExactCacheConfig, LLMClient } from "../integrations/llm-client.js";
 import type { EvaluationMode, Result } from "../domain/types.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+
+/** Bump when the rerank prompt template or output schema changes. */
+const RERANK_CACHE_KEY_VERSION = "rerank-2026-04-11-v1";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +166,8 @@ export type LLMRerankerOptions = {
   useThinking?: boolean;
   /** Thinking budget in tokens. Default 8000. */
   thinkingBudget?: number;
+  /** Enable persistent exact-result caching. */
+  enableExactCache?: boolean;
 };
 
 function postProcess(
@@ -191,6 +196,9 @@ export async function llmRerankBlocks(
   const modelId = options.model ?? "claude-haiku-4-5";
   const prompt = buildRerankPrompt(request, topN);
   const validIds = new Set(request.candidates.map((c) => c.blockId));
+  const exactCache: ExactCacheConfig | undefined = options.enableExactCache
+    ? { keyVersion: RERANK_CACHE_KEY_VERSION }
+    : undefined;
 
   try {
     if (options.useThinking) {
@@ -203,6 +211,7 @@ export async function llmRerankBlocks(
           type: "enabled",
           budgetTokens: options.thinkingBudget ?? 8000,
         },
+        ...(exactCache ? { exactCache } : {}),
       });
       const parsed = rerankResponseSchema.parse(
         JSON.parse(extractJsonFromModelText(result.text)),
@@ -216,6 +225,7 @@ export async function llmRerankBlocks(
       model: modelId,
       prompt,
       schema: rerankResponseSchema,
+      ...(exactCache ? { exactCache } : {}),
     });
     return { ok: true, data: postProcess(result.object, validIds, topN) };
   } catch (error) {

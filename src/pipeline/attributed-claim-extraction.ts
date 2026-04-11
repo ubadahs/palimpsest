@@ -15,8 +15,15 @@ import type {
   HarvestedSeedMention,
   ResolvedPaper,
 } from "../domain/types.js";
-import type { LLMCallRecord, LLMClient } from "../integrations/llm-client.js";
+import type {
+  ExactCacheConfig,
+  LLMCallRecord,
+  LLMClient,
+} from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+
+/** Bump when the extraction prompt template or response schema changes. */
+const EXTRACTION_CACHE_KEY_VERSION = "extraction-2026-04-11-v1";
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -143,6 +150,8 @@ function parseLlmResponse(
 export type AttributedClaimExtractionOptions = {
   model?: string | undefined;
   useThinking?: boolean | undefined;
+  /** Enable persistent exact-result caching. */
+  enableExactCache?: boolean | undefined;
 };
 
 /**
@@ -169,6 +178,9 @@ export async function extractAttributedClaims(params: {
     citingPaperTitle,
     mentions,
   });
+  const exactCache: ExactCacheConfig | undefined = options?.enableExactCache
+    ? { keyVersion: EXTRACTION_CACHE_KEY_VERSION }
+    : undefined;
 
   let rawText: string;
   let record: LLMCallRecord;
@@ -180,6 +192,7 @@ export async function extractAttributedClaims(params: {
       ...(useThinking
         ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
         : {}),
+      ...(exactCache ? { exactCache } : {}),
     });
     rawText = result.text;
     record = result.record;
