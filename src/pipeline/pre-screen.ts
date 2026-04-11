@@ -52,6 +52,7 @@ export type PreScreenOptions = {
     model?: string;
     useThinking?: boolean;
     llmClient?: LLMClient;
+    enableExactCache?: boolean;
   };
   /** Options for the LLM claim-family filter step. */
   llmFilter?: {
@@ -474,6 +475,9 @@ async function processOneSeed(
       ...(options.llmGrounding.llmClient != null
         ? { llmClient: options.llmGrounding.llmClient }
         : {}),
+      ...(options.llmGrounding.enableExactCache != null
+        ? { enableExactCache: options.llmGrounding.enableExactCache }
+        : {}),
     };
     const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding({
       seed,
@@ -823,6 +827,9 @@ export async function runPreScreen(
         : {}),
       ...(options.llmGrounding?.llmClient != null
         ? { llmClient: options.llmGrounding.llmClient }
+        : {}),
+      ...(options.llmGrounding?.enableExactCache != null
+        ? { enableExactCache: options.llmGrounding.enableExactCache }
         : {}),
     },
     ...(options.llmFilter != null ? { llmFilter: options.llmFilter } : {}),

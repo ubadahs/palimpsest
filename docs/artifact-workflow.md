@@ -52,7 +52,7 @@ The `pipeline` command writes into one chosen output root, but it now mirrors th
 
 Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_m2-extraction-results.json`.
 
-Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, and adjudication. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups.
+Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, and adjudication. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups. It also includes `byPurpose` per-purpose breakdowns (token counts, cost, and `exactCacheHits`) and `totalExactCacheHits` at the top level.
 
 ### UI runs
 
@@ -216,7 +216,7 @@ Pipeline execution can reuse expensive work across equivalent families within th
 - `extract` reuses citation-context extraction for identical citing-paper neighborhoods
 - `classify` reuses packet construction for the same effective neighborhood inputs
 
-Artifacts remain canonical per family even when computation was reused. The cache is run-scoped only; there is no new persistent cross-run execution cache in this storage contract.
+Artifacts remain canonical per family even when computation was reused. The extract/classify cache is run-scoped only. A separate persistent exact-result LLM cache (`llm_result_cache` table) provides cross-run reuse for identical LLM requests — see [caching.md](./caching.md) for details.
 
 ## Benchmark Workflow
 

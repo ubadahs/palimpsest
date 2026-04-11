@@ -13,6 +13,12 @@ import type { z } from "zod";
 
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import type { StageKey } from "../ui-contract/run-types.js";
+import type { DatabaseConnection } from "../storage/database.js";
+import {
+  computeLLMCacheKey,
+  getCachedLLMResult,
+  storeLLMResult,
+} from "../storage/llm-result-cache.js";
 
 // ---------------------------------------------------------------------------
 // Purpose tags — every call site declares why it is calling the LLM.
@@ -66,6 +72,8 @@ export type LLMCallRecord = {
   totalTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** True when the response came from the persistent exact-result cache. */
+  exactCacheHit?: boolean;
   latencyMs: number;
   finishReason: string;
   timestamp: string;
@@ -83,6 +91,7 @@ export type LLMPurposeSummary = {
   successful: number;
   failed: number;
   billable: number;
+  exactCacheHits: number;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -95,6 +104,7 @@ export type LLMRunLedger = {
   totalSuccessfulCalls: number;
   totalFailedCalls: number;
   totalBillableCalls: number;
+  totalExactCacheHits: number;
   totalEstimatedCostUsd: number;
   byPurpose: Partial<Record<LLMPurpose, LLMPurposeSummary>>;
   calls: LLMCallRecord[];
@@ -142,6 +152,14 @@ export type PromptCachingOptions = {
   byPurpose?: Partial<Record<LLMPurpose, PromptCachePolicy | false>>;
 };
 
+/**
+ * Opt-in exact-result cache config.  Call sites declare a `keyVersion` that
+ * must be bumped when the prompt template or output schema changes.
+ */
+export type ExactCacheConfig = {
+  keyVersion: string;
+};
+
 export type GenerateTextParams =
   | {
       purpose: LLMPurpose;
@@ -151,6 +169,8 @@ export type GenerateTextParams =
       promptSuffix?: never;
       thinking?: ThinkingConfig;
       context?: LLMCallContext;
+      /** Opt in to persistent exact-result caching. */
+      exactCache?: ExactCacheConfig;
     }
   | {
       purpose: LLMPurpose;
@@ -165,6 +185,8 @@ export type GenerateTextParams =
       promptSuffix: string;
       thinking?: ThinkingConfig;
       context?: LLMCallContext;
+      /** Opt in to persistent exact-result caching. */
+      exactCache?: ExactCacheConfig;
     };
 
 export type GenerateTextResult = {
@@ -178,6 +200,8 @@ export type GenerateObjectParams<T extends z.ZodType> = {
   prompt: string;
   schema: T;
   context?: LLMCallContext;
+  /** Opt in to persistent exact-result caching. */
+  exactCache?: ExactCacheConfig;
 };
 
 export type GenerateObjectResult<T> = {
@@ -196,6 +220,10 @@ export type CreateLLMClientOptions = {
   collector?: LLMTelemetryCollector;
   defaultContext?: LLMCallContext;
   promptCaching?: PromptCachingOptions;
+  /** SQLite connection for persistent exact-result caching (optional). */
+  database?: DatabaseConnection;
+  /** When true, bypass exact-result cache reads and writes. */
+  forceRefresh?: boolean;
 };
 
 export class LLMProviderError extends Error {
@@ -427,6 +455,7 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
   let totalSuccessful = 0;
   let totalFailed = 0;
   let totalBillable = 0;
+  let totalExactCacheHits = 0;
 
   for (const call of calls) {
     totalCost += call.estimatedCostUsd;
@@ -439,6 +468,9 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
     }
     if (call.billable) {
       totalBillable += 1;
+    }
+    if (call.exactCacheHit) {
+      totalExactCacheHits += 1;
     }
 
     const existing = byPurpose[call.purpose];
@@ -453,6 +485,9 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
       if (call.billable) {
         existing.billable += 1;
       }
+      if (call.exactCacheHit) {
+        existing.exactCacheHits += 1;
+      }
       existing.inputTokens += call.inputTokens;
       existing.outputTokens += call.outputTokens;
       existing.reasoningTokens += call.reasoningTokens ?? 0;
@@ -463,6 +498,7 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
         successful: call.successful ? 1 : 0,
         failed: call.failed ? 1 : 0,
         billable: call.billable ? 1 : 0,
+        exactCacheHits: call.exactCacheHit ? 1 : 0,
         inputTokens: call.inputTokens,
         outputTokens: call.outputTokens,
         reasoningTokens: call.reasoningTokens ?? 0,
@@ -477,6 +513,7 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
     totalSuccessfulCalls: totalSuccessful,
     totalFailedCalls: totalFailed,
     totalBillableCalls: totalBillable,
+    totalExactCacheHits,
     totalEstimatedCostUsd: totalCost,
     byPurpose,
     calls: [...calls],
@@ -524,14 +561,61 @@ function extractCacheCreationFromRawUsage(rawUsage: unknown):
   };
 }
 
+function resolveFullPrompt(params: GenerateTextParams): string {
+  if (typeof params.promptPrefix === "string") {
+    return params.promptPrefix + params.promptSuffix;
+  }
+  return params.prompt;
+}
+
+function thinkingConfigString(thinking?: ThinkingConfig): string {
+  return thinking ? `${thinking.type}:${String(thinking.budgetTokens)}` : "";
+}
+
 export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   const anthropic = createAnthropic({ apiKey: options.apiKey });
   const defaultModel = options.defaultModel ?? "claude-sonnet-4-6";
   const calls: LLMCallRecord[] = [];
+  const db = options.database;
+  const forceRefresh = options.forceRefresh ?? false;
 
   function registerRecord(record: LLMCallRecord): void {
     calls.push(record);
     options.collector?.recordCall(record);
+  }
+
+  function buildCacheHitRecord(
+    purpose: LLMPurpose,
+    modelId: string,
+    context: LLMCallContext,
+    thinking?: ThinkingConfig,
+  ): LLMCallRecord {
+    const record: LLMCallRecord = {
+      purpose,
+      model: modelId,
+      ...(context.stageKey != null ? { stageKey: context.stageKey } : {}),
+      ...(context.familyIndex != null
+        ? { familyIndex: context.familyIndex }
+        : {}),
+      attempted: true,
+      successful: true,
+      failed: false,
+      billable: false,
+      thinkingEnabled: thinking != null,
+      ...(thinking?.budgetTokens != null
+        ? { thinkingBudgetTokens: thinking.budgetTokens }
+        : {}),
+      exactCacheHit: true,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      latencyMs: 0,
+      finishReason: "cached",
+      timestamp: new Date().toISOString(),
+      estimatedCostUsd: 0,
+    };
+    registerRecord(record);
+    return record;
   }
 
   function buildRecord(
@@ -651,8 +735,30 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   return {
     async generateText(params) {
       const modelId = params.model ?? defaultModel;
-      const startMs = Date.now();
       const context = { ...options.defaultContext, ...params.context };
+
+      // --- Exact-result cache lookup ---
+      if (db && params.exactCache && !forceRefresh) {
+        const cacheKey = computeLLMCacheKey({
+          purpose: params.purpose,
+          model: modelId,
+          prompt: resolveFullPrompt(params),
+          thinkingConfig: thinkingConfigString(params.thinking),
+          keyVersion: params.exactCache.keyVersion,
+        });
+        const cached = getCachedLLMResult(db, cacheKey);
+        if (cached) {
+          const record = buildCacheHitRecord(
+            params.purpose,
+            modelId,
+            context,
+            params.thinking,
+          );
+          return { text: cached.responseText, record };
+        }
+      }
+
+      const startMs = Date.now();
       const promptInput = buildGenerateTextCallInput({
         request: params,
         promptCaching: options.promptCaching,
@@ -687,6 +793,24 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           params.thinking,
         );
 
+        // --- Exact-result cache store ---
+        if (db && params.exactCache && !forceRefresh) {
+          storeLLMResult(db, {
+            cacheKey: computeLLMCacheKey({
+              purpose: params.purpose,
+              model: modelId,
+              prompt: resolveFullPrompt(params),
+              thinkingConfig: thinkingConfigString(params.thinking),
+              keyVersion: params.exactCache.keyVersion,
+            }),
+            purpose: params.purpose,
+            model: modelId,
+            keyVersion: params.exactCache.keyVersion,
+            responseText: result.text,
+            createdAt: new Date().toISOString(),
+          });
+        }
+
         return { text: result.text, record };
       } catch (error) {
         buildFailureRecord({
@@ -711,8 +835,30 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       params: GenerateObjectParams<T>,
     ): Promise<GenerateObjectResult<z.infer<T>>> {
       const modelId = params.model ?? defaultModel;
-      const startMs = Date.now();
       const context = { ...options.defaultContext, ...params.context };
+
+      // --- Exact-result cache lookup ---
+      if (db && params.exactCache && !forceRefresh) {
+        const cacheKey = computeLLMCacheKey({
+          purpose: params.purpose,
+          model: modelId,
+          prompt: params.prompt,
+          thinkingConfig: "",
+          keyVersion: params.exactCache.keyVersion,
+        });
+        const cached = getCachedLLMResult(db, cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached.responseText) as z.infer<T>;
+          const record = buildCacheHitRecord(
+            params.purpose,
+            modelId,
+            context,
+          );
+          return { object: parsed, record };
+        }
+      }
+
+      const startMs = Date.now();
       const cacheControl = resolvePromptCacheControl({
         purpose: params.purpose,
         prompt: params.prompt,
@@ -738,6 +884,24 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           Date.now() - startMs,
           result.finishReason,
         );
+
+        // --- Exact-result cache store ---
+        if (db && params.exactCache && !forceRefresh) {
+          storeLLMResult(db, {
+            cacheKey: computeLLMCacheKey({
+              purpose: params.purpose,
+              model: modelId,
+              prompt: params.prompt,
+              thinkingConfig: "",
+              keyVersion: params.exactCache.keyVersion,
+            }),
+            purpose: params.purpose,
+            model: modelId,
+            keyVersion: params.exactCache.keyVersion,
+            responseText: JSON.stringify(result.object),
+            createdAt: new Date().toISOString(),
+          });
+        }
 
         return { object: result.object as z.infer<T>, record };
       } catch (error) {

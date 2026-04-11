@@ -10,9 +10,12 @@ import type {
   SeedPaperInput,
 } from "../domain/types.js";
 import { claimGroundingLlmParsedResponseSchema } from "../domain/pre-screen-grounding-trace.js";
-import type { LLMClient } from "../integrations/llm-client.js";
+import type { ExactCacheConfig, LLMClient } from "../integrations/llm-client.js";
 import { createLLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
+
+/** Bump when the grounding prompt template or response schema changes. */
+const GROUNDING_CACHE_KEY_VERSION = "grounding-2026-04-11-v1";
 
 /** Bump when instructions or JSON shape change (stored in trace artifacts). */
 export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = "2026-04-06-v1";
@@ -39,6 +42,8 @@ export type SeedClaimLlmGroundingOptions = {
   useThinking?: boolean;
   /** Optional pre-existing LLM client for shared ledger tracking. */
   llmClient?: LLMClient;
+  /** Enable persistent exact-result caching. */
+  enableExactCache?: boolean;
 };
 
 export function buildSeedFullTextForLlm(doc: ParsedPaperDocument): string {
@@ -232,6 +237,9 @@ export async function runLlmFullDocumentClaimGrounding(params: {
   const client =
     options.llmClient ??
     createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
+  const exactCache: ExactCacheConfig | undefined = options.enableExactCache
+    ? { keyVersion: GROUNDING_CACHE_KEY_VERSION }
+    : undefined;
 
   try {
     const result = await client.generateText({
@@ -242,6 +250,7 @@ export async function runLlmFullDocumentClaimGrounding(params: {
       ...(useThinking
         ? { thinking: { type: "enabled" as const, budgetTokens: 8000 } }
         : {}),
+      ...(exactCache ? { exactCache } : {}),
     });
     const rawResponseText = result.text;
 

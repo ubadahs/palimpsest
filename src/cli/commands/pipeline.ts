@@ -298,6 +298,7 @@ type RunCostStageSummary = {
   successfulCalls: number;
   failedCalls: number;
   billableCalls: number;
+  exactCacheHits: number;
 };
 
 function summarizeLedgerByStage(ledger: LLMRunLedger): {
@@ -307,7 +308,9 @@ function summarizeLedgerByStage(ledger: LLMRunLedger): {
   totalSuccessfulCalls: number;
   totalFailedCalls: number;
   totalBillableCalls: number;
+  totalExactCacheHits: number;
   byStage: RunCostStageSummary[];
+  byPurpose: LLMRunLedger["byPurpose"];
   generatedAt: string;
 } {
   const stageMap = new Map<string, RunCostStageSummary>();
@@ -324,6 +327,7 @@ function summarizeLedgerByStage(ledger: LLMRunLedger): {
       existing.successfulCalls += call.successful ? 1 : 0;
       existing.failedCalls += call.failed ? 1 : 0;
       existing.billableCalls += call.billable ? 1 : 0;
+      existing.exactCacheHits += call.exactCacheHit ? 1 : 0;
     } else {
       stageMap.set(key, {
         stage,
@@ -334,6 +338,7 @@ function summarizeLedgerByStage(ledger: LLMRunLedger): {
         successfulCalls: call.successful ? 1 : 0,
         failedCalls: call.failed ? 1 : 0,
         billableCalls: call.billable ? 1 : 0,
+        exactCacheHits: call.exactCacheHit ? 1 : 0,
       });
     }
   }
@@ -345,9 +350,11 @@ function summarizeLedgerByStage(ledger: LLMRunLedger): {
     totalSuccessfulCalls: ledger.totalSuccessfulCalls,
     totalFailedCalls: ledger.totalFailedCalls,
     totalBillableCalls: ledger.totalBillableCalls,
+    totalExactCacheHits: ledger.totalExactCacheHits,
     byStage: [...stageMap.values()].sort(
       (a, b) => a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
     ),
+    byPurpose: ledger.byPurpose,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -682,6 +689,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         defaultModel: runConfig.discoverModel,
         collector: telemetryCollector,
         defaultContext: { stageKey: "discover", familyIndex: 0 },
+        database,
+        forceRefresh: runConfig.forceRefresh,
       });
 
       const paperAdapters = buildPaperAdapters({
@@ -719,6 +728,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                     llmClient: discoveryClient,
                     model: runConfig.discoverModel,
                     useThinking: runConfig.discoverThinking,
+                    enableExactCache: true,
                   },
                 },
                 attributionOptions: {
@@ -865,11 +875,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             anthropicApiKey: apiKey,
             model: runConfig.screenGroundingModel,
             useThinking: runConfig.screenGroundingThinking,
+            enableExactCache: true,
             llmClient: createLLMClient({
               apiKey,
               defaultModel: runConfig.screenGroundingModel,
               collector: telemetryCollector,
               defaultContext: { stageKey: "screen", familyIndex: 0 },
+              database,
+              forceRefresh: runConfig.forceRefresh,
             }),
           },
           llmFilter: {
@@ -880,6 +893,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               defaultModel: runConfig.screenFilterModel,
               collector: telemetryCollector,
               defaultContext: { stageKey: "screen", familyIndex: 0 },
+              database,
+              forceRefresh: runConfig.forceRefresh,
             }),
           },
           skipClaimFamilyFilter:
@@ -1245,6 +1260,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                 defaultModel: rerankModelId,
                 collector: telemetryCollector,
                 defaultContext: { stageKey: "evidence", familyIndex: fi },
+                database,
+                forceRefresh: runConfig.forceRefresh,
               })
             : undefined;
 
@@ -1265,6 +1282,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
                       model: rerankModelId,
                       useThinking: true,
                       topN: runConfig.evidenceRerankTopN,
+                      enableExactCache: true,
                     },
                   }
                 : {}),
@@ -1383,6 +1401,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             defaultModel: runConfig.adjudicateModel,
             collector: telemetryCollector,
             defaultContext: { stageKey: "adjudicate", familyIndex: fi },
+            database,
+            forceRefresh: runConfig.forceRefresh,
           });
           const adjudicationResult = await adjudicateCalibrationSet(
             calibrationSet,
@@ -1391,6 +1411,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               model: runConfig.adjudicateModel,
               useExtendedThinking: runConfig.adjudicateThinking,
               llmClient: adjudicationClient,
+              enableExactCache: true,
             },
             (i, total) => {
               if (i % 5 === 0 || i === total) {
