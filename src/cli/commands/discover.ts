@@ -19,7 +19,7 @@ import {
   writeAttributionDiscoveryArtifacts,
   writeDiscoveryArtifacts,
 } from "../stage-artifact-writers.js";
-import { buildPaperAdapters } from "../paper-adapters.js";
+import { buildPaperAdapters, type CitingYearRange } from "../paper-adapters.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +60,7 @@ function parseArgs(argv: string[]): {
   strategy: DiscoveryStrategy;
   probeBudget: number;
   shortlistCap: number;
+  citingYearRange: CitingYearRange | undefined;
 } {
   let input: string | undefined;
   let output = "data/discover";
@@ -70,28 +71,30 @@ function parseArgs(argv: string[]): {
   let strategy: DiscoveryStrategy = "legacy";
   let probeBudget = 20;
   let shortlistCap = 5;
+  let fromYear: number | undefined;
+  let toYear: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    // I/O
     if (arg === "--input" && i + 1 < argv.length) {
       input = argv[i + 1];
       i++;
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
       i++;
-    } else if (arg === "--model" && i + 1 < argv.length) {
+    }
+    // Model / thinking
+    else if (arg === "--model" && i + 1 < argv.length) {
       model = argv[i + 1]!;
       i++;
     } else if (arg === "--thinking") {
       thinking = true;
     } else if (arg === "--no-thinking") {
       thinking = false;
-    } else if (arg === "--no-rank") {
-      rank = false;
-    } else if (arg === "--top" && i + 1 < argv.length) {
-      topN = Math.max(1, parseInt(argv[i + 1]!, 10) || DEFAULT_TOP_N);
-      i++;
-    } else if (arg === "--strategy" && i + 1 < argv.length) {
+    }
+    // Strategy and strategy-specific tuning
+    else if (arg === "--strategy" && i + 1 < argv.length) {
       const val = argv[i + 1]!;
       if (val === "attribution_first" || val === "legacy") {
         strategy = val;
@@ -103,11 +106,24 @@ function parseArgs(argv: string[]): {
         throw new Error("Invalid --strategy");
       }
       i++;
+    } else if (arg === "--no-rank") {
+      rank = false;
+    } else if (arg === "--top" && i + 1 < argv.length) {
+      topN = Math.max(1, parseInt(argv[i + 1]!, 10) || DEFAULT_TOP_N);
+      i++;
     } else if (arg === "--probe-budget" && i + 1 < argv.length) {
       probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
       shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      i++;
+    }
+    // Citing-paper year range filter
+    else if (arg === "--from-year" && i + 1 < argv.length) {
+      fromYear = parseInt(argv[i + 1]!, 10);
+      i++;
+    } else if (arg === "--to-year" && i + 1 < argv.length) {
+      toYear = parseInt(argv[i + 1]!, 10);
       i++;
     }
   }
@@ -117,6 +133,14 @@ function parseArgs(argv: string[]): {
     process.exitCode = 1;
     throw new Error("Missing --input");
   }
+
+  const citingYearRange: CitingYearRange | undefined =
+    fromYear != null || toYear != null
+      ? {
+          ...(fromYear != null ? { fromYear } : {}),
+          ...(toYear != null ? { toYear } : {}),
+        }
+      : undefined;
 
   return {
     input,
@@ -128,6 +152,7 @@ function parseArgs(argv: string[]): {
     strategy,
     probeBudget,
     shortlistCap,
+    citingYearRange,
   };
 }
 
@@ -194,6 +219,9 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
         openAlexEmail: config.openAlexEmail,
         fullTextAdapters,
         cache: { db: database, cachePolicy },
+        ...(args.citingYearRange != null
+          ? { citingYearRange: args.citingYearRange }
+          : {}),
       });
 
       const stageResult = await runDiscoveryStage(

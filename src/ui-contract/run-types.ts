@@ -64,6 +64,10 @@ export const analysisRunConfigObjectSchema = z
     discoverThinking: z.boolean().default(false),
     discoverProbeBudget: z.number().int().positive().default(20),
     discoverShortlistCap: z.number().int().positive().default(5),
+    /** Only fetch citing papers published in or after this year. */
+    discoverFromYear: z.number().int().positive().optional(),
+    /** Only fetch citing papers published in or before this year. */
+    discoverToYear: z.number().int().positive().optional(),
     screenGroundingModel: z.string().min(1).default("claude-sonnet-4-6"),
     screenGroundingThinking: z.boolean().default(true),
     screenFilterModel: z.string().min(1).default("claude-haiku-4-5"),
