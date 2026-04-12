@@ -511,6 +511,33 @@ function AdjudicateInspector({
                   </strong>
                 </span>
               ) : null}
+              {payload.advisor ? (
+                <>
+                  <span>
+                    Advisor:{" "}
+                    <strong className="text-[var(--text)]">
+                      {String(payload.advisor.escalationCount)}
+                    </strong>{" "}
+                    escalated
+                  </span>
+                  {payload.advisor.firstPassTelemetry ? (
+                    <span>
+                      1st pass:{" "}
+                      <strong className="text-[var(--text)]">
+                        ${payload.advisor.firstPassTelemetry.estimatedCostUsd.toFixed(2)}
+                      </strong>
+                    </span>
+                  ) : null}
+                  {payload.advisor.escalationTelemetry ? (
+                    <span>
+                      Escalation:{" "}
+                      <strong className="text-[var(--text)]">
+                        ${payload.advisor.escalationTelemetry.estimatedCostUsd.toFixed(2)}
+                      </strong>
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           </CardContent>
         </Card>

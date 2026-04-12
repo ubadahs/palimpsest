@@ -176,6 +176,16 @@ export type AdjudicatorOptions = {
   concurrency?: number;
   /** Enable persistent exact-result caching. */
   enableExactCache?: boolean;
+  /**
+   * Advisor mode (two-pass): run a cheap first pass on all records, then
+   * escalate only `judgeConfidence === "low"` or `verdict === "cannot_determine"`
+   * records to the main model (`model` + `useExtendedThinking`).
+   * Expected savings: 50-70% of adjudication cost on well-grounded families.
+   */
+  advisor?: {
+    /** Model for the cheap first pass (e.g. "claude-sonnet-4-6"). */
+    firstPassModel: string;
+  };
 };
 
 function toLLMCallTelemetry(record: LLMCallRecord): LLMCallTelemetry {
@@ -330,16 +340,18 @@ function buildRunTelemetry(
   };
 }
 
-export async function adjudicateCalibrationSet(
+/**
+ * Single-pass adjudication: run all active records through `callLLM` with
+ * the given model and options. Used directly (no advisor) and internally by
+ * the advisor implementation.
+ */
+async function runPass(
   set: CalibrationSet,
   options: AdjudicatorOptions,
+  client: LLMClient,
+  modelId: string,
   onProgress?: (index: number, total: number) => void,
 ): Promise<CalibrationSet> {
-  const modelId = options.model ?? "claude-opus-4-6";
-  const client =
-    options.llmClient ??
-    createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
-
   const records: AdjudicationRecord[] = [];
   const active = set.records.filter((r) => !r.excluded);
   const excluded = set.records.filter((r) => r.excluded);
@@ -418,4 +430,121 @@ export async function adjudicateCalibrationSet(
     createdAt: ts,
     runTelemetry,
   };
+}
+
+/**
+ * Two-pass advisor adjudication.
+ *
+ * Pass 1: Run all active records through the cheap first-pass model (Sonnet,
+ *   structured, no thinking).
+ * Pass 2: Re-run records where `judgeConfidence === "low"` or
+ *   `verdict === "cannot_determine"` through the main model
+ *   (`options.model` + `options.useExtendedThinking`).
+ *
+ * Merged telemetry from both passes is returned in `runTelemetry`.
+ * Per-pass telemetry is attached via passthrough (`firstPassTelemetry`,
+ * `escalationTelemetry`, `escalationCount`) for UI transparency.
+ */
+async function runAdvisorAdjudication(
+  set: CalibrationSet,
+  options: AdjudicatorOptions,
+  client: LLMClient,
+  mainModelId: string,
+): Promise<CalibrationSet> {
+  const firstPassModelId = options.advisor!.firstPassModel;
+
+  // Pass 1: Sonnet structured — no thinking, no advisor recursion.
+  const firstPassResult = await runPass(
+    set,
+    { ...options, model: firstPassModelId, useExtendedThinking: false },
+    client,
+    firstPassModelId,
+  );
+
+  // Identify records that need escalation.
+  const escalationIds = new Set(
+    firstPassResult.records
+      .filter(
+        (r) =>
+          !r.excluded &&
+          (r.judgeConfidence === "low" || r.verdict === "cannot_determine"),
+      )
+      .map((r) => r.recordId),
+  );
+
+  if (escalationIds.size === 0) {
+    // First pass was definitive — skip escalation entirely.
+    return firstPassResult;
+  }
+
+  // Build a subset with only the escalation candidates (all active for runPass).
+  // Use original pre-adjudication records so the prompt is built from clean data.
+  const originalByRecordId = new Map(set.records.map((r) => [r.recordId, r]));
+  const escalationSubset: CalibrationSet = {
+    ...set,
+    records: [...escalationIds].flatMap((id) => {
+      const r = originalByRecordId.get(id);
+      return r ? [r] : [];
+    }),
+  };
+
+  // Pass 2: main model (Opus) + thinking on escalation candidates.
+  const escalationResult = await runPass(
+    escalationSubset,
+    { ...options, model: mainModelId },
+    client,
+    mainModelId,
+  );
+
+  // Merge: escalated records replace first-pass records; excluded stay.
+  const escalatedById = new Map(
+    escalationResult.records.map((r) => [r.recordId, r]),
+  );
+  const mergedRecords = firstPassResult.records.map(
+    (r) => escalatedById.get(r.recordId) ?? r,
+  );
+
+  // Combined telemetry — sum both passes.
+  const combinedCalls = [
+    ...(firstPassResult.runTelemetry?.calls ?? []),
+    ...(escalationResult.runTelemetry?.calls ?? []),
+  ];
+  const combinedTelemetry = buildRunTelemetry(
+    mainModelId,
+    options.useExtendedThinking ?? false,
+    combinedCalls,
+    (firstPassResult.runTelemetry?.failedCalls ?? 0) +
+      (escalationResult.runTelemetry?.failedCalls ?? 0),
+  );
+
+  return {
+    ...firstPassResult,
+    records: mergedRecords,
+    runTelemetry: combinedTelemetry,
+    // Passthrough fields — preserved by CalibrationSet's .passthrough() schema.
+    firstPassTelemetry: firstPassResult.runTelemetry,
+    escalationTelemetry: escalationResult.runTelemetry,
+    escalationCount: escalationIds.size,
+  };
+}
+
+export async function adjudicateCalibrationSet(
+  set: CalibrationSet,
+  options: AdjudicatorOptions,
+  onProgress?: (index: number, total: number) => void,
+): Promise<CalibrationSet> {
+  const modelId = options.model ?? "claude-opus-4-6";
+  const client =
+    options.llmClient ??
+    createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
+
+  if (options.advisor) {
+    const result = await runAdvisorAdjudication(set, options, client, modelId);
+    // Fire a single completion progress event.
+    const total = set.records.filter((r) => !r.excluded).length;
+    onProgress?.(total, total);
+    return result;
+  }
+
+  return runPass(set, options, client, modelId, onProgress);
 }

@@ -31,6 +31,7 @@ import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
 import {
   runPreScreen,
+  runPreScreenFromHandoff,
   type PreScreenAdapters,
 } from "../../pipeline/pre-screen.js";
 import {
@@ -38,6 +39,7 @@ import {
   type DiscoverySeedEntry,
   type DiscoveryStrategy,
 } from "../../pipeline/discovery-stage.js";
+import type { DiscoveryHandoffMap } from "../../domain/types.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
 import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
@@ -103,6 +105,8 @@ function parseArgs(argv: string[]): {
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
   familyConcurrency: number | undefined;
+  adjudicateAdvisor: boolean;
+  adjudicateFirstPassModel: string | undefined;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -121,6 +125,8 @@ function parseArgs(argv: string[]): {
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
   let familyConcurrency: number | undefined;
+  let adjudicateAdvisor = false;
+  let adjudicateFirstPassModel: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -185,6 +191,16 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
       familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
       i++;
+    } else if (arg === "--advisor") {
+      adjudicateAdvisor = true;
+    } else if (arg === "--no-advisor") {
+      adjudicateAdvisor = false;
+    } else if (
+      arg === "--advisor-first-pass-model" &&
+      i + 1 < argv.length
+    ) {
+      adjudicateFirstPassModel = argv[i + 1]!;
+      i++;
     }
   }
 
@@ -214,6 +230,8 @@ function parseArgs(argv: string[]): {
     rerankModel,
     rerankTopN,
     familyConcurrency,
+    adjudicateAdvisor,
+    adjudicateFirstPassModel,
   };
 }
 
@@ -539,6 +557,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         ...(args.familyConcurrency != null
           ? { familyConcurrency: args.familyConcurrency }
           : {}),
+        adjudicateAdvisor: args.adjudicateAdvisor,
+        ...(args.adjudicateFirstPassModel != null
+          ? { adjudicateFirstPassModel: args.adjudicateFirstPassModel }
+          : {}),
       });
 
   try {
@@ -643,6 +665,9 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     let seeds: DiscoverySeedEntry[];
     let screenInputArtifactPath: string | undefined;
+    // Rich in-memory handoff from attribution-first discovery.
+    // Undefined on resume (discover already succeeded) — screen falls back to full path.
+    let discoveryHandoffs: DiscoveryHandoffMap | undefined;
 
     if (succeededArtifact("discover")) {
       // Resume: shortlist was written by prior discover run
@@ -770,6 +795,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoverReporter.onProgress,
       );
       seeds = discoveryStage.seeds;
+      // Capture the rich handoff for use by thin screen and mention-reuse in extract.
+      discoveryHandoffs = discoveryStage.handoffs;
 
       let shortlistPath: string;
       let discoverPrimaryPath: string;
@@ -834,74 +861,95 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       const screenReporter = createStageReporter("screen", outputDir);
       screenReporter.log(`Pre-screening ${String(seeds.length)} seed(s)...`);
       trackStageStart("screen", 0, screenReporter.logPath);
-      const preScreenAdapters: PreScreenAdapters = {
-        resolveByDoi: (doi) =>
-          resolvePaperByDoi(doi, {
-            openAlexBaseUrl: config.providerBaseUrls.openAlex,
-            semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-            openAlexEmail: config.openAlexEmail,
-            semanticScholarApiKey: config.semanticScholarApiKey,
-          }),
-        getCitingPapers: (openAlexId) =>
-          openalex.getCitingWorks(
-            openAlexId,
-            config.providerBaseUrls.openAlex,
-            50,
-            config.openAlexEmail,
-          ),
-        findPublishedVersion: (title, excludeId) =>
-          openalex.findPublishedVersion(
-            title,
-            excludeId,
-            config.providerBaseUrls.openAlex,
-            config.openAlexEmail,
-          ),
-        seedClaimGrounding: {
-          materializeSeedPaper: (paper) =>
-            materializeParsedPaper(
-              paper,
-              config.providerBaseUrls.bioRxiv,
-              fullTextAdapters,
-              { db: database, cachePolicy },
-            ),
-        },
-      };
 
-      const { families: screenedFamilies, groundingTrace } = await runPreScreen(
-        seeds,
-        preScreenAdapters,
-        {
-          llmGrounding: {
-            anthropicApiKey: apiKey,
-            model: runConfig.screenGroundingModel,
-            useThinking: runConfig.screenGroundingThinking,
-            enableExactCache: true,
-            llmClient: createLLMClient({
-              apiKey,
-              defaultModel: runConfig.screenGroundingModel,
-              collector: telemetryCollector,
-              defaultContext: { stageKey: "screen", familyIndex: 0 },
-              database,
-              forceRefresh: runConfig.forceRefresh,
+      let screenedFamilies: Awaited<ReturnType<typeof runPreScreen>>["families"];
+      let groundingTrace: Awaited<ReturnType<typeof runPreScreen>>["groundingTrace"];
+
+      if (
+        runConfig.discoverStrategy === "attribution_first" &&
+        discoveryHandoffs &&
+        discoveryHandoffs.size > 0
+      ) {
+        // Attribution-first with fresh-run handoff: skip re-resolution, re-fetch,
+        // and re-grounding. Only auditability + decision logic runs.
+        screenReporter.log("Using discovery handoff (thin screen path).");
+        ({ families: screenedFamilies, groundingTrace } = await runPreScreenFromHandoff(
+          seeds,
+          discoveryHandoffs,
+          {},
+          screenReporter.onProgress,
+        ));
+      } else {
+        // Legacy strategy or resume (no handoff available): full screen path.
+        const preScreenAdapters: PreScreenAdapters = {
+          resolveByDoi: (doi) =>
+            resolvePaperByDoi(doi, {
+              openAlexBaseUrl: config.providerBaseUrls.openAlex,
+              semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
+              openAlexEmail: config.openAlexEmail,
+              semanticScholarApiKey: config.semanticScholarApiKey,
             }),
+          getCitingPapers: (openAlexId) =>
+            openalex.getCitingWorks(
+              openAlexId,
+              config.providerBaseUrls.openAlex,
+              50,
+              config.openAlexEmail,
+            ),
+          findPublishedVersion: (title, excludeId) =>
+            openalex.findPublishedVersion(
+              title,
+              excludeId,
+              config.providerBaseUrls.openAlex,
+              config.openAlexEmail,
+            ),
+          seedClaimGrounding: {
+            materializeSeedPaper: (paper) =>
+              materializeParsedPaper(
+                paper,
+                config.providerBaseUrls.bioRxiv,
+                fullTextAdapters,
+                { db: database, cachePolicy },
+              ),
           },
-          llmFilter: {
-            model: runConfig.screenFilterModel,
-            concurrency: runConfig.screenFilterConcurrency,
-            llmClient: createLLMClient({
-              apiKey,
-              defaultModel: runConfig.screenFilterModel,
-              collector: telemetryCollector,
-              defaultContext: { stageKey: "screen", familyIndex: 0 },
-              database,
-              forceRefresh: runConfig.forceRefresh,
-            }),
+        };
+
+        ({ families: screenedFamilies, groundingTrace } = await runPreScreen(
+          seeds,
+          preScreenAdapters,
+          {
+            llmGrounding: {
+              anthropicApiKey: apiKey,
+              model: runConfig.screenGroundingModel,
+              useThinking: runConfig.screenGroundingThinking,
+              enableExactCache: true,
+              llmClient: createLLMClient({
+                apiKey,
+                defaultModel: runConfig.screenGroundingModel,
+                collector: telemetryCollector,
+                defaultContext: { stageKey: "screen", familyIndex: 0 },
+                database,
+                forceRefresh: runConfig.forceRefresh,
+              }),
+            },
+            llmFilter: {
+              model: runConfig.screenFilterModel,
+              concurrency: runConfig.screenFilterConcurrency,
+              llmClient: createLLMClient({
+                apiKey,
+                defaultModel: runConfig.screenFilterModel,
+                collector: telemetryCollector,
+                defaultContext: { stageKey: "screen", familyIndex: 0 },
+                database,
+                forceRefresh: runConfig.forceRefresh,
+              }),
+            },
+            skipClaimFamilyFilter:
+              runConfig.discoverStrategy === "attribution_first",
           },
-          skipClaimFamilyFilter:
-            runConfig.discoverStrategy === "attribution_first",
-        },
-        screenReporter.onProgress,
-      );
+          screenReporter.onProgress,
+        ));
+      }
 
       const screenArtifacts = writeScreenArtifacts({
         outputRoot: outputDir,
@@ -1067,6 +1115,16 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           trackStageStart("extract", fi, extractReporter.logPath);
           const extractionCacheKey = buildExtractionCacheKey(family);
           const cachedExtraction = extractionCache.get(extractionCacheKey);
+
+          // For attribution-first runs, extend adapters with pre-harvested mentions
+          // so probed papers skip the full-text fetch. Non-probed papers fall back.
+          const preHarvestedMentions = discoveryHandoffs?.get(
+            family.seed.doi,
+          )?.mentionsByPaperId;
+          const familyExtractionAdapters = preHarvestedMentions
+            ? { ...extractionAdapters, preHarvestedMentions }
+            : extractionAdapters;
+
           const extraction = cachedExtraction
             ? {
                 seed: family.seed,
@@ -1082,7 +1140,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               }
             : await runM2Extraction(
                 family,
-                extractionAdapters,
+                familyExtractionAdapters,
                 extractReporter.onProgress,
               );
 
@@ -1412,6 +1470,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               useExtendedThinking: runConfig.adjudicateThinking,
               llmClient: adjudicationClient,
               enableExactCache: true,
+              ...(runConfig.adjudicateAdvisor
+                ? {
+                    advisor: {
+                      firstPassModel: runConfig.adjudicateFirstPassModel,
+                    },
+                  }
+                : {}),
             },
             (i, total) => {
               if (i % 5 === 0 || i === total) {

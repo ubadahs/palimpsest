@@ -10,6 +10,7 @@ import {
 } from "../domain/types.js";
 import {
   extractEdgeContext,
+  extractEdgeContextFromMentions,
   type ExtractionAdapters,
 } from "../retrieval/citation-context.js";
 
@@ -188,12 +189,13 @@ export async function runM2Extraction(
       `  [${String(attemptCount)}] ${citingPaper.title.substring(0, 70)}...`,
     );
 
-    const result = await extractEdgeContext(
-      edge,
-      citingPaper,
-      seedPaper,
-      adapters,
+    const preHarvested = adapters.preHarvestedMentions?.get(
+      edge.citingPaperId,
     );
+    const result =
+      preHarvested !== undefined
+        ? extractEdgeContextFromMentions(edge, citingPaper, preHarvested)
+        : await extractEdgeContext(edge, citingPaper, seedPaper, adapters);
     edgeResults.push(result);
   }
 

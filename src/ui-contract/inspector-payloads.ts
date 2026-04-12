@@ -263,9 +263,27 @@ export function buildAdjudicateInspectorPayload(data: CalibrationSet) {
     (record) => record.verdict === "partially_supported",
   );
 
+  // Advisor passthrough fields are present at runtime when adjudicateAdvisor
+  // was enabled. They survive serialization via CalibrationSet's .passthrough().
+  const raw = data as Record<string, unknown>;
+  const advisorInfo =
+    typeof raw["escalationCount"] === "number"
+      ? {
+          escalationCount: raw["escalationCount"],
+          firstPassTelemetry: raw["firstPassTelemetry"] as
+            | CalibrationSet["runTelemetry"]
+            | undefined,
+          escalationTelemetry: raw["escalationTelemetry"] as
+            | CalibrationSet["runTelemetry"]
+            | undefined,
+        }
+      : undefined;
+
   return {
     seed: data.seed,
     runTelemetry: data.runTelemetry,
+    /** Present when adjudication used the two-pass advisor strategy. */
+    advisor: advisorInfo,
     defaultVerdictFilter: "partially_supported" as const,
     verdictCounts: {
       supported: data.records.filter((record) => record.verdict === "supported")

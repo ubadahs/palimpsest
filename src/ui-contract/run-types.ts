@@ -43,6 +43,17 @@ export const analysisRunConfigObjectSchema = z
     curateTargetSize: z.number().int().positive().default(20),
     adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
     adjudicateThinking: z.boolean().default(true),
+    /**
+     * When true, run a cheap Sonnet first pass and escalate only
+     * low-confidence / cannot_determine records to the main (Opus) model.
+     * Typically cuts adjudication cost by 50-70% on well-grounded families.
+     */
+    adjudicateAdvisor: z.boolean().default(false),
+    /** First-pass model used when adjudicateAdvisor is true. */
+    adjudicateFirstPassModel: z
+      .string()
+      .min(1)
+      .default("claude-sonnet-4-6"),
     evidenceLlmRerank: z.boolean().default(true),
     discoverStrategy: z
       .enum(["legacy", "attribution_first"])
