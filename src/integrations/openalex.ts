@@ -381,9 +381,17 @@ export async function getCitingWorks(
   baseUrl: string,
   limit = 50,
   email?: string,
+  yearRange?: { fromYear?: number; toYear?: number },
 ): Promise<Result<ResolvedPaper[]>> {
+  let filter = `cites:${openAlexId}`;
+  if (yearRange?.fromYear != null) {
+    filter += `,publication_year:>=${String(yearRange.fromYear)}`;
+  }
+  if (yearRange?.toYear != null) {
+    filter += `,publication_year:<=${String(yearRange.toYear)}`;
+  }
   const url = appendEmail(
-    `${baseUrl}/works?filter=cites:${openAlexId}&per_page=${String(limit)}`,
+    `${baseUrl}/works?filter=${filter}&per_page=${String(limit)}`,
     email,
   );
   const result = await fetchJson(url, openAlexWorksListSchema);

@@ -19,6 +19,8 @@ import { materializeParsedPaper } from "../retrieval/parsed-paper.js";
 import type { FullTextFetchAdapters } from "../retrieval/fulltext-fetch.js";
 import * as openalex from "../integrations/openalex.js";
 
+export type CitingYearRange = { fromYear?: number; toYear?: number };
+
 export type PaperAdapterConfig = {
   resolverConfig: ResolvePaperByDoiConfig;
   biorxivBaseUrl: string;
@@ -26,6 +28,7 @@ export type PaperAdapterConfig = {
   openAlexEmail: string | undefined;
   fullTextAdapters: FullTextFetchAdapters;
   cache?: ParsedPaperCacheOptions;
+  citingYearRange?: CitingYearRange;
 };
 
 export type PaperAdapters = {
@@ -52,6 +55,7 @@ export function buildPaperAdapters(config: PaperAdapterConfig): PaperAdapters {
         config.openAlexBaseUrl,
         200,
         config.openAlexEmail,
+        config.citingYearRange,
       ),
   };
 }

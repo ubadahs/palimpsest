@@ -26,7 +26,7 @@ import {
   type LLMRunLedger,
 } from "../../integrations/llm-client.js";
 import * as openalex from "../../integrations/openalex.js";
-import { buildPaperAdapters } from "../paper-adapters.js";
+import { buildPaperAdapters, type CitingYearRange } from "../paper-adapters.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
 import {
@@ -88,25 +88,33 @@ import { pMap } from "../../shared/p-map.js";
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv: string[]): {
+  // I/O & run identity
   input: string | undefined;
   shortlist: string | undefined;
   runId: string | undefined;
-  topN: number;
-  noRank: boolean;
-  targetSize: number;
+  // Discovery
   strategy: DiscoveryStrategy;
   discoverThinking: boolean;
+  topN: number;
+  noRank: boolean;
   probeBudget: number;
   shortlistCap: number;
+  citingYearRange: CitingYearRange | undefined;
+  // Screen
   screenGroundingModel: string | undefined;
   screenGroundingThinking: boolean;
   screenFilterModel: string | undefined;
   screenFilterConcurrency: number | undefined;
+  // Evidence
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
-  familyConcurrency: number | undefined;
+  // Curate
+  targetSize: number;
+  // Adjudicate
   adjudicateAdvisor: boolean;
   adjudicateFirstPassModel: string | undefined;
+  // Run settings
+  familyConcurrency: number | undefined;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
@@ -118,6 +126,8 @@ function parseArgs(argv: string[]): {
   let discoverThinking = false;
   let probeBudget = 20;
   let shortlistCap = 5;
+  let fromYear: number | undefined;
+  let toYear: number | undefined;
   let screenGroundingModel: string | undefined;
   let screenGroundingThinking = true;
   let screenFilterModel: string | undefined;
@@ -130,6 +140,8 @@ function parseArgs(argv: string[]): {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+
+    // I/O & run identity
     if (arg === "--run-id" && i + 1 < argv.length) {
       runId = argv[i + 1];
       i++;
@@ -139,15 +151,9 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--shortlist" && i + 1 < argv.length) {
       shortlist = argv[i + 1];
       i++;
-    } else if (arg === "--top" && i + 1 < argv.length) {
-      topN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
-      i++;
-    } else if (arg === "--no-rank") {
-      noRank = true;
-    } else if (arg === "--target-size" && i + 1 < argv.length) {
-      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
-      i++;
-    } else if (arg === "--strategy" && i + 1 < argv.length) {
+    }
+    // Discovery
+    else if (arg === "--strategy" && i + 1 < argv.length) {
       const val = argv[i + 1]!;
       if (val === "attribution_first" || val === "legacy") {
         strategy = val;
@@ -163,13 +169,26 @@ function parseArgs(argv: string[]): {
       discoverThinking = true;
     } else if (arg === "--no-discover-thinking") {
       discoverThinking = false;
+    } else if (arg === "--top" && i + 1 < argv.length) {
+      topN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      i++;
+    } else if (arg === "--no-rank") {
+      noRank = true;
     } else if (arg === "--probe-budget" && i + 1 < argv.length) {
       probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
       shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
-    } else if (arg === "--screen-grounding-model" && i + 1 < argv.length) {
+    } else if (arg === "--from-year" && i + 1 < argv.length) {
+      fromYear = parseInt(argv[i + 1]!, 10);
+      i++;
+    } else if (arg === "--to-year" && i + 1 < argv.length) {
+      toYear = parseInt(argv[i + 1]!, 10);
+      i++;
+    }
+    // Screen
+    else if (arg === "--screen-grounding-model" && i + 1 < argv.length) {
       screenGroundingModel = argv[i + 1]!;
       i++;
     } else if (arg === "--screen-grounding-thinking") {
@@ -182,16 +201,22 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--screen-filter-concurrency" && i + 1 < argv.length) {
       screenFilterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
       i++;
-    } else if (arg === "--rerank-model" && i + 1 < argv.length) {
+    }
+    // Evidence
+    else if (arg === "--rerank-model" && i + 1 < argv.length) {
       rerankModel = argv[i + 1]!;
       i++;
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
       rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
       i++;
-    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
-      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
+    }
+    // Curate
+    else if (arg === "--target-size" && i + 1 < argv.length) {
+      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
       i++;
-    } else if (arg === "--advisor") {
+    }
+    // Adjudicate
+    else if (arg === "--advisor") {
       adjudicateAdvisor = true;
     } else if (arg === "--no-advisor") {
       adjudicateAdvisor = false;
@@ -200,6 +225,11 @@ function parseArgs(argv: string[]): {
       i + 1 < argv.length
     ) {
       adjudicateFirstPassModel = argv[i + 1]!;
+      i++;
+    }
+    // Run settings
+    else if (arg === "--family-concurrency" && i + 1 < argv.length) {
+      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
       i++;
     }
   }
@@ -212,26 +242,35 @@ function parseArgs(argv: string[]): {
     throw new Error("Missing --input, --shortlist, or --run-id");
   }
 
+  const citingYearRange: CitingYearRange | undefined =
+    fromYear != null || toYear != null
+      ? {
+          ...(fromYear != null ? { fromYear } : {}),
+          ...(toYear != null ? { toYear } : {}),
+        }
+      : undefined;
+
   return {
     input,
     shortlist,
     runId,
-    topN,
-    noRank,
-    targetSize,
     strategy,
     discoverThinking,
+    topN,
+    noRank,
     probeBudget,
     shortlistCap,
+    citingYearRange,
     screenGroundingModel,
     screenGroundingThinking,
     screenFilterModel,
     screenFilterConcurrency,
     rerankModel,
     rerankTopN,
-    familyConcurrency,
+    targetSize,
     adjudicateAdvisor,
     adjudicateFirstPassModel,
+    familyConcurrency,
   };
 }
 
@@ -531,13 +570,20 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   const runConfig = existingRun
     ? existingRun.config
     : analysisRunConfigSchema.parse({
+        // Discovery
         discoverStrategy: args.strategy,
         discoverTopN: args.topN,
         discoverRank: !args.noRank,
         discoverThinking: args.discoverThinking,
         discoverProbeBudget: args.probeBudget,
         discoverShortlistCap: args.shortlistCap,
-        curateTargetSize: args.targetSize,
+        ...(args.citingYearRange?.fromYear != null
+          ? { discoverFromYear: args.citingYearRange.fromYear }
+          : {}),
+        ...(args.citingYearRange?.toYear != null
+          ? { discoverToYear: args.citingYearRange.toYear }
+          : {}),
+        // Screen
         ...(args.screenGroundingModel != null
           ? { screenGroundingModel: args.screenGroundingModel }
           : {}),
@@ -548,20 +594,37 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         ...(args.screenFilterConcurrency != null
           ? { screenFilterConcurrency: args.screenFilterConcurrency }
           : {}),
+        // Evidence
         ...(args.rerankModel != null
           ? { evidenceRerankModel: args.rerankModel }
           : {}),
         ...(args.rerankTopN != null
           ? { evidenceRerankTopN: args.rerankTopN }
           : {}),
-        ...(args.familyConcurrency != null
-          ? { familyConcurrency: args.familyConcurrency }
-          : {}),
+        // Curate
+        curateTargetSize: args.targetSize,
+        // Adjudicate
         adjudicateAdvisor: args.adjudicateAdvisor,
         ...(args.adjudicateFirstPassModel != null
           ? { adjudicateFirstPassModel: args.adjudicateFirstPassModel }
           : {}),
+        // Run settings
+        ...(args.familyConcurrency != null
+          ? { familyConcurrency: args.familyConcurrency }
+          : {}),
       });
+
+  const citingYearRange: CitingYearRange | undefined =
+    runConfig.discoverFromYear != null || runConfig.discoverToYear != null
+      ? {
+          ...(runConfig.discoverFromYear != null
+            ? { fromYear: runConfig.discoverFromYear }
+            : {}),
+          ...(runConfig.discoverToYear != null
+            ? { toYear: runConfig.discoverToYear }
+            : {}),
+        }
+      : undefined;
 
   try {
     const cachePolicy: CachePolicy = runConfig.forceRefresh
@@ -730,6 +793,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         openAlexEmail: config.openAlexEmail,
         fullTextAdapters,
         cache: { db: database, cachePolicy },
+        ...(citingYearRange != null ? { citingYearRange } : {}),
       });
 
       const discoveryStage = await runDiscoveryStage(
@@ -895,6 +959,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               config.providerBaseUrls.openAlex,
               50,
               config.openAlexEmail,
+              citingYearRange,
             ),
           findPublishedVersion: (title, excludeId) =>
             openalex.findPublishedVersion(
