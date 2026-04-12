@@ -1,6 +1,19 @@
 # Caching
 
-There are two independent caching layers. They serve different purposes and work together.
+There are three independent caching layers. They serve different purposes and work together.
+
+## 0. In-memory discovery handoff (within-run, attribution-first only)
+
+When `attribution_first` is the discovery strategy, `runDiscoveryStage` passes a `DiscoveryHandoffMap` in memory to downstream stages in the same pipeline run. This eliminates the most expensive redundant work:
+
+| Stage | What is skipped |
+|-------|----------------|
+| `screen` | DOI resolution, OpenAlex citing-paper fetch, full-text fetch + LLM claim grounding |
+| `extract` | Full-text fetch + parse for papers that were probed during discovery |
+
+The handoff is never serialized. On resume (`--run-id`) it is `undefined` and downstream stages fall back to their full adapter-based paths automatically.
+
+**Implementation**: `src/domain/discovery-handoff.ts` defines `DiscoveryHandoff` / `DiscoveryHandoffMap`; `src/pipeline/pre-screen.ts` exposes `runPreScreenFromHandoff`; `src/retrieval/citation-context.ts` exposes `extractEdgeContextFromMentions`; both are wired in `src/cli/commands/pipeline.ts`.
 
 ## 1. Anthropic prompt caching (provider-level)
 

@@ -121,6 +121,13 @@ export type AttributionDiscoveryResult = {
   seedParsedDocument: ParsedPaperDocument | undefined;
   neighborhood: SeedNeighborhoodSnapshot;
   probeSelection: DiscoveryProbeSelection;
+  /**
+   * Full citing-paper list fetched from OpenAlex (up to the discovery fetch
+   * limit). Present on successful runs; empty array when the neighborhood fetch
+   * failed or returned no results. Used by the rich handoff to pass the
+   * neighborhood to screen without a second OpenAlex call.
+   */
+  citingPapers: ResolvedPaper[];
   mentions: HarvestedSeedMention[];
   harvestSummaries: PaperHarvestSummary[];
   extractionRecords: AttributedClaimExtractionRecord[];
@@ -279,12 +286,14 @@ export async function runAttributionDiscovery(
     paper?: ResolvedPaper,
     neighborhood?: SeedNeighborhoodSnapshot,
     probe?: DiscoveryProbeSelection,
+    citing: ResolvedPaper[] = [],
   ): AttributionDiscoveryResult => ({
     doi,
     resolvedPaper: paper,
     seedParsedDocument: undefined,
     neighborhood: neighborhood ?? emptyNeighborhood,
     probeSelection: probe ?? emptyProbe,
+    citingPapers: citing,
     mentions: [],
     harvestSummaries: [],
     extractionRecords: [],
@@ -337,7 +346,7 @@ export async function runAttributionDiscovery(
     warnings.push(reason);
     emit(onEvent, "gather_neighborhood", "completed", reason);
     const nh = buildNeighborhood(doi, seedPaper.id, []);
-    return empty(seedPaper, nh);
+    return empty(seedPaper, nh, undefined, []);
   }
   const citingPapers = citingResult.data;
   const neighborhood = buildNeighborhood(doi, seedPaper.id, citingPapers);
@@ -579,6 +588,7 @@ export async function runAttributionDiscovery(
     seedParsedDocument,
     neighborhood,
     probeSelection,
+    citingPapers,
     mentions: allMentions,
     harvestSummaries: allSummaries,
     extractionRecords: allRecords,

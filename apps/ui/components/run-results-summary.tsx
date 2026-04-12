@@ -164,7 +164,7 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--danger)]">
-                        {VERDICT_LABELS[record.verdict ?? ""] ??
+                        {(record.verdict && VERDICT_LABELS[record.verdict]) ??
                           (record.verdict ?? "")}
                       </p>
                       <RichText

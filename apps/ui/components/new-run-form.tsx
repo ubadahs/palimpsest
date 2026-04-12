@@ -39,6 +39,8 @@ type FormState = {
   curateTargetSize: number;
   adjudicateModel: string;
   adjudicateThinking: boolean;
+  adjudicateAdvisor: boolean;
+  adjudicateFirstPassModel: string;
   familyConcurrency: number;
 };
 
@@ -70,6 +72,8 @@ export function NewRunForm() {
     curateTargetSize: 20,
     adjudicateModel: "claude-opus-4-6",
     adjudicateThinking: true,
+    adjudicateAdvisor: false,
+    adjudicateFirstPassModel: "claude-sonnet-4-6",
     familyConcurrency: 3,
   });
 
@@ -123,6 +127,8 @@ export function NewRunForm() {
               curateTargetSize: state.curateTargetSize,
               adjudicateModel: state.adjudicateModel,
               adjudicateThinking: state.adjudicateThinking,
+              adjudicateAdvisor: state.adjudicateAdvisor,
+              adjudicateFirstPassModel: state.adjudicateFirstPassModel,
               familyConcurrency: state.familyConcurrency,
             },
           }),
@@ -614,6 +620,42 @@ export function NewRunForm() {
                     </span>
                   </label>
                 </div>
+                <div className="grid gap-1 self-end pb-1">
+                  <label className="grid cursor-pointer gap-1">
+                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
+                      <input
+                        checked={state.adjudicateAdvisor}
+                        className="size-4 accent-[var(--accent)]"
+                        type="checkbox"
+                        onChange={(event) =>
+                          update("adjudicateAdvisor", event.target.checked)
+                        }
+                      />
+                      Advisor mode
+                    </span>
+                    <span className="pl-7 text-xs text-[var(--text-muted)]">
+                      Cheap first pass with Sonnet, escalate only low-confidence
+                      records to the main model. Typically saves 50-70% cost.
+                    </span>
+                  </label>
+                </div>
+                {state.adjudicateAdvisor ? (
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-[var(--text)]">
+                      First-pass model
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Cheap model for the initial screening pass.
+                    </span>
+                    <Input
+                      autoComplete="off"
+                      value={state.adjudicateFirstPassModel}
+                      onChange={(event) =>
+                        update("adjudicateFirstPassModel", event.target.value)
+                      }
+                    />
+                  </label>
+                ) : null}
               </div>
             </details>
 

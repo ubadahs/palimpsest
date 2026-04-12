@@ -1,7 +1,10 @@
 import type {
   ClaimDiscoveryResult,
   ClaimRankingResult,
+  DiscoveryHandoff,
+  DiscoveryHandoffMap,
   FullTextAcquisition,
+  HarvestedSeedMention,
   ParsedPaperDocument,
   ResolvedPaper,
   Result,
@@ -13,12 +16,15 @@ import {
   type AttributionDiscoveryAdapters,
   type AttributionDiscoveryOptions,
   type AttributionDiscoveryResult,
+  type FamilyGroundingTrace,
 } from "./discovery-family-probe.js";
 
 export type DiscoverySeedEntry = {
   doi: string;
   trackedClaim: string;
   notes?: string | undefined;
+  /** Stable family identifier from attribution-first discovery. Used by the thin screen path. */
+  familyId?: string | undefined;
 };
 
 export type DiscoveryStrategy = "legacy" | "attribution_first";
@@ -78,6 +84,15 @@ export type DiscoveryStageResult = {
   seeds: DiscoverySeedEntry[];
   /** Present when strategy is "attribution_first". */
   attributionDiscovery?: AttributionDiscoveryResult[];
+  /**
+   * Rich in-memory handoff for attribution-first runs.
+   * Keyed by seed DOI. Contains resolved paper, seed full text, citing-paper
+   * list, pre-harvested mentions, and per-family grounding traces.
+   * Downstream stages (screen, extract) use this to avoid redundant I/O and
+   * LLM calls. Undefined on legacy runs and on pipeline resume (when discover
+   * already succeeded in a prior run and its handoff was not serialized).
+   */
+  handoffs?: DiscoveryHandoffMap;
 };
 
 function emit(
@@ -400,13 +415,56 @@ async function runAttributionFirstPath(
         doi: entry.doi,
         trackedClaim: entry.trackedClaim,
         notes: entry.notes,
+        familyId: entry.familyId,
       });
     }
   }
+
+  const handoffs = buildHandoffs(allAttributionResults);
 
   return {
     results: [],
     seeds: allSeeds,
     attributionDiscovery: allAttributionResults,
+    handoffs,
   };
+}
+
+function buildHandoffs(
+  results: AttributionDiscoveryResult[],
+): DiscoveryHandoffMap {
+  const map: DiscoveryHandoffMap = new Map();
+
+  for (const result of results) {
+    if (!result.resolvedPaper) continue;
+
+    // Group mentions by citing-paper ID (only probed papers have mentions).
+    const mentionsByPaperId = new Map<string, HarvestedSeedMention[]>();
+    for (const mention of result.mentions) {
+      const existing = mentionsByPaperId.get(mention.citingPaperId);
+      if (existing) {
+        existing.push(mention);
+      } else {
+        mentionsByPaperId.set(mention.citingPaperId, [mention]);
+      }
+    }
+
+    // Index grounding traces by familyId.
+    const groundingByFamilyId = new Map<string, FamilyGroundingTrace>();
+    for (const trace of result.groundingTraces) {
+      groundingByFamilyId.set(trace.familyId, trace);
+    }
+
+    const handoff: DiscoveryHandoff = {
+      doi: result.doi,
+      resolvedPaper: result.resolvedPaper,
+      citingPapersRaw: result.citingPapers,
+      mentionsByPaperId,
+      groundingByFamilyId,
+    };
+
+    map.set(result.doi, handoff);
+  }
+
+  return map;
 }

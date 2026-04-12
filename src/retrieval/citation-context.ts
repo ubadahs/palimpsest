@@ -24,6 +24,14 @@ export type ExtractionAdapters = {
   fullText: FullTextFetchAdapters;
   biorxivBaseUrl: string;
   cache?: ParsedPaperCacheOptions;
+  /**
+   * Pre-harvested mentions from attribution-first discovery, keyed by citing-paper ID.
+   * When an entry is present for a citing paper, the full-text fetch and harvest
+   * are skipped; the pre-harvested mentions are processed directly through the
+   * annotation/dedup/usability pipeline. Papers absent from this map fall back
+   * to the full harvest path (e.g. papers outside the discovery probe budget).
+   */
+  preHarvestedMentions?: Map<string, HarvestedSeedMention[]>;
 };
 
 // Map MentionHarvestOutcome → ExtractionOutcome so callers of extractEdgeContext
@@ -103,6 +111,74 @@ export async function extractEdgeContext(
   // Reconstruct ParsedCitationMention-compatible objects from harvested mentions
   // so we can run them through the existing annotation/dedup pipeline.
   const rawMentions = harvest.mentions.map((m) =>
+    toCitationMentionFromHarvested(m, edgeSourceType),
+  );
+  const annotated = rawMentions.map(annotateMention);
+  const { unique, rawCount } = deduplicateMentions(annotated);
+  const usableForGrounding = assessUsability(unique);
+
+  const extractionOutcome: ExtractionOutcome =
+    edgeSourceType === "grobid_tei"
+      ? "success_grobid"
+      : edgeSourceType === "jats_xml"
+        ? "success_structured"
+        : "success_pdf";
+
+  return {
+    ...base,
+    sourceType: edgeSourceType,
+    extractionOutcome,
+    extractionSuccess: true,
+    usableForGrounding,
+    rawMentionCount: rawCount,
+    deduplicatedMentionCount: unique.length,
+    mentions: unique,
+    failureReason: undefined,
+  };
+}
+
+/**
+ * Build an `EdgeExtractionResult` from pre-harvested mentions without fetching
+ * full text. Runs the same annotation/dedup/usability pipeline as `extractEdgeContext`.
+ *
+ * Called when `adapters.preHarvestedMentions` has an entry for the citing paper.
+ * An empty mentions array means the paper was probed during discovery but no
+ * seed-paper references were found — treated as a failed extraction, not a fallback.
+ */
+export function extractEdgeContextFromMentions(
+  edge: PreScreenEdge,
+  citingPaper: ResolvedPaper,
+  mentions: HarvestedSeedMention[],
+): EdgeExtractionResult {
+  const base = {
+    citingPaperId: edge.citingPaperId,
+    citedPaperId: edge.citedPaperId,
+    citingPaperTitle: citingPaper.title,
+  };
+
+  if (mentions.length === 0) {
+    return {
+      ...base,
+      sourceType: "not_attempted",
+      extractionOutcome: "fail_no_reference_match",
+      extractionSuccess: false,
+      usableForGrounding: false,
+      rawMentionCount: 0,
+      deduplicatedMentionCount: 0,
+      mentions: [],
+      failureReason: "No mentions for this paper in the pre-harvested set",
+    };
+  }
+
+  const sourceType = mentions[0]!.sourceType;
+  const edgeSourceType: EdgeExtractionResult["sourceType"] =
+    sourceType === "grobid_tei"
+      ? "grobid_tei"
+      : sourceType === "jats_xml"
+        ? "jats_xml"
+        : "pdf_text";
+
+  const rawMentions = mentions.map((m) =>
     toCitationMentionFromHarvested(m, edgeSourceType),
   );
   const annotated = rawMentions.map(annotateMention);
