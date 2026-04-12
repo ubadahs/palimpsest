@@ -8,6 +8,7 @@ import { shortlistInputSchema } from "../../domain/types.js";
 import { groupTraceRecordsBySeedDoi } from "../../domain/pre-screen-grounding-trace.js";
 import * as openalex from "../../integrations/openalex.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
+import type { CitingYearRange } from "../paper-adapters.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
@@ -30,6 +31,7 @@ function parseArgs(argv: string[]): {
   filterModel: string | undefined;
   filterConcurrency: number | undefined;
   skipClaimFilter: boolean;
+  citingYearRange: CitingYearRange | undefined;
 } {
   let input: string | undefined;
   let output = "data/pre-screen";
@@ -38,6 +40,8 @@ function parseArgs(argv: string[]): {
   let filterModel: string | undefined;
   let filterConcurrency: number | undefined;
   let skipClaimFilter = false;
+  let fromYear: number | undefined;
+  let toYear: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -62,6 +66,12 @@ function parseArgs(argv: string[]): {
       i++;
     } else if (arg === "--skip-claim-filter") {
       skipClaimFilter = true;
+    } else if (arg === "--from-year" && i + 1 < argv.length) {
+      fromYear = parseInt(argv[i + 1]!, 10);
+      i++;
+    } else if (arg === "--to-year" && i + 1 < argv.length) {
+      toYear = parseInt(argv[i + 1]!, 10);
+      i++;
     }
   }
 
@@ -71,6 +81,14 @@ function parseArgs(argv: string[]): {
     throw new Error("Missing --input");
   }
 
+  const citingYearRange: CitingYearRange | undefined =
+    fromYear != null || toYear != null
+      ? {
+          ...(fromYear != null ? { fromYear } : {}),
+          ...(toYear != null ? { toYear } : {}),
+        }
+      : undefined;
+
   return {
     input,
     output,
@@ -79,6 +97,7 @@ function parseArgs(argv: string[]): {
     filterModel,
     filterConcurrency,
     skipClaimFilter,
+    citingYearRange,
   };
 }
 
@@ -95,6 +114,7 @@ function buildAdapters(
   },
   database: ReturnType<typeof openDatabase>,
   cachePolicy: CachePolicy,
+  citingYearRange?: CitingYearRange,
 ): PreScreenAdapters {
   const fullTextAdapters = createDefaultAdapters(
     config.baseUrls.grobid,
@@ -114,6 +134,7 @@ function buildAdapters(
         config.baseUrls.openAlex,
         50,
         config.openAlexEmail,
+        citingYearRange,
       ),
     findPublishedVersion: (title, excludeId) =>
       openalex.findPublishedVersion(
@@ -168,6 +189,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
         },
         database,
         "prefer_cache",
+        args.citingYearRange,
       );
       const sharedLlmClient = createLLMClient({
         apiKey: config.anthropicApiKey,
