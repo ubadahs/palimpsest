@@ -4,6 +4,8 @@ import { claimGroundingBlocksAnalysis } from "../domain/pre-screen.js";
 import type {
   ClaimFamilyPreScreen,
   ClaimGrounding,
+  DiscoveryHandoff,
+  DiscoveryHandoffMap,
   FamilyUseProfileTag,
   M2Priority,
   PreScreenEdge,
@@ -14,6 +16,8 @@ import type {
   Result,
   SeedPaperInput,
 } from "../domain/types.js";
+import type { FamilyGroundingTrace } from "./discovery-family-probe.js";
+import type { DiscoverySeedEntry } from "./discovery-stage.js";
 import {
   PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
   normalizeSeedDoiForTraceKey,
@@ -165,7 +169,7 @@ function computeMetrics(
 function makeDecision(
   metrics: PreScreenMetrics,
   seedResolved: boolean,
-  options: PreScreenOptions,
+  options: { minAuditableCoverage: number; minAuditableEdges: number },
   claimGrounding?: ClaimGrounding,
 ): { decision: ClaimFamilyPreScreen["decision"]; reason: string } {
   if (!seedResolved) {
@@ -797,6 +801,300 @@ function assignM2Priorities(results: ClaimFamilyPreScreen[]): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Thin screen path — attribution-first handoff
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconstitute a family's grounding trace from the handoff when we have no
+ * familyId (legacy seeds mixed into an attribution-first run). Matches by
+ * canonical claim text; returns the first match or undefined.
+ */
+function findGroundingByTrackedClaim(
+  handoff: DiscoveryHandoff,
+  trackedClaim: string,
+): FamilyGroundingTrace | undefined {
+  for (const trace of handoff.groundingByFamilyId.values()) {
+    if (trace.canonicalTrackedClaim === trackedClaim) {
+      return trace;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Process one seed using the in-memory discovery handoff.
+ *
+ * No network calls, no LLM calls. Reuses:
+ *   - Resolved paper from handoff
+ *   - Citing-paper list from handoff (up to 200, larger than screen's 50)
+ *   - Per-family grounding from handoff
+ */
+function processOneSeedFromHandoff(
+  seed: DiscoverySeedEntry,
+  handoffs: DiscoveryHandoffMap,
+  options: { minAuditableCoverage: number; minAuditableEdges: number },
+  onProgress?: (event: PreScreenProgressEvent) => void,
+): { family: ClaimFamilyPreScreen; traceRecord: PreScreenGroundingTraceRecord } {
+  const emptyMetrics = computeMetrics([], 0);
+
+  onProgress?.({
+    step: "resolve_seed_paper",
+    status: "running",
+    detail: `Looking up handoff for ${seed.doi}`,
+  });
+
+  const handoff = handoffs.get(seed.doi);
+
+  if (!handoff) {
+    onProgress?.({
+      step: "resolve_seed_paper",
+      status: "completed",
+      detail: `No discovery handoff for ${seed.doi} — deprioritizing`,
+    });
+    onProgress?.({
+      step: "summarize_family_viability",
+      status: "completed",
+      detail: "Family deprioritized: no discovery handoff available.",
+    });
+    const cg: ClaimGrounding = {
+      status: "not_attempted",
+      analystClaim: seed.trackedClaim,
+      normalizedClaim: seed.trackedClaim,
+      supportSpans: [],
+      blocksDownstream: true,
+      detailReason: `No discovery handoff for seed DOI: ${seed.doi}`,
+    };
+    const { decision, reason } = makeDecision(emptyMetrics, false, options, cg);
+    return {
+      family: {
+        seed,
+        resolvedSeedPaper: undefined,
+        edges: [],
+        resolvedPapers: {},
+        duplicateGroups: [],
+        metrics: emptyMetrics,
+        neighborhoodMetrics: emptyMetrics,
+        seedFullTextAcquisition: undefined,
+        claimGrounding: cg,
+        familyUseProfile: [],
+        m2Priority: "not_now",
+        decision,
+        decisionReason: reason,
+      },
+      traceRecord: {
+        seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+        seedResolutionOk: false,
+        seedResolutionError: `No discovery handoff for DOI: ${seed.doi}`,
+        finalClaimGrounding: cg,
+      },
+    };
+  }
+
+  onProgress?.({
+    step: "resolve_seed_paper",
+    status: "completed",
+    detail: handoff.resolvedPaper.title,
+  });
+
+  // Reconstitute ClaimGrounding from the family's grounding trace stored in the
+  // handoff. Falls back to non-blocking "not_attempted" when grounding info is
+  // absent (e.g. seed full text was unavailable during discovery) — the claim
+  // was discovered from citing-paper evidence, so we do not block on it.
+  const trace: FamilyGroundingTrace | undefined = seed.familyId
+    ? handoff.groundingByFamilyId.get(seed.familyId)
+    : findGroundingByTrackedClaim(handoff, seed.trackedClaim);
+
+  const claimGrounding: ClaimGrounding = trace
+    ? trace.grounding
+    : {
+        status: "not_attempted",
+        analystClaim: seed.trackedClaim,
+        normalizedClaim: seed.trackedClaim,
+        supportSpans: [],
+        blocksDownstream: false,
+        detailReason:
+          "Grounding trace not found in discovery handoff. Claim was discovered from citing-paper evidence; proceeding without seed grounding.",
+      };
+
+  onProgress?.({
+    step: "ground_tracked_claim",
+    status: "skipped",
+    detail: "Reusing discovery grounding (thin screen path).",
+  });
+
+  // If grounding explicitly blocks downstream, short-circuit without
+  // building edges — same semantics as the full screen path.
+  if (claimGroundingBlocksAnalysis(claimGrounding)) {
+    const skipReason = "Skipped — claim not grounded in seed paper.";
+    for (const step of [
+      "gather_citing_papers",
+      "collapse_duplicates",
+      "assess_auditability",
+      "filter_claim_family",
+    ] as const) {
+      onProgress?.({ step, status: "skipped", detail: skipReason });
+    }
+    const { decision, reason } = makeDecision(
+      emptyMetrics,
+      true,
+      options,
+      claimGrounding,
+    );
+    onProgress?.({
+      step: "summarize_family_viability",
+      status: "completed",
+      detail: reason,
+    });
+    return {
+      family: {
+        seed,
+        resolvedSeedPaper: handoff.resolvedPaper,
+        edges: [],
+        resolvedPapers: { [handoff.resolvedPaper.id]: handoff.resolvedPaper },
+        duplicateGroups: [],
+        metrics: emptyMetrics,
+        neighborhoodMetrics: emptyMetrics,
+        seedFullTextAcquisition: undefined,
+        claimGrounding,
+        familyUseProfile: [],
+        m2Priority: "not_now",
+        decision,
+        decisionReason: reason,
+      },
+      traceRecord: {
+        seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+        seedResolutionOk: true,
+        resolvedSeedPaperId: handoff.resolvedPaper.id,
+        resolvedSeedTitle: handoff.resolvedPaper.title,
+        finalClaimGrounding: claimGrounding,
+      },
+    };
+  }
+
+  // Use the citing-paper list from the handoff — avoids a second OpenAlex call
+  // and covers more of the neighborhood (discovery fetches up to 200 vs screen's 50).
+  onProgress?.({
+    step: "gather_citing_papers",
+    status: "running",
+    detail: "Using pre-fetched citing papers from discovery handoff.",
+  });
+  const citingPapers = handoff.citingPapersRaw;
+  const totalBeforeDedup = citingPapers.length;
+  onProgress?.({
+    step: "gather_citing_papers",
+    status: "completed",
+    detail: `${String(totalBeforeDedup)} citing papers from discovery handoff`,
+  });
+
+  onProgress?.({
+    step: "collapse_duplicates",
+    status: "running",
+    detail: "Collapsing duplicate paper records.",
+  });
+  const { uniquePapers, duplicateGroups } = deduplicatePapers(citingPapers);
+  onProgress?.({
+    step: "collapse_duplicates",
+    status: "completed",
+    detail: `${String(uniquePapers.length)} unique papers after collapsing ${String(duplicateGroups.length)} duplicate groups`,
+  });
+
+  const resolvedPapers: Record<string, ResolvedPaper> = {
+    [handoff.resolvedPaper.id]: handoff.resolvedPaper,
+  };
+  const edges: PreScreenEdge[] = [];
+
+  onProgress?.({
+    step: "assess_auditability",
+    status: "running",
+    detail: "Checking auditability and paper types.",
+  });
+  for (const citing of uniquePapers) {
+    resolvedPapers[citing.id] = citing;
+    const assessment = assessAuditability(citing);
+    const classification = classifyEdge(citing);
+    edges.push({
+      citingPaperId: citing.id,
+      citedPaperId: handoff.resolvedPaper.id,
+      auditabilityStatus: assessment.status,
+      auditabilityReason: assessment.reason,
+      classification,
+      paperType: citing.paperType,
+      referencedWorksCount: citing.referencedWorksCount,
+      // Attribution-first: citer→claim associations were established from
+      // full-text analysis during discovery. All citing papers are in the
+      // claim family; skip BM25+LLM filter.
+      inClaimFamily: true,
+      claimRelevanceScore: 1,
+    });
+  }
+
+  for (const group of duplicateGroups) {
+    for (const collapsedId of group.collapsedFromPaperIds) {
+      const collapsedPaper = citingPapers.find((p) => p.id === collapsedId);
+      if (collapsedPaper) {
+        resolvedPapers[collapsedId] = collapsedPaper;
+      }
+    }
+  }
+
+  const neighborhoodMetrics = computeMetrics(edges, totalBeforeDedup);
+  onProgress?.({
+    step: "assess_auditability",
+    status: "completed",
+    detail: `${String(neighborhoodMetrics.auditableStructuredEdges + neighborhoodMetrics.auditablePdfEdges)} auditable edges across ${String(neighborhoodMetrics.uniqueEdges)} unique papers`,
+  });
+
+  onProgress?.({
+    step: "filter_claim_family",
+    status: "skipped",
+    detail: `Claim-family filter skipped (attribution-first) — all ${String(edges.length)} edges included`,
+  });
+
+  const claimFamilyEdges = edges;
+  const metrics = mergeClaimFamilyMetrics(neighborhoodMetrics, claimFamilyEdges);
+  const { decision, reason } = makeDecision(metrics, true, options, claimGrounding);
+  const familyUseProfile = computeFamilyUseProfile(metrics);
+  const m2Priority = computeM2Priority(metrics, decision);
+
+  onProgress?.({
+    step: "summarize_family_viability",
+    status: "running",
+    detail: "Summarizing family viability.",
+  });
+  onProgress?.({
+    step: "summarize_family_viability",
+    status: "completed",
+    detail: reason,
+  });
+
+  return {
+    family: {
+      seed,
+      resolvedSeedPaper: handoff.resolvedPaper,
+      edges,
+      resolvedPapers,
+      duplicateGroups,
+      metrics,
+      neighborhoodMetrics,
+      seedFullTextAcquisition: undefined,
+      claimGrounding,
+      familyUseProfile,
+      m2Priority,
+      decision,
+      decisionReason: reason,
+    },
+    traceRecord: {
+      seed: { doi: seed.doi, trackedClaim: seed.trackedClaim },
+      seedResolutionOk: true,
+      resolvedSeedPaperId: handoff.resolvedPaper.id,
+      resolvedSeedTitle: handoff.resolvedPaper.title,
+      // No LLM call in the thin screen path.
+      finalClaimGrounding: claimGrounding,
+    },
+  };
+}
+
 // --- Main entry point ---
 
 export async function runPreScreen(
@@ -871,4 +1169,64 @@ export async function runPreScreen(
       records,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Thin screen entry point — attribution-first handoff
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-screen using in-memory discovery handoffs from an attribution-first run.
+ *
+ * Eliminates the three most expensive screen operations:
+ *   - DOI resolution (paper already resolved during discovery)
+ *   - OpenAlex citing-paper fetch (handoff carries up to 200 papers)
+ *   - LLM claim grounding (grounding ran during discovery; reused here)
+ *
+ * All auditability assessment, decision logic, and M2 prioritisation run
+ * exactly as in the full screen path. The claim-family filter is skipped:
+ * attribution-first discovery already established citer→claim associations
+ * via full-text analysis.
+ */
+export function runPreScreenFromHandoff(
+  seeds: DiscoverySeedEntry[],
+  handoffs: DiscoveryHandoffMap,
+  options: { minAuditableCoverage?: number; minAuditableEdges?: number },
+  onProgress?: (event: PreScreenProgressEvent) => void,
+): Promise<PreScreenRunResult> {
+  const resolvedOptions = {
+    minAuditableCoverage:
+      options.minAuditableCoverage ?? DEFAULT_NUMERIC_OPTIONS.minAuditableCoverage,
+    minAuditableEdges:
+      options.minAuditableEdges ?? DEFAULT_NUMERIC_OPTIONS.minAuditableEdges,
+  };
+
+  const results: ClaimFamilyPreScreen[] = [];
+  const records: PreScreenGroundingTraceFile["records"] = [];
+
+  for (const seed of seeds) {
+    const { family, traceRecord } = processOneSeedFromHandoff(
+      seed,
+      handoffs,
+      resolvedOptions,
+      onProgress,
+    );
+    results.push(family);
+    records.push({
+      seedDoiKey: normalizeSeedDoiForTraceKey(seed.doi),
+      record: traceRecord,
+    });
+  }
+
+  assignM2Priorities(results);
+
+  return Promise.resolve({
+    families: results,
+    groundingTrace: {
+      artifactKind: "pre-screen-grounding-trace",
+      schemaVersion: PRE_SCREEN_GROUNDING_TRACE_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      records,
+    },
+  });
 }
