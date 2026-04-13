@@ -41,6 +41,7 @@ import {
   type DiscoverySeedEntry,
   type DiscoveryStrategy,
 } from "../../pipeline/discovery-stage.js";
+import { consolidateFamilies } from "../../pipeline/family-consolidation.js";
 import type { DiscoveryHandoffMap } from "../../domain/types.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
@@ -73,6 +74,7 @@ import {
   writeCalibrationSetArtifacts,
   writeClassificationArtifacts,
   writeDiscoveryArtifacts,
+  writeConsolidationArtifact,
   writeEvidenceArtifacts,
   writeExtractionArtifacts,
   writeScreenArtifacts,
@@ -120,11 +122,13 @@ function parseArgs(argv: string[]): {
   adjudicateAdvisor: boolean;
   adjudicateFirstPassModel: string | undefined;
   // Run settings
+  forceRefresh: boolean;
   familyConcurrency: number | undefined;
 } {
   let input: string | undefined;
   let shortlist: string | undefined;
   let runId: string | undefined;
+  let forceRefresh = false;
   let topN = 5;
   let noRank = false;
   let targetSize = 20;
@@ -238,7 +242,9 @@ function parseArgs(argv: string[]): {
       i++;
     }
     // Run settings
-    else if (arg === "--family-concurrency" && i + 1 < argv.length) {
+    else if (arg === "--force-refresh") {
+      forceRefresh = true;
+    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
       familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
       i++;
     }
@@ -281,6 +287,7 @@ function parseArgs(argv: string[]): {
     targetSize,
     adjudicateAdvisor,
     adjudicateFirstPassModel,
+    forceRefresh,
     familyConcurrency,
   };
 }
@@ -626,6 +633,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         ...(args.seedPdfPath != null
           ? { seedPdfPath: args.seedPdfPath }
           : {}),
+        ...(args.forceRefresh ? { forceRefresh: true } : {}),
       });
 
   const citingYearRange: CitingYearRange | undefined =
@@ -927,6 +935,64 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       setRunStatus(database, runId, "succeeded", "discover");
       log("pipeline", "Stopping after discover (stopAfterStage).");
       return;
+    }
+
+    // -----------------------------------------------------------------------
+    // Family consolidation (post-discovery, pre-screen)
+    // -----------------------------------------------------------------------
+
+    if (seeds.length > 1) {
+      const consolidationClient = createLLMClient({
+        apiKey,
+        defaultModel: "claude-sonnet-4-6",
+        collector: telemetryCollector,
+        defaultContext: { stageKey: "discover", familyIndex: 0 },
+        database,
+        forceRefresh: runConfig.forceRefresh,
+      });
+      log(
+        "consolidate",
+        `Consolidating ${String(seeds.length)} families...`,
+      );
+      const consolidation = await consolidateFamilies(
+        seeds,
+        consolidationClient,
+        {
+          model: "claude-sonnet-4-6",
+          handoffs: discoveryHandoffs,
+        },
+      );
+      // Write artifact regardless of whether anything was merged.
+      writeConsolidationArtifact({
+        outputRoot: outputDir,
+        stamp,
+        consolidation,
+      });
+
+      if (consolidation.eliminatedCount > 0) {
+        log(
+          "consolidate",
+          `Merged ${String(seeds.length)} → ${String(consolidation.consolidatedSeeds.length)} families (${String(consolidation.eliminatedCount)} eliminated). Clusters:`,
+        );
+        for (const cluster of consolidation.clusters) {
+          const members = cluster.memberIndices
+            .map((i) => seeds[i]?.trackedClaim.slice(0, 60) ?? "?")
+            .join(" | ");
+          log(
+            "consolidate",
+            `  [${String(cluster.cluster)}] ${cluster.memberIndices.length === 1 ? "kept" : "merged"}: ${members}`,
+          );
+        }
+        for (const dropped of consolidation.droppedGroundingTraces) {
+          log(
+            "consolidate",
+            `  grounding trace dropped: ${dropped.familyId} (${dropped.reason})`,
+          );
+        }
+        seeds = consolidation.consolidatedSeeds;
+      } else {
+        log("consolidate", "All families are semantically distinct — no merges.");
+      }
     }
 
     // -----------------------------------------------------------------------

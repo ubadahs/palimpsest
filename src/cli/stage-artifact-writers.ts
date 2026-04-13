@@ -11,6 +11,7 @@ import type {
   PreScreenGroundingTraceFile,
 } from "../domain/types.js";
 import type { AttributionDiscoveryResult } from "../pipeline/discovery-family-probe.js";
+import type { FamilyConsolidationResult } from "../pipeline/family-consolidation.js";
 import {
   toAttributionDiscoveryMarkdown,
   toDiscoveryMarkdown,
@@ -321,6 +322,22 @@ export function writeAttributionDiscoveryArtifacts(options: {
     shortlistPath: shortlist.path,
     manifestPath: primary.manifestPath,
   };
+}
+
+export function writeConsolidationArtifact(options: {
+  outputRoot: string;
+  stamp: string;
+  consolidation: FamilyConsolidationResult;
+}): { path: string } {
+  const result = writeSidecarArtifact({
+    outputRoot: options.outputRoot,
+    stageKey: "discover",
+    stamp: options.stamp,
+    suffix: "_family-consolidation.json",
+    content: options.consolidation,
+    format: "json",
+  });
+  return { path: result.path };
 }
 
 export function writeScreenArtifacts(options: {
