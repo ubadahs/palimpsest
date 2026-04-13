@@ -75,6 +75,8 @@ export const analysisRunConfigObjectSchema = z
     evidenceRerankModel: z.string().min(1).default("claude-haiku-4-5"),
     evidenceRerankTopN: z.number().int().positive().default(5),
     familyConcurrency: z.number().int().positive().default(3),
+    /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
+    seedPdfPath: z.string().min(1).optional(),
   })
   .passthrough();
 
