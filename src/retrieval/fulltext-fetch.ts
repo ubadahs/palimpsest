@@ -40,6 +40,8 @@ export type FullTextFetchAdapters = {
   ) => Promise<Result<FullTextFetchResponse>>;
   processPdfWithGrobid: (buffer: Buffer) => Promise<Result<string>>;
   email: string | undefined;
+  /** EZproxy or similar prefix URL, e.g. "https://libproxy.mit.edu/login?url=". */
+  institutionalProxyUrl: string | undefined;
 };
 
 export type FullTextAcquisitionSuccess = {
@@ -1072,12 +1074,70 @@ function decodeCachedAcquisition(
   }
 }
 
-async function acquireFullTextFromNetwork(
+/**
+ * Build proxy-prefixed fallback candidates from the paper's publisher URLs.
+ * Only called when open-access acquisition fails and a proxy URL is configured.
+ */
+function buildProxyCandidates(
   paper: ResolvedPaper,
-  biorxivBaseUrl: string,
+  proxyUrl: string,
+): AcquisitionCandidate[] {
+  const candidates: AcquisitionCandidate[] = [];
+  const prefix = proxyUrl.replace(/\/+$/, "");
+
+  // Landing page through proxy → may yield authenticated PDF/XML links.
+  for (const pageUrl of [
+    paper.fullTextHints.landingPageUrl,
+    paper.fullTextHints.repositoryUrl,
+  ]) {
+    if (pageUrl) {
+      candidates.push({
+        candidateKind: "landing_page_discovery",
+        locatorKind: "landing_page_url",
+        locatorValue: pageUrl,
+        url: `${prefix}${pageUrl}`,
+        priority: 110,
+      });
+    }
+  }
+
+  // Direct PDF URLs through proxy.
+  for (const pdfUrl of [
+    paper.fullTextHints.pdfUrl,
+    paper.fullTextHints.repositoryUrl,
+  ]) {
+    if (pdfUrl) {
+      candidates.push({
+        candidateKind: "direct_pdf",
+        method: "direct_pdf_grobid",
+        locatorKind: "direct_pdf_url",
+        locatorValue: pdfUrl,
+        url: `${prefix}${pdfUrl}`,
+        priority: 120,
+      });
+    }
+  }
+
+  // DOI-based landing page through proxy (catches papers with no explicit URLs).
+  const doi = paper.doi;
+  if (doi) {
+    const doiUrl = `https://doi.org/${doi}`;
+    candidates.push({
+      candidateKind: "landing_page_discovery",
+      locatorKind: "doi_resolved",
+      locatorValue: doi,
+      url: `${prefix}${doiUrl}`,
+      priority: 115,
+    });
+  }
+
+  return candidates;
+}
+
+async function executeCandidateQueue(
+  state: AcquisitionExecutionState,
   adapters: FullTextFetchAdapters,
-): Promise<FullTextAcquisitionResult> {
-  const state = buildInitialCandidates(paper, biorxivBaseUrl);
+): Promise<AcquisitionCandidateResult & { lastFailureReason: string }> {
   let lastFailureReason = "No fetchable full text candidates";
 
   while (state.candidates.length > 0) {
@@ -1112,32 +1172,89 @@ async function acquireFullTextFromNetwork(
     }
 
     if (candidateResult.kind === "selected") {
-      const acquisition = makeAcquisition(
-        {
-          materializationSource: "network",
-          attempts: state.attempts,
-        },
-        {
-          method: candidateResult.payload.method,
-          locatorKind: candidateResult.payload.locatorKind,
-          selectedUrl: candidateResult.payload.selectedUrl,
-          fullTextFormat: candidateResult.payload.format,
-        },
-      );
-      return {
-        ok: true,
-        data: {
-          content: candidateResult.payload.content,
-          format: candidateResult.payload.format,
-          acquisition,
-        },
-      };
+      return { ...candidateResult, lastFailureReason };
     }
     if (candidateResult.failureReason) {
       lastFailureReason = candidateResult.failureReason;
     }
   }
 
+  return { kind: "continue", lastFailureReason };
+}
+
+async function acquireFullTextFromNetwork(
+  paper: ResolvedPaper,
+  biorxivBaseUrl: string,
+  adapters: FullTextFetchAdapters,
+): Promise<FullTextAcquisitionResult> {
+  const state = buildInitialCandidates(paper, biorxivBaseUrl);
+
+  // Phase 1: try open-access candidates.
+  const oaResult = await executeCandidateQueue(state, adapters);
+
+  if (oaResult.kind === "selected") {
+    const acquisition = makeAcquisition(
+      {
+        materializationSource: "network",
+        attempts: state.attempts,
+      },
+      {
+        method: oaResult.payload.method,
+        locatorKind: oaResult.payload.locatorKind,
+        selectedUrl: oaResult.payload.selectedUrl,
+        fullTextFormat: oaResult.payload.format,
+      },
+    );
+    acquisition.accessChannel = "open_access";
+    return {
+      ok: true,
+      data: {
+        content: oaResult.payload.content,
+        format: oaResult.payload.format,
+        acquisition,
+      },
+    };
+  }
+
+  // Phase 2: if open-access failed and a proxy URL is configured, retry
+  // through the institutional proxy.
+  if (adapters.institutionalProxyUrl) {
+    const proxyCandidates = buildProxyCandidates(
+      paper,
+      adapters.institutionalProxyUrl,
+    );
+    for (const c of proxyCandidates) {
+      enqueueCandidate(state, c);
+    }
+
+    const proxyResult = await executeCandidateQueue(state, adapters);
+
+    if (proxyResult.kind === "selected") {
+      const acquisition = makeAcquisition(
+        {
+          materializationSource: "network",
+          attempts: state.attempts,
+        },
+        {
+          method: proxyResult.payload.method,
+          locatorKind: proxyResult.payload.locatorKind,
+          selectedUrl: proxyResult.payload.selectedUrl,
+          fullTextFormat: proxyResult.payload.format,
+        },
+      );
+      acquisition.accessChannel = "institutional_proxy";
+      return {
+        ok: true,
+        data: {
+          content: proxyResult.payload.content,
+          format: proxyResult.payload.format,
+          acquisition,
+        },
+      };
+    }
+  }
+
+  const lastFailureReason = oaResult.lastFailureReason;
   const acquisition = makeAcquisition(
     {
       materializationSource: "network",
@@ -1303,15 +1420,21 @@ async function defaultProcessPdfWithGrobid(
   }
 }
 
+export type CreateAdaptersOptions = {
+  grobidBaseUrl: string;
+  email: string | undefined;
+  institutionalProxyUrl?: string | undefined;
+};
+
 export function createDefaultAdapters(
-  grobidBaseUrl: string,
-  email: string | undefined,
+  options: CreateAdaptersOptions,
 ): FullTextFetchAdapters {
   return {
     fetchUrl: defaultFetchUrl,
     processPdfWithGrobid: (buffer) =>
-      defaultProcessPdfWithGrobid(buffer, grobidBaseUrl),
-    email,
+      defaultProcessPdfWithGrobid(buffer, options.grobidBaseUrl),
+    email: options.email,
+    institutionalProxyUrl: options.institutionalProxyUrl,
   };
 }
 

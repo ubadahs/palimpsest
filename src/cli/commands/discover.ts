@@ -8,7 +8,7 @@ import { discoveryInputSchema } from "../../domain/discovery.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { discoverClaims } from "../../pipeline/claim-discovery.js";
 import { rankClaimsByEngagement } from "../../pipeline/claim-ranking.js";
-import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { createFullTextAdapters } from "../paper-adapters.js";
 import type { DiscoveryStrategy } from "../../pipeline/discovery-stage.js";
 import { runDiscoveryStage } from "../../pipeline/discovery-stage.js";
 import { openDatabase } from "../../storage/database.js";
@@ -196,10 +196,7 @@ export async function runDiscoverCommand(argv: string[]): Promise<void> {
     try {
       runMigrations(database);
       const cachePolicy: CachePolicy = "prefer_cache";
-      const fullTextAdapters = createDefaultAdapters(
-        config.providerBaseUrls.grobid,
-        config.openAlexEmail,
-      );
+      const fullTextAdapters = createFullTextAdapters(config);
       const discoverDefaultModel = args.model ?? "claude-haiku-4-5";
       const client = createLLMClient({
         apiKey: config.anthropicApiKey,

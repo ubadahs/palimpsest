@@ -857,6 +857,7 @@ export async function materializeLocalPdf(
     selectedUrl: `file://${pdfPath}`,
     selectedLocatorKind: "direct_pdf_url",
     attempts: [],
+    accessChannel: "local_pdf",
   };
 
   return {
