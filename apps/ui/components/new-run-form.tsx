@@ -171,6 +171,7 @@ export function NewRunForm() {
   const [error, setError] = useState<string | null>(null);
   const [launchImmediately, setLaunchImmediately] = useState(true);
   const [showManualClaim, setShowManualClaim] = useState(false);
+  const [seedPdfFile, setSeedPdfFile] = useState<File | null>(null);
   const [state, setState] = useState<FormState>(defaultState);
 
   function update<K extends "seedDoi" | "trackedClaim" | "targetStage">(
@@ -207,6 +208,13 @@ export function NewRunForm() {
 
     startTransition(async () => {
       try {
+        let seedPdfBase64: string | undefined;
+        if (seedPdfFile) {
+          const buf = await seedPdfFile.arrayBuffer();
+          seedPdfBase64 = btoa(
+            String.fromCharCode(...new Uint8Array(buf)),
+          );
+        }
         const run = await fetchJson<RunDetail>("/api/runs", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -215,6 +223,7 @@ export function NewRunForm() {
             ...(trackedClaim ? { trackedClaim } : {}),
             targetStage: state.targetStage,
             config: flattenConfig(state),
+            ...(seedPdfBase64 ? { seedPdfBase64 } : {}),
           }),
         });
 
@@ -271,6 +280,32 @@ export function NewRunForm() {
                 value={state.seedDoi}
                 onChange={(event) => update("seedDoi", event.target.value)}
               />
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-[var(--text)]">
+                Seed paper PDF
+                <span className="ml-2 font-normal text-[var(--text-muted)]">
+                  optional
+                </span>
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">
+                Upload a PDF if the seed paper is paywalled. Bypasses open-access
+                lookup and uses GROBID to parse the local copy.
+              </span>
+              <input
+                accept=".pdf,application/pdf"
+                className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 py-2 text-sm file:mr-3 file:rounded-full file:border-0 file:bg-[var(--accent)]/10 file:px-3 file:py-1 file:text-xs file:font-medium file:text-[var(--accent)]"
+                type="file"
+                onChange={(event) => {
+                  setSeedPdfFile(event.target.files?.[0] ?? null);
+                }}
+              />
+              {seedPdfFile ? (
+                <span className="text-xs text-[var(--text-muted)]">
+                  {seedPdfFile.name} ({(seedPdfFile.size / 1024).toFixed(0)} KB)
+                </span>
+              ) : null}
             </label>
 
             <div className="rounded-[28px] border border-[var(--border)] bg-white/40">
