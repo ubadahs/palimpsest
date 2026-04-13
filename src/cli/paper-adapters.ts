@@ -16,7 +16,11 @@ import type {
   ParsedPaperMaterializeResult,
 } from "../retrieval/parsed-paper.js";
 import { materializeParsedPaper } from "../retrieval/parsed-paper.js";
-import type { FullTextFetchAdapters } from "../retrieval/fulltext-fetch.js";
+import {
+  createDefaultAdapters,
+  type FullTextFetchAdapters,
+} from "../retrieval/fulltext-fetch.js";
+import type { AppConfig } from "../config/app-config.js";
 import * as openalex from "../integrations/openalex.js";
 
 export type CitingYearRange = { fromYear?: number; toYear?: number };
@@ -58,4 +62,16 @@ export function buildPaperAdapters(config: PaperAdapterConfig): PaperAdapters {
         config.citingYearRange,
       ),
   };
+}
+
+/**
+ * Create full-text fetch adapters directly from AppConfig.
+ * Eliminates repeated field extraction across CLI commands.
+ */
+export function createFullTextAdapters(config: AppConfig): FullTextFetchAdapters {
+  return createDefaultAdapters({
+    grobidBaseUrl: config.providerBaseUrls.grobid,
+    email: config.openAlexEmail,
+    institutionalProxyUrl: config.institutionalProxyUrl,
+  });
 }

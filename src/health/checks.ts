@@ -20,6 +20,7 @@ export type EnvironmentHealthSummary = {
     grobid: string;
   };
   localRerankerBaseUrl: string | undefined;
+  institutionalProxyUrl: string | undefined;
   anthropicConfigured: boolean;
   health: {
     database: HealthCheck;
@@ -92,6 +93,7 @@ export async function getEnvironmentHealthSummary(
     databasePath,
     providerBaseUrls,
     localRerankerBaseUrl: environment.LOCAL_RERANKER_BASE_URL,
+    institutionalProxyUrl: environment.INSTITUTIONAL_PROXY_URL,
     anthropicConfigured: Boolean(environment.ANTHROPIC_API_KEY),
     health: {
       database,

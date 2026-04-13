@@ -113,6 +113,14 @@ export type FullTextAcquisitionAttempt = z.infer<
   typeof fullTextAcquisitionAttemptSchema
 >;
 
+export const accessChannelValues = [
+  "open_access",
+  "institutional_proxy",
+  "local_pdf",
+] as const;
+export const accessChannelSchema = z.enum(accessChannelValues);
+export type AccessChannel = z.infer<typeof accessChannelSchema>;
+
 export const fullTextAcquisitionSchema = z
   .object({
     materializationSource: fullTextAcquisitionMaterializationSourceSchema,
@@ -126,6 +134,8 @@ export const fullTextAcquisitionSchema = z
       z.enum(["jats_xml", "grobid_tei_xml", "pdf_text"]),
     ),
     failureReason: undefinedable(z.string().min(1)),
+    /** How the full text was accessed — open access, institutional proxy, or local file. */
+    accessChannel: undefinedable(accessChannelSchema),
   })
   .passthrough();
 export type FullTextAcquisition = z.infer<typeof fullTextAcquisitionSchema>;

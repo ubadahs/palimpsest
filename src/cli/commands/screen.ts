@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { createAppConfig } from "../../config/app-config.js";
+import { createAppConfig, type AppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import type { CachePolicy } from "../../domain/types.js";
 import { shortlistInputSchema } from "../../domain/types.js";
@@ -11,7 +11,7 @@ import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
 import type { CitingYearRange } from "../paper-adapters.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { createFullTextAdapters } from "../paper-adapters.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
@@ -102,36 +102,24 @@ function parseArgs(argv: string[]): {
 }
 
 function buildAdapters(
-  config: {
-    baseUrls: {
-      openAlex: string;
-      semanticScholar: string;
-      bioRxiv: string;
-      grobid: string;
-    };
-    openAlexEmail: string | undefined;
-    semanticScholarApiKey: string | undefined;
-  },
+  config: AppConfig,
   database: ReturnType<typeof openDatabase>,
   cachePolicy: CachePolicy,
   citingYearRange?: CitingYearRange,
 ): PreScreenAdapters {
-  const fullTextAdapters = createDefaultAdapters(
-    config.baseUrls.grobid,
-    config.openAlexEmail,
-  );
+  const fullTextAdapters = createFullTextAdapters(config);
   return {
     resolveByDoi: (doi) =>
       resolvePaperByDoi(doi, {
-        openAlexBaseUrl: config.baseUrls.openAlex,
-        semanticScholarBaseUrl: config.baseUrls.semanticScholar,
+        openAlexBaseUrl: config.providerBaseUrls.openAlex,
+        semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
         openAlexEmail: config.openAlexEmail,
         semanticScholarApiKey: config.semanticScholarApiKey,
       }),
     getCitingPapers: (openAlexId) =>
       openalex.getCitingWorks(
         openAlexId,
-        config.baseUrls.openAlex,
+        config.providerBaseUrls.openAlex,
         50,
         config.openAlexEmail,
         citingYearRange,
@@ -140,14 +128,14 @@ function buildAdapters(
       openalex.findPublishedVersion(
         title,
         excludeId,
-        config.baseUrls.openAlex,
+        config.providerBaseUrls.openAlex,
         config.openAlexEmail,
       ),
     seedClaimGrounding: {
       materializeSeedPaper: (paper) =>
         materializeParsedPaper(
           paper,
-          config.baseUrls.bioRxiv,
+          config.providerBaseUrls.bioRxiv,
           fullTextAdapters,
           { db: database, cachePolicy },
         ),
@@ -182,11 +170,7 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
     try {
       runMigrations(database);
       const adapters = buildAdapters(
-        {
-          baseUrls: config.providerBaseUrls,
-          openAlexEmail: config.openAlexEmail,
-          semanticScholarApiKey: config.semanticScholarApiKey,
-        },
+        config,
         database,
         "prefer_cache",
         args.citingYearRange,

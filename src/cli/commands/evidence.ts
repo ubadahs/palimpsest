@@ -14,10 +14,8 @@ import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { createLLMClient } from "../../integrations/llm-client.js";
 import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
-import {
-  createDefaultAdapters,
-  formatAcquisitionSummary,
-} from "../../retrieval/fulltext-fetch.js";
+import { formatAcquisitionSummary } from "../../retrieval/fulltext-fetch.js";
+import { createFullTextAdapters } from "../paper-adapters.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { writeEvidenceArtifacts } from "../stage-artifact-writers.js";
 import { openDatabase } from "../../storage/database.js";
@@ -104,10 +102,7 @@ export async function runEvidenceCommand(argv: string[]): Promise<void> {
     const title = classification.resolvedSeedPaperTitle;
     console.info(`Evidence retrieval for: ${title}`);
 
-    const adapters = createDefaultAdapters(
-      config.providerBaseUrls.grobid,
-      config.openAlexEmail,
-    );
+    const adapters = createFullTextAdapters(config);
     const reranker = createLocalReranker(config.localRerankerBaseUrl);
     const citedPaperMaterialized = await resolveCitedPaperSource(
       classification,
