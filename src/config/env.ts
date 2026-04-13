@@ -23,6 +23,7 @@ const localRerankerBaseUrlSchema = z.string().url().optional();
 const openAlexEmailSchema = z.string().email().optional();
 const semanticScholarApiKeySchema = z.string().min(1).optional();
 const anthropicApiKeySchema = z.string().min(1).optional();
+const institutionalProxyUrlSchema = z.string().url().optional();
 
 const environmentSchema = z.object({
   NODE_ENV: z
@@ -37,6 +38,7 @@ const environmentSchema = z.object({
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,
+  INSTITUTIONAL_PROXY_URL: institutionalProxyUrlSchema,
 });
 
 const lenientEnvironmentSchema = z.object({
@@ -50,6 +52,7 @@ const lenientEnvironmentSchema = z.object({
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,
+  INSTITUTIONAL_PROXY_URL: institutionalProxyUrlSchema,
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;

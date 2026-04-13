@@ -48,7 +48,7 @@ export const analysisRunConfigObjectSchema = z
      * low-confidence / cannot_determine records to the main (Opus) model.
      * Typically cuts adjudication cost by 50-70% on well-grounded families.
      */
-    adjudicateAdvisor: z.boolean().default(false),
+    adjudicateAdvisor: z.boolean().default(true),
     /** First-pass model used when adjudicateAdvisor is true. */
     adjudicateFirstPassModel: z
       .string()

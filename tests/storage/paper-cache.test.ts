@@ -101,6 +101,7 @@ function makeAdapters(
       return Promise.resolve({ ok: true as const, data: teiXml });
     },
     email: undefined,
+    institutionalProxyUrl: undefined,
   };
 }
 

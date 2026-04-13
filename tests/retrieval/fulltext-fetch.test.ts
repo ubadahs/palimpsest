@@ -99,6 +99,7 @@ describe("fetchFullText acquisition policy", () => {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
+      institutionalProxyUrl: undefined,
     });
 
     expect(result.ok).toBe(true);
@@ -134,6 +135,7 @@ describe("fetchFullText acquisition policy", () => {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
+      institutionalProxyUrl: undefined,
     });
 
     expect(result.ok).toBe(true);
@@ -173,6 +175,7 @@ describe("fetchFullText acquisition policy", () => {
         fetchUrl,
         processPdfWithGrobid: grobid,
         email: undefined,
+        institutionalProxyUrl: undefined,
       },
     );
 
@@ -185,5 +188,87 @@ describe("fetchFullText acquisition policy", () => {
       "html_instead_of_pdf",
     );
     expect(grobid).not.toHaveBeenCalled();
+  });
+
+  it("falls back to institutional proxy when open-access PDF fails", async () => {
+    const PDF_MAGIC = Buffer.from("%PDF-1.4 fake pdf content");
+    const grobid = vi.fn(async () =>
+      Promise.resolve({ ok: true as const, data: "<tei>proxied</tei>" }),
+    );
+    const fetchUrl = vi.fn(async (url: string) => {
+      // Open-access URLs return HTML paywall page
+      if (!url.startsWith("https://proxy.example.edu/")) {
+        return Promise.resolve({
+          ok: true as const,
+          data: {
+            finalUrl: url,
+            status: 200,
+            contentType: "text/html",
+            body: Buffer.from("<html>paywall</html>"),
+          },
+        });
+      }
+      // Proxy-prefixed URLs succeed with a real PDF
+      return Promise.resolve({
+        ok: true as const,
+        data: {
+          finalUrl: url,
+          status: 200,
+          contentType: "application/pdf",
+          body: PDF_MAGIC,
+        },
+      });
+    });
+
+    const paper = makePaper({
+      doi: "10.1038/nature04533",
+      fullTextHints: {
+        providerAvailability: "available",
+        pdfUrl: "https://www.nature.com/articles/nature04533.pdf",
+        landingPageUrl: "https://www.nature.com/articles/nature04533",
+      },
+    });
+
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: grobid,
+      email: undefined,
+      institutionalProxyUrl: "https://proxy.example.edu/login?url=",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.acquisition.accessChannel).toBe(
+      "institutional_proxy",
+    );
+    expect(result.data.acquisition.selectedMethod).toBe("direct_pdf_grobid");
+    expect(grobid).toHaveBeenCalledWith(PDF_MAGIC);
+  });
+
+  it("tags open-access acquisitions with accessChannel open_access", async () => {
+    const grobid = vi.fn(async () =>
+      Promise.resolve({ ok: true as const, data: "<tei />" }),
+    );
+    const fetchUrl = vi.fn(async (url: string) =>
+      Promise.resolve({ ok: true as const, data: makeXmlResponse(url) }),
+    );
+    const paper = makePaper({
+      pmcid: "PMC1234567",
+      fullTextHints: {
+        providerAvailability: "available",
+        providerSourceHint: "pmc_xml",
+      },
+    });
+
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: grobid,
+      email: undefined,
+      institutionalProxyUrl: undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.acquisition.accessChannel).toBe("open_access");
   });
 });

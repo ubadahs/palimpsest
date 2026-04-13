@@ -103,6 +103,7 @@ describe("extractEdgeContext", () => {
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "not needed" }),
         email: undefined,
+        institutionalProxyUrl: undefined,
       },
       biorxivBaseUrl: "https://api.biorxiv.org",
     };
@@ -147,6 +148,7 @@ describe("extractEdgeContext", () => {
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "no text" }),
         email: undefined,
+        institutionalProxyUrl: undefined,
       },
       biorxivBaseUrl: "https://api.biorxiv.org",
     };
@@ -183,6 +185,7 @@ describe("extractEdgeContext", () => {
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: false as const, error: "no text" }),
         email: undefined,
+        institutionalProxyUrl: undefined,
       },
       biorxivBaseUrl: "https://api.biorxiv.org",
     };
@@ -228,6 +231,7 @@ describe("extractEdgeContext", () => {
         processPdfWithGrobid: async () =>
           Promise.resolve({ ok: true as const, data: GROBID_TEI }),
         email: undefined,
+        institutionalProxyUrl: undefined,
       },
       biorxivBaseUrl: "https://api.biorxiv.org",
     };
