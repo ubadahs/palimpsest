@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { DOMParser } from "@xmldom/xmldom";
 
 import type Database from "better-sqlite3";
@@ -824,6 +826,47 @@ export async function materializeParsedPaper(
     data: {
       fullText: fullTextResult.data,
       acquisition: fullTextResult.data.acquisition,
+      parsedDocument: parsedResult.data,
+    },
+  };
+}
+
+/**
+ * Materialize a parsed paper from a local PDF file via GROBID.
+ * Used when the seed paper is behind a paywall but the user has a local copy.
+ */
+export async function materializeLocalPdf(
+  pdfPath: string,
+  adapters: FullTextFetchAdapters,
+): Promise<ParsedPaperMaterializeResult> {
+  const pdfBuffer = readFileSync(pdfPath);
+  const grobidResult = await adapters.processPdfWithGrobid(pdfBuffer);
+  if (!grobidResult.ok) {
+    return { ok: false, error: grobidResult.error, acquisition: undefined };
+  }
+
+  const teiXml = grobidResult.data;
+  const parsedResult = parseParsedPaperDocument(teiXml, "grobid_tei_xml");
+  if (!parsedResult.ok) {
+    return { ok: false, error: parsedResult.error, acquisition: undefined };
+  }
+
+  const acquisition: FullTextAcquisition = {
+    materializationSource: "network",
+    selectedMethod: "direct_pdf_grobid",
+    selectedUrl: `file://${pdfPath}`,
+    selectedLocatorKind: "direct_pdf_url",
+    attempts: [],
+  };
+
+  return {
+    ok: true,
+    data: {
+      fullText: {
+        content: teiXml,
+        format: "grobid_tei_xml",
+      },
+      acquisition,
       parsedDocument: parsedResult.data,
     },
   };

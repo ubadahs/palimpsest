@@ -8,6 +8,8 @@ import type {
   CachePolicy,
   EdgeClassification,
   PreScreenEdge,
+  ResolvedPaper,
+  Result,
 } from "../../domain/types.js";
 import {
   claimFamilyBlocksDownstream,
@@ -47,7 +49,10 @@ import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
 import { sampleCalibrationSet } from "../../adjudication/sample-calibration.js";
 import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
 import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
-import { materializeParsedPaper } from "../../retrieval/parsed-paper.js";
+import {
+  materializeParsedPaper,
+  materializeLocalPdf,
+} from "../../retrieval/parsed-paper.js";
 import { createLocalReranker } from "../../retrieval/local-reranker.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
@@ -106,6 +111,7 @@ function parseArgs(argv: string[]): {
   screenFilterModel: string | undefined;
   screenFilterConcurrency: number | undefined;
   // Evidence
+  seedPdfPath: string | undefined;
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
   // Curate
@@ -132,6 +138,7 @@ function parseArgs(argv: string[]): {
   let screenGroundingThinking = true;
   let screenFilterModel: string | undefined;
   let screenFilterConcurrency: number | undefined;
+  let seedPdfPath: string | undefined;
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
   let familyConcurrency: number | undefined;
@@ -203,7 +210,10 @@ function parseArgs(argv: string[]): {
       i++;
     }
     // Evidence
-    else if (arg === "--rerank-model" && i + 1 < argv.length) {
+    else if (arg === "--seed-pdf" && i + 1 < argv.length) {
+      seedPdfPath = argv[i + 1]!;
+      i++;
+    } else if (arg === "--rerank-model" && i + 1 < argv.length) {
       rerankModel = argv[i + 1]!;
       i++;
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
@@ -265,6 +275,7 @@ function parseArgs(argv: string[]): {
     screenGroundingThinking,
     screenFilterModel,
     screenFilterConcurrency,
+    seedPdfPath,
     rerankModel,
     rerankTopN,
     targetSize,
@@ -612,6 +623,9 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         ...(args.familyConcurrency != null
           ? { familyConcurrency: args.familyConcurrency }
           : {}),
+        ...(args.seedPdfPath != null
+          ? { seedPdfPath: args.seedPdfPath }
+          : {}),
       });
 
   const citingYearRange: CitingYearRange | undefined =
@@ -781,7 +795,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         forceRefresh: runConfig.forceRefresh,
       });
 
-      const paperAdapters = buildPaperAdapters({
+      const basePaperAdapters = buildPaperAdapters({
         resolverConfig: {
           openAlexBaseUrl: config.providerBaseUrls.openAlex,
           semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
@@ -795,6 +809,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         cache: { db: database, cachePolicy },
         ...(citingYearRange != null ? { citingYearRange } : {}),
       });
+      const paperAdapters = runConfig.seedPdfPath
+        ? {
+            ...basePaperAdapters,
+            materializeParsedPaper: () =>
+              materializeLocalPdf(runConfig.seedPdfPath!, fullTextAdapters),
+          }
+        : basePaperAdapters;
 
       const discoveryStage = await runDiscoveryStage(
         {
@@ -970,12 +991,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             ),
           seedClaimGrounding: {
             materializeSeedPaper: (paper) =>
-              materializeParsedPaper(
-                paper,
-                config.providerBaseUrls.bioRxiv,
-                fullTextAdapters,
-                { db: database, cachePolicy },
-              ),
+              runConfig.seedPdfPath
+                ? materializeLocalPdf(runConfig.seedPdfPath, fullTextAdapters)
+                : materializeParsedPaper(
+                    paper,
+                    config.providerBaseUrls.bioRxiv,
+                    fullTextAdapters,
+                    { db: database, cachePolicy },
+                  ),
           },
         };
 
@@ -1349,30 +1372,46 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             "Resolving cited paper and retrieving evidence...",
           );
           trackStageStart("evidence", fi, evidenceReporter.logPath);
+          const patchAvailability = async (
+            result: Result<ResolvedPaper>,
+          ): Promise<Result<ResolvedPaper>> => {
+            if (result.ok && runConfig.seedPdfPath) {
+              result.data.fullTextHints.providerAvailability = "available";
+            }
+            return result;
+          };
           const citedPaperMaterialized = await resolveCitedPaperSource(
             classification,
             {
-              resolveByDoi: (doi) =>
-                resolvePaperByDoi(doi, {
-                  openAlexBaseUrl: config.providerBaseUrls.openAlex,
-                  semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-                  openAlexEmail: config.openAlexEmail,
-                  semanticScholarApiKey: config.semanticScholarApiKey,
-                }),
-              resolveByMetadata: (locator) =>
-                resolvePaperByMetadata(locator, {
-                  openAlexBaseUrl: config.providerBaseUrls.openAlex,
-                  semanticScholarBaseUrl: config.providerBaseUrls.semanticScholar,
-                  openAlexEmail: config.openAlexEmail,
-                  semanticScholarApiKey: config.semanticScholarApiKey,
-                }),
-              materializeParsedPaper: (paper) =>
-                materializeParsedPaper(
-                  paper,
-                  config.providerBaseUrls.bioRxiv,
-                  fullTextAdapters,
-                  { db: database, cachePolicy },
+              resolveByDoi: async (doi) =>
+                patchAvailability(
+                  await resolvePaperByDoi(doi, {
+                    openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                    semanticScholarBaseUrl:
+                      config.providerBaseUrls.semanticScholar,
+                    openAlexEmail: config.openAlexEmail,
+                    semanticScholarApiKey: config.semanticScholarApiKey,
+                  }),
                 ),
+              resolveByMetadata: async (locator) =>
+                patchAvailability(
+                  await resolvePaperByMetadata(locator, {
+                    openAlexBaseUrl: config.providerBaseUrls.openAlex,
+                    semanticScholarBaseUrl:
+                      config.providerBaseUrls.semanticScholar,
+                    openAlexEmail: config.openAlexEmail,
+                    semanticScholarApiKey: config.semanticScholarApiKey,
+                  }),
+                ),
+              materializeParsedPaper: (paper) =>
+                runConfig.seedPdfPath
+                  ? materializeLocalPdf(runConfig.seedPdfPath, fullTextAdapters)
+                  : materializeParsedPaper(
+                      paper,
+                      config.providerBaseUrls.bioRxiv,
+                      fullTextAdapters,
+                      { db: database, cachePolicy },
+                    ),
             },
             evidenceReporter.onProgress,
           );

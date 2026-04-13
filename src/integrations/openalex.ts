@@ -385,10 +385,10 @@ export async function getCitingWorks(
 ): Promise<Result<ResolvedPaper[]>> {
   let filter = `cites:${openAlexId}`;
   if (yearRange?.fromYear != null) {
-    filter += `,publication_year:>=${String(yearRange.fromYear)}`;
+    filter += `,publication_year:>${String(yearRange.fromYear - 1)}`;
   }
   if (yearRange?.toYear != null) {
-    filter += `,publication_year:<=${String(yearRange.toYear)}`;
+    filter += `,publication_year:<${String(yearRange.toYear + 1)}`;
   }
   const url = appendEmail(
     `${baseUrl}/works?filter=${filter}&per_page=${String(limit)}`,

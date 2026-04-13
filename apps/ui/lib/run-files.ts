@@ -41,6 +41,10 @@ export function getStageDirectory(runId: string, stageKey: StageKey): string {
   return resolve(getRunRoot(runId), getStageDefinition(stageKey).directoryName);
 }
 
+export function getSeedPdfPath(runId: string): string {
+  return resolve(getRunRoot(runId), "inputs", "seed.pdf");
+}
+
 export function getStageLogPath(runId: string, stageKey: StageKey): string {
   return resolve(
     getRunRoot(runId),
