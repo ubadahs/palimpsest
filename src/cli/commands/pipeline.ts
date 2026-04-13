@@ -48,7 +48,7 @@ import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
 import { sampleCalibrationSet } from "../../adjudication/sample-calibration.js";
 import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
-import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { createFullTextAdapters } from "../paper-adapters.js";
 import {
   materializeParsedPaper,
   materializeLocalPdf,
@@ -644,10 +644,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     const cachePolicy: CachePolicy = runConfig.forceRefresh
       ? "force_refresh"
       : "prefer_cache";
-    const fullTextAdapters = createDefaultAdapters(
-      config.providerBaseUrls.grobid,
-      config.openAlexEmail,
-    );
+    const fullTextAdapters = createFullTextAdapters(config);
 
     // --- Output directory: data/runs/{runId}/ --------------------------------
     const outputDir = existingRun

@@ -10,7 +10,7 @@ import {
 } from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
-import { createDefaultAdapters } from "../../retrieval/fulltext-fetch.js";
+import { createFullTextAdapters } from "../paper-adapters.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { writeExtractionArtifacts } from "../stage-artifact-writers.js";
 import { openDatabase } from "../../storage/database.js";
@@ -114,10 +114,7 @@ export async function runExtractCommand(argv: string[]): Promise<void> {
       ? "force_refresh"
       : "prefer_cache";
     const adapters = {
-      fullText: createDefaultAdapters(
-        config.providerBaseUrls.grobid,
-        config.openAlexEmail,
-      ),
+      fullText: createFullTextAdapters(config),
       biorxivBaseUrl: config.providerBaseUrls.bioRxiv,
       cache: {
         db: database,

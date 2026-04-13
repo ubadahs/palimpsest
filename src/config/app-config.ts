@@ -15,6 +15,8 @@ export type AppConfig = {
   openAlexEmail: string | undefined;
   semanticScholarApiKey: string | undefined;
   anthropicApiKey: string | undefined;
+  /** EZproxy or similar institutional proxy prefix URL, e.g. "https://libproxy.mit.edu/login?url=" */
+  institutionalProxyUrl: string | undefined;
 };
 
 export function createAppConfig(
@@ -34,5 +36,6 @@ export function createAppConfig(
     openAlexEmail: environment.OPENALEX_EMAIL,
     semanticScholarApiKey: environment.SEMANTIC_SCHOLAR_API_KEY,
     anthropicApiKey: environment.ANTHROPIC_API_KEY,
+    institutionalProxyUrl: environment.INSTITUTIONAL_PROXY_URL,
   };
 }

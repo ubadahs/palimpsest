@@ -207,6 +207,7 @@ function makeTestAdapters(): ExtractionAdapters {
       processPdfWithGrobid: async () =>
         Promise.resolve({ ok: true as const, data: GROBID_TEI }),
       email: undefined,
+      institutionalProxyUrl: undefined,
     },
     biorxivBaseUrl: "https://api.biorxiv.org",
   };

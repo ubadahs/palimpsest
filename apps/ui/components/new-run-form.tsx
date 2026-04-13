@@ -106,7 +106,7 @@ const defaultState: FormState = {
   adjudicate: {
     model: "claude-opus-4-6",
     thinking: true,
-    advisor: false,
+    advisor: true,
     firstPassModel: "claude-sonnet-4-6",
   },
 
