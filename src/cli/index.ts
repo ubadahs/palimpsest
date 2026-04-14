@@ -25,8 +25,8 @@ Available commands:
   extract       Extract citation contexts for a single claim family
   classify      Classify citation functions and build edge evaluation packets
   evidence      Retrieve evidence from cited paper for evaluation tasks
-  curate        Build a balanced calibration sample from evidence-backed tasks
-  adjudicate    Run LLM adjudication against calibration set
+  curate        Build a balanced audit sample from evidence-backed tasks
+  adjudicate    Run LLM adjudication against audit sample
   benchmark:blind Create a blinded benchmark export from an adjudicated set
   benchmark:diff  Compare two adjudication datasets keyed by taskId
   benchmark:apply Apply approved adjudication deltas to a base dataset

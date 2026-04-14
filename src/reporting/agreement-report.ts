@@ -1,7 +1,7 @@
 import type {
   AdjudicationRecord,
   AdjudicationVerdict,
-  CalibrationSet,
+  AuditSample,
   EvaluationMode,
 } from "../domain/types.js";
 import { truncate } from "./report-utils.js";
@@ -19,8 +19,8 @@ function formatPercent(n: number, d: number): string {
 }
 
 export function toAgreementMarkdown(
-  human: CalibrationSet,
-  llm: CalibrationSet,
+  human: AuditSample,
+  llm: AuditSample,
 ): string {
   const pairs: Pair[] = [];
 

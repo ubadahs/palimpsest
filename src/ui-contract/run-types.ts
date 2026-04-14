@@ -62,7 +62,7 @@ export const analysisRunConfigObjectSchema = z
     discoverRank: z.boolean().default(true),
     discoverModel: z.string().min(1).default("claude-haiku-4-5"),
     discoverThinking: z.boolean().default(false),
-    discoverProbeBudget: z.number().int().positive().default(20),
+    discoverProbeBudget: z.number().int().positive().default(100),
     discoverShortlistCap: z.number().int().positive().default(5),
     /** Only fetch citing papers published in or after this year. */
     discoverFromYear: z.number().int().positive().optional(),
@@ -74,7 +74,7 @@ export const analysisRunConfigObjectSchema = z
     screenFilterConcurrency: z.number().int().positive().default(10),
     evidenceRerankModel: z.string().min(1).default("claude-haiku-4-5"),
     evidenceRerankTopN: z.number().int().positive().default(5),
-    familyConcurrency: z.number().int().positive().default(3),
+    familyConcurrency: z.number().int().positive().default(5),
     /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
     seedPdfPath: z.string().min(1).optional(),
   })

@@ -14,7 +14,7 @@ Current verdicts are:
 
 These verdicts are the canonical machine outputs for:
 
-- calibration worksheets
+- audit sample worksheets
 - LLM adjudication runs
 - agreement reports
 - benchmark blind/diff/summary/apply workflows
@@ -53,7 +53,7 @@ The current pipeline is optimized for reviewable adjudication packets:
 - retrieval quality
 - concise rationale
 
-That workflow benefits from support-style verdicts during calibration and benchmark comparison. Converting those outputs into PRD-style `F/D/E/U` labels remains a documentation and interpretation layer, not a persisted product contract in this pass.
+That workflow benefits from support-style verdicts during audit sampling and benchmark comparison. Converting those outputs into PRD-style `F/D/E/U` labels remains a documentation and interpretation layer, not a persisted product contract in this pass.
 
 ## Non-Goal Of This Cleanup
 

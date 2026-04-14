@@ -29,7 +29,7 @@ const stageDescriptions: Record<StageKey, string> = {
   classify: "Classifies citation function and builds evaluation packets.",
   evidence:
     "Retrieves evidence spans from cited papers to compare against citations.",
-  curate: "Selects a calibration sample for human review.",
+  curate: "Selects an audit sample for human review.",
   adjudicate: "Runs LLM adjudication to produce fidelity verdicts.",
 };
 

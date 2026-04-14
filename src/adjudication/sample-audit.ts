@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   AdjudicationRecord,
-  CalibrationSet,
+  AuditSample,
   EvaluationMode,
   FamilyEvidenceResult,
   TaskWithEvidence,
@@ -166,11 +166,11 @@ function taskToRecord(
   };
 }
 
-export function sampleCalibrationSet(
+export function sampleAuditSet(
   evidence: FamilyEvidenceResult,
   targets?: SamplingTarget,
   totalTarget: number = DEFAULT_TOTAL,
-): CalibrationSet {
+): AuditSample {
   const allTasks: ScoredTask[] = [];
 
   for (const edge of evidence.edges) {

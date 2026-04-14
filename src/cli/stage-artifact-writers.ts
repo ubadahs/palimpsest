@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { basename } from "node:path";
 
 import type {
-  CalibrationSet,
+  AuditSample,
   ClaimDiscoveryResult,
   ClaimFamilyPreScreen,
   FamilyClassificationResult,
@@ -11,16 +11,15 @@ import type {
   PreScreenGroundingTraceFile,
 } from "../domain/types.js";
 import type { AttributionDiscoveryResult } from "../pipeline/discovery-family-probe.js";
-import type { FamilyConsolidationResult } from "../pipeline/family-consolidation.js";
 import {
   toAttributionDiscoveryMarkdown,
   toDiscoveryMarkdown,
 } from "../reporting/discovery-report.js";
 import {
-  toCalibrationJson,
-  toCalibrationMarkdown,
+  toAuditSampleJson,
+  toAuditSampleMarkdown,
 } from "../reporting/adjudication-report.js";
-import { toCalibrationSummaryMarkdown } from "../reporting/calibration-summary.js";
+import { toAuditSampleSummaryMarkdown } from "../reporting/audit-sample-summary.js";
 import {
   toClassificationJson,
   toClassificationMarkdown,
@@ -265,6 +264,14 @@ export function writeAttributionDiscoveryArtifacts(options: {
     options.results.flatMap((r) => r.groundingTraces),
   );
 
+  const consolidations = options.results
+    .map((r) => r.consolidation)
+    .filter((c): c is NonNullable<typeof c> => c != null);
+  const consolidationSidecar =
+    consolidations.length > 0
+      ? write("_family-consolidation.json", consolidations)
+      : undefined;
+
   const sidecarPaths = [
     shortlist.path,
     neighborhoods.path,
@@ -273,6 +280,7 @@ export function writeAttributionDiscoveryArtifacts(options: {
     extractions.path,
     families.path,
     groundingTrace.path,
+    ...(consolidationSidecar ? [consolidationSidecar.path] : []),
   ];
 
   // Primary JSON: compact summary (not the full trace)
@@ -322,22 +330,6 @@ export function writeAttributionDiscoveryArtifacts(options: {
     shortlistPath: shortlist.path,
     manifestPath: primary.manifestPath,
   };
-}
-
-export function writeConsolidationArtifact(options: {
-  outputRoot: string;
-  stamp: string;
-  consolidation: FamilyConsolidationResult;
-}): { path: string } {
-  const result = writeSidecarArtifact({
-    outputRoot: options.outputRoot,
-    stageKey: "discover",
-    stamp: options.stamp,
-    suffix: "_family-consolidation.json",
-    content: options.consolidation,
-    format: "json",
-  });
-  return { path: result.path };
 }
 
 export function writeScreenArtifacts(options: {
@@ -508,10 +500,10 @@ export function writeEvidenceArtifacts(options: {
   };
 }
 
-export function writeCalibrationSetArtifacts(options: {
+export function writeAuditSampleArtifacts(options: {
   outputRoot: string;
   stamp: string;
-  result: CalibrationSet;
+  result: AuditSample;
   sourceArtifacts: string[];
   familyIndex?: number;
 }): {
@@ -526,10 +518,10 @@ export function writeCalibrationSetArtifacts(options: {
     ...(options.familyIndex != null
       ? { familyIndex: options.familyIndex }
       : {}),
-    primaryContent: toCalibrationJson(options.result),
+    primaryContent: toAuditSampleJson(options.result),
     primaryFormat: "json-string",
-    reportContent: toCalibrationMarkdown(options.result),
-    artifactType: "calibration-set",
+    reportContent: toAuditSampleMarkdown(options.result),
+    artifactType: "audit-sample",
     generator: "curate",
     sourceArtifacts: options.sourceArtifacts,
   });
@@ -544,7 +536,7 @@ export function writeCalibrationSetArtifacts(options: {
 export function writeAdjudicationArtifacts(options: {
   outputRoot: string;
   stamp: string;
-  result: CalibrationSet;
+  result: AuditSample;
   sourceArtifacts: string[];
   model: string;
   familyIndex?: number;
@@ -577,10 +569,10 @@ export function writeAdjudicationArtifacts(options: {
     ...(options.familyIndex != null
       ? { familyIndex: options.familyIndex }
       : {}),
-    primaryContent: toCalibrationJson(options.result),
+    primaryContent: toAuditSampleJson(options.result),
     primaryFormat: "json-string",
-    reportContent: toCalibrationSummaryMarkdown(options.result),
-    artifactType: "llm-calibration",
+    reportContent: toAuditSampleSummaryMarkdown(options.result),
+    artifactType: "llm-audit-sample",
     generator: "adjudicate",
     sourceArtifacts: options.sourceArtifacts,
     relatedArtifacts: agreement ? [agreement.path] : [],

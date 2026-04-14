@@ -156,10 +156,10 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
               Citations needing attention
             </p>
             <div className="space-y-2">
-              {flagged.slice(0, 5).map((record) => (
+              {flagged.slice(0, 5).map((record, i) => (
                 <div
                   className="rounded-[20px] border border-[rgba(154,64,54,0.15)] bg-[rgba(154,64,54,0.04)] p-4"
-                  key={record.taskId}
+                  key={record.recordId ?? `${record.taskId}-${String(i)}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>

@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { calibrationSetSchema } from "../../domain/types.js";
-import { createBlindCalibrationSet } from "../../benchmark/workflow.js";
+import { auditSampleSchema } from "../../domain/types.js";
+import { createBlindAuditSample } from "../../benchmark/workflow.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
@@ -26,7 +26,7 @@ function parseArgs(argv: string[]): { input: string; output: string } {
 
   if (!input) {
     console.error(
-      "Usage: benchmark:blind --input <calibration.json> [--output <dir>]",
+      "Usage: benchmark:blind --input <audit-sample.json> [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
@@ -39,12 +39,12 @@ export function runBenchmarkBlindCommand(argv: string[]): void {
   const args = parseArgs(argv);
 
   try {
-    const calibration = loadJsonArtifact(
+    const auditSample = loadJsonArtifact(
       args.input,
-      calibrationSetSchema,
-      "calibration set",
+      auditSampleSchema,
+      "audit sample",
     );
-    const blindSet = createBlindCalibrationSet(calibration);
+    const blindSet = createBlindAuditSample(auditSample);
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });

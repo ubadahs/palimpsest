@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type {
-  CalibrationSet,
+  AuditSample,
   ClaimDiscoveryResult,
 } from "../../src/domain/types.js";
 import { artifactManifestSchema } from "../../src/shared/artifact-io.js";
@@ -94,7 +94,7 @@ describe("stage artifact writers", () => {
 
     try {
       writeFileSync(sourcePath, JSON.stringify({ ok: true }), "utf8");
-      const calibration: CalibrationSet = {
+      const auditSample: AuditSample = {
         seed: { doi: "10.1234/seed", trackedClaim: "Tracked claim" },
         resolvedSeedPaperTitle: "Seed Paper",
         studyMode: "all_functions_census",
@@ -111,14 +111,14 @@ describe("stage artifact writers", () => {
       const artifacts = writeAdjudicationArtifacts({
         outputRoot: dir,
         stamp: "2026-04-07_002",
-        result: calibration,
+        result: auditSample,
         sourceArtifacts: [sourcePath],
         model: "claude-opus-4-6",
         agreementMarkdown: "# Agreement\n\nLooks good.",
       });
 
       expect(artifacts.jsonPath).toBe(
-        `${dir}/06-adjudicate/2026-04-07_002_llm-calibration.json`,
+        `${dir}/06-adjudicate/2026-04-07_002_llm-audit-sample.json`,
       );
       expect(artifacts.summaryPath).toBe(
         `${dir}/06-adjudicate/2026-04-07_002_llm-summary.md`,

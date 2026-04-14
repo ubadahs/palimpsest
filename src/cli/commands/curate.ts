@@ -2,10 +2,10 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { familyEvidenceResultSchema } from "../../domain/types.js";
-import { sampleCalibrationSet } from "../../adjudication/sample-calibration.js";
+import { sampleAuditSet } from "../../adjudication/sample-audit.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
-import { writeCalibrationSetArtifacts } from "../stage-artifact-writers.js";
+import { writeAuditSampleArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
@@ -50,7 +50,7 @@ export function runCurateCommand(argv: string[]): void {
   try {
     progress.startStep("collect_eligible_tasks", {
       detail:
-        "Loading evidence-backed tasks eligible for calibration sampling.",
+        "Loading evidence-backed tasks eligible for audit sampling.",
     });
     const evidence = loadJsonArtifact(
       args.evidencePath,
@@ -74,47 +74,47 @@ export function runCurateCommand(argv: string[]): void {
     console.info(`  Target size: ${String(args.targetSize)}`);
 
     progress.startStep("prioritize_edge_cases", {
-      detail: "Prioritizing oversampled edge cases for calibration.",
+      detail: "Prioritizing oversampled edge cases for audit sampling.",
     });
     progress.startStep("allocate_mode_balanced_sample", {
       detail: "Allocating a balanced sample across evaluation modes.",
     });
-    const calibrationSet = sampleCalibrationSet(
+    const auditSample = sampleAuditSet(
       evidence,
       undefined,
       args.targetSize,
     );
     progress.completeStep("prioritize_edge_cases", {
       detail:
-        calibrationSet.samplingStrategy.oversampled.length > 0
-          ? `Oversampled ${calibrationSet.samplingStrategy.oversampled.join(", ")}`
+        auditSample.samplingStrategy.oversampled.length > 0
+          ? `Oversampled ${auditSample.samplingStrategy.oversampled.join(", ")}`
           : "No extra oversampling tags were needed",
     });
     progress.completeStep("allocate_mode_balanced_sample", {
-      detail: `${String(calibrationSet.records.length)} records selected toward a target of ${String(args.targetSize)}`,
+      detail: `${String(auditSample.records.length)} records selected toward a target of ${String(args.targetSize)}`,
     });
-    progress.startStep("build_calibration_records", {
-      detail: "Building calibration-ready records from sampled tasks.",
+    progress.startStep("build_audit_records", {
+      detail: "Building audit-ready records from sampled tasks.",
     });
-    progress.completeStep("build_calibration_records", {
-      detail: `${String(calibrationSet.records.length)} calibration records prepared`,
+    progress.completeStep("build_audit_records", {
+      detail: `${String(auditSample.records.length)} audit records prepared`,
     });
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });
 
     const stamp = nextRunStamp(outputDir);
-    const { jsonPath, mdPath, manifestPath } = writeCalibrationSetArtifacts({
+    const { jsonPath, mdPath, manifestPath } = writeAuditSampleArtifacts({
       outputRoot: outputDir,
       stamp,
-      result: calibrationSet,
+      result: auditSample,
       sourceArtifacts: [args.evidencePath],
     });
     progress.startStep("write_sampling_outputs", {
-      detail: "Writing the calibration set and worksheet artifacts.",
+      detail: "Writing the audit sample and worksheet artifacts.",
     });
     progress.completeStep("write_sampling_outputs", {
-      detail: "Calibration set, worksheet, and manifest written.",
+      detail: "Audit sample, worksheet, and manifest written.",
     });
 
     console.info(`\nResults written to:`);
@@ -123,19 +123,19 @@ export function runCurateCommand(argv: string[]): void {
     console.info(`  Manifest: ${manifestPath}`);
 
     const byMode = new Map<string, number>();
-    for (const r of calibrationSet.records) {
+    for (const r of auditSample.records) {
       const count = byMode.get(r.evaluationMode) ?? 0;
       byMode.set(r.evaluationMode, count + 1);
     }
 
-    console.info(`\n${String(calibrationSet.records.length)} tasks sampled:`);
+    console.info(`\n${String(auditSample.records.length)} tasks sampled:`);
     for (const [mode, count] of byMode) {
       console.info(`  ${mode}: ${String(count)}`);
     }
 
-    if (calibrationSet.samplingStrategy.oversampled.length > 0) {
+    if (auditSample.samplingStrategy.oversampled.length > 0) {
       console.info(
-        `  Oversampled: ${calibrationSet.samplingStrategy.oversampled.join(", ")}`,
+        `  Oversampled: ${auditSample.samplingStrategy.oversampled.join(", ")}`,
       );
     }
   } catch (error) {

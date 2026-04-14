@@ -322,23 +322,23 @@ const workflowDefinitions = [
   {
     stageKey: "curate",
     title: "Current work",
-    pendingSummary: "Calibration sampling has not started yet.",
+    pendingSummary: "Audit sampling has not started yet.",
     completedSummary:
-      "The calibration set and worksheet are ready for inspection.",
+      "The audit sample and worksheet are ready for inspection.",
     failedSummary:
-      "Calibration sampling stopped before the worksheet was finalized.",
+      "Audit sampling stopped before the worksheet was finalized.",
     steps: [
       {
         id: "collect_eligible_tasks",
         label: "Collect eligible tasks",
         description:
-          "Gather the task pool that has enough evidence to be considered for calibration sampling.",
+          "Gather the task pool that has enough evidence to be considered for audit sampling.",
       },
       {
         id: "prioritize_edge_cases",
         label: "Prioritize edge cases",
         description:
-          "Surface bundled, review-mediated, and ambiguous cases that deserve extra attention in calibration.",
+          "Surface bundled, review-mediated, and ambiguous cases that deserve extra attention in the audit sample.",
       },
       {
         id: "allocate_mode_balanced_sample",
@@ -347,8 +347,8 @@ const workflowDefinitions = [
           "Select a sample that covers the main evaluation modes instead of over-indexing on only one type of task.",
       },
       {
-        id: "build_calibration_records",
-        label: "Build calibration records",
+        id: "build_audit_records",
+        label: "Build audit records",
         description:
           "Convert the sampled tasks into adjudication-ready records with the citing context and retrieved evidence.",
       },
@@ -356,7 +356,7 @@ const workflowDefinitions = [
         id: "write_sampling_outputs",
         label: "Write worksheet and sampling summary",
         description:
-          "Write the calibration artifacts that the UI and CLI use for inspection.",
+          "Write the audit sample artifacts that the UI and CLI use for inspection.",
       },
     ],
   },
@@ -370,7 +370,7 @@ const workflowDefinitions = [
     steps: [
       {
         id: "load_active_records",
-        label: "Load active calibration records",
+        label: "Load active audit records",
         description:
           "Read the adjudication records that are in scope for model judging and exclude any records already filtered out.",
       },
@@ -384,7 +384,7 @@ const workflowDefinitions = [
         id: "capture_verdicts_and_rationales",
         label: "Capture verdicts and rationales",
         description:
-          "Persist the model’s outputs into the calibration dataset so each record becomes inspectable in the UI.",
+          "Persist the model’s outputs into the audit sample dataset so each record becomes inspectable in the UI.",
       },
       {
         id: "summarize_verdict_distribution",

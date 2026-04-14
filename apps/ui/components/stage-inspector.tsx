@@ -438,7 +438,7 @@ function CurateInspector({ payload }: { payload: CurateInspectorPayload | undefi
         column.accessor("evidenceCount", { header: "Evidence" }),
       ]}
       data={rows}
-      searchPlaceholder="Filter calibration records"
+      searchPlaceholder="Filter audit records"
     />
   );
 }

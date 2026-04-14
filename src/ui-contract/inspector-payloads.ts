@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { ClaimDiscoveryResult } from "../domain/discovery.js";
 import type {
-  CalibrationSet,
+  AuditSample,
   ClaimFamilyPreScreen,
   FamilyClassificationResult,
   FamilyEvidenceResult,
@@ -236,7 +236,7 @@ export type EvidenceInspectorPayload = ReturnType<
   typeof buildEvidenceInspectorPayload
 >;
 
-export function buildCurateInspectorPayload(data: CalibrationSet) {
+export function buildCurateInspectorPayload(data: AuditSample) {
   return {
     seed: data.seed,
     summary: data.samplingStrategy,
@@ -258,23 +258,23 @@ export type CurateInspectorPayload = ReturnType<
   typeof buildCurateInspectorPayload
 >;
 
-export function buildAdjudicateInspectorPayload(data: CalibrationSet) {
+export function buildAdjudicateInspectorPayload(data: AuditSample) {
   const partiallySupported = data.records.filter(
     (record) => record.verdict === "partially_supported",
   );
 
   // Advisor passthrough fields are present at runtime when adjudicateAdvisor
-  // was enabled. They survive serialization via CalibrationSet's .passthrough().
+  // was enabled. They survive serialization via AuditSample's .passthrough().
   const raw = data as Record<string, unknown>;
   const advisorInfo =
     typeof raw["escalationCount"] === "number"
       ? {
           escalationCount: raw["escalationCount"],
           firstPassTelemetry: raw["firstPassTelemetry"] as
-            | CalibrationSet["runTelemetry"]
+            | AuditSample["runTelemetry"]
             | undefined,
           escalationTelemetry: raw["escalationTelemetry"] as
-            | CalibrationSet["runTelemetry"]
+            | AuditSample["runTelemetry"]
             | undefined,
         }
       : undefined;
@@ -329,8 +329,8 @@ export type StageArtifactMap = {
   extract: FamilyExtractionResult;
   classify: FamilyClassificationResult;
   evidence: FamilyEvidenceResult;
-  curate: CalibrationSet;
-  adjudicate: CalibrationSet;
+  curate: AuditSample;
+  adjudicate: AuditSample;
 };
 
 export type StageInspectorPayloadMap = {
