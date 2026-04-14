@@ -204,7 +204,9 @@ describe("runPreScreen", () => {
 
     expect(groundingTrace.artifactKind).toBe("pre-screen-grounding-trace");
     const key = normalizeSeedDoiForTraceKey("10.1234/seed-1");
-    const entry = groundingTrace.records.find((record) => record.seedDoiKey === key);
+    const entry = groundingTrace.records.find(
+      (record) => record.seedDoiKey === key,
+    );
     expect(entry?.record.finalClaimGrounding.status).toBe("grounded");
     expect(entry?.record.llmCall?.manuscriptSha256).toHaveLength(64);
   });

@@ -21,7 +21,7 @@ import {
 import { pMap } from "../shared/p-map.js";
 
 /** Bump when the adjudication prompt template or verdict schema changes. */
-const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v7";
+const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v8";
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned
@@ -130,7 +130,9 @@ Sentences wrapped in ▶ ... ◀ are the ones that directly cite the paper under
 
 ## Citation scope
 
-Only evaluate claims within the ▶ ... ◀ marked sentences. Unmarked sentences reference different papers — they help you understand the paragraph's topic but are NOT attributed to the cited paper. If no ▶ ... ◀ markers appear, the entire context is attributed to the cited paper.
+- If ▶ ... ◀ markers are present: only evaluate claims within the marked sentences. Unmarked sentences reference different papers — they provide context but are NOT attributed to the cited paper.
+- If no ▶ ... ◀ markers appear AND the citation marker "${record.citingMarker}" is visible in the text: the entire context is attributed to the cited paper.
+- If no ▶ ... ◀ markers appear AND the citation marker is NOT visible in the text: the context window may not contain the attributed sentence. Default to cannot_determine.
 
 ## Evidence from cited paper
 

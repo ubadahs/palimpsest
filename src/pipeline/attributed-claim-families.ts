@@ -117,7 +117,9 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-function canonicalComparisonText(family: AttributedClaimFamilyCandidate): string {
+function canonicalComparisonText(
+  family: AttributedClaimFamilyCandidate,
+): string {
   return family.seedGrounding.normalizedClaim ?? family.canonicalTrackedClaim;
 }
 
@@ -178,9 +180,9 @@ function shouldMergeNearDuplicate(
   const leftTokens = new Set(tokenize(leftText));
   const rightTokens = new Set(tokenize(rightText));
   const differingTokens = new Set(
-    [...leftTokens].filter((token) => !rightTokens.has(token)).concat(
-      [...rightTokens].filter((token) => !leftTokens.has(token)),
-    ),
+    [...leftTokens]
+      .filter((token) => !rightTokens.has(token))
+      .concat([...rightTokens].filter((token) => !leftTokens.has(token))),
   );
   for (const token of differingTokens) {
     if (SEMANTIC_OPERATOR_TOKENS.has(token)) {
@@ -188,7 +190,9 @@ function shouldMergeNearDuplicate(
     }
   }
 
-  const leftSupport = normalizeClaimText(left.seedGrounding.supportSpanText ?? "");
+  const leftSupport = normalizeClaimText(
+    left.seedGrounding.supportSpanText ?? "",
+  );
   const rightSupport = normalizeClaimText(
     right.seedGrounding.supportSpanText ?? "",
   );
@@ -378,8 +382,7 @@ function mergeFamilies(
             ? "canonical_exact"
             : "canonical_near_duplicate",
       dedupeGroupId: groupId,
-      dedupeStrategy:
-        mergedFamilyIds.length === 0 ? "none" : strategy,
+      dedupeStrategy: mergedFamilyIds.length === 0 ? "none" : strategy,
       mergedFamilyIds,
       mergedCanonicalClaims,
     },
@@ -393,7 +396,9 @@ export function dedupeAttributedClaimFamilies(
     return families;
   }
 
-  const sorted = [...families].sort((a, b) => a.familyId.localeCompare(b.familyId));
+  const sorted = [...families].sort((a, b) =>
+    a.familyId.localeCompare(b.familyId),
+  );
   const consumed = new Set<string>();
   const deduped: AttributedClaimFamilyCandidate[] = [];
 
@@ -411,12 +416,15 @@ export function dedupeAttributedClaimFamilies(
       if (candidate.doi !== family.doi) {
         return false;
       }
-      const candTrackedNorm = normalizeClaimText(candidate.canonicalTrackedClaim);
+      const candTrackedNorm = normalizeClaimText(
+        candidate.canonicalTrackedClaim,
+      );
       const candCanonNorm = normalizeClaimText(
         canonicalComparisonText(candidate),
       );
       return (
-        candTrackedNorm === familyTrackedNorm || candCanonNorm === familyCanonNorm
+        candTrackedNorm === familyTrackedNorm ||
+        candCanonNorm === familyCanonNorm
       );
     });
 
@@ -449,7 +457,11 @@ export function dedupeAttributedClaimFamilies(
     }
 
     deduped.push(
-      mergeFamilies(`dedupe-${group[0]!.doi}-${group[0]!.familyId}`, strategy, group),
+      mergeFamilies(
+        `dedupe-${group[0]!.doi}-${group[0]!.familyId}`,
+        strategy,
+        group,
+      ),
     );
   }
 

@@ -3,7 +3,9 @@ import type { EnvironmentHealthSummary } from "palimpsest/ui-contract/server";
 import { Badge } from "@/components/ui/badge";
 import { pathRelativeToWorkspace } from "@/lib/path-display";
 
-function healthCheckBadgeVariant(status: string): "success" | "failed" | "warning" {
+function healthCheckBadgeVariant(
+  status: string,
+): "success" | "failed" | "warning" {
   if (status === "ok") {
     return "success";
   }
@@ -90,7 +92,9 @@ export function HealthChecksGrid({ checks }: { checks: HealthCheckRow[] }) {
               {check.status}
             </Badge>
           </div>
-          <p className="mt-3 text-sm text-[var(--text-muted)]">{check.detail}</p>
+          <p className="mt-3 text-sm text-[var(--text-muted)]">
+            {check.detail}
+          </p>
           <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
             {check.blocking ? "blocking" : "optional"}
           </p>

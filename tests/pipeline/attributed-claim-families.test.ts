@@ -99,18 +99,13 @@ describe("dedupeAttributedClaimFamilies", () => {
     const deduped = dedupeAttributedClaimFamilies(families);
 
     expect(deduped).toHaveLength(1);
-    expect(deduped[0]?.dedupe.dedupeStatus).toBe(
-      "canonical_near_duplicate",
-    );
+    expect(deduped[0]?.dedupe.dedupeStatus).toBe("canonical_near_duplicate");
   });
 
   it("does not merge similar but distinct grounded claims", () => {
     const deduped = dedupeAttributedClaimFamilies([
       makeFamily("fam-a", "The seed paper showed that Rab35 is required."),
-      makeFamily(
-        "fam-b",
-        "The seed paper showed that Rab35 is sufficient.",
-      ),
+      makeFamily("fam-b", "The seed paper showed that Rab35 is sufficient."),
     ]);
 
     expect(deduped).toHaveLength(2);
@@ -124,7 +119,8 @@ describe("dedupeAttributedClaimFamilies", () => {
         memberCitingPaperIds: ["https://openalex.org/W1"],
         seedGrounding: {
           status: "grounded",
-          normalizedClaim: "Calbindin and parvalbumin label distinct populations A.",
+          normalizedClaim:
+            "Calbindin and parvalbumin label distinct populations A.",
           supportSpanText: "span a",
           groundingDetail: "g",
         },
@@ -133,7 +129,8 @@ describe("dedupeAttributedClaimFamilies", () => {
         memberCitingPaperIds: ["https://openalex.org/W2"],
         seedGrounding: {
           status: "grounded",
-          normalizedClaim: "Calbindin and parvalbumin label distinct populations B.",
+          normalizedClaim:
+            "Calbindin and parvalbumin label distinct populations B.",
           supportSpanText: "span b",
           groundingDetail: "g",
         },

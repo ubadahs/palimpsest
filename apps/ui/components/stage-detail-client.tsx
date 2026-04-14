@@ -136,8 +136,8 @@ export function StageDetailClient({
     group.stageKey === "screen" &&
     group.aggregateStatus === "succeeded" &&
     detail.stageKey === "screen" &&
-    detail.inspectorPayload?.families?.some((family) =>
-      family.decision === "deprioritize",
+    detail.inspectorPayload?.families?.some(
+      (family) => family.decision === "deprioritize",
     );
 
   return (
@@ -171,8 +171,14 @@ export function StageDetailClient({
                 ? getDiscoverDescription(detail.inspectorPayload)
                 : stageDescriptions[group.stageKey]}
             </p>
-            <p className="text-xs text-[var(--text-muted)]" suppressHydrationWarning>
-              <DoiLink doi={run.seedDoi} className="text-[var(--text-muted)] hover:text-[var(--accent)] hover:underline" />
+            <p
+              className="text-xs text-[var(--text-muted)]"
+              suppressHydrationWarning
+            >
+              <DoiLink
+                doi={run.seedDoi}
+                className="text-[var(--text-muted)] hover:text-[var(--accent)] hover:underline"
+              />
               {" · "}
               {formatTime(detail.startedAt)} → {formatTime(detail.finishedAt)}
               {detail.startedAt && detail.finishedAt ? (
@@ -188,13 +194,19 @@ export function StageDetailClient({
                     {String(group.members.length)} claims
                   </span>
                   {group.members.map((m) => {
-                    const isFailed = ["failed", "cancelled", "interrupted"].includes(m.status);
+                    const isFailed = [
+                      "failed",
+                      "cancelled",
+                      "interrupted",
+                    ].includes(m.status);
                     return (
                       <button
                         key={m.familyIndex}
                         onClick={() => setSelectedFamilyIndex(m.familyIndex)}
                         type="button"
-                        title={extractTrackedClaim(m) ?? `Claim ${m.familyIndex + 1}`}
+                        title={
+                          extractTrackedClaim(m) ?? `Claim ${m.familyIndex + 1}`
+                        }
                         className={cn(
                           "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition",
                           m.familyIndex === selectedFamilyIndex
@@ -211,7 +223,14 @@ export function StageDetailClient({
                   })}
                   {familyHasFailures(group) ? (
                     <span className="ml-2 text-xs text-[var(--danger)]">
-                      {group.members.filter((m) => ["failed", "cancelled", "interrupted"].includes(m.status)).length} failed
+                      {
+                        group.members.filter((m) =>
+                          ["failed", "cancelled", "interrupted"].includes(
+                            m.status,
+                          ),
+                        ).length
+                      }{" "}
+                      failed
                     </span>
                   ) : null}
                 </div>

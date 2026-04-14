@@ -240,10 +240,7 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
       adjudicateAdvisor = true;
     } else if (arg === "--no-advisor") {
       adjudicateAdvisor = false;
-    } else if (
-      arg === "--advisor-first-pass-model" &&
-      i + 1 < argv.length
-    ) {
+    } else if (arg === "--advisor-first-pass-model" && i + 1 < argv.length) {
       adjudicateFirstPassModel = argv[i + 1]!;
       i++;
     }
@@ -554,7 +551,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     ];
 
     for (const stageKey of stageKeys) {
-      for (let familyIndex = 0; familyIndex < totalProcessableFamilies; familyIndex++) {
+      for (
+        let familyIndex = 0;
+        familyIndex < totalProcessableFamilies;
+        familyIndex++
+      ) {
         const stage = getRunStage(database, runId, stageKey, familyIndex);
         if (stage?.status === "not_started") {
           trackStageBlocked(stageKey, familyIndex, message);
@@ -598,23 +599,39 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   if (args.strategy != null) cliOverrides["discoverStrategy"] = args.strategy;
   if (args.topN != null) cliOverrides["discoverTopN"] = args.topN;
   if (args.noRank != null) cliOverrides["discoverRank"] = !args.noRank;
-  if (args.discoverThinking != null) cliOverrides["discoverThinking"] = args.discoverThinking;
-  if (args.probeBudget != null) cliOverrides["discoverProbeBudget"] = args.probeBudget;
-  if (args.shortlistCap != null) cliOverrides["discoverShortlistCap"] = args.shortlistCap;
-  if (args.citingYearRange?.fromYear != null) cliOverrides["discoverFromYear"] = args.citingYearRange.fromYear;
-  if (args.citingYearRange?.toYear != null) cliOverrides["discoverToYear"] = args.citingYearRange.toYear;
-  if (args.screenGroundingModel != null) cliOverrides["screenGroundingModel"] = args.screenGroundingModel;
-  if (args.screenGroundingThinking != null) cliOverrides["screenGroundingThinking"] = args.screenGroundingThinking;
-  if (args.screenFilterModel != null) cliOverrides["screenFilterModel"] = args.screenFilterModel;
-  if (args.screenFilterConcurrency != null) cliOverrides["screenFilterConcurrency"] = args.screenFilterConcurrency;
-  if (args.rerankModel != null) cliOverrides["evidenceRerankModel"] = args.rerankModel;
-  if (args.rerankTopN != null) cliOverrides["evidenceRerankTopN"] = args.rerankTopN;
-  if (args.targetSize != null) cliOverrides["curateTargetSize"] = args.targetSize;
-  if (args.adjudicateAdvisor != null) cliOverrides["adjudicateAdvisor"] = args.adjudicateAdvisor;
-  if (args.adjudicateFirstPassModel != null) cliOverrides["adjudicateFirstPassModel"] = args.adjudicateFirstPassModel;
-  if (args.familyConcurrency != null) cliOverrides["familyConcurrency"] = args.familyConcurrency;
+  if (args.discoverThinking != null)
+    cliOverrides["discoverThinking"] = args.discoverThinking;
+  if (args.probeBudget != null)
+    cliOverrides["discoverProbeBudget"] = args.probeBudget;
+  if (args.shortlistCap != null)
+    cliOverrides["discoverShortlistCap"] = args.shortlistCap;
+  if (args.citingYearRange?.fromYear != null)
+    cliOverrides["discoverFromYear"] = args.citingYearRange.fromYear;
+  if (args.citingYearRange?.toYear != null)
+    cliOverrides["discoverToYear"] = args.citingYearRange.toYear;
+  if (args.screenGroundingModel != null)
+    cliOverrides["screenGroundingModel"] = args.screenGroundingModel;
+  if (args.screenGroundingThinking != null)
+    cliOverrides["screenGroundingThinking"] = args.screenGroundingThinking;
+  if (args.screenFilterModel != null)
+    cliOverrides["screenFilterModel"] = args.screenFilterModel;
+  if (args.screenFilterConcurrency != null)
+    cliOverrides["screenFilterConcurrency"] = args.screenFilterConcurrency;
+  if (args.rerankModel != null)
+    cliOverrides["evidenceRerankModel"] = args.rerankModel;
+  if (args.rerankTopN != null)
+    cliOverrides["evidenceRerankTopN"] = args.rerankTopN;
+  if (args.targetSize != null)
+    cliOverrides["curateTargetSize"] = args.targetSize;
+  if (args.adjudicateAdvisor != null)
+    cliOverrides["adjudicateAdvisor"] = args.adjudicateAdvisor;
+  if (args.adjudicateFirstPassModel != null)
+    cliOverrides["adjudicateFirstPassModel"] = args.adjudicateFirstPassModel;
+  if (args.familyConcurrency != null)
+    cliOverrides["familyConcurrency"] = args.familyConcurrency;
   if (args.seedPdfPath != null) cliOverrides["seedPdfPath"] = args.seedPdfPath;
-  if (args.forceRefresh != null) cliOverrides["forceRefresh"] = args.forceRefresh;
+  if (args.forceRefresh != null)
+    cliOverrides["forceRefresh"] = args.forceRefresh;
 
   const runConfig = existingRun
     ? existingRun.config
@@ -936,8 +953,12 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       screenReporter.log(`Pre-screening ${String(seeds.length)} seed(s)...`);
       trackStageStart("screen", 0, screenReporter.logPath);
 
-      let screenedFamilies: Awaited<ReturnType<typeof runPreScreen>>["families"];
-      let groundingTrace: Awaited<ReturnType<typeof runPreScreen>>["groundingTrace"];
+      let screenedFamilies: Awaited<
+        ReturnType<typeof runPreScreen>
+      >["families"];
+      let groundingTrace: Awaited<
+        ReturnType<typeof runPreScreen>
+      >["groundingTrace"];
 
       if (
         runConfig.discoverStrategy === "attribution_first" &&
@@ -947,12 +968,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         // Attribution-first with fresh-run handoff: skip re-resolution, re-fetch,
         // and re-grounding. Only auditability + decision logic runs.
         screenReporter.log("Using discovery handoff (thin screen path).");
-        ({ families: screenedFamilies, groundingTrace } = await runPreScreenFromHandoff(
-          seeds,
-          discoveryHandoffs,
-          {},
-          screenReporter.onProgress,
-        ));
+        ({ families: screenedFamilies, groundingTrace } =
+          await runPreScreenFromHandoff(
+            seeds,
+            discoveryHandoffs,
+            {},
+            screenReporter.onProgress,
+          ));
       } else {
         // Legacy strategy or resume (no handoff available): full screen path.
         const preScreenAdapters: PreScreenAdapters = {
@@ -1114,7 +1136,9 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     const extractionCache = new Map<
       string,
       {
-        resolvedSeedPaper: Awaited<ReturnType<typeof runM2Extraction>>["resolvedSeedPaper"];
+        resolvedSeedPaper: Awaited<
+          ReturnType<typeof runM2Extraction>
+        >["resolvedSeedPaper"];
         edgeResults: Awaited<ReturnType<typeof runM2Extraction>>["edgeResults"];
         summary: Awaited<ReturnType<typeof runM2Extraction>>["summary"];
       }
@@ -1265,7 +1289,11 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
           // --- Classify ---
           currentStageKey = "classify";
-          const classifyReporter = createStageReporter("classify", outputDir, fi);
+          const classifyReporter = createStageReporter(
+            "classify",
+            outputDir,
+            fi,
+          );
           classifyReporter.log("Classifying citation roles...");
           trackStageStart("classify", fi, classifyReporter.logPath);
 
@@ -1356,14 +1384,18 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
           // --- Evidence ---
           currentStageKey = "evidence";
-          const evidenceReporter = createStageReporter("evidence", outputDir, fi);
+          const evidenceReporter = createStageReporter(
+            "evidence",
+            outputDir,
+            fi,
+          );
           evidenceReporter.log(
             "Resolving cited paper and retrieving evidence...",
           );
           trackStageStart("evidence", fi, evidenceReporter.logPath);
-          const patchAvailability = async (
+          const patchAvailability = (
             result: Result<ResolvedPaper>,
-          ): Promise<Result<ResolvedPaper>> => {
+          ): Result<ResolvedPaper> => {
             if (result.ok && runConfig.seedPdfPath) {
               result.data.fullTextHints.providerAvailability = "available";
             }

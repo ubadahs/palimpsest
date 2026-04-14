@@ -325,8 +325,7 @@ const workflowDefinitions = [
     pendingSummary: "Audit sampling has not started yet.",
     completedSummary:
       "The audit sample and worksheet are ready for inspection.",
-    failedSummary:
-      "Audit sampling stopped before the worksheet was finalized.",
+    failedSummary: "Audit sampling stopped before the worksheet was finalized.",
     steps: [
       {
         id: "collect_eligible_tasks",

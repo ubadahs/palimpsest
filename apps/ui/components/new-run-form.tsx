@@ -135,9 +135,7 @@ function flattenConfig(s: FormState) {
     ...(s.discover.fromYear
       ? { discoverFromYear: Number(s.discover.fromYear) }
       : {}),
-    ...(s.discover.toYear
-      ? { discoverToYear: Number(s.discover.toYear) }
-      : {}),
+    ...(s.discover.toYear ? { discoverToYear: Number(s.discover.toYear) } : {}),
     // Screen
     screenGroundingModel: s.screen.groundingModel,
     screenGroundingThinking: s.screen.groundingThinking,
@@ -163,7 +161,13 @@ function flattenConfig(s: FormState) {
 // Component
 // ---------------------------------------------------------------------------
 
-type StageGroup = "discover" | "screen" | "evidence" | "curate" | "adjudicate" | "run";
+type StageGroup =
+  | "discover"
+  | "screen"
+  | "evidence"
+  | "curate"
+  | "adjudicate"
+  | "run";
 
 export function NewRunForm() {
   const router = useRouter();
@@ -181,11 +185,10 @@ export function NewRunForm() {
     setState((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateStage<G extends StageGroup, K extends string & keyof FormState[G]>(
-    group: G,
-    key: K,
-    value: FormState[G][K],
-  ): void {
+  function updateStage<
+    G extends StageGroup,
+    K extends string & keyof FormState[G],
+  >(group: G, key: K, value: FormState[G][K]): void {
     setState((prev) => ({
       ...prev,
       [group]: { ...prev[group], [key]: value },
@@ -211,9 +214,7 @@ export function NewRunForm() {
         let seedPdfBase64: string | undefined;
         if (seedPdfFile) {
           const buf = await seedPdfFile.arrayBuffer();
-          seedPdfBase64 = btoa(
-            String.fromCharCode(...new Uint8Array(buf)),
-          );
+          seedPdfBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
         }
         const run = await fetchJson<RunDetail>("/api/runs", {
           method: "POST",
@@ -290,8 +291,8 @@ export function NewRunForm() {
                 </span>
               </span>
               <span className="text-xs text-[var(--text-muted)]">
-                Upload a PDF if the seed paper is paywalled. Bypasses open-access
-                lookup and uses GROBID to parse the local copy.
+                Upload a PDF if the seed paper is paywalled. Bypasses
+                open-access lookup and uses GROBID to parse the local copy.
               </span>
               <input
                 accept=".pdf,application/pdf"
@@ -702,9 +703,7 @@ export function NewRunForm() {
                       : "Reads evidence and renders fidelity verdicts for all records."
                   }
                   model={state.adjudicate.model}
-                  onModelChange={(v) =>
-                    updateStage("adjudicate", "model", v)
-                  }
+                  onModelChange={(v) => updateStage("adjudicate", "model", v)}
                   thinking={state.adjudicate.thinking}
                   onThinkingChange={(v) =>
                     updateStage("adjudicate", "thinking", v)
@@ -741,9 +740,9 @@ export function NewRunForm() {
                   <div className="grid gap-4 rounded-2xl border border-[var(--border)] bg-white/30 p-4 md:col-span-2 md:grid-cols-2">
                     {state.adjudicate.thinking ? (
                       <p className="text-xs text-[var(--text-muted)] md:col-span-2">
-                        The advisor always runs without extended thinking to keep
-                        costs low. Thinking applies only to escalated records
-                        judged by the model above.
+                        The advisor runs with extended thinking for better
+                        judgment quality. Escalated records are judged by the
+                        model above, also with thinking.
                       </p>
                     ) : null}
                     <ModelSelect

@@ -137,7 +137,11 @@ describe("exact-result cache integration via LLM client", () => {
       thinkingConfig: "",
       keyVersion: "v1",
     });
-    const cachedObject = { results: [{ blockId: "b1", relevanceScore: 90, extractedSentences: "test" }] };
+    const cachedObject = {
+      results: [
+        { blockId: "b1", relevanceScore: 90, extractedSentences: "test" },
+      ],
+    };
     storeLLMResult(db, {
       cacheKey,
       purpose: "evidence-rerank",
@@ -149,11 +153,13 @@ describe("exact-result cache integration via LLM client", () => {
 
     const { z } = await import("zod");
     const schema = z.object({
-      results: z.array(z.object({
-        blockId: z.string(),
-        relevanceScore: z.number(),
-        extractedSentences: z.string(),
-      })),
+      results: z.array(
+        z.object({
+          blockId: z.string(),
+          relevanceScore: z.number(),
+          extractedSentences: z.string(),
+        }),
+      ),
     });
 
     const client = createLLMClient({
