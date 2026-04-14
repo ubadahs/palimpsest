@@ -14,11 +14,14 @@ import type {
 import { createLLMClient } from "../integrations/llm-client.js";
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
-import { extractCitingWindow } from "../shared/citation-context-window.js";
+import {
+  annotateCitingContext,
+  extractCitingWindow,
+} from "../shared/citation-context-window.js";
 import { pMap } from "../shared/p-map.js";
 
 /** Bump when the adjudication prompt template or verdict schema changes. */
-const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v2";
+const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v7";
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned
@@ -121,11 +124,13 @@ ${record.rubricQuestion}
 Section: ${record.citingSpanSection ?? "unknown"}
 Citation marker for the paper under evaluation: "${record.citingMarker}"
 
-"${extractCitingWindow(record.citingSpan, record.citingMarker, 800)}"
+"${annotateCitingContext(extractCitingWindow(record.citingSpan, record.seedRefLabel ?? record.citingMarker, 800), record.citingMarker, record.seedRefLabel)}"
+
+Sentences wrapped in ▶ ... ◀ are the ones that directly cite the paper under evaluation. Unmarked sentences cite other papers and are provided as surrounding context only.
 
 ## Citation scope
 
-The citing context above may contain claims backed by OTHER references besides the one under evaluation. Only evaluate claims that are directly attributed to the citation marker "${record.citingMarker}" shown above. Sentences that reference different markers or different authors cite different papers — treat those as surrounding context, not as claims attributed to the cited paper. If the marker appears in a list of references (e.g. "[12, 13, 14]"), the claim is shared across that group, but still evaluate only the cited paper's support for it.
+Only evaluate claims within the ▶ ... ◀ marked sentences. Unmarked sentences reference different papers — they help you understand the paragraph's topic but are NOT attributed to the cited paper. If no ▶ ... ◀ markers appear, the entire context is attributed to the cited paper.
 
 ## Evidence from cited paper
 
@@ -469,10 +474,10 @@ async function runAdvisorAdjudication(
 ): Promise<AuditSample> {
   const firstPassModelId = options.advisor!.firstPassModel;
 
-  // Pass 1: Sonnet structured — no thinking, no advisor recursion.
+  // Pass 1: Sonnet with thinking — reasons through each record before verdict.
   const firstPassResult = await runPass(
     set,
-    { ...options, model: firstPassModelId, useExtendedThinking: false },
+    { ...options, model: firstPassModelId, useExtendedThinking: true },
     client,
     firstPassModelId,
   );

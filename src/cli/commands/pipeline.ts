@@ -10,6 +10,7 @@ import type {
   PreScreenEdge,
   ResolvedPaper,
   Result,
+  TaskWithEvidence,
 } from "../../domain/types.js";
 import {
   claimFamilyBlocksDownstream,
@@ -1404,17 +1405,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             evidenceReporter.onProgress,
           );
 
-          const llmClient = runConfig.evidenceLlmRerank
-            ? createLLMClient({
-                apiKey,
-                defaultModel: rerankModelId,
-                collector: telemetryCollector,
-                defaultContext: { stageKey: "evidence", familyIndex: fi },
-                database,
-                forceRefresh: runConfig.forceRefresh,
-              })
-            : undefined;
-
+          // --- Evidence pass 1: BM25-only for all tasks (free) ---
           evidenceReporter.onProgress({
             step: "retrieve_candidate_evidence",
             status: "running",
@@ -1425,17 +1416,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             citedPaperMaterialized.citedPaperParsedDocument,
             {
               ...(reranker ? { reranker } : {}),
-              ...(llmClient
-                ? {
-                    llmClient,
-                    llmRerankerOptions: {
-                      model: rerankModelId,
-                      useThinking: true,
-                      topN: runConfig.evidenceRerankTopN,
-                      enableExactCache: true,
-                    },
-                  }
-                : {}),
+              // No llmClient here — BM25 only for the bulk pass.
             },
           );
           evidenceReporter.onProgress({
@@ -1443,32 +1424,22 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             status: "completed",
             detail: `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
           });
-
-          const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
-            outputRoot: outputDir,
-            stamp,
-            result: evidenceResult,
-            sourceArtifacts: [classifyJsonPath],
-            familyIndex: fi,
-          });
-          trackStageSuccess("evidence", fi, {
-            primaryArtifactPath: evidenceJsonPath,
-            inputArtifactPath: classifyJsonPath,
-          });
           evidenceReporter.log(
             `${String(evidenceResult.summary.tasksWithEvidence)}/${String(evidenceResult.summary.totalTasks)} tasks matched evidence`,
           );
 
-          if (llmClient) {
-            const evidenceLedger = llmClient.getLedger();
-            if (evidenceLedger.totalAttemptedCalls > 0) {
-              evidenceReporter.log(
-                `LLM reranking: ${evidenceLedger.totalAttemptedCalls} attempted, ${evidenceLedger.totalFailedCalls} failed, ~$${evidenceLedger.totalEstimatedCostUsd.toFixed(4)}`,
-              );
-            }
-          }
-
           if (runConfig.stopAfterStage === "evidence") {
+            const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
+              outputRoot: outputDir,
+              stamp,
+              result: evidenceResult,
+              sourceArtifacts: [classifyJsonPath],
+              familyIndex: fi,
+            });
+            trackStageSuccess("evidence", fi, {
+              primaryArtifactPath: evidenceJsonPath,
+              inputArtifactPath: classifyJsonPath,
+            });
             return;
           }
 
@@ -1476,7 +1447,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             return;
           }
 
-          // --- Curate ---
+          // --- Curate: sample audit set from BM25 evidence ---
           currentStageKey = "curate";
           const curateReporter = createStageReporter("curate", outputDir, fi);
           curateReporter.log("Sampling audit set...");
@@ -1495,6 +1466,79 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             step: "write_sampling_outputs",
             status: "completed",
             detail: `${String(auditSample.records.length)} audit records`,
+          });
+
+          // --- Evidence pass 2: LLM rerank ONLY the curated tasks ---
+          if (runConfig.evidenceLlmRerank) {
+            const rerankClient = createLLMClient({
+              apiKey,
+              defaultModel: rerankModelId,
+              collector: telemetryCollector,
+              defaultContext: { stageKey: "evidence", familyIndex: fi },
+              database,
+              forceRefresh: runConfig.forceRefresh,
+            });
+            const curatedTaskIds = new Set(
+              auditSample.records.map((r) => r.taskId),
+            );
+            evidenceReporter.log(
+              `LLM reranking ${String(curatedTaskIds.size)} curated tasks...`,
+            );
+
+            const rerankedResult = await retrieveEvidence(
+              classification,
+              citedPaperMaterialized.citedPaperSource,
+              citedPaperMaterialized.citedPaperParsedDocument,
+              {
+                ...(reranker ? { reranker } : {}),
+                llmClient: rerankClient,
+                llmRerankerOptions: {
+                  model: rerankModelId,
+                  useThinking: true,
+                  topN: runConfig.evidenceRerankTopN,
+                  enableExactCache: true,
+                },
+                llmRerankTaskIds: curatedTaskIds,
+              },
+            );
+
+            // Update the audit sample records with LLM-reranked evidence.
+            const rerankedByTaskId = new Map<string, TaskWithEvidence>();
+            for (const edge of rerankedResult.edges) {
+              for (const task of edge.tasks) {
+                if (curatedTaskIds.has(task.taskId)) {
+                  rerankedByTaskId.set(task.taskId, task);
+                }
+              }
+            }
+            for (const record of auditSample.records) {
+              const reranked = rerankedByTaskId.get(record.taskId);
+              if (reranked) {
+                record.evidenceSpans = reranked.citedPaperEvidenceSpans;
+                record.evidenceRetrievalStatus =
+                  reranked.evidenceRetrievalStatus;
+              }
+            }
+
+            const rerankLedger = rerankClient.getLedger();
+            if (rerankLedger.totalAttemptedCalls > 0) {
+              evidenceReporter.log(
+                `LLM reranking: ${rerankLedger.totalAttemptedCalls} attempted, ${rerankLedger.totalFailedCalls} failed, ~$${rerankLedger.totalEstimatedCostUsd.toFixed(4)}`,
+              );
+            }
+          }
+
+          // Write evidence artifact (includes BM25 results for all tasks).
+          const { jsonPath: evidenceJsonPath } = writeEvidenceArtifacts({
+            outputRoot: outputDir,
+            stamp,
+            result: evidenceResult,
+            sourceArtifacts: [classifyJsonPath],
+            familyIndex: fi,
+          });
+          trackStageSuccess("evidence", fi, {
+            primaryArtifactPath: evidenceJsonPath,
+            inputArtifactPath: classifyJsonPath,
           });
 
           const { jsonPath: curateJsonPath } = writeAuditSampleArtifacts({
