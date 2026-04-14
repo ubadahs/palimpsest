@@ -1,6 +1,9 @@
 import { describe, expectTypeOf, it } from "vitest";
 
-import type { RunStageDetail, StageInspectorPayload } from "../../src/ui-contract/index.js";
+import type {
+  RunStageDetail,
+  StageInspectorPayload,
+} from "../../src/ui-contract/index.js";
 
 describe("stage inspector contracts", () => {
   it("ties stage keys to stage-specific inspector payloads", () => {

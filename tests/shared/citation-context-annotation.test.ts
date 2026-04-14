@@ -50,8 +50,7 @@ describe("annotateCitingContext", () => {
 
   it("falls back to raw marker when no seedRefLabel provided", () => {
     const ctx =
-      "Result A was shown (2009). " +
-      "Result B was also shown (2009).";
+      "Result A was shown (2009). " + "Result B was also shown (2009).";
     const result = annotateCitingContext(ctx, "2009");
     // All sentences contain "2009" — annotation would wrap everything, so skip.
     expect(result).not.toContain("▶");

@@ -10,7 +10,10 @@ import type {
   SeedPaperInput,
 } from "../domain/types.js";
 import { claimGroundingLlmParsedResponseSchema } from "../domain/pre-screen-grounding-trace.js";
-import type { ExactCacheConfig, LLMClient } from "../integrations/llm-client.js";
+import type {
+  ExactCacheConfig,
+  LLMClient,
+} from "../integrations/llm-client.js";
 import { createLLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 

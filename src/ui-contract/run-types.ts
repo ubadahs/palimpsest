@@ -50,10 +50,7 @@ export const analysisRunConfigObjectSchema = z
      */
     adjudicateAdvisor: z.boolean().default(true),
     /** First-pass model used when adjudicateAdvisor is true. */
-    adjudicateFirstPassModel: z
-      .string()
-      .min(1)
-      .default("claude-sonnet-4-6"),
+    adjudicateFirstPassModel: z.string().min(1).default("claude-sonnet-4-6"),
     evidenceLlmRerank: z.boolean().default(true),
     discoverStrategy: z
       .enum(["legacy", "attribution_first"])
@@ -240,15 +237,13 @@ type RunStageDetailBase = StripIndexSignature<
   z.infer<typeof runStageDetailSchema>
 >;
 type RunStageDetailMap = {
-  [K in StageKey]: Omit<
-    RunStageDetailBase,
-    "stageKey" | "inspectorPayload"
-  > & {
+  [K in StageKey]: Omit<RunStageDetailBase, "stageKey" | "inspectorPayload"> & {
     stageKey: K;
     inspectorPayload?: StageInspectorPayload<K>;
   };
 };
-export type RunStageDetail<K extends StageKey = StageKey> = RunStageDetailMap[K];
+export type RunStageDetail<K extends StageKey = StageKey> =
+  RunStageDetailMap[K];
 
 export const runStageGroupDetailSchema = z.object({
   stageKey: stageKeySchema,

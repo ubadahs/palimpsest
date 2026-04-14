@@ -82,7 +82,9 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
     return null;
   }
 
-  const records = group.members.flatMap((member) => member.inspectorPayload?.records ?? []);
+  const records = group.members.flatMap(
+    (member) => member.inspectorPayload?.records ?? [],
+  );
   if (records.length === 0) return null;
 
   const counts = countVerdicts(records);
@@ -162,19 +164,25 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
                   key={record.recordId ?? `${record.taskId}-${String(i)}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--danger)]">
                         {(record.verdict && VERDICT_LABELS[record.verdict]) ??
-                          (record.verdict ?? "")}
+                          record.verdict ??
+                          ""}
                       </p>
                       <RichText
                         html={record.citingPaperTitle}
                         as="p"
                         className="mt-1 text-sm font-semibold text-[var(--text)]"
                       />
-                      {record.citingSpan ? (
-                        <p className="mt-2 line-clamp-2 text-sm text-[var(--text-muted)]">
-                          {record.citingSpan}
+                      {record.groundedSeedClaimText ? (
+                        <p className="mt-1.5 text-sm italic text-[var(--text-muted)]">
+                          Claim: &ldquo;{record.groundedSeedClaimText}&rdquo;
+                        </p>
+                      ) : null}
+                      {record.comparison ? (
+                        <p className="mt-1 line-clamp-2 text-sm text-[var(--text-muted)]">
+                          {record.comparison}
                         </p>
                       ) : null}
                     </div>

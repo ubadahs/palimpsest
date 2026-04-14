@@ -240,7 +240,8 @@ describe("buildStageInspectorPayload", () => {
           evidenceSpans: [baseEvidenceSpan],
           evidenceRetrievalStatus: "retrieved",
           verdict: "partially_supported",
-          rationale: "Support is directionally correct but softened by context.",
+          rationale:
+            "Support is directionally correct but softened by context.",
           retrievalQuality: "high",
           judgeConfidence: "medium",
           excluded: false,

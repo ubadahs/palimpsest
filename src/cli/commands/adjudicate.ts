@@ -26,7 +26,10 @@ function parseArgs(argv: string[]): {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if ((arg === "--audit-sample" || arg === "--calibration") && i + 1 < argv.length) {
+    if (
+      (arg === "--audit-sample" || arg === "--calibration") &&
+      i + 1 < argv.length
+    ) {
       auditSamplePath = argv[i + 1];
       i++;
     } else if (arg === "--human" && i + 1 < argv.length) {

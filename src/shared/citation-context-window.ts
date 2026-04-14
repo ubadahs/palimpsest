@@ -26,7 +26,7 @@ const SENTENCE_RE = /[^.!?]*[.!?]+/g;
 export function annotateCitingContext(
   rawContext: string,
   citationMarker: string,
-  seedRefLabel?: string | undefined,
+  seedRefLabel?: string,
 ): string {
   const sentences = splitSentences(rawContext);
 
@@ -47,7 +47,11 @@ export function annotateCitingContext(
     if (normalized !== primaryPattern) patterns.push(normalized);
   }
   // Also try the raw marker as fallback if seedRefLabel was used as primary.
-  if (seedRefLabel && citationMarker.length > 0 && citationMarker !== seedRefLabel) {
+  if (
+    seedRefLabel &&
+    citationMarker.length > 0 &&
+    citationMarker !== seedRefLabel
+  ) {
     patterns.push(citationMarker);
   }
 
@@ -66,15 +70,7 @@ export function annotateCitingContext(
     }
   }
 
-  if (
-    markerSentences.size === 0 ||
-    markerSentences.size === sentences.length
-  ) {
-    return rawContext;
-  }
-
   if (markerSentences.size === 0 || markerSentences.size === sentences.length) {
-    // Can't isolate or every sentence matches — no annotation needed.
     return rawContext;
   }
 
