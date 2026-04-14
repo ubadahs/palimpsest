@@ -1,7 +1,7 @@
 import type {
   AdjudicationRecord,
   AdjudicationVerdict,
-  CalibrationSet,
+  AuditSample,
   EvaluationMode,
 } from "../domain/types.js";
 
@@ -10,7 +10,7 @@ function formatPercent(n: number, d: number): string {
   return `${((n / d) * 100).toFixed(0)}%`;
 }
 
-export function toCalibrationSummaryMarkdown(set: CalibrationSet): string {
+export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
   const active = set.records.filter((r) => !r.excluded);
   const adjudicated = active.filter((r) => r.verdict != null);
   const excluded = set.records.filter((r) => r.excluded);
@@ -34,7 +34,7 @@ export function toCalibrationSummaryMarkdown(set: CalibrationSet): string {
   const total = adjudicated.length;
 
   const sections: string[] = [
-    "# Calibration Summary",
+    "# Audit Sample Summary",
     "",
     `## Seed: ${set.resolvedSeedPaperTitle}`,
     `**Tracked claim:** ${set.seed.trackedClaim}`,

@@ -6,7 +6,7 @@ import type {
   FamilyEvidenceResult,
   TaskWithEvidence,
 } from "../../src/domain/types.js";
-import { sampleCalibrationSet } from "../../src/adjudication/sample-calibration.js";
+import { sampleAuditSet } from "../../src/adjudication/sample-audit.js";
 
 function makeSpan(score: number = 12): EvidenceSpan {
   return {
@@ -105,7 +105,7 @@ function makeEvidence(tasks: TaskWithEvidence[]): FamilyEvidenceResult {
   };
 }
 
-describe("sampleCalibrationSet", () => {
+describe("sampleAuditSet", () => {
   it("samples tasks up to the target size", () => {
     const tasks = [
       makeTask("substantive_attribution", "fidelity_specific_claim"),
@@ -113,7 +113,7 @@ describe("sampleCalibrationSet", () => {
       makeTask("methods_materials", "fidelity_methods_use"),
     ];
     const evidence = makeEvidence(tasks);
-    const set = sampleCalibrationSet(evidence, undefined, 20);
+    const set = sampleAuditSet(evidence, undefined, 20);
 
     expect(set.records.length).toBeLessThanOrEqual(20);
     expect(set.records.length).toBe(3);
@@ -125,7 +125,7 @@ describe("sampleCalibrationSet", () => {
       makeTask("substantive_attribution", "fidelity_specific_claim"),
     ];
     const evidence = makeEvidence(tasks);
-    const set = sampleCalibrationSet(evidence, undefined, 10);
+    const set = sampleAuditSet(evidence, undefined, 10);
 
     const record = set.records[0]!;
     expect(record.taskId).toBeDefined();
@@ -146,7 +146,7 @@ describe("sampleCalibrationSet", () => {
       modifiers: { isBundled: true, isReviewMediated: false },
     });
     const evidence = makeEvidence([normal, bundledBg]);
-    const set = sampleCalibrationSet(evidence, undefined, 2);
+    const set = sampleAuditSet(evidence, undefined, 2);
 
     expect(set.records).toHaveLength(2);
     expect(set.samplingStrategy.oversampled.length).toBeGreaterThan(0);
@@ -162,7 +162,7 @@ describe("sampleCalibrationSet", () => {
       },
     );
     const evidence = makeEvidence([skipped]);
-    const set = sampleCalibrationSet(evidence, undefined, 10);
+    const set = sampleAuditSet(evidence, undefined, 10);
 
     expect(set.records).toHaveLength(0);
   });
@@ -172,7 +172,7 @@ describe("sampleCalibrationSet", () => {
       makeTask("substantive_attribution", "fidelity_specific_claim"),
     ];
     const evidence = makeEvidence(tasks);
-    const set = sampleCalibrationSet(evidence, undefined, 10);
+    const set = sampleAuditSet(evidence, undefined, 10);
 
     expect(set.seed.doi).toBe("10.1234/seed");
     expect(set.studyMode).toBe("all_functions_census");
@@ -185,7 +185,7 @@ describe("sampleCalibrationSet", () => {
       makeTask("unclear", "manual_review_role_ambiguous"),
     ];
     const evidence = makeEvidence(tasks);
-    const set = sampleCalibrationSet(evidence, undefined, 4);
+    const set = sampleAuditSet(evidence, undefined, 4);
 
     expect(
       set.records.some(
@@ -206,7 +206,7 @@ describe("sampleCalibrationSet", () => {
       { taskId: "spec-1" },
     );
     const evidence = makeEvidence([other, ...ambiguousTasks]);
-    const set = sampleCalibrationSet(evidence, undefined, 20);
+    const set = sampleAuditSet(evidence, undefined, 20);
 
     const ambiguousCount = set.records.filter(
       (r) => r.evaluationMode === "manual_review_role_ambiguous",

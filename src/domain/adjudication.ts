@@ -95,7 +95,7 @@ export const adjudicationRecordSchema = z
   .passthrough();
 export type AdjudicationRecord = z.infer<typeof adjudicationRecordSchema>;
 
-export const calibrationSetSchema = z
+export const auditSampleSchema = z
   .object({
     seed: seedPaperInputSchema,
     resolvedSeedPaperTitle: z.string().min(1),
@@ -120,4 +120,4 @@ export const calibrationSetSchema = z
     revisionNote: z.string().optional(),
   })
   .passthrough();
-export type CalibrationSet = z.infer<typeof calibrationSetSchema>;
+export type AuditSample = z.infer<typeof auditSampleSchema>;

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { CalibrationSet } from "../../src/domain/types.js";
+import type { AuditSample } from "../../src/domain/types.js";
 import {
-  applyCalibrationDeltas,
-  createBlindCalibrationSet,
-  diffCalibrationSets,
+  applyAuditSampleDeltas,
+  createBlindAuditSample,
+  diffAuditSamples,
   summarizeBenchmarkCandidates,
 } from "../../src/benchmark/workflow.js";
 
-function makeCalibrationSet(): CalibrationSet {
+function makeAuditSample(): AuditSample {
   return {
     seed: { doi: "10.1234/seed", trackedClaim: "Claim" },
     resolvedSeedPaperTitle: "Seed Paper",
@@ -76,8 +76,8 @@ function makeCalibrationSet(): CalibrationSet {
 }
 
 describe("benchmark workflow", () => {
-  it("creates blind calibration sets without adjudication fields on active records", () => {
-    const blind = createBlindCalibrationSet(makeCalibrationSet());
+  it("creates blind audit samples without adjudication fields on active records", () => {
+    const blind = createBlindAuditSample(makeAuditSample());
 
     expect(blind.records[0]).not.toHaveProperty("verdict");
     expect(blind.records[0]).not.toHaveProperty("adjudicator");
@@ -92,8 +92,8 @@ describe("benchmark workflow", () => {
   });
 
   it("diffs adjudication datasets by taskId", () => {
-    const base = makeCalibrationSet();
-    const candidate: CalibrationSet = {
+    const base = makeAuditSample();
+    const candidate: AuditSample = {
       ...base,
       records: [
         { ...base.records[0]!, verdict: "partially_supported" },
@@ -101,15 +101,15 @@ describe("benchmark workflow", () => {
       ],
     };
 
-    const diff = diffCalibrationSets(base, candidate);
+    const diff = diffAuditSamples(base, candidate);
 
     expect(diff.summary.changedVerdicts).toBe(1);
     expect(diff.entries[0]!.verdictChanged).toBe(true);
   });
 
   it("ignores adjudication-only diffs on excluded records", () => {
-    const base = makeCalibrationSet();
-    const candidate: CalibrationSet = {
+    const base = makeAuditSample();
+    const candidate: AuditSample = {
       ...base,
       records: [
         base.records[0]!,
@@ -122,7 +122,7 @@ describe("benchmark workflow", () => {
       ],
     };
 
-    const diff = diffCalibrationSets(base, candidate);
+    const diff = diffAuditSamples(base, candidate);
 
     expect(diff.summary.changedVerdicts).toBe(0);
     expect(diff.summary.changedRationales).toBe(0);
@@ -132,8 +132,8 @@ describe("benchmark workflow", () => {
   });
 
   it("summarizes benchmark candidates against active adjudicated records only", () => {
-    const base = makeCalibrationSet();
-    const exactCandidate: CalibrationSet = {
+    const base = makeAuditSample();
+    const exactCandidate: AuditSample = {
       ...base,
       runTelemetry: {
         model: "claude-opus-4-6",
@@ -151,7 +151,7 @@ describe("benchmark workflow", () => {
         calls: [],
       },
     };
-    const changedCandidate: CalibrationSet = {
+    const changedCandidate: AuditSample = {
       ...base,
       runTelemetry: {
         model: "claude-sonnet-4-6",
@@ -205,8 +205,8 @@ describe("benchmark workflow", () => {
   });
 
   it("applies deltas while preserving record order", () => {
-    const base = makeCalibrationSet();
-    const applied = applyCalibrationDeltas(base, {
+    const base = makeAuditSample();
+    const applied = applyAuditSampleDeltas(base, {
       version: "v3",
       revisionNote: "Updated",
       deltas: [
@@ -234,7 +234,7 @@ describe("benchmark workflow", () => {
 
   it("rejects deltas for unknown tasks", () => {
     expect(() =>
-      applyCalibrationDeltas(makeCalibrationSet(), {
+      applyAuditSampleDeltas(makeAuditSample(), {
         version: undefined,
         revisionNote: undefined,
         deltas: [

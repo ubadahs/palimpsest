@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { diffCalibrationSets } from "../../benchmark/workflow.js";
+import { diffAuditSamples } from "../../benchmark/workflow.js";
 import { benchmarkDiffResultSchema } from "../../benchmark/types.js";
-import { calibrationSetSchema } from "../../domain/types.js";
+import { auditSampleSchema } from "../../domain/types.js";
 import { toBenchmarkDiffMarkdown } from "../../reporting/benchmark-diff-report.js";
 import {
   loadJsonArtifact,
@@ -51,17 +51,17 @@ export function runBenchmarkDiffCommand(argv: string[]): void {
   try {
     const base = loadJsonArtifact(
       args.base,
-      calibrationSetSchema,
+      auditSampleSchema,
       "base adjudication set",
     );
     const candidate = loadJsonArtifact(
       args.candidate,
-      calibrationSetSchema,
+      auditSampleSchema,
       "candidate adjudication set",
     );
 
     const diff = benchmarkDiffResultSchema.parse(
-      diffCalibrationSets(base, candidate),
+      diffAuditSamples(base, candidate),
     );
 
     const outputDir = resolve(process.cwd(), args.output);

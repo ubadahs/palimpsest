@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
-import { calibrationSetSchema } from "../../domain/types.js";
-import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
+import { auditSampleSchema } from "../../domain/types.js";
+import { adjudicateAuditSample } from "../../adjudication/llm-adjudicator.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { toAgreementMarkdown } from "../../reporting/agreement-report.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
@@ -12,13 +12,13 @@ import { writeAdjudicationArtifacts } from "../stage-artifact-writers.js";
 import { nextRunStamp } from "../run-stamp.js";
 
 function parseArgs(argv: string[]): {
-  calibrationPath: string;
+  auditSamplePath: string;
   humanPath: string | undefined;
   model: string;
   thinking: boolean;
   output: string;
 } {
-  let calibrationPath: string | undefined;
+  let auditSamplePath: string | undefined;
   let humanPath: string | undefined;
   let model = "claude-opus-4-6";
   let thinking = true;
@@ -26,8 +26,8 @@ function parseArgs(argv: string[]): {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--calibration" && i + 1 < argv.length) {
-      calibrationPath = argv[i + 1];
+    if ((arg === "--audit-sample" || arg === "--calibration") && i + 1 < argv.length) {
+      auditSamplePath = argv[i + 1];
       i++;
     } else if (arg === "--human" && i + 1 < argv.length) {
       humanPath = argv[i + 1];
@@ -45,15 +45,15 @@ function parseArgs(argv: string[]): {
     }
   }
 
-  if (!calibrationPath) {
+  if (!auditSamplePath) {
     console.error(
-      "Usage: adjudicate --calibration <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
+      "Usage: adjudicate --audit-sample <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { calibrationPath, humanPath, model, thinking, output };
+  return { auditSamplePath, humanPath, model, thinking, output };
 }
 
 export async function runAdjudicateCommand(argv: string[]): Promise<void> {
@@ -74,30 +74,30 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
 
   try {
     progress.startStep("load_active_records", {
-      detail: "Loading active calibration records for adjudication.",
+      detail: "Loading active audit records for adjudication.",
     });
-    const calibration = loadJsonArtifact(
-      args.calibrationPath,
-      calibrationSetSchema,
-      "calibration set",
+    const auditSample = loadJsonArtifact(
+      args.auditSamplePath,
+      auditSampleSchema,
+      "audit sample",
     );
 
-    const activeCount = calibration.records.filter((r) => !r.excluded).length;
+    const activeCount = auditSample.records.filter((r) => !r.excluded).length;
     progress.completeStep("load_active_records", {
       detail: `${String(activeCount)} active records ready for adjudication`,
     });
-    console.info(`LLM adjudication for: ${calibration.resolvedSeedPaperTitle}`);
+    console.info(`LLM adjudication for: ${auditSample.resolvedSeedPaperTitle}`);
     console.info(
       `  Model: ${args.model}${args.thinking ? " (extended thinking)" : ""}`,
     );
     console.info(`  Records: ${String(activeCount)} active\n`);
 
     progress.startStep("adjudicate_records", {
-      detail: "Adjudicating calibration records with the configured model.",
+      detail: "Adjudicating audit records with the configured model.",
       ...(activeCount > 0 ? { current: 0, total: activeCount } : {}),
     });
-    const llmResult = await adjudicateCalibrationSet(
-      calibration,
+    const llmResult = await adjudicateAuditSample(
+      auditSample,
       {
         apiKey: config.anthropicApiKey,
         model: args.model,
@@ -117,7 +117,7 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
       ...(activeCount > 0 ? { current: activeCount, total: activeCount } : {}),
     });
     progress.startStep("capture_verdicts_and_rationales", {
-      detail: "Capturing verdicts and rationales in the calibration dataset.",
+      detail: "Capturing verdicts and rationales in the audit sample dataset.",
     });
     progress.completeStep("capture_verdicts_and_rationales", {
       detail: `${String(llmResult.records.filter((record) => !record.excluded && record.verdict != null).length)} records now carry verdicts`,
@@ -149,7 +149,7 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
       ? toAgreementMarkdown(
           loadJsonArtifact(
             args.humanPath,
-            calibrationSetSchema,
+            auditSampleSchema,
             "human adjudication set",
           ),
           llmResult,
@@ -161,8 +161,8 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
         stamp,
         result: llmResult,
         sourceArtifacts: args.humanPath
-          ? [args.calibrationPath, args.humanPath]
-          : [args.calibrationPath],
+          ? [args.auditSamplePath, args.humanPath]
+          : [args.auditSamplePath],
         model: args.model,
         ...(agreementMarkdown ? { agreementMarkdown } : {}),
       });

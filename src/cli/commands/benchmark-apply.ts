@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { applyCalibrationDeltas } from "../../benchmark/workflow.js";
+import { applyAuditSampleDeltas } from "../../benchmark/workflow.js";
 import { adjudicationDeltaSetSchema } from "../../benchmark/types.js";
-import { calibrationSetSchema } from "../../domain/types.js";
+import { auditSampleSchema } from "../../domain/types.js";
 import {
   loadJsonArtifact,
   writeArtifactManifest,
@@ -50,7 +50,7 @@ export function runBenchmarkApplyCommand(argv: string[]): void {
   try {
     const base = loadJsonArtifact(
       args.base,
-      calibrationSetSchema,
+      auditSampleSchema,
       "base adjudication set",
     );
     const deltaSet = loadJsonArtifact(
@@ -59,7 +59,7 @@ export function runBenchmarkApplyCommand(argv: string[]): void {
       "adjudication delta set",
     );
 
-    const applied = applyCalibrationDeltas(base, deltaSet);
+    const applied = applyAuditSampleDeltas(base, deltaSet);
 
     const outputDir = resolve(process.cwd(), args.output);
     mkdirSync(outputDir, { recursive: true });

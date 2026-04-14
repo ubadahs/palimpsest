@@ -41,14 +41,13 @@ import {
   type DiscoverySeedEntry,
   type DiscoveryStrategy,
 } from "../../pipeline/discovery-stage.js";
-import { consolidateFamilies } from "../../pipeline/family-consolidation.js";
 import type { DiscoveryHandoffMap } from "../../domain/types.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
 import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
 import { retrieveEvidence } from "../../retrieval/evidence-retrieval.js";
-import { sampleCalibrationSet } from "../../adjudication/sample-calibration.js";
-import { adjudicateCalibrationSet } from "../../adjudication/llm-adjudicator.js";
+import { sampleAuditSet } from "../../adjudication/sample-audit.js";
+import { adjudicateAuditSample } from "../../adjudication/llm-adjudicator.js";
 import { createFullTextAdapters } from "../paper-adapters.js";
 import {
   materializeParsedPaper,
@@ -71,10 +70,9 @@ import { resolveStageOutputDir } from "../stage-output.js";
 import {
   writeAdjudicationArtifacts,
   writeAttributionDiscoveryArtifacts,
-  writeCalibrationSetArtifacts,
+  writeAuditSampleArtifacts,
   writeClassificationArtifacts,
   writeDiscoveryArtifacts,
-  writeConsolidationArtifact,
   writeEvidenceArtifacts,
   writeExtractionArtifacts,
   writeScreenArtifacts,
@@ -94,22 +92,27 @@ import { pMap } from "../../shared/p-map.js";
 // Args
 // ---------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): {
+/**
+ * Parsed CLI overrides. Every field is optional — the schema default in
+ * `analysisRunConfigSchema` is the single source of truth. The CLI parser
+ * only sets a value when the user explicitly passes a flag.
+ */
+type PipelineCliOverrides = {
   // I/O & run identity
   input: string | undefined;
   shortlist: string | undefined;
   runId: string | undefined;
   // Discovery
-  strategy: DiscoveryStrategy;
-  discoverThinking: boolean;
-  topN: number;
-  noRank: boolean;
-  probeBudget: number;
-  shortlistCap: number;
+  strategy: DiscoveryStrategy | undefined;
+  discoverThinking: boolean | undefined;
+  topN: number | undefined;
+  noRank: boolean | undefined;
+  probeBudget: number | undefined;
+  shortlistCap: number | undefined;
   citingYearRange: CitingYearRange | undefined;
   // Screen
   screenGroundingModel: string | undefined;
-  screenGroundingThinking: boolean;
+  screenGroundingThinking: boolean | undefined;
   screenFilterModel: string | undefined;
   screenFilterConcurrency: number | undefined;
   // Evidence
@@ -117,36 +120,38 @@ function parseArgs(argv: string[]): {
   rerankModel: string | undefined;
   rerankTopN: number | undefined;
   // Curate
-  targetSize: number;
+  targetSize: number | undefined;
   // Adjudicate
-  adjudicateAdvisor: boolean;
+  adjudicateAdvisor: boolean | undefined;
   adjudicateFirstPassModel: string | undefined;
   // Run settings
-  forceRefresh: boolean;
+  forceRefresh: boolean | undefined;
   familyConcurrency: number | undefined;
-} {
+};
+
+function parseArgs(argv: string[]): PipelineCliOverrides {
   let input: string | undefined;
   let shortlist: string | undefined;
   let runId: string | undefined;
-  let forceRefresh = false;
-  let topN = 5;
-  let noRank = false;
-  let targetSize = 20;
-  let strategy: DiscoveryStrategy = "attribution_first";
-  let discoverThinking = false;
-  let probeBudget = 20;
-  let shortlistCap = 5;
+  let forceRefresh: boolean | undefined;
+  let topN: number | undefined;
+  let noRank: boolean | undefined;
+  let targetSize: number | undefined;
+  let strategy: DiscoveryStrategy | undefined;
+  let discoverThinking: boolean | undefined;
+  let probeBudget: number | undefined;
+  let shortlistCap: number | undefined;
   let fromYear: number | undefined;
   let toYear: number | undefined;
   let screenGroundingModel: string | undefined;
-  let screenGroundingThinking = true;
+  let screenGroundingThinking: boolean | undefined;
   let screenFilterModel: string | undefined;
   let screenFilterConcurrency: number | undefined;
   let seedPdfPath: string | undefined;
   let rerankModel: string | undefined;
   let rerankTopN: number | undefined;
   let familyConcurrency: number | undefined;
-  let adjudicateAdvisor = false;
+  let adjudicateAdvisor: boolean | undefined;
   let adjudicateFirstPassModel: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
@@ -181,15 +186,15 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--no-discover-thinking") {
       discoverThinking = false;
     } else if (arg === "--top" && i + 1 < argv.length) {
-      topN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      topN = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     } else if (arg === "--no-rank") {
       noRank = true;
     } else if (arg === "--probe-budget" && i + 1 < argv.length) {
-      probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
+      probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
-      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     } else if (arg === "--from-year" && i + 1 < argv.length) {
       fromYear = parseInt(argv[i + 1]!, 10);
@@ -210,7 +215,7 @@ function parseArgs(argv: string[]): {
       screenFilterModel = argv[i + 1]!;
       i++;
     } else if (arg === "--screen-filter-concurrency" && i + 1 < argv.length) {
-      screenFilterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 10);
+      screenFilterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     }
     // Evidence
@@ -221,12 +226,12 @@ function parseArgs(argv: string[]): {
       rerankModel = argv[i + 1]!;
       i++;
     } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
-      rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10) || 5);
+      rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     }
     // Curate
     else if (arg === "--target-size" && i + 1 < argv.length) {
-      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10) || 20);
+      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     }
     // Adjudicate
@@ -245,7 +250,7 @@ function parseArgs(argv: string[]): {
     else if (arg === "--force-refresh") {
       forceRefresh = true;
     } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
-      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10) || 3);
+      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
       i++;
     }
   }
@@ -585,56 +590,34 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
   process.on("SIGTERM", handleSignal);
 
   // --- Build run config ------------------------------------------------------
+  // CLI overrides are only included when the user explicitly passed a flag.
+  // Everything else falls through to the schema defaults in
+  // analysisRunConfigSchema — the single source of truth for defaults.
+  const cliOverrides: Record<string, unknown> = {};
+  if (args.strategy != null) cliOverrides["discoverStrategy"] = args.strategy;
+  if (args.topN != null) cliOverrides["discoverTopN"] = args.topN;
+  if (args.noRank != null) cliOverrides["discoverRank"] = !args.noRank;
+  if (args.discoverThinking != null) cliOverrides["discoverThinking"] = args.discoverThinking;
+  if (args.probeBudget != null) cliOverrides["discoverProbeBudget"] = args.probeBudget;
+  if (args.shortlistCap != null) cliOverrides["discoverShortlistCap"] = args.shortlistCap;
+  if (args.citingYearRange?.fromYear != null) cliOverrides["discoverFromYear"] = args.citingYearRange.fromYear;
+  if (args.citingYearRange?.toYear != null) cliOverrides["discoverToYear"] = args.citingYearRange.toYear;
+  if (args.screenGroundingModel != null) cliOverrides["screenGroundingModel"] = args.screenGroundingModel;
+  if (args.screenGroundingThinking != null) cliOverrides["screenGroundingThinking"] = args.screenGroundingThinking;
+  if (args.screenFilterModel != null) cliOverrides["screenFilterModel"] = args.screenFilterModel;
+  if (args.screenFilterConcurrency != null) cliOverrides["screenFilterConcurrency"] = args.screenFilterConcurrency;
+  if (args.rerankModel != null) cliOverrides["evidenceRerankModel"] = args.rerankModel;
+  if (args.rerankTopN != null) cliOverrides["evidenceRerankTopN"] = args.rerankTopN;
+  if (args.targetSize != null) cliOverrides["curateTargetSize"] = args.targetSize;
+  if (args.adjudicateAdvisor != null) cliOverrides["adjudicateAdvisor"] = args.adjudicateAdvisor;
+  if (args.adjudicateFirstPassModel != null) cliOverrides["adjudicateFirstPassModel"] = args.adjudicateFirstPassModel;
+  if (args.familyConcurrency != null) cliOverrides["familyConcurrency"] = args.familyConcurrency;
+  if (args.seedPdfPath != null) cliOverrides["seedPdfPath"] = args.seedPdfPath;
+  if (args.forceRefresh != null) cliOverrides["forceRefresh"] = args.forceRefresh;
+
   const runConfig = existingRun
     ? existingRun.config
-    : analysisRunConfigSchema.parse({
-        // Discovery
-        discoverStrategy: args.strategy,
-        discoverTopN: args.topN,
-        discoverRank: !args.noRank,
-        discoverThinking: args.discoverThinking,
-        discoverProbeBudget: args.probeBudget,
-        discoverShortlistCap: args.shortlistCap,
-        ...(args.citingYearRange?.fromYear != null
-          ? { discoverFromYear: args.citingYearRange.fromYear }
-          : {}),
-        ...(args.citingYearRange?.toYear != null
-          ? { discoverToYear: args.citingYearRange.toYear }
-          : {}),
-        // Screen
-        ...(args.screenGroundingModel != null
-          ? { screenGroundingModel: args.screenGroundingModel }
-          : {}),
-        screenGroundingThinking: args.screenGroundingThinking,
-        ...(args.screenFilterModel != null
-          ? { screenFilterModel: args.screenFilterModel }
-          : {}),
-        ...(args.screenFilterConcurrency != null
-          ? { screenFilterConcurrency: args.screenFilterConcurrency }
-          : {}),
-        // Evidence
-        ...(args.rerankModel != null
-          ? { evidenceRerankModel: args.rerankModel }
-          : {}),
-        ...(args.rerankTopN != null
-          ? { evidenceRerankTopN: args.rerankTopN }
-          : {}),
-        // Curate
-        curateTargetSize: args.targetSize,
-        // Adjudicate
-        adjudicateAdvisor: args.adjudicateAdvisor,
-        ...(args.adjudicateFirstPassModel != null
-          ? { adjudicateFirstPassModel: args.adjudicateFirstPassModel }
-          : {}),
-        // Run settings
-        ...(args.familyConcurrency != null
-          ? { familyConcurrency: args.familyConcurrency }
-          : {}),
-        ...(args.seedPdfPath != null
-          ? { seedPdfPath: args.seedPdfPath }
-          : {}),
-        ...(args.forceRefresh ? { forceRefresh: true } : {}),
-      });
+    : analysisRunConfigSchema.parse(cliOverrides);
 
   const citingYearRange: CitingYearRange | undefined =
     runConfig.discoverFromYear != null || runConfig.discoverToYear != null
@@ -935,64 +918,6 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       setRunStatus(database, runId, "succeeded", "discover");
       log("pipeline", "Stopping after discover (stopAfterStage).");
       return;
-    }
-
-    // -----------------------------------------------------------------------
-    // Family consolidation (post-discovery, pre-screen)
-    // -----------------------------------------------------------------------
-
-    if (seeds.length > 1) {
-      const consolidationClient = createLLMClient({
-        apiKey,
-        defaultModel: "claude-sonnet-4-6",
-        collector: telemetryCollector,
-        defaultContext: { stageKey: "discover", familyIndex: 0 },
-        database,
-        forceRefresh: runConfig.forceRefresh,
-      });
-      log(
-        "consolidate",
-        `Consolidating ${String(seeds.length)} families...`,
-      );
-      const consolidation = await consolidateFamilies(
-        seeds,
-        consolidationClient,
-        {
-          model: "claude-sonnet-4-6",
-          handoffs: discoveryHandoffs,
-        },
-      );
-      // Write artifact regardless of whether anything was merged.
-      writeConsolidationArtifact({
-        outputRoot: outputDir,
-        stamp,
-        consolidation,
-      });
-
-      if (consolidation.eliminatedCount > 0) {
-        log(
-          "consolidate",
-          `Merged ${String(seeds.length)} → ${String(consolidation.consolidatedSeeds.length)} families (${String(consolidation.eliminatedCount)} eliminated). Clusters:`,
-        );
-        for (const cluster of consolidation.clusters) {
-          const members = cluster.memberIndices
-            .map((i) => seeds[i]?.trackedClaim.slice(0, 60) ?? "?")
-            .join(" | ");
-          log(
-            "consolidate",
-            `  [${String(cluster.cluster)}] ${cluster.memberIndices.length === 1 ? "kept" : "merged"}: ${members}`,
-          );
-        }
-        for (const dropped of consolidation.droppedGroundingTraces) {
-          log(
-            "consolidate",
-            `  grounding trace dropped: ${dropped.familyId} (${dropped.reason})`,
-          );
-        }
-        seeds = consolidation.consolidatedSeeds;
-      } else {
-        log("consolidate", "All families are semantically distinct — no merges.");
-      }
     }
 
     // -----------------------------------------------------------------------
@@ -1554,14 +1479,14 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           // --- Curate ---
           currentStageKey = "curate";
           const curateReporter = createStageReporter("curate", outputDir, fi);
-          curateReporter.log("Sampling calibration set...");
+          curateReporter.log("Sampling audit set...");
           trackStageStart("curate", fi, curateReporter.logPath);
 
           curateReporter.onProgress({
             step: "collect_eligible_tasks",
             status: "running",
           });
-          const calibrationSet = sampleCalibrationSet(
+          const auditSample = sampleAuditSet(
             evidenceResult,
             undefined,
             runConfig.curateTargetSize,
@@ -1569,13 +1494,13 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           curateReporter.onProgress({
             step: "write_sampling_outputs",
             status: "completed",
-            detail: `${String(calibrationSet.records.length)} calibration records`,
+            detail: `${String(auditSample.records.length)} audit records`,
           });
 
-          const { jsonPath: curateJsonPath } = writeCalibrationSetArtifacts({
+          const { jsonPath: curateJsonPath } = writeAuditSampleArtifacts({
             outputRoot: outputDir,
             stamp,
-            result: calibrationSet,
+            result: auditSample,
             sourceArtifacts: [evidenceJsonPath],
             familyIndex: fi,
           });
@@ -1584,16 +1509,16 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             inputArtifactPath: evidenceJsonPath,
           });
           curateReporter.log(
-            `${String(calibrationSet.records.length)} calibration records`,
+            `${String(auditSample.records.length)} audit records`,
           );
 
           if (runConfig.stopAfterStage === "curate") {
             return;
           }
 
-          if (calibrationSet.records.length === 0) {
+          if (auditSample.records.length === 0) {
             curateReporter.log(
-              "No calibration records — skipping adjudication for this family.",
+              "No audit records — skipping adjudication for this family.",
             );
             return;
           }
@@ -1615,7 +1540,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           adjudicateReporter.onProgress({
             step: "load_active_records",
             status: "completed",
-            detail: `${String(calibrationSet.records.length)} records`,
+            detail: `${String(auditSample.records.length)} records`,
           });
           adjudicateReporter.onProgress({
             step: "adjudicate_records",
@@ -1629,8 +1554,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             database,
             forceRefresh: runConfig.forceRefresh,
           });
-          const adjudicationResult = await adjudicateCalibrationSet(
-            calibrationSet,
+          const adjudicationResult = await adjudicateAuditSample(
+            auditSample,
             {
               apiKey,
               model: runConfig.adjudicateModel,

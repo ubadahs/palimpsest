@@ -15,7 +15,7 @@ const pendingTail = [
     id: "capture_verdicts_and_rationales",
     label: "Capture verdicts and rationales",
     description:
-      "Persist the model's outputs into the calibration dataset so each record becomes inspectable in the UI.",
+      "Persist the model's outputs into the audit sample dataset so each record becomes inspectable in the UI.",
     status: "pending" as const,
   },
   {
@@ -38,13 +38,13 @@ function buildWorkflow(detail: string, current: number): StageWorkflowSnapshot {
   return {
     stageKey: "adjudicate",
     title: "Current work",
-    summary: "Adjudicating calibration records.",
+    summary: "Adjudicating audit records.",
     source: "telemetry",
     counts: { current, total: 5, label: "records" },
     steps: [
       {
         id: "load_active_records",
-        label: "Load active calibration records",
+        label: "Load active audit records",
         description:
           "Read the adjudication records that are in scope for model judging and exclude any records already filtered out.",
         status: "completed",

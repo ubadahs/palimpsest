@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildPackets } from "../../src/classification/build-packets.js";
-import { sampleCalibrationSet } from "../../src/adjudication/sample-calibration.js";
+import { sampleAuditSet } from "../../src/adjudication/sample-audit.js";
 import {
   familyClassificationResultSchema,
   familyEvidenceResultSchema,
@@ -103,7 +103,7 @@ function makeExtraction(): FamilyExtractionResult {
 }
 
 describe("M3→M4→M5 fixture chain", () => {
-  it("produces validated, section-aware evidence and calibration outputs", async () => {
+  it("produces validated, section-aware evidence and audit sample outputs", async () => {
     const classification = familyClassificationResultSchema.parse(
       buildPackets(makeExtraction(), "all_functions_census", {
         "edge-1": EDGE_CLASSIFICATION,
@@ -135,9 +135,9 @@ describe("M3→M4→M5 fixture chain", () => {
       evidence.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle,
     ).toBe("Results");
 
-    const calibration = sampleCalibrationSet(evidence, undefined, 10);
-    expect(calibration.records).toHaveLength(1);
-    expect(calibration.records[0]!.evidenceSpans[0]!.sectionTitle).toBe(
+    const auditSample = sampleAuditSet(evidence, undefined, 10);
+    expect(auditSample.records).toHaveLength(1);
+    expect(auditSample.records[0]!.evidenceSpans[0]!.sectionTitle).toBe(
       "Results",
     );
   });

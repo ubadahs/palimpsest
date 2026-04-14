@@ -80,7 +80,7 @@ const defaultState: FormState = {
     thinking: false,
     topN: 5,
     rank: true,
-    probeBudget: 20,
+    probeBudget: 100,
     shortlistCap: 5,
     fromYear: "",
     toYear: "",
@@ -112,7 +112,7 @@ const defaultState: FormState = {
 
   run: {
     forceRefresh: false,
-    familyConcurrency: 3,
+    familyConcurrency: 5,
   },
 };
 
@@ -656,7 +656,7 @@ export function NewRunForm() {
                   Curate
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  calibration set sampling
+                  audit sample selection
                 </span>
               </summary>
               <div className={sectionBodyClass}>
