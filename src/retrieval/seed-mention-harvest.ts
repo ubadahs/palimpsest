@@ -18,10 +18,29 @@ import type {
 } from "../domain/types.js";
 import type { ParsedPaperCacheOptions } from "./parsed-paper.js";
 import type { FullTextFetchAdapters } from "./fulltext-fetch.js";
+import type { ParsedPaperReference } from "../domain/types.js";
 import {
   findReferenceByMetadata,
   materializeParsedPaper,
 } from "./parsed-paper.js";
+
+/**
+ * Build a human-readable author-year label from a parsed bibliography entry.
+ * Examples: "Mets and Meyer, 2009", "Resnick et al., 2009", "Smith, 2020".
+ */
+function buildRefLabel(ref: ParsedPaperReference): string | undefined {
+  if (ref.authorSurnames.length === 0) return undefined;
+  const year = ref.year != null ? String(ref.year) : undefined;
+  let authors: string;
+  if (ref.authorSurnames.length === 1) {
+    authors = ref.authorSurnames[0]!;
+  } else if (ref.authorSurnames.length === 2) {
+    authors = `${ref.authorSurnames[0]!} and ${ref.authorSurnames[1]!}`;
+  } else {
+    authors = `${ref.authorSurnames[0]!} et al.`;
+  }
+  return year != null ? `${authors}, ${year}` : authors;
+}
 
 export type MentionHarvestAdapters = {
   fullText: FullTextFetchAdapters;
@@ -175,6 +194,10 @@ export async function harvestSeedMentions(
 
   const acquisitionMethod = acquisition.selectedMethod ?? undefined;
 
+  // Build author-year label from the matched reference for downstream
+  // disambiguation (e.g. "Mets and Meyer, 2009").
+  const seedRefLabel = buildRefLabel(seedRef);
+
   const mentions: HarvestedSeedMention[] = rawMentions.map((m) => ({
     mentionId: `${citingPaper.id}:${String(m.mentionIndex)}`,
     citingPaperId: citingPaper.id,
@@ -189,6 +212,7 @@ export async function harvestSeedMentions(
       acquisitionMethod: acquisitionMethod,
     },
     harvestOutcome: "success" as const,
+    seedRefLabel,
   }));
 
   return makeResult(

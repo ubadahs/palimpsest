@@ -8,6 +8,103 @@
 const SENTENCE_RE = /[^.!?]*[.!?]+/g;
 
 /**
+ * Annotates the citing context by wrapping the sentence(s) that contain the
+ * citation marker with ▶ / ◀ delimiters. The full context is preserved —
+ * surrounding sentences remain for the adjudicator to reason about — but the
+ * attributed sentence(s) are visually marked.
+ *
+ * If the context is short enough that the marker position is unambiguous,
+ * or if the marker can't be found, returns the text unchanged.
+ */
+/**
+ * @param rawContext      Full paragraph or context window.
+ * @param citationMarker  The raw marker text (e.g. "2009", "[59]").
+ * @param seedRefLabel    Author-year label from the matched bibliography entry
+ *   (e.g. "Mets and Meyer, 2009"). When provided, used as the primary match
+ *   pattern — this is the ground truth from reference resolution, not a guess.
+ */
+export function annotateCitingContext(
+  rawContext: string,
+  citationMarker: string,
+  seedRefLabel?: string | undefined,
+): string {
+  const sentences = splitSentences(rawContext);
+
+  if (sentences.length <= 1) {
+    return rawContext;
+  }
+
+  // Primary pattern: the seed paper's author-year label (ground truth from
+  // reference resolution). Falls back to the raw citation marker.
+  const primaryPattern = seedRefLabel ?? citationMarker;
+  const patterns: string[] = [];
+  if (primaryPattern.length > 0) {
+    patterns.push(primaryPattern);
+    const normalized = primaryPattern
+      .replace(/\s+/g, " ")
+      .replace(/[,;:]+$/, "")
+      .trim();
+    if (normalized !== primaryPattern) patterns.push(normalized);
+  }
+  // Also try the raw marker as fallback if seedRefLabel was used as primary.
+  if (seedRefLabel && citationMarker.length > 0 && citationMarker !== seedRefLabel) {
+    patterns.push(citationMarker);
+  }
+
+  // Find sentences that contain any of our patterns (prefer earlier patterns).
+  const markerSentences = new Set<number>();
+  for (const pat of patterns) {
+    for (let i = 0; i < sentences.length; i++) {
+      if (sentences[i]!.text.includes(pat)) {
+        markerSentences.add(i);
+      }
+    }
+    // If the primary pattern (seedRefLabel) matched, don't fall back to the
+    // raw marker — the label is more specific and avoids false matches.
+    if (markerSentences.size > 0 && pat === (seedRefLabel ?? citationMarker)) {
+      break;
+    }
+  }
+
+  if (
+    markerSentences.size === 0 ||
+    markerSentences.size === sentences.length
+  ) {
+    return rawContext;
+  }
+
+  if (markerSentences.size === 0 || markerSentences.size === sentences.length) {
+    // Can't isolate or every sentence matches — no annotation needed.
+    return rawContext;
+  }
+
+  // Rebuild with ▶ / ◀ around attributed sentences.
+  const parts: string[] = [];
+  let inMarked = false;
+  for (let i = 0; i < sentences.length; i++) {
+    const isMarked = markerSentences.has(i);
+    if (isMarked && !inMarked) {
+      parts.push("▶ ");
+      inMarked = true;
+    } else if (!isMarked && inMarked) {
+      // Trim trailing space before closing marker.
+      const last = parts.length - 1;
+      if (last >= 0) parts[last] = parts[last]!.trimEnd();
+      parts.push(" ◀ ");
+      inMarked = false;
+    }
+    parts.push(sentences[i]!.text);
+  }
+  if (inMarked) {
+    const last = parts.length - 1;
+    if (last >= 0) parts[last] = parts[last]!.trimEnd();
+    parts.push(" ◀");
+  }
+
+  return parts.join("");
+}
+
+/**
  * Returns ~1-3 sentences surrounding the citation marker within rawContext.
  * Falls back to a character-based window if sentence splitting fails.
  */

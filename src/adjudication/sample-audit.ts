@@ -148,6 +148,7 @@ function taskToRecord(
     citingSpan: bestMention?.rawContext ?? "",
     citingSpanSection: bestMention?.sectionTitle,
     citingMarker: bestMention?.citationMarker ?? "",
+    seedRefLabel: (bestMention as Record<string, unknown> | undefined)?.["seedRefLabel"] as string | undefined,
 
     rubricQuestion: task.rubricQuestion,
     evidenceSpans: task.citedPaperEvidenceSpans,

@@ -172,6 +172,14 @@ export const harvestedSeedMentionSchema = z
       })
       .passthrough(),
     harvestOutcome: mentionHarvestOutcomeSchema,
+    /**
+     * Author-year label for the seed paper's bibliography entry in the citing
+     * paper, e.g. "Mets and Meyer, 2009". Built at harvest time from the
+     * matched reference's authorSurnames + year. Used downstream by the
+     * adjudicator to disambiguate which sentences in a multi-reference
+     * paragraph are attributed to the seed paper.
+     */
+    seedRefLabel: undefinedable(z.string()),
   })
   .passthrough();
 export type HarvestedSeedMention = z.infer<typeof harvestedSeedMentionSchema>;
