@@ -230,5 +230,10 @@ function toCitationMentionFromHarvested(
     sourceType,
     parser: sourceType,
   };
-  return toCitationMention(parsed);
+  const cm = toCitationMention(parsed);
+  // Propagate the author-year label from harvest for downstream disambiguation.
+  if (mention.seedRefLabel) {
+    (cm as Record<string, unknown>)["seedRefLabel"] = mention.seedRefLabel;
+  }
+  return cm;
 }
