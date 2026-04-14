@@ -45,7 +45,8 @@ export const llmProviderErrorClassValues = [
   "unknown",
 ] as const;
 
-export type LLMProviderErrorClass = (typeof llmProviderErrorClassValues)[number];
+export type LLMProviderErrorClass =
+  (typeof llmProviderErrorClassValues)[number];
 
 export type LLMCallContext = {
   stageKey?: StageKey;
@@ -310,7 +311,9 @@ export function classifyProviderError(error: unknown): {
   };
 }
 
-export function isFatalProviderError(error: unknown): error is LLMProviderError {
+export function isFatalProviderError(
+  error: unknown,
+): error is LLMProviderError {
   return error instanceof LLMProviderError && error.fatal;
 }
 
@@ -327,7 +330,9 @@ export function createLLMTelemetryCollector(): LLMTelemetryCollector {
   };
 }
 
-const DEFAULT_PROMPT_CACHE_POLICIES: Partial<Record<LLMPurpose, PromptCachePolicy>> = {
+const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
+  Record<LLMPurpose, PromptCachePolicy>
+> = {
   "seed-grounding": {
     minPromptChars: 4_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
@@ -850,11 +855,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         const cached = getCachedLLMResult(db, cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached.responseText) as z.infer<T>;
-          const record = buildCacheHitRecord(
-            params.purpose,
-            modelId,
-            context,
-          );
+          const record = buildCacheHitRecord(params.purpose, modelId, context);
           return { object: parsed, record };
         }
       }

@@ -238,9 +238,7 @@ describe("fetchFullText acquisition policy", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data.acquisition.accessChannel).toBe(
-      "institutional_proxy",
-    );
+    expect(result.data.acquisition.accessChannel).toBe("institutional_proxy");
     expect(result.data.acquisition.selectedMethod).toBe("direct_pdf_grobid");
     expect(grobid).toHaveBeenCalledWith(PDF_MAGIC);
   });

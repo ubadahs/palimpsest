@@ -835,7 +835,10 @@ function processOneSeedFromHandoff(
   handoffs: DiscoveryHandoffMap,
   options: { minAuditableCoverage: number; minAuditableEdges: number },
   onProgress?: (event: PreScreenProgressEvent) => void,
-): { family: ClaimFamilyPreScreen; traceRecord: PreScreenGroundingTraceRecord } {
+): {
+  family: ClaimFamilyPreScreen;
+  traceRecord: PreScreenGroundingTraceRecord;
+} {
   const emptyMetrics = computeMetrics([], 0);
 
   onProgress?.({
@@ -1052,8 +1055,16 @@ function processOneSeedFromHandoff(
   });
 
   const claimFamilyEdges = edges;
-  const metrics = mergeClaimFamilyMetrics(neighborhoodMetrics, claimFamilyEdges);
-  const { decision, reason } = makeDecision(metrics, true, options, claimGrounding);
+  const metrics = mergeClaimFamilyMetrics(
+    neighborhoodMetrics,
+    claimFamilyEdges,
+  );
+  const { decision, reason } = makeDecision(
+    metrics,
+    true,
+    options,
+    claimGrounding,
+  );
   const familyUseProfile = computeFamilyUseProfile(metrics);
   const m2Priority = computeM2Priority(metrics, decision);
 
@@ -1196,7 +1207,8 @@ export function runPreScreenFromHandoff(
 ): Promise<PreScreenRunResult> {
   const resolvedOptions = {
     minAuditableCoverage:
-      options.minAuditableCoverage ?? DEFAULT_NUMERIC_OPTIONS.minAuditableCoverage,
+      options.minAuditableCoverage ??
+      DEFAULT_NUMERIC_OPTIONS.minAuditableCoverage,
     minAuditableEdges:
       options.minAuditableEdges ?? DEFAULT_NUMERIC_OPTIONS.minAuditableEdges,
   };

@@ -31,9 +31,7 @@ function blindRecord(record: AdjudicationRecord): BlindAuditRecord {
   return blind as BlindAdjudicationRecord;
 }
 
-export function createBlindAuditSample(
-  set: AuditSample,
-): BlindAuditSample {
+export function createBlindAuditSample(set: AuditSample): BlindAuditSample {
   return {
     ...set,
     version: set.version ? `${set.version}-blind` : "blind-benchmark",

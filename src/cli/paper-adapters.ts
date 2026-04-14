@@ -68,7 +68,9 @@ export function buildPaperAdapters(config: PaperAdapterConfig): PaperAdapters {
  * Create full-text fetch adapters directly from AppConfig.
  * Eliminates repeated field extraction across CLI commands.
  */
-export function createFullTextAdapters(config: AppConfig): FullTextFetchAdapters {
+export function createFullTextAdapters(
+  config: AppConfig,
+): FullTextFetchAdapters {
   return createDefaultAdapters({
     grobidBaseUrl: config.providerBaseUrls.grobid,
     email: config.openAlexEmail,

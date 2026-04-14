@@ -72,9 +72,7 @@ export type FamilyCandidateConsolidationResult = {
 // ---------------------------------------------------------------------------
 
 function buildConsolidationPrompt(claims: string[]): string {
-  const claimList = claims
-    .map((c, i) => `[${String(i)}] ${c}`)
-    .join("\n");
+  const claimList = claims.map((c, i) => `[${String(i)}] ${c}`).join("\n");
 
   return `You are reviewing tracked claims about a single research paper. Each claim below was independently extracted from how different citing papers describe the same source paper. Many of these claims describe the same finding using different words.
 
@@ -111,7 +109,7 @@ Respond with ONLY a JSON object (no markdown fences) matching this schema:
 async function clusterClaims(
   claims: string[],
   llmClient: LLMClient,
-  model?: string | undefined,
+  model?: string,
 ): Promise<ConsolidationCluster[]> {
   if (claims.length <= 1) {
     return claims.length === 1
@@ -160,22 +158,23 @@ export async function consolidateFamilyCandidates(
   candidates: AttributedClaimFamilyCandidate[],
   groundingTraces: FamilyGroundingTrace[],
   llmClient: LLMClient,
-  model?: string | undefined,
+  model?: string,
 ): Promise<FamilyCandidateConsolidationResult> {
   if (candidates.length <= 1) {
     return {
       consolidatedCandidates: [...candidates],
       consolidatedTraces: [...groundingTraces],
-      clusters: candidates.length === 1
-        ? [
-            {
-              cluster: 1,
-              memberIndices: [0],
-              representativeIndex: 0,
-              reasoning: "Single family — no consolidation needed.",
-            },
-          ]
-        : [],
+      clusters:
+        candidates.length === 1
+          ? [
+              {
+                cluster: 1,
+                memberIndices: [0],
+                representativeIndex: 0,
+                reasoning: "Single family — no consolidation needed.",
+              },
+            ]
+          : [],
       originalCandidates: [...candidates],
       eliminatedCount: 0,
       droppedGroundingTraces: [],
@@ -186,9 +185,7 @@ export async function consolidateFamilyCandidates(
   const clusters = await clusterClaims(claims, llmClient, model);
 
   // Index grounding traces by familyId for fast lookup.
-  const traceByFamilyId = new Map(
-    groundingTraces.map((t) => [t.familyId, t]),
-  );
+  const traceByFamilyId = new Map(groundingTraces.map((t) => [t.familyId, t]));
 
   const consolidatedCandidates: AttributedClaimFamilyCandidate[] = [];
   const consolidatedTraces: FamilyGroundingTrace[] = [];

@@ -446,7 +446,10 @@ export function getStageDetailOrThrow<K extends StageKey>(
   }
 
   const enriched = attachStageSummaries([stage], runId)[0]!;
-  return buildRunStageDetail(runId, enriched as AnalysisRunStage & { stageKey: K });
+  return buildRunStageDetail(
+    runId,
+    enriched as AnalysisRunStage & { stageKey: K },
+  );
 }
 
 export function getStageGroupDetailOrThrow<K extends StageKey>(

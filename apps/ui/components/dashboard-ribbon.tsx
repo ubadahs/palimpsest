@@ -87,7 +87,9 @@ export function DashboardRibbon({
               <p className="truncate text-xs font-semibold text-[var(--text)]">
                 {healthLabel}
               </p>
-              <p className="text-[10px] text-[var(--text-muted)]">System status</p>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                System status
+              </p>
             </div>
           </div>
           <ChevronDown

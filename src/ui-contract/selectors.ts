@@ -478,10 +478,7 @@ export function deriveStageSummary(
 
   if (artifact.kind === "curate") {
     return {
-      ...summarizeAuditSample(
-        artifact.data,
-        failureHeadline ?? "Audit sample",
-      ),
+      ...summarizeAuditSample(artifact.data, failureHeadline ?? "Audit sample"),
       artifacts: artifactPointers,
     };
   }
@@ -511,7 +508,9 @@ export function buildStageInspectorPayload<K extends StageKey>(
   }
 
   if (artifact.kind === "screen") {
-    return buildScreenInspectorPayload(artifact.data) as StageInspectorPayload<K>;
+    return buildScreenInspectorPayload(
+      artifact.data,
+    ) as StageInspectorPayload<K>;
   }
 
   if (artifact.kind === "extract") {

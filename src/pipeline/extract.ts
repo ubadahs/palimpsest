@@ -189,9 +189,7 @@ export async function runM2Extraction(
       `  [${String(attemptCount)}] ${citingPaper.title.substring(0, 70)}...`,
     );
 
-    const preHarvested = adapters.preHarvestedMentions?.get(
-      edge.citingPaperId,
-    );
+    const preHarvested = adapters.preHarvestedMentions?.get(edge.citingPaperId);
     const result =
       preHarvested !== undefined
         ? extractEdgeContextFromMentions(edge, citingPaper, preHarvested)

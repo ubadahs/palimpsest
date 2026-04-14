@@ -43,7 +43,9 @@ export type AttributionDiscoverySummary = z.infer<
   typeof attributionDiscoverySummarySchema
 >;
 
-export function buildLegacyDiscoverInspectorPayload(data: ClaimDiscoveryResult[]) {
+export function buildLegacyDiscoverInspectorPayload(
+  data: ClaimDiscoveryResult[],
+) {
   return {
     strategy: "legacy" as const,
     papers: data.map((result) => ({
@@ -98,9 +100,7 @@ export function buildAttributionDiscoverInspectorPayload(
           : undefined,
       familyCandidateCount: result.familyCandidateCount,
       dedupeMergedCount:
-        "dedupeMergedCount" in result
-          ? result.dedupeMergedCount
-          : undefined,
+        "dedupeMergedCount" in result ? result.dedupeMergedCount : undefined,
       shortlistEntries: result.shortlistEntries,
       warnings: result.warnings,
     })),
@@ -166,7 +166,9 @@ export type ExtractInspectorPayload = ReturnType<
   typeof buildExtractInspectorPayload
 >;
 
-export function buildClassifyInspectorPayload(data: FamilyClassificationResult) {
+export function buildClassifyInspectorPayload(
+  data: FamilyClassificationResult,
+) {
   return {
     seed: data.seed,
     summary: data.summary,
@@ -315,6 +317,8 @@ export function buildAdjudicateInspectorPayload(data: AuditSample) {
       excludeReason: record.excludeReason,
       citingSpan: record.citingSpan,
       rubricQuestion: record.rubricQuestion,
+      groundedSeedClaimText: record.groundedSeedClaimText,
+      comparison: record.comparison,
       evidenceSpans: record.evidenceSpans,
     })),
   };
