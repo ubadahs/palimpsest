@@ -34,9 +34,7 @@ export const blindAuditRecordSchema = z.union([
   blindAdjudicationRecordSchema,
   blindExcludedRecordSchema,
 ]);
-export type BlindAuditRecord = z.infer<
-  typeof blindAuditRecordSchema
->;
+export type BlindAuditRecord = z.infer<typeof blindAuditRecordSchema>;
 
 export const blindAuditSampleSchema = auditSampleSchema
   .extend({

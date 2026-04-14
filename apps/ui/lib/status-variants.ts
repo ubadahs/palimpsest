@@ -15,7 +15,9 @@ export function runBadgeVariant(status: AnalysisRunStatus): BadgeVariant {
 }
 
 /** Badge variant for per-stage aggregate status (stage rail, stage detail). */
-export function stageBadgeVariant(status: AnalysisRunStageStatus): BadgeVariant {
+export function stageBadgeVariant(
+  status: AnalysisRunStageStatus,
+): BadgeVariant {
   if (status === "running") return "running";
   if (status === "succeeded") return "success";
   if (status === "stale") return "stale";

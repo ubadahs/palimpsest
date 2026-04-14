@@ -52,7 +52,9 @@ function ensureAmbiguousRoleCoverage(
   if (
     totalTarget <= 0 ||
     targets["manual_review_role_ambiguous"] != null ||
-    !tasks.some((task) => task.evaluationMode === "manual_review_role_ambiguous")
+    !tasks.some(
+      (task) => task.evaluationMode === "manual_review_role_ambiguous",
+    )
   ) {
     return targets;
   }
@@ -148,7 +150,9 @@ function taskToRecord(
     citingSpan: bestMention?.rawContext ?? "",
     citingSpanSection: bestMention?.sectionTitle,
     citingMarker: bestMention?.citationMarker ?? "",
-    seedRefLabel: (bestMention as Record<string, unknown> | undefined)?.["seedRefLabel"] as string | undefined,
+    seedRefLabel: (bestMention as Record<string, unknown> | undefined)?.[
+      "seedRefLabel"
+    ] as string | undefined,
 
     rubricQuestion: task.rubricQuestion,
     evidenceSpans: task.citedPaperEvidenceSpans,

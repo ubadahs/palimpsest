@@ -124,18 +124,17 @@ function migrateTraceFileShape(val: unknown): unknown {
   };
 }
 
-export const preScreenGroundingTraceFileSchema = z
-  .preprocess(
-    migrateTraceFileShape,
-    z
-      .object({
-        artifactKind: z.literal("pre-screen-grounding-trace"),
-        schemaVersion: z.number().int().positive(),
-        generatedAt: z.string().min(1),
-        records: z.array(preScreenGroundingTraceEntrySchema),
-      })
-      .passthrough(),
-  );
+export const preScreenGroundingTraceFileSchema = z.preprocess(
+  migrateTraceFileShape,
+  z
+    .object({
+      artifactKind: z.literal("pre-screen-grounding-trace"),
+      schemaVersion: z.number().int().positive(),
+      generatedAt: z.string().min(1),
+      records: z.array(preScreenGroundingTraceEntrySchema),
+    })
+    .passthrough(),
+);
 export type PreScreenGroundingTraceFile = z.infer<
   typeof preScreenGroundingTraceFileSchema
 >;

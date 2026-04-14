@@ -119,7 +119,11 @@ function DiscoverInspector({
   return <LegacyDiscoverInspector payload={payload} />;
 }
 
-function ScreenInspector({ payload }: { payload: ScreenInspectorPayload | undefined }) {
+function ScreenInspector({
+  payload,
+}: {
+  payload: ScreenInspectorPayload | undefined;
+}) {
   const edgeRows: TableRow[] = (payload?.families ?? []).flatMap((family) =>
     family.edges.map((edge) => ({
       seedDoi: family.seedDoi,
@@ -152,7 +156,11 @@ function ScreenInspector({ payload }: { payload: ScreenInspectorPayload | undefi
   );
 }
 
-function ExtractInspector({ payload }: { payload: ExtractInspectorPayload | undefined }) {
+function ExtractInspector({
+  payload,
+}: {
+  payload: ExtractInspectorPayload | undefined;
+}) {
   const rows: TableRow[] = (payload?.edgeResults ?? []).map((edge) => ({
     citingPaperTitle: edge.citingPaperTitle,
     extractionOutcome: String(edge.extractionOutcome),
@@ -180,7 +188,11 @@ function ExtractInspector({ payload }: { payload: ExtractInspectorPayload | unde
   );
 }
 
-function ClassifyInspector({ payload }: { payload: ClassifyInspectorPayload | undefined }) {
+function ClassifyInspector({
+  payload,
+}: {
+  payload: ClassifyInspectorPayload | undefined;
+}) {
   const rows: TableRow[] = (payload?.packets ?? []).flatMap((packet) =>
     packet.tasks.map((task) => ({
       citingPaperTitle: packet.citingPaperTitle,
@@ -231,7 +243,11 @@ type EvidenceTaskEntry = {
   task: EvidenceInspectorPayload["edges"][number]["tasks"][number];
 };
 
-function EvidenceInspector({ payload }: { payload: EvidenceInspectorPayload | undefined }) {
+function EvidenceInspector({
+  payload,
+}: {
+  payload: EvidenceInspectorPayload | undefined;
+}) {
   const tasks: EvidenceTaskEntry[] = (payload?.edges ?? []).flatMap((edge) =>
     edge.tasks.map((task) => ({
       citingPaperTitle: edge.citingPaperTitle,
@@ -413,7 +429,11 @@ function EvidenceInspector({ payload }: { payload: EvidenceInspectorPayload | un
   );
 }
 
-function CurateInspector({ payload }: { payload: CurateInspectorPayload | undefined }) {
+function CurateInspector({
+  payload,
+}: {
+  payload: CurateInspectorPayload | undefined;
+}) {
   const rows: TableRow[] = (payload?.records ?? []).map((record) => ({
     evaluationMode: String(record.evaluationMode),
     citationRole: String(record.citationRole),
@@ -524,7 +544,10 @@ function AdjudicateInspector({
                     <span>
                       1st pass:{" "}
                       <strong className="text-[var(--text)]">
-                        ${payload.advisor.firstPassTelemetry.estimatedCostUsd.toFixed(2)}
+                        $
+                        {payload.advisor.firstPassTelemetry.estimatedCostUsd.toFixed(
+                          2,
+                        )}
                       </strong>
                     </span>
                   ) : null}
@@ -532,7 +555,10 @@ function AdjudicateInspector({
                     <span>
                       Escalation:{" "}
                       <strong className="text-[var(--text)]">
-                        ${payload.advisor.escalationTelemetry.estimatedCostUsd.toFixed(2)}
+                        $
+                        {payload.advisor.escalationTelemetry.estimatedCostUsd.toFixed(
+                          2,
+                        )}
                       </strong>
                     </span>
                   ) : null}

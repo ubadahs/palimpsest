@@ -258,7 +258,9 @@ export async function runPreScreenCommand(argv: string[]): Promise<void> {
       let totalInput = 0;
       let totalOutput = 0;
       let totalUsd = 0;
-      for (const records of Object.values(groupTraceRecordsBySeedDoi(groundingTrace))) {
+      for (const records of Object.values(
+        groupTraceRecordsBySeedDoi(groundingTrace),
+      )) {
         for (const rec of records) {
           const c = rec.llmCall;
           if (!c) {

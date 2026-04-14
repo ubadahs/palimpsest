@@ -45,9 +45,7 @@ function headlineStageTitle(run: RunSummary): string {
   const problem = run.stages.find((g) =>
     ["failed", "cancelled", "interrupted"].includes(g.aggregateStatus),
   );
-  return problem
-    ? getStageDefinition(problem.stageKey).title
-    : "Not started";
+  return problem ? getStageDefinition(problem.stageKey).title : "Not started";
 }
 
 function stageProgressLabel(run: RunSummary): string {
@@ -176,9 +174,7 @@ export function DashboardRunSections({ runs }: { runs: RunSummary[] }) {
       .filter((r) => r.status === "succeeded")
       .sort(sortByUpdatedDesc);
     const failed = runs
-      .filter((r) =>
-        ["failed", "cancelled", "interrupted"].includes(r.status),
-      )
+      .filter((r) => ["failed", "cancelled", "interrupted"].includes(r.status))
       .sort(sortByUpdatedDesc);
     return { active, completed, failed };
   }, [runs]);

@@ -11,7 +11,10 @@
 
 import { z } from "zod";
 
-import type { ExactCacheConfig, LLMClient } from "../integrations/llm-client.js";
+import type {
+  ExactCacheConfig,
+  LLMClient,
+} from "../integrations/llm-client.js";
 import type { EvaluationMode, Result } from "../domain/types.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 

@@ -49,8 +49,7 @@ export function runCurateCommand(argv: string[]): void {
 
   try {
     progress.startStep("collect_eligible_tasks", {
-      detail:
-        "Loading evidence-backed tasks eligible for audit sampling.",
+      detail: "Loading evidence-backed tasks eligible for audit sampling.",
     });
     const evidence = loadJsonArtifact(
       args.evidencePath,
@@ -79,11 +78,7 @@ export function runCurateCommand(argv: string[]): void {
     progress.startStep("allocate_mode_balanced_sample", {
       detail: "Allocating a balanced sample across evaluation modes.",
     });
-    const auditSample = sampleAuditSet(
-      evidence,
-      undefined,
-      args.targetSize,
-    );
+    const auditSample = sampleAuditSet(evidence, undefined, args.targetSize);
     progress.completeStep("prioritize_edge_cases", {
       detail:
         auditSample.samplingStrategy.oversampled.length > 0

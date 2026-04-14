@@ -21,11 +21,7 @@ import { DoiLink } from "@/lib/rich-text";
 import { resolveFocusStage } from "@/lib/run-focus-stage";
 import { runBadgeVariant } from "@/lib/status-variants";
 import { usePoll } from "@/lib/use-poll";
-import {
-  fetchJson,
-  formatDateCompact,
-  formatDuration,
-} from "@/lib/utils";
+import { fetchJson, formatDateCompact, formatDuration } from "@/lib/utils";
 
 function sortGroups(groups: LogicalStageGroup[]): LogicalStageGroup[] {
   return [...groups].sort((a, b) => a.stageOrder - b.stageOrder);
@@ -103,7 +99,9 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
       .then((cost) => {
         if (cost && typeof cost.totalEstimatedCostUsd === "number") {
           setCostUsd(cost.totalEstimatedCostUsd);
-          setCostSource(cost.source === "cost_file" ? "pipeline" : "adjudication only");
+          setCostSource(
+            cost.source === "cost_file" ? "pipeline" : "adjudication only",
+          );
         }
       })
       .catch(() => null);
@@ -156,7 +154,10 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-[var(--text-muted)]" suppressHydrationWarning>
+            <div
+              className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-[var(--text-muted)]"
+              suppressHydrationWarning
+            >
               <div suppressHydrationWarning>
                 <span className="text-[11px] uppercase tracking-[0.14em]">
                   Created
@@ -181,7 +182,13 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                 </div>
               )}
               {costUsd != null ? (
-                <div title={costSource === "pipeline" ? "Total LLM cost across all pipeline stages" : "Adjudication LLM cost only — run again to capture full pipeline cost"}>
+                <div
+                  title={
+                    costSource === "pipeline"
+                      ? "Total LLM cost across all pipeline stages"
+                      : "Adjudication LLM cost only — run again to capture full pipeline cost"
+                  }
+                >
                   <span className="text-[11px] uppercase tracking-[0.14em]">
                     Est. LLM cost
                   </span>{" "}

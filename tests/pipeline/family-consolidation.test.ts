@@ -6,11 +6,10 @@ import {
 } from "../../src/pipeline/family-consolidation.js";
 import type { AttributedClaimFamilyCandidate } from "../../src/domain/discovery.js";
 import type { FamilyGroundingTrace } from "../../src/pipeline/discovery-family-probe.js";
+import type { ClaimGrounding } from "../../src/domain/pre-screen.js";
 import type { LLMClient } from "../../src/integrations/llm-client.js";
 
-function makeCandidates(
-  claims: string[],
-): AttributedClaimFamilyCandidate[] {
+function makeCandidates(claims: string[]): AttributedClaimFamilyCandidate[] {
   return claims.map((claim, i) => ({
     familyId: `family_${String(i)}`,
     doi: "10.1234/test",
@@ -58,7 +57,7 @@ function makeTraces(
       supportSpans: [],
       blocksDownstream: false,
       detailReason: "ok",
-    } as any,
+    } satisfies ClaimGrounding,
   }));
 }
 
@@ -233,7 +232,7 @@ describe("consolidateFamilyCandidates", () => {
           supportSpans: [],
           blocksDownstream: false,
           detailReason: "ok",
-        } as any,
+        } satisfies ClaimGrounding,
       },
     ];
 

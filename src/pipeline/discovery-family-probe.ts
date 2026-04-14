@@ -408,7 +408,9 @@ export async function runAttributionDiscovery(
           mentions: harvest.mentions,
           client: adapters.llmClient,
           options: {
-            ...(options.extractionModel ? { model: options.extractionModel } : {}),
+            ...(options.extractionModel
+              ? { model: options.extractionModel }
+              : {}),
             useThinking: options.extractionThinking ?? false,
             enableExactCache: true,
           },
@@ -474,12 +476,14 @@ export async function runAttributionDiscovery(
       const traces = await pMap(
         families,
         async (fam) => {
-          const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding({
-            seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
-            seedPaper,
-            parsedDocument: seedParsedDocument,
-            options: adapters.groundingOptions,
-          });
+          const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding(
+            {
+              seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
+              seedPaper,
+              parsedDocument: seedParsedDocument,
+              options: adapters.groundingOptions,
+            },
+          );
           fam.seedGrounding = toSeedGrounding(grounding);
 
           groundCompleted += 1;
