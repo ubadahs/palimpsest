@@ -77,6 +77,8 @@ export const adjudicationRecordSchema = z
     citingSpan: z.string(),
     citingSpanSection: undefinedable(z.string()),
     citingMarker: z.string(),
+    /** Author-year label of the seed paper's bibliography entry, e.g. "Mets and Meyer, 2009". */
+    seedRefLabel: undefinedable(z.string()),
     rubricQuestion: z.string(),
     evidenceSpans: z.array(evidenceSpanSchema),
     evidenceRetrievalStatus: taskEvidenceRetrievalStatusSchema,

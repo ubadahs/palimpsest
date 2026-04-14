@@ -28,6 +28,13 @@ export type EvidenceRetrievalAdapters = {
   llmRerankerOptions?: LLMRerankerOptions;
   /** Max concurrent evidence retrieval tasks. Default 8. */
   concurrency?: number;
+  /**
+   * When set, only tasks whose IDs are in this set get LLM reranking.
+   * All other tasks get BM25-only retrieval. This allows deferring
+   * expensive LLM reranking to after curate sampling, so only the
+   * records that will actually be adjudicated pay the reranking cost.
+   */
+  llmRerankTaskIds?: Set<string>;
 };
 
 type RankedBlock = {
@@ -280,12 +287,15 @@ async function retrieveForTask(
     };
   }
 
-  // Use LLM reranker when available, else fall back to local reranker / BM25.
-  const reranked = adapters.llmClient
+  // Use LLM reranker when available and this task is eligible, else fall back.
+  const llmEligible =
+    adapters.llmClient &&
+    (!adapters.llmRerankTaskIds || adapters.llmRerankTaskIds.has(task.taskId));
+  const reranked = llmEligible
     ? await rerankBlocksLLM(
         task,
         bm25Ranked,
-        adapters.llmClient,
+        adapters.llmClient!,
         adapters.llmRerankerOptions,
         seedClaimBoost,
         adapters.reranker,
