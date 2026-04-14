@@ -6,7 +6,7 @@ import {
   type BenchmarkCandidateInput,
 } from "../../benchmark/workflow.js";
 import { benchmarkSummarySchema } from "../../benchmark/types.js";
-import { calibrationSetSchema } from "../../domain/types.js";
+import { auditSampleSchema } from "../../domain/types.js";
 import { toBenchmarkSummaryMarkdown } from "../../reporting/benchmark-summary-report.js";
 import {
   loadJsonArtifact,
@@ -87,7 +87,7 @@ function resolveCandidateInputs(
       path: candidatePath,
       set: loadJsonArtifact(
         candidatePath,
-        calibrationSetSchema,
+        auditSampleSchema,
         `candidate adjudication set (${candidate.label})`,
       ),
     };
@@ -101,7 +101,7 @@ export function runBenchmarkSummaryCommand(argv: string[]): void {
     const basePath = resolve(process.cwd(), args.base);
     const base = loadJsonArtifact(
       basePath,
-      calibrationSetSchema,
+      auditSampleSchema,
       "base adjudication set",
     );
     const candidates = resolveCandidateInputs(args.candidates);

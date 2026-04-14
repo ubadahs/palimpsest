@@ -66,9 +66,13 @@ function buildTasks(
 
   for (const [role, cluster] of groups) {
     const clusterHasBundled = cluster.some((m) => m.modifiers.isBundled);
+    const maxBundleSize = Math.max(
+      ...cluster.map((m) => m.modifiers.bundleSize ?? 1),
+    );
     const taskModifiers: TransmissionModifiers = {
       isBundled: clusterHasBundled,
       isReviewMediated: edgeModifiers.isReviewMediated,
+      ...(maxBundleSize > 1 ? { bundleSize: maxBundleSize } : {}),
     };
 
     tasks.push({

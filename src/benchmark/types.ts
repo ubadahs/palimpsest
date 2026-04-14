@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   adjudicationRecordSchema,
   adjudicationVerdictSchema,
-  calibrationSetSchema,
+  auditSampleSchema,
   retrievalQualitySchema,
 } from "../domain/adjudication.js";
 import { undefinedable } from "../domain/common.js";
@@ -30,20 +30,20 @@ export const blindExcludedRecordSchema = adjudicationRecordSchema
   .passthrough();
 export type BlindExcludedRecord = z.infer<typeof blindExcludedRecordSchema>;
 
-export const blindCalibrationRecordSchema = z.union([
+export const blindAuditRecordSchema = z.union([
   blindAdjudicationRecordSchema,
   blindExcludedRecordSchema,
 ]);
-export type BlindCalibrationRecord = z.infer<
-  typeof blindCalibrationRecordSchema
+export type BlindAuditRecord = z.infer<
+  typeof blindAuditRecordSchema
 >;
 
-export const blindCalibrationSetSchema = calibrationSetSchema
+export const blindAuditSampleSchema = auditSampleSchema
   .extend({
-    records: z.array(blindCalibrationRecordSchema),
+    records: z.array(blindAuditRecordSchema),
   })
   .passthrough();
-export type BlindCalibrationSet = z.infer<typeof blindCalibrationSetSchema>;
+export type BlindAuditSample = z.infer<typeof blindAuditSampleSchema>;
 
 export const adjudicationDeltaSchema = z
   .object({

@@ -106,8 +106,8 @@ export const stageDefinitions: readonly StageDefinition[] = [
     directoryName: "05-curate",
     command: "curate",
     artifactGlobs: {
-      primarySuffix: "_calibration-set.json",
-      reportSuffix: "_calibration-worksheet.md",
+      primarySuffix: "_audit-sample.json",
+      reportSuffix: "_audit-sample-worksheet.md",
       extraSuffixes: [],
     },
   },
@@ -119,7 +119,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
     directoryName: "06-adjudicate",
     command: "adjudicate",
     artifactGlobs: {
-      primarySuffix: "_llm-calibration.json",
+      primarySuffix: "_llm-audit-sample.json",
       reportSuffix: "_llm-summary.md",
       extraSuffixes: ["_agreement-report.md"],
     },

@@ -23,8 +23,8 @@ You can run that workflow end to end with `pipeline`, or run the stages individu
 | Extract | `extract` | screen results + seed DOI | extraction results, report, inspection notes | Which citing contexts are usable for downstream grounding |
 | Classify | `classify` | extraction results + screen results | classification results, report | Which extracted mentions become evaluation tasks |
 | Evidence | `evidence` | classification results | evidence results, report | Whether usable cited-paper evidence can be attached to each task |
-| Curate | `curate` | evidence results | calibration set, worksheet | Which evidence-backed tasks enter the adjudication sample |
-| Adjudicate | `adjudicate` | calibration set | adjudicated calibration set, summary, optional agreement report | Final support-style verdicts and rationales for sampled tasks |
+| Curate | `curate` | evidence results | audit sample, worksheet | Which evidence-backed tasks enter the adjudication sample |
+| Adjudicate | `adjudicate` | audit sample | adjudicated audit sample, summary, optional agreement report | Final support-style verdicts and rationales for sampled tasks |
 
 ## Two Ways To Start A Run
 
@@ -109,7 +109,7 @@ Default model behavior:
 
 Additional flags for `discover` and `pipeline --input`: `--probe-budget` (max probe papers, default **20**), `--shortlist-cap` (max shortlisted families per seed after diversity selection, default **5**).
 
-For the full **`pipeline`** command, `--target-size` is the per-family calibration sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **3**).
+For the full **`pipeline`** command, `--target-size` is the per-family audit sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **3**).
 
 Important behavior:
 
@@ -293,7 +293,7 @@ What the next stage consumes:
 
 ### Curate
 
-Purpose: build a balanced calibration set from the evidence-backed task pool.
+Purpose: build a balanced audit sample from the evidence-backed task pool.
 
 Command: `curate`
 
@@ -303,20 +303,20 @@ Reads:
 
 Writes:
 
-- `*_calibration-set.json`
-- `*_calibration-worksheet.md`
+- `*_audit-sample.json`
+- `*_audit-sample-worksheet.md`
 
 What happens:
 
 - collect eligible tasks
 - surface edge cases
 - allocate a mode-balanced sample up to the requested target size (default **20** in run config / UI and when the standalone `curate` command omits `--target-size`)
-- build adjudication-ready calibration records
+- build adjudication-ready audit records
 - write the worksheet and sampling summary
 
 Important behavior:
 
-- `manual_review_role_ambiguous` tasks remain adjudication-eligible, but the sampler **caps** how many are included: at most **25%** of the calibration target (rounded down), including any fill from the “remaining tasks” pass
+- `manual_review_role_ambiguous` tasks remain adjudication-eligible, but the sampler **caps** how many are included: at most **25%** of the audit sample target (rounded down), including any fill from the “remaining tasks” pass
 
 What can block or downgrade it:
 
@@ -325,27 +325,27 @@ What can block or downgrade it:
 
 What the next stage consumes:
 
-- the calibration set artifact
+- the audit sample artifact
 
 ### Adjudicate
 
-Purpose: run the sampled calibration records through the configured model and write final verdicts and rationales.
+Purpose: run the sampled audit records through the configured model and write final verdicts and rationales.
 
 Command: `adjudicate`
 
 Reads:
 
-- calibration set
+- audit sample
 
 Writes:
 
-- `*_llm-calibration.json`
+- `*_llm-audit-sample.json`
 - `*_llm-summary.md`
 - optional `*_agreement-report.md`
 
 What happens:
 
-- load active calibration records
+- load active audit records
 - adjudicate them with the configured model
 - persist verdicts, rationales, confidence, and retrieval-quality judgments
 - summarize the verdict distribution
@@ -353,7 +353,7 @@ What happens:
 What can block it:
 
 - missing `ANTHROPIC_API_KEY`
-- no active calibration records
+- no active audit records
 
 What follows it:
 

@@ -23,8 +23,8 @@ Use the stage key as the canonical name. Some artifact suffixes intentionally pr
 | 2 | `extract` | `extract` | `02-extract/` | `*_m2-extraction-results.json` | `*_m2-extraction-report.md` | `*_m2-inspection.md` |
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
-| 5 | `curate` | `curate` | `05-curate/` | `*_calibration-set.json` | `*_calibration-worksheet.md` | none |
-| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-calibration.json` | `*_llm-summary.md` | `*_agreement-report.md` when agreement reporting is available |
+| 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
+| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md` | `*_agreement-report.md` when agreement reporting is available |
 
 Every primary JSON artifact also gets:
 
@@ -225,7 +225,7 @@ The benchmark workflow is append-only and artifact-driven.
 ### 1. Create a blind benchmark export
 
 ```bash
-npm run dev -- benchmark:blind --input path/to/calibration.json
+npm run dev -- benchmark:blind --input path/to/audit-sample.json
 ```
 
 This removes adjudication outcome fields from active records while preserving record order and task identity.

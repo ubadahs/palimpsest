@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type {
   AdjudicationRecord,
-  CalibrationSet,
+  AuditSample,
   LLMCallTelemetry,
   RunTelemetry,
 } from "../domain/types.js";
@@ -18,7 +18,7 @@ import { extractCitingWindow } from "../shared/citation-context-window.js";
 import { pMap } from "../shared/p-map.js";
 
 /** Bump when the adjudication prompt template or verdict schema changes. */
-const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-11-v1";
+const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v2";
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned
@@ -85,7 +85,14 @@ function buildPrompt(record: AdjudicationRecord): string {
     : spansText;
 
   const modifiers: string[] = [];
-  if (record.modifiers.isBundled) modifiers.push("bundled citation");
+  if (record.modifiers.isBundled) {
+    const size = record.modifiers.bundleSize;
+    modifiers.push(
+      size != null && size > 1
+        ? `bundled citation (${String(size)} references share this marker group)`
+        : "bundled citation",
+    );
+  }
   if (record.modifiers.isReviewMediated) modifiers.push("review-mediated");
   const modifierStr =
     modifiers.length > 0 ? `\nModifiers: ${modifiers.join(", ")}` : "";
@@ -112,9 +119,13 @@ ${record.rubricQuestion}
 ## Citing context
 
 Section: ${record.citingSpanSection ?? "unknown"}
-Marker: "${record.citingMarker}"
+Citation marker for the paper under evaluation: "${record.citingMarker}"
 
 "${extractCitingWindow(record.citingSpan, record.citingMarker, 800)}"
+
+## Citation scope
+
+The citing context above may contain claims backed by OTHER references besides the one under evaluation. Only evaluate claims that are directly attributed to the citation marker "${record.citingMarker}" shown above. Sentences that reference different markers or different authors cite different papers — treat those as surrounding context, not as claims attributed to the cited paper. If the marker appears in a list of references (e.g. "[12, 13, 14]"), the claim is shared across that group, but still evaluate only the cited paper's support for it.
 
 ## Evidence from cited paper
 
@@ -122,11 +133,18 @@ ${evidenceBlock}
 
 ## Instructions
 
-1. In the "comparison" field, write one sentence stating what the citing context claims
-   the cited paper shows, and one sentence summarizing what the evidence spans actually
-   contain. This anchors your reasoning before you assign a verdict.
+1. In the "comparison" field, write exactly two sentences:
+   - First: "The citing paper attributes to the cited paper: [specific claim]."
+   - Second: "The cited paper's evidence shows: [what the evidence actually contains]."
+   Always refer to "the citing paper" and "the cited paper" — never use raw citation
+   markers (like "[59]" or "2009") or author names to refer to them, since those vary
+   across papers and are meaningless to downstream readers.
 
-2. Determine your verdict using ONLY these options:
+2. In the "rationale" field, follow the same convention: always say "the citing paper"
+   and "the cited paper." Explain the gap (or alignment) between what is attributed
+   and what the evidence supports in 2-3 sentences.
+
+3. Determine your verdict using ONLY these options:
    - supported: The cited paper clearly and specifically supports the claim/use as stated.
      Use this only when the evidence directly contains the asserted fact, finding, or method.
    - partially_supported: The cited paper provides some support, but the citing paper
@@ -149,8 +167,6 @@ ${evidenceBlock}
      retrieval clearly failed (wrong section, missing full text) — not as a hedge when
      evidence is merely ambiguous. If evidence is ambiguous, reason through it and choose
      the most defensible label with lower judgeConfidence.
-
-3. Write a concise rationale (2-3 sentences) explaining your reasoning.
 
 4. Rate the retrieval quality (how well the evidence spans match what the citing context
    is actually citing):
@@ -346,12 +362,12 @@ function buildRunTelemetry(
  * the advisor implementation.
  */
 async function runPass(
-  set: CalibrationSet,
+  set: AuditSample,
   options: AdjudicatorOptions,
   client: LLMClient,
   modelId: string,
   onProgress?: (index: number, total: number) => void,
-): Promise<CalibrationSet> {
+): Promise<AuditSample> {
   const records: AdjudicationRecord[] = [];
   const active = set.records.filter((r) => !r.excluded);
   const excluded = set.records.filter((r) => r.excluded);
@@ -446,11 +462,11 @@ async function runPass(
  * `escalationTelemetry`, `escalationCount`) for UI transparency.
  */
 async function runAdvisorAdjudication(
-  set: CalibrationSet,
+  set: AuditSample,
   options: AdjudicatorOptions,
   client: LLMClient,
   mainModelId: string,
-): Promise<CalibrationSet> {
+): Promise<AuditSample> {
   const firstPassModelId = options.advisor!.firstPassModel;
 
   // Pass 1: Sonnet structured — no thinking, no advisor recursion.
@@ -462,13 +478,21 @@ async function runAdvisorAdjudication(
   );
 
   // Identify records that need escalation.
+  // Bundled citations get a lower threshold (medium confidence also escalates)
+  // because multi-reference contexts are harder to adjudicate — the first-pass
+  // model may misjudge which claims are attributed to which marker.
   const escalationIds = new Set(
     firstPassResult.records
-      .filter(
-        (r) =>
-          !r.excluded &&
-          (r.judgeConfidence === "low" || r.verdict === "cannot_determine"),
-      )
+      .filter((r) => {
+        if (r.excluded) return false;
+        if (r.judgeConfidence === "low" || r.verdict === "cannot_determine") {
+          return true;
+        }
+        if (r.modifiers.isBundled && r.judgeConfidence === "medium") {
+          return true;
+        }
+        return false;
+      })
       .map((r) => r.recordId),
   );
 
@@ -480,7 +504,7 @@ async function runAdvisorAdjudication(
   // Build a subset with only the escalation candidates (all active for runPass).
   // Use original pre-adjudication records so the prompt is built from clean data.
   const originalByRecordId = new Map(set.records.map((r) => [r.recordId, r]));
-  const escalationSubset: CalibrationSet = {
+  const escalationSubset: AuditSample = {
     ...set,
     records: [...escalationIds].flatMap((id) => {
       const r = originalByRecordId.get(id);
@@ -521,18 +545,18 @@ async function runAdvisorAdjudication(
     ...firstPassResult,
     records: mergedRecords,
     runTelemetry: combinedTelemetry,
-    // Passthrough fields — preserved by CalibrationSet's .passthrough() schema.
+    // Passthrough fields — preserved by AuditSample's .passthrough() schema.
     firstPassTelemetry: firstPassResult.runTelemetry,
     escalationTelemetry: escalationResult.runTelemetry,
     escalationCount: escalationIds.size,
   };
 }
 
-export async function adjudicateCalibrationSet(
-  set: CalibrationSet,
+export async function adjudicateAuditSample(
+  set: AuditSample,
   options: AdjudicatorOptions,
   onProgress?: (index: number, total: number) => void,
-): Promise<CalibrationSet> {
+): Promise<AuditSample> {
   const modelId = options.model ?? "claude-opus-4-6";
   const client =
     options.llmClient ??

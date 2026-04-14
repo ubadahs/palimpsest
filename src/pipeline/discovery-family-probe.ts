@@ -41,6 +41,10 @@ import {
   buildSeedFullTextForLlm,
   type SeedClaimLlmGroundingOptions,
 } from "./seed-claim-grounding-llm.js";
+import {
+  consolidateFamilyCandidates,
+  type FamilyCandidateConsolidationResult,
+} from "./family-consolidation.js";
 
 /** Per-family grounding trace persisted in the grounding-trace sidecar. */
 export type FamilyGroundingTrace = {
@@ -103,6 +107,7 @@ export type AttributionDiscoveryStep =
   | "gather_neighborhood"
   | "harvest_and_extract"
   | "ground_families"
+  | "consolidate_families"
   | "emit_shortlist";
 
 export type AttributionDiscoveryEvent = {
@@ -134,6 +139,8 @@ export type AttributionDiscoveryResult = {
   familyCandidates: AttributedClaimFamilyCandidate[];
   groundingTraces: FamilyGroundingTrace[];
   shortlistEntries: DiscoveryShortlistEntry[];
+  /** Consolidation provenance — present when >1 families existed before shortlisting. */
+  consolidation?: FamilyCandidateConsolidationResult | undefined;
   /** Non-fatal errors accumulated during the run. */
   warnings: string[];
 };
@@ -447,7 +454,7 @@ export async function runAttributionDiscovery(
   let families = collapseExactDuplicateTrackedClaimFamilies(singletonFamilies);
 
   // --- 6. Ground families against seed ---
-  const groundingTraces: FamilyGroundingTrace[] = [];
+  let groundingTraces: FamilyGroundingTrace[] = [];
 
   if (seedParsedDocument && families.length > 0) {
     emit(
@@ -542,7 +549,34 @@ export async function runAttributionDiscovery(
 
   families = dedupeAttributedClaimFamilies(families);
 
-  // --- 7. Score + shortlist ---
+  // --- 7. Semantic consolidation (before shortlist cap) ---
+  let consolidation: FamilyCandidateConsolidationResult | undefined;
+  if (families.length > 1) {
+    emit(
+      onEvent,
+      "consolidate_families",
+      "started",
+      `Consolidating ${String(families.length)} candidate(s)…`,
+    );
+    consolidation = await consolidateFamilyCandidates(
+      families,
+      groundingTraces,
+      adapters.llmClient,
+    );
+    families = consolidation.consolidatedCandidates;
+    groundingTraces = consolidation.consolidatedTraces;
+
+    emit(
+      onEvent,
+      "consolidate_families",
+      "completed",
+      consolidation.eliminatedCount > 0
+        ? `${String(consolidation.originalCandidates.length)} → ${String(families.length)} families (${String(consolidation.eliminatedCount)} merged)`
+        : `${String(families.length)} families — all semantically distinct`,
+    );
+  }
+
+  // --- 8. Score + shortlist ---
   emit(onEvent, "emit_shortlist", "started", "Ranking families…");
 
   // Sort: grounded first, then by grounding status, then by confidence.
@@ -595,6 +629,7 @@ export async function runAttributionDiscovery(
     familyCandidates: families,
     groundingTraces,
     shortlistEntries,
+    consolidation,
     warnings,
   };
 }

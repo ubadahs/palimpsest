@@ -1,7 +1,7 @@
 import type {
   AdjudicationRecord,
   AdjudicationVerdict,
-  CalibrationSet,
+  AuditSample,
 } from "../domain/types.js";
 import type {
   AdjudicationDelta,
@@ -9,13 +9,13 @@ import type {
   BenchmarkDiffEntry,
   BenchmarkDiffResult,
   BlindAdjudicationRecord,
-  BlindCalibrationRecord,
-  BlindCalibrationSet,
+  BlindAuditRecord,
+  BlindAuditSample,
   BenchmarkSummary,
   BenchmarkSummaryEntry,
 } from "./types.js";
 
-function blindRecord(record: AdjudicationRecord): BlindCalibrationRecord {
+function blindRecord(record: AdjudicationRecord): BlindAuditRecord {
   if (record.excluded === true) {
     return { ...record };
   }
@@ -31,9 +31,9 @@ function blindRecord(record: AdjudicationRecord): BlindCalibrationRecord {
   return blind as BlindAdjudicationRecord;
 }
 
-export function createBlindCalibrationSet(
-  set: CalibrationSet,
-): BlindCalibrationSet {
+export function createBlindAuditSample(
+  set: AuditSample,
+): BlindAuditSample {
   return {
     ...set,
     version: set.version ? `${set.version}-blind` : "blind-benchmark",
@@ -75,9 +75,9 @@ function isAdjacentVerdictPair(
   return adjacent.has(left) && adjacent.has(right);
 }
 
-export function diffCalibrationSets(
-  base: CalibrationSet,
-  candidate: CalibrationSet,
+export function diffAuditSamples(
+  base: AuditSample,
+  candidate: AuditSample,
 ): BenchmarkDiffResult {
   const baseIndex = makeIndex(base.records);
   const candidateIndex = makeIndex(candidate.records);
@@ -166,11 +166,11 @@ export function diffCalibrationSets(
 export type BenchmarkCandidateInput = {
   label: string;
   path: string;
-  set: CalibrationSet;
+  set: AuditSample;
 };
 
 function summarizeCandidate(
-  base: CalibrationSet,
+  base: AuditSample,
   candidate: BenchmarkCandidateInput,
 ): BenchmarkSummaryEntry {
   const baseActive = base.records.filter(
@@ -231,7 +231,7 @@ function summarizeCandidate(
 
 export function summarizeBenchmarkCandidates(
   basePath: string,
-  base: CalibrationSet,
+  base: AuditSample,
   candidates: BenchmarkCandidateInput[],
 ): BenchmarkSummary {
   const entries = candidates.map((candidate) =>
@@ -295,10 +295,10 @@ function applyDelta(
   };
 }
 
-export function applyCalibrationDeltas(
-  base: CalibrationSet,
+export function applyAuditSampleDeltas(
+  base: AuditSample,
   deltaSet: AdjudicationDeltaSet,
-): CalibrationSet {
+): AuditSample {
   const deltaIndex = indexDeltas(deltaSet.deltas);
 
   for (const taskId of deltaIndex.keys()) {

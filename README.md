@@ -48,8 +48,8 @@ See [docs/pipeline.md](docs/pipeline.md) for when to use each path and what ever
 | Extract | `extract` | Locate and normalize claim-bearing citation contexts in citing papers | extraction results, report, inspection notes |
 | Classify | `classify` | Turn extracted mentions into evaluation packets | classification results, report |
 | Evidence | `evidence` | Resolve the cited paper and attach retrieved evidence spans | evidence results, report |
-| Curate | `curate` | Sample a balanced adjudication set from evidence-backed tasks | calibration set, worksheet |
-| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for the sampled tasks | adjudicated calibration set, summary |
+| Curate | `curate` | Sample a balanced adjudication set from evidence-backed tasks | audit sample, worksheet |
+| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for the sampled tasks | adjudicated audit sample, summary |
 
 Canonical stage names are `discover`, `screen`, `extract`, `classify`, `evidence`, `curate`, and `adjudicate`. Some artifact filenames still preserve older prefixes such as `_pre-screen-*` and `_m2-extraction-*`; the stage contract is documented in [docs/pipeline.md](docs/pipeline.md) and [docs/artifact-workflow.md](docs/artifact-workflow.md).
 

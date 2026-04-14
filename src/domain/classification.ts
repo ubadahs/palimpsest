@@ -35,6 +35,8 @@ export const transmissionModifiersSchema = z
   .object({
     isBundled: z.boolean(),
     isReviewMediated: z.boolean(),
+    /** Number of references sharing this citation marker group (1 = single ref). */
+    bundleSize: z.number().int().positive().optional(),
   })
   .passthrough();
 export type TransmissionModifiers = z.infer<typeof transmissionModifiersSchema>;

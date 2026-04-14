@@ -165,6 +165,7 @@ export function classifyMention(
   const modifiers: TransmissionModifiers = {
     isBundled: mention.isBundledCitation,
     isReviewMediated: isReviewPaper,
+    ...(mention.bundleSize > 1 ? { bundleSize: mention.bundleSize } : {}),
   };
 
   return {

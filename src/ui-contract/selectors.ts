@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import { z } from "zod";
 
 import {
-  calibrationSetSchema,
+  auditSampleSchema,
   familyClassificationResultSchema,
   familyEvidenceResultSchema,
   familyExtractionResultSchema,
@@ -17,7 +17,7 @@ import {
   manifestPathForArtifact,
 } from "../shared/artifact-io.js";
 import type { ArtifactManifest } from "../shared/artifact-io.js";
-import type { CalibrationSet } from "../domain/types.js";
+import type { AuditSample } from "../domain/types.js";
 import { getStageDefinition } from "./stages.js";
 import {
   attributionDiscoverySummarySchema,
@@ -70,11 +70,11 @@ type ArtifactLoadResult =
     }
   | {
       kind: "curate";
-      data: ReturnType<typeof calibrationSetSchema.parse>;
+      data: ReturnType<typeof auditSampleSchema.parse>;
     }
   | {
       kind: "adjudicate";
-      data: ReturnType<typeof calibrationSetSchema.parse>;
+      data: ReturnType<typeof auditSampleSchema.parse>;
     };
 
 export type StageArtifactSet = {
@@ -166,8 +166,8 @@ function loadArtifactForStage(
     kind: stageKey,
     data: loadJsonArtifact(
       artifactPath,
-      calibrationSetSchema,
-      stageKey === "curate" ? "calibration set" : "llm calibration",
+      auditSampleSchema,
+      stageKey === "curate" ? "audit sample" : "llm audit sample",
     ),
   };
 }
@@ -311,11 +311,11 @@ export function readArtifactManifest(
   );
 }
 
-function summarizeCalibration(
-  calibration: CalibrationSet,
+function summarizeAuditSample(
+  sample: AuditSample,
   label: string,
 ): AnalysisStageSummary {
-  const active = calibration.records.filter((record) => !record.excluded);
+  const active = sample.records.filter((record) => !record.excluded);
   const verdicts = active.filter((record) => record.verdict != null);
   const partial = active.filter(
     (record) => record.verdict === "partially_supported",
@@ -324,7 +324,7 @@ function summarizeCalibration(
   return {
     headline: label,
     metrics: [
-      metric("Records", calibration.records.length),
+      metric("Records", sample.records.length),
       metric("Active", active.length),
       metric("Judged", verdicts.length),
       metric("Partial", partial),
@@ -478,16 +478,16 @@ export function deriveStageSummary(
 
   if (artifact.kind === "curate") {
     return {
-      ...summarizeCalibration(
+      ...summarizeAuditSample(
         artifact.data,
-        failureHeadline ?? "Calibration set",
+        failureHeadline ?? "Audit sample",
       ),
       artifacts: artifactPointers,
     };
   }
 
   return {
-    ...summarizeCalibration(artifact.data, failureHeadline ?? "LLM verdicts"),
+    ...summarizeAuditSample(artifact.data, failureHeadline ?? "LLM verdicts"),
     artifacts: artifactPointers,
   };
 }

@@ -1,11 +1,11 @@
 import type {
   AdjudicationRecord,
-  CalibrationSet,
+  AuditSample,
   EvaluationMode,
 } from "../domain/types.js";
 import { truncate } from "./report-utils.js";
 
-export function toCalibrationJson(set: CalibrationSet): string {
+export function toAuditSampleJson(set: AuditSample): string {
   return JSON.stringify(set, null, 2);
 }
 
@@ -106,9 +106,9 @@ function renderSummaryTable(records: AdjudicationRecord[]): string {
   return lines.join("\n");
 }
 
-export function toCalibrationMarkdown(set: CalibrationSet): string {
+export function toAuditSampleMarkdown(set: AuditSample): string {
   const sections: string[] = [
-    "# Adjudication Calibration Worksheet",
+    "# Adjudication Audit Sample Worksheet",
     "",
     `## Seed: ${set.resolvedSeedPaperTitle}`,
     `**Tracked claim:** ${set.seed.trackedClaim}`,
@@ -117,7 +117,7 @@ export function toCalibrationMarkdown(set: CalibrationSet): string {
     `**Target size:** ${String(set.targetSize)} · **Actual:** ${String(set.records.length)}`,
     "",
     "> Fill in the verdict, rationale, retrieval quality, and judge confidence for each task.",
-    "> Use the JSON companion file (`calibration-set.json`) for machine-readable results.",
+    "> Use the JSON companion file (`audit-sample.json`) for machine-readable results.",
     "",
     "## Sampling Summary",
     "",
