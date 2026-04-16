@@ -1,5 +1,4 @@
 import {
-  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -32,7 +31,6 @@ import {
   createLLMClient,
   createLLMTelemetryCollector,
   isFatalProviderError,
-  type LLMRunLedger,
 } from "../../integrations/llm-client.js";
 import * as openalex from "../../integrations/openalex.js";
 import { buildPaperAdapters, type CitingYearRange } from "../paper-adapters.js";
@@ -71,10 +69,7 @@ import {
   createAnalysisRun,
   ensureFamilyStageRow,
   getAnalysisRun,
-  getRunStage,
-  markRunInterrupted,
   setRunStatus,
-  updateStageStatus,
 } from "../../storage/analysis-runs.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { resolveStageOutputDir } from "../stage-output.js";
@@ -94,10 +89,10 @@ import {
   analysisRunConfigSchema,
   type StageKey,
 } from "../../contract/run-types.js";
-import { deriveStageSummary } from "../../contract/selectors.js";
-import type { StageProgressEvent } from "../../contract/workflow.js";
-import { serializeProgressEvent } from "../../contract/workflow.js";
 import { pMap } from "../../shared/p-map.js";
+import { RunTracker } from "../../pipeline/run-tracker.js";
+import { summarizeLedgerByStage } from "../../pipeline/cost-summary.js";
+import { createStageReporter, log } from "../stage-reporter.js";
 
 // ---------------------------------------------------------------------------
 // Args
@@ -306,148 +301,6 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function log(stage: string, message: string): void {
-  console.info(`[${stage}] ${message}`);
-}
-
-type StageReporter = {
-  onProgress: (event: {
-    step: string;
-    status: string;
-    detail?: string;
-    current?: number;
-    total?: number;
-  }) => void;
-  log: (message: string) => void;
-  logPath: string;
-};
-
-/**
- * Creates a stage-aware reporter that emits structured CF_PROGRESS events
- * (for the workflow panel) and human-readable log lines to both stdout and a
- * per-stage log file. The UI reads these files for live telemetry.
- */
-function createStageReporter(
-  stageKey: StageKey,
-  outputDir: string,
-  familyIndex = 0,
-): StageReporter {
-  const def = stageDefinitions.find((s) => s.key === stageKey)!;
-  const fileName =
-    familyIndex > 0
-      ? `${def.slug}.f${String(familyIndex)}.log`
-      : `${def.slug}.log`;
-  const logPath = resolve(outputDir, "logs", fileName);
-  const tag =
-    familyIndex > 0 ? `F${String(familyIndex + 1)}:${stageKey}` : stageKey;
-
-  function writeToLog(line: string): void {
-    appendFileSync(logPath, line + "\n", "utf8");
-  }
-
-  function onProgress(event: {
-    step: string;
-    status: string;
-    detail?: string;
-    current?: number;
-    total?: number;
-  }): void {
-    const line = serializeProgressEvent({
-      stage: stageKey,
-      step: event.step,
-      status: event.status as StageProgressEvent["status"],
-      ...(event.detail != null ? { detail: event.detail } : {}),
-      ...(event.current != null && event.total != null
-        ? { current: event.current, total: event.total }
-        : {}),
-    });
-    writeToLog(line);
-    console.info(line);
-  }
-
-  function stageLog(message: string): void {
-    const line = `[${tag}] ${message}`;
-    writeToLog(line);
-    console.info(line);
-  }
-
-  return { onProgress, log: stageLog, logPath };
-}
-
-type RunCostStageSummary = {
-  stage: string;
-  familyIndex: number;
-  estimatedCostUsd: number;
-  calls: number;
-  attemptedCalls: number;
-  successfulCalls: number;
-  failedCalls: number;
-  billableCalls: number;
-  exactCacheHits: number;
-};
-
-function summarizeLedgerByStage(ledger: LLMRunLedger): {
-  totalEstimatedCostUsd: number;
-  totalCalls: number;
-  totalAttemptedCalls: number;
-  totalSuccessfulCalls: number;
-  totalFailedCalls: number;
-  totalBillableCalls: number;
-  totalExactCacheHits: number;
-  byStage: RunCostStageSummary[];
-  byPurpose: LLMRunLedger["byPurpose"];
-  generatedAt: string;
-} {
-  const stageMap = new Map<string, RunCostStageSummary>();
-
-  for (const call of ledger.calls) {
-    const stage = call.stageKey ?? "unknown";
-    const familyIndex = call.familyIndex ?? 0;
-    const key = `${stage}:${String(familyIndex)}`;
-    const existing = stageMap.get(key);
-    if (existing) {
-      existing.estimatedCostUsd += call.estimatedCostUsd;
-      existing.calls += 1;
-      existing.attemptedCalls += 1;
-      existing.successfulCalls += call.successful ? 1 : 0;
-      existing.failedCalls += call.failed ? 1 : 0;
-      existing.billableCalls += call.billable ? 1 : 0;
-      existing.exactCacheHits += call.exactCacheHit ? 1 : 0;
-    } else {
-      stageMap.set(key, {
-        stage,
-        familyIndex,
-        estimatedCostUsd: call.estimatedCostUsd,
-        calls: 1,
-        attemptedCalls: 1,
-        successfulCalls: call.successful ? 1 : 0,
-        failedCalls: call.failed ? 1 : 0,
-        billableCalls: call.billable ? 1 : 0,
-        exactCacheHits: call.exactCacheHit ? 1 : 0,
-      });
-    }
-  }
-
-  return {
-    totalEstimatedCostUsd: ledger.totalEstimatedCostUsd,
-    totalCalls: ledger.totalCalls,
-    totalAttemptedCalls: ledger.totalAttemptedCalls,
-    totalSuccessfulCalls: ledger.totalSuccessfulCalls,
-    totalFailedCalls: ledger.totalFailedCalls,
-    totalBillableCalls: ledger.totalBillableCalls,
-    totalExactCacheHits: ledger.totalExactCacheHits,
-    byStage: [...stageMap.values()].sort(
-      (a, b) => a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
-    ),
-    byPurpose: ledger.byPurpose,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Pipeline command
 // ---------------------------------------------------------------------------
 
@@ -477,127 +330,10 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     return;
   }
   const runId = existingRun?.id ?? randomUUID();
-  const activeStages = new Set<string>(); // "stageKey:familyIndex" pairs
-  let totalProcessableFamilies = 0;
+  const tracker = new RunTracker(database, runId);
   let writeCostSummary = (): void => {};
 
-  // --- Run tracking ---------------------------------------------------------
-  function trackStageStart(
-    stageKey: StageKey,
-    familyIndex = 0,
-    logPath?: string,
-  ): void {
-    if (familyIndex > 0) {
-      ensureFamilyStageRow(database, runId, stageKey, familyIndex, logPath);
-    }
-    const key = `${stageKey}:${String(familyIndex)}`;
-    activeStages.add(key);
-    updateStageStatus(database, runId, stageKey, "running", {
-      familyIndex,
-      startedAt: new Date().toISOString(),
-      processId: process.pid,
-    });
-    if (familyIndex === 0) {
-      setRunStatus(database, runId, "running", stageKey);
-    }
-  }
-
-  function trackStageSuccess(
-    stageKey: StageKey,
-    familyIndex: number,
-    artifacts: {
-      primaryArtifactPath?: string;
-      reportArtifactPath?: string;
-      manifestPath?: string;
-      inputArtifactPath?: string;
-    },
-  ): void {
-    const key = `${stageKey}:${String(familyIndex)}`;
-    activeStages.delete(key);
-    const summary = deriveStageSummary(stageKey, artifacts.primaryArtifactPath);
-    updateStageStatus(database, runId, stageKey, "succeeded", {
-      familyIndex,
-      ...artifacts,
-      finishedAt: new Date().toISOString(),
-      exitCode: 0,
-      ...(summary ? { summary } : {}),
-    });
-  }
-
-  function trackRunFailed(error: unknown): void {
-    const msg = error instanceof Error ? error.message : String(error);
-    for (const key of activeStages) {
-      const [stageKey, fi] = key.split(":") as [StageKey, string];
-      updateStageStatus(database, runId, stageKey, "failed", {
-        familyIndex: parseInt(fi, 10),
-        errorMessage: msg,
-        finishedAt: new Date().toISOString(),
-        exitCode: 1,
-      });
-    }
-    setRunStatus(database, runId, "failed");
-  }
-
-  function trackStageBlocked(
-    stageKey: StageKey,
-    familyIndex: number,
-    message: string,
-  ): void {
-    updateStageStatus(database, runId, stageKey, "blocked", {
-      familyIndex,
-      errorMessage: message,
-      finishedAt: new Date().toISOString(),
-      exitCode: 1,
-    });
-  }
-
-  function blockPendingFamilyStages(message: string): void {
-    const stageKeys: StageKey[] = [
-      "extract",
-      "classify",
-      "evidence",
-      "curate",
-      "adjudicate",
-    ];
-
-    for (const stageKey of stageKeys) {
-      for (
-        let familyIndex = 0;
-        familyIndex < totalProcessableFamilies;
-        familyIndex++
-      ) {
-        const stage = getRunStage(database, runId, stageKey, familyIndex);
-        if (stage?.status === "not_started") {
-          trackStageBlocked(stageKey, familyIndex, message);
-        }
-      }
-    }
-  }
-
-  function succeededArtifact(stageKey: StageKey): string | undefined {
-    if (!existingRun) return undefined;
-    const stage = getRunStage(database, runId, stageKey);
-    return stage?.status === "succeeded"
-      ? stage.primaryArtifactPath
-      : undefined;
-  }
-
-  const handleSignal = (): void => {
-    for (const key of activeStages) {
-      const [stageKey, fi] = key.split(":") as [StageKey, string];
-      markRunInterrupted(database, runId, stageKey, "Interrupted by signal.");
-      // markRunInterrupted only handles one stage; manually mark others
-      if (fi !== "0") {
-        updateStageStatus(database, runId, stageKey, "interrupted", {
-          familyIndex: parseInt(fi, 10),
-          errorMessage: "Interrupted by signal.",
-          finishedAt: new Date().toISOString(),
-        });
-      }
-    }
-    database.close();
-    process.exit(130);
-  };
+  const handleSignal = (): void => tracker.handleSignal();
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
@@ -762,7 +498,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     // Serialized to disk after discovery; deserialized on --run-id resume.
     let discoveryHandoffs: DiscoveryHandoffMap | undefined;
 
-    if (succeededArtifact("discover")) {
+    if (tracker.succeededArtifact("discover", Boolean(existingRun))) {
       // Resume: shortlist was written by prior discover run
       const slFile = resolve(outputDir, "inputs", "shortlist.json");
       const loaded = loadJsonArtifact(
@@ -818,7 +554,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       discoverReporter.log(
         `Discovering from ${String(inputData.dois.length)} paper(s) [${strategyLabel}]...`,
       );
-      trackStageStart("discover", 0, discoverReporter.logPath);
+      tracker.stageStart("discover", 0, discoverReporter.logPath);
 
       const discoveryClient = createLLMClient({
         apiKey,
@@ -950,7 +686,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoverPrimaryPath = artifacts.jsonPath;
       }
       screenInputArtifactPath = shortlistPath;
-      trackStageSuccess("discover", 0, {
+      tracker.stageSuccess("discover", 0, {
         primaryArtifactPath: discoverPrimaryPath,
       });
 
@@ -977,7 +713,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     // -----------------------------------------------------------------------
 
     let screenJsonPath: string;
-    const existingScreenArtifact = succeededArtifact("screen");
+    const existingScreenArtifact = tracker.succeededArtifact("screen", Boolean(existingRun));
 
     if (existingScreenArtifact) {
       screenJsonPath = existingScreenArtifact;
@@ -985,7 +721,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     } else {
       const screenReporter = createStageReporter("screen", outputDir);
       screenReporter.log(`Pre-screening ${String(seeds.length)} seed(s)...`);
-      trackStageStart("screen", 0, screenReporter.logPath);
+      tracker.stageStart("screen", 0, screenReporter.logPath);
 
       let screenedFamilies: Awaited<
         ReturnType<typeof runPreScreen>
@@ -1094,7 +830,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           : [],
       });
       screenJsonPath = screenArtifacts.jsonPath;
-      trackStageSuccess("screen", 0, {
+      tracker.stageSuccess("screen", 0, {
         primaryArtifactPath: screenJsonPath,
         ...(screenInputArtifactPath != null
           ? { inputArtifactPath: screenInputArtifactPath }
@@ -1121,7 +857,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     const processable = families.filter(
       (f) => f.decision === "greenlight" && !claimFamilyBlocksDownstream(f),
     );
-    totalProcessableFamilies = processable.length;
+    tracker.setTotalFamilies(processable.length);
 
     for (let familyIndex = 0; familyIndex < processable.length; familyIndex++) {
       for (const stageKey of [
@@ -1247,7 +983,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           currentStageKey = "extract";
           const extractReporter = createStageReporter("extract", outputDir, fi);
           extractReporter.log("Extracting citation contexts...");
-          trackStageStart("extract", fi, extractReporter.logPath);
+          tracker.stageStart("extract", fi, extractReporter.logPath);
           const extractionCacheKey = buildExtractionCacheKey(family);
           const cachedExtraction = extractionCache.get(extractionCacheKey);
 
@@ -1298,7 +1034,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             sourceArtifacts: [screenJsonPath],
             familyIndex: fi,
           });
-          trackStageSuccess("extract", fi, {
+          tracker.stageSuccess("extract", fi, {
             primaryArtifactPath: extractJsonPath,
             inputArtifactPath: screenJsonPath,
           });
@@ -1329,7 +1065,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             fi,
           );
           classifyReporter.log("Classifying citation roles...");
-          trackStageStart("classify", fi, classifyReporter.logPath);
+          tracker.stageStart("classify", fi, classifyReporter.logPath);
 
           classifyReporter.onProgress({
             step: "load_extracted_mentions",
@@ -1393,7 +1129,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             sourceArtifacts: [extractJsonPath, screenJsonPath],
             familyIndex: fi,
           });
-          trackStageSuccess("classify", fi, {
+          tracker.stageSuccess("classify", fi, {
             primaryArtifactPath: classifyJsonPath,
             inputArtifactPath: extractJsonPath,
           });
@@ -1426,7 +1162,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           evidenceReporter.log(
             "Resolving cited paper and retrieving evidence...",
           );
-          trackStageStart("evidence", fi, evidenceReporter.logPath);
+          tracker.stageStart("evidence", fi, evidenceReporter.logPath);
           const patchAvailability = (
             result: Result<ResolvedPaper>,
           ): Result<ResolvedPaper> => {
@@ -1502,7 +1238,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               sourceArtifacts: [classifyJsonPath],
               familyIndex: fi,
             });
-            trackStageSuccess("evidence", fi, {
+            tracker.stageSuccess("evidence", fi, {
               primaryArtifactPath: evidenceJsonPath,
               inputArtifactPath: classifyJsonPath,
             });
@@ -1517,7 +1253,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
           currentStageKey = "curate";
           const curateReporter = createStageReporter("curate", outputDir, fi);
           curateReporter.log("Sampling audit set...");
-          trackStageStart("curate", fi, curateReporter.logPath);
+          tracker.stageStart("curate", fi, curateReporter.logPath);
 
           curateReporter.onProgress({
             step: "collect_eligible_tasks",
@@ -1602,7 +1338,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             sourceArtifacts: [classifyJsonPath],
             familyIndex: fi,
           });
-          trackStageSuccess("evidence", fi, {
+          tracker.stageSuccess("evidence", fi, {
             primaryArtifactPath: evidenceJsonPath,
             inputArtifactPath: classifyJsonPath,
           });
@@ -1614,7 +1350,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             sourceArtifacts: [evidenceJsonPath],
             familyIndex: fi,
           });
-          trackStageSuccess("curate", fi, {
+          tracker.stageSuccess("curate", fi, {
             primaryArtifactPath: curateJsonPath,
             inputArtifactPath: evidenceJsonPath,
           });
@@ -1645,7 +1381,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             fi,
           );
           adjudicateReporter.log("Running LLM adjudication...");
-          trackStageStart("adjudicate", fi, adjudicateReporter.logPath);
+          tracker.stageStart("adjudicate", fi, adjudicateReporter.logPath);
 
           adjudicateReporter.onProgress({
             step: "load_active_records",
@@ -1701,7 +1437,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             model: runConfig.adjudicateModel,
             familyIndex: fi,
           });
-          trackStageSuccess("adjudicate", fi, {
+          tracker.stageSuccess("adjudicate", fi, {
             primaryArtifactPath: adjudicateJsonPath,
             inputArtifactPath: curateJsonPath,
           });
@@ -1733,7 +1469,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
               stageKey: currentStageKey,
               familyIndex: fi,
             };
-            blockPendingFamilyStages(error.message);
+            tracker.blockPendingFamilyStages(error.message);
           }
           throw error;
         }
@@ -1749,7 +1485,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     log("pipeline", `Estimated total LLM cost: ~$${totalCost.toFixed(4)}`);
   } catch (error) {
     writeCostSummary();
-    trackRunFailed(error);
+    tracker.runFailed(error);
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   } finally {
