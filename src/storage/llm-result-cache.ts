@@ -93,6 +93,23 @@ export function getCachedLLMResult(
   };
 }
 
+/**
+ * Remove cached LLM results older than `daysOld` days (based on last_hit_at
+ * or created_at if never hit). Returns the number of evicted rows.
+ */
+export function evictStaleLLMCache(
+  db: Database.Database,
+  daysOld: number = 90,
+): number {
+  const result = db
+    .prepare(
+      `DELETE FROM llm_result_cache
+       WHERE COALESCE(last_hit_at, created_at) < datetime('now', ? || ' days')`,
+    )
+    .run(`-${String(daysOld)}`);
+  return result.changes;
+}
+
 export function storeLLMResult(
   db: Database.Database,
   entry: Omit<CachedLLMResult, "lastHitAt">,

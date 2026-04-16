@@ -139,12 +139,12 @@ The exact-result cache is a powerful optimization but has two safety gaps:
 - [x] Centralize LLM cache key and prompt template versions in `src/config/llm-versions.ts`
 
 ### Phase 5: Polish (ongoing)
-- [ ] Add data retention policy for DB
-- [ ] Replace `.passthrough()` with `.strict()` on Zod schemas
-- [ ] Split monolithic files (pipeline.ts, fulltext-fetch.ts, pre-screen.ts)
-- [ ] Add snapshot tests for report output
-- [ ] Add dark mode / accessibility polish to UI
-- [ ] Document proxy strategy configuration
+- [x] Add data retention policy for DB (`purgeOldRuns`, `evictStaleLLMCache` functions)
+- [ ] ~~Replace `.passthrough()` with `.strict()` on Zod schemas~~ (deferred — would break backward compat with stored artifacts)
+- [ ] ~~Split monolithic files~~ (deferred — large refactor with risk, better done incrementally)
+- [ ] ~~Add snapshot tests for report output~~ (deferred)
+- [ ] ~~Add dark mode / accessibility polish to UI~~ (deferred — cosmetic)
+- [ ] ~~Document proxy strategy configuration~~ (deferred — existing docs in .env.example + runtime-setup.md are adequate)
 
 ---
 
