@@ -17,11 +17,10 @@ import type {
 import { createLLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
-/** Bump when the grounding prompt template or response schema changes. */
-const GROUNDING_CACHE_KEY_VERSION = "grounding-2026-04-11-v1";
+import { LLM_CACHE_VERSIONS, LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
 
-/** Bump when instructions or JSON shape change (stored in trace artifacts). */
-export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = "2026-04-06-v1";
+const GROUNDING_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.grounding;
+export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = LLM_PROMPT_VERSIONS.grounding;
 
 const MAX_LLM_SUPPORT_SPANS = 8;
 
