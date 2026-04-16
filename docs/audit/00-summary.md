@@ -110,15 +110,15 @@ The exact-result cache is a powerful optimization but has two safety gaps:
 - [x] Fix `.env.local` env var name mismatch
 
 ### Phase 2: Resilience & Cost (3-5 days)
-- [ ] Serialize discovery handoffs to disk for resume
-- [ ] Add artifact validation on pipeline resume
-- [ ] Add retry logic for transient LLM failures
-- [ ] Implement circuit breaker for external APIs
-- [ ] Handle `finish_reason === "length"` (truncated LLM output)
-- [ ] Enable ephemeral prompt caching for adjudication
-- [ ] Add prompt size assertion before LLM calls
-- [ ] Upgrade claim-discovery default model to Sonnet
-- [ ] Fix cost double-counting in advisor adjudication
+- [x] Serialize discovery handoffs to disk for resume
+- [x] Add artifact validation on pipeline resume (file existence + empty check)
+- [x] Add retry logic for transient LLM failures (2 retries with exponential backoff + jitter)
+- [ ] ~~Implement circuit breaker for external APIs~~ (deferred — HTTP client already retries 3x; circuit breaker adds complexity for a CLI tool)
+- [x] Handle `finish_reason === "length"` (truncated flag, warning log, skip caching truncated responses)
+- [x] Enable ephemeral prompt caching for adjudication and evidence-rerank
+- [x] Add prompt size assertion before LLM calls (adjudicator warns >100K chars)
+- [x] Upgrade claim-discovery default model to Sonnet
+- [x] ~~Fix cost double-counting in advisor adjudication~~ (not a real issue: both passes correctly aggregated, each call counted once)
 
 ### Phase 3: Testing & CI (1 week)
 - [ ] Fix UI test suite (ESM/CJS conflict)

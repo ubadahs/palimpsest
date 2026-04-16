@@ -78,6 +78,8 @@ export type LLMCallRecord = {
   cacheWriteTokens?: number;
   /** True when the response came from the persistent exact-result cache. */
   exactCacheHit?: boolean;
+  /** True when the LLM stopped due to max tokens (output truncated). */
+  truncated?: boolean;
   latencyMs: number;
   finishReason: string;
   timestamp: string;
@@ -362,6 +364,14 @@ const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
     minPromptChars: 2_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
+  adjudication: {
+    minPromptChars: 5_000,
+    cacheControl: { type: "ephemeral", ttl: "5m" },
+  },
+  "evidence-rerank": {
+    minPromptChars: 2_000,
+    cacheControl: { type: "ephemeral", ttl: "5m" },
+  },
 };
 
 export function resolvePromptCacheControl(params: {
@@ -602,6 +612,26 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   const db = options.database;
   const forceRefresh = options.forceRefresh ?? false;
 
+  const MAX_RETRIES = 2;
+  const RETRY_BASE_MS = 1_000;
+
+  async function withRetry<T>(fn: () => Promise<T>, purpose: string): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (attempt >= MAX_RETRIES) throw error;
+        const classification = classifyProviderError(error);
+        if (classification.fatal) throw error;
+        const delayMs = RETRY_BASE_MS * 2 ** attempt + Math.random() * 500;
+        console.error(
+          `[llm-client] ${purpose} transient error (${classification.classification}), retry ${String(attempt + 1)}/${String(MAX_RETRIES)} in ${String(Math.round(delayMs))}ms`,
+        );
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+
   function registerRecord(record: LLMCallRecord): void {
     calls.push(record);
     options.collector?.recordCall(record);
@@ -691,6 +721,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       totalTokens: usage.totalTokens ?? totalBillableTokens,
       latencyMs,
       finishReason,
+      ...(finishReason === "length" ? { truncated: true } : {}),
       timestamp: new Date().toISOString(),
       estimatedCostUsd: estimateAnthropicUsd(modelId, {
         inputTokens,
@@ -798,13 +829,17 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           ? { anthropic: anthropicProviderOptions }
           : undefined;
       try {
-        const result = await generateText({
-          model: anthropic(modelId),
-          ...(promptInput.prompt != null
-            ? { prompt: promptInput.prompt }
-            : { messages: promptInput.messages }),
-          ...(providerOptions ? { providerOptions } : {}),
-        });
+        const result = await withRetry(
+          () =>
+            generateText({
+              model: anthropic(modelId),
+              ...(promptInput.prompt != null
+                ? { prompt: promptInput.prompt }
+                : { messages: promptInput.messages }),
+              ...(providerOptions ? { providerOptions } : {}),
+            }),
+          params.purpose,
+        );
 
         const record = buildRecord(
           params.purpose,
@@ -816,8 +851,14 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           params.thinking,
         );
 
+        if (record.truncated) {
+          console.error(
+            `[llm-client] WARNING: ${params.purpose} response truncated (finish_reason=length, model=${modelId}). Output may be incomplete.`,
+          );
+        }
+
         // --- Exact-result cache store ---
-        if (db && params.exactCache && !forceRefresh) {
+        if (db && params.exactCache && !forceRefresh && !record.truncated) {
           storeLLMResult(db, {
             cacheKey: computeLLMCacheKey({
               purpose: params.purpose,
@@ -890,12 +931,16 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         : undefined;
 
       try {
-        const result = await generateObject({
-          model: anthropic(modelId),
-          schema: params.schema,
-          prompt: params.prompt,
-          ...(providerOptions ? { providerOptions } : {}),
-        });
+        const result = await withRetry(
+          () =>
+            generateObject({
+              model: anthropic(modelId),
+              schema: params.schema,
+              prompt: params.prompt,
+              ...(providerOptions ? { providerOptions } : {}),
+            }),
+          params.purpose,
+        );
 
         const record = buildRecord(
           params.purpose,
@@ -906,8 +951,14 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           result.finishReason,
         );
 
-        // --- Exact-result cache store ---
-        if (db && params.exactCache && !forceRefresh) {
+        if (record.truncated) {
+          console.error(
+            `[llm-client] WARNING: ${params.purpose} generateObject truncated (finish_reason=length, model=${modelId}). Output may be incomplete.`,
+          );
+        }
+
+        // --- Exact-result cache store (skip truncated responses) ---
+        if (db && params.exactCache && !forceRefresh && !record.truncated) {
           storeLLMResult(db, {
             cacheKey: computeLLMCacheKey({
               purpose: params.purpose,

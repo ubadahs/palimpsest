@@ -51,3 +51,47 @@ export type DiscoveryHandoff = {
 
 /** Map from seed DOI → DiscoveryHandoff. One entry per discovered DOI. */
 export type DiscoveryHandoffMap = Map<string, DiscoveryHandoff>;
+
+// ---------------------------------------------------------------------------
+// Serialization — used to persist handoffs to disk so that --run-id resume
+// can recover the thin screen path without re-running expensive discovery.
+// ---------------------------------------------------------------------------
+
+type SerializedDiscoveryHandoff = Omit<
+  DiscoveryHandoff,
+  "mentionsByPaperId" | "groundingByFamilyId"
+> & {
+  mentionsByPaperId: Record<string, HarvestedSeedMention[]>;
+  groundingByFamilyId: Record<string, FamilyGroundingTrace>;
+};
+
+export function serializeHandoffMap(
+  map: DiscoveryHandoffMap,
+): string {
+  const plain: Record<string, SerializedDiscoveryHandoff> = {};
+  for (const [doi, handoff] of map) {
+    plain[doi] = {
+      ...handoff,
+      mentionsByPaperId: Object.fromEntries(handoff.mentionsByPaperId),
+      groundingByFamilyId: Object.fromEntries(handoff.groundingByFamilyId),
+    };
+  }
+  return JSON.stringify(plain, null, 2);
+}
+
+export function deserializeHandoffMap(
+  json: string,
+): DiscoveryHandoffMap {
+  const plain = JSON.parse(json) as Record<string, SerializedDiscoveryHandoff>;
+  const map: DiscoveryHandoffMap = new Map();
+  for (const [doi, serialized] of Object.entries(plain)) {
+    map.set(doi, {
+      ...serialized,
+      mentionsByPaperId: new Map(Object.entries(serialized.mentionsByPaperId)),
+      groundingByFamilyId: new Map(
+        Object.entries(serialized.groundingByFamilyId),
+      ),
+    });
+  }
+  return map;
+}

@@ -104,7 +104,7 @@ function buildPrompt(record: AdjudicationRecord): string {
     ? `\nTracked seed claim (grounded in the cited/seed paper during pre-screen): "${record.groundedSeedClaimText}"\nUse this as the analyst's anchor for what the citation family is about, while still judging the citing span on its own terms.\n`
     : "";
 
-  return `You are a citation fidelity adjudicator for a metascience project.
+  const fullPrompt = `You are a citation fidelity adjudicator for a metascience project.
 
 Your task: determine whether a citing paper's use of a cited paper is faithful to what the cited paper actually says.
 
@@ -187,6 +187,15 @@ ${evidenceBlock}
      context, or are abstract-only. The verdict is based on partial or indirect evidence.
 
 5. Rate your confidence in the verdict.`;
+
+  // Warn if prompt is unusually large (> ~25K tokens, roughly 100K chars).
+  if (fullPrompt.length > 100_000) {
+    console.error(
+      `[adjudicator] WARNING: prompt for record ${record.recordId} is ${String(fullPrompt.length)} chars (~${String(Math.round(fullPrompt.length / 4))} tokens). May approach context limits.`,
+    );
+  }
+
+  return fullPrompt;
 }
 
 export type AdjudicatorOptions = {
