@@ -39,21 +39,6 @@ export const errorSubtypeValues = ["E1", "E2", "E3"] as const;
 export const errorSubtypeSchema = z.enum(errorSubtypeValues);
 export type ErrorSubtype = z.infer<typeof errorSubtypeSchema>;
 
-export const evidenceVsInterpretationValues = [
-  "evidence",
-  "interpretation",
-  "both",
-  "unclear",
-] as const;
-
-export const evidenceVsInterpretationSchema = z.enum(
-  evidenceVsInterpretationValues,
-);
-export type EvidenceVsInterpretation = z.infer<
-  typeof evidenceVsInterpretationSchema
->;
-
-export const confidenceLevelValues = ["low", "medium", "high"] as const;
-
-export const confidenceLevelSchema = z.enum(confidenceLevelValues);
-export type ConfidenceLevel = z.infer<typeof confidenceLevelSchema>;
+// Note: EvidenceVsInterpretation and ConfidenceLevel were removed as unused.
+// Confidence is defined in extraction.ts. Reintroduce here if needed for
+// future fidelity classification phases.
