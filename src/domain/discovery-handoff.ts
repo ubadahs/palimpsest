@@ -14,7 +14,7 @@
  */
 
 import type { HarvestedSeedMention, ResolvedPaper } from "./types.js";
-import type { FamilyGroundingTrace } from "../pipeline/discovery-family-probe.js";
+import type { FamilyGroundingTrace } from "./family-grounding-trace.js";
 
 export type DiscoveryHandoff = {
   doi: string;
