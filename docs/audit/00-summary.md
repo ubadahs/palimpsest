@@ -102,7 +102,7 @@ The exact-result cache is a powerful optimization but has two safety gaps:
 
 ### Phase 1: Critical Fixes (1-2 days)
 - [x] Move `FamilyGroundingTrace` to domain layer (architecture fix)
-- [x] ~~Extract stage definitions from ui-contract to shared location~~ (not a real issue: ui-contract IS the shared contract layer per CLAUDE.md)
+- [x] ~~Extract stage definitions from contract to shared location~~ (not a real issue: contract IS the shared contract layer per CLAUDE.md)
 - [x] Include output schema in LLM cache key
 - [x] Fix JSON extraction to validate extracted content before returning
 - [x] Replace 600-char truncation with sentence-aware truncation
@@ -145,6 +145,28 @@ The exact-result cache is a powerful optimization but has two safety gaps:
 - [ ] ~~Add snapshot tests for report output~~ (deferred)
 - [ ] ~~Add dark mode / accessibility polish to UI~~ (deferred — cosmetic)
 - [ ] ~~Document proxy strategy configuration~~ (deferred — existing docs in .env.example + runtime-setup.md are adequate)
+
+---
+
+## Deferred Items (with rationale)
+
+Items from the audit that were investigated and intentionally skipped or deferred:
+
+| Item | Verdict | Reasoning |
+|------|---------|-----------|
+| Storage imports contract | **Not a real issue** | `contract/` IS the shared type contract layer (per CLAUDE.md); the name is misleading but the dependency direction is correct |
+| Cost double-counting in advisor adjudication | **Not a real issue** | Both passes (Sonnet first-pass + Opus escalation) are correctly aggregated; each LLM call is counted exactly once |
+| Circuit breaker for external APIs | **Deferred** | HTTP client already retries 3x with exponential backoff; circuit breaker adds complexity the CLI doesn't need at current scale |
+| Transient vs. permanent failures in pre-screen | **Deferred** | HTTP client retries handle transient errors; deeper retry-on-resume for deprioritized families is a larger feature |
+| UI test suite (ESM/CJS conflict) | **Environment issue** | Root cause is missing ARM64 rolldown native binding (`@rolldown/binding-linux-arm64-gnu`), not a code fix; resolves with `npm i` on correct platform |
+| `.passthrough()` -> `.strict()` on Zod schemas | **Deferred** | Would break backward compatibility with stored JSON artifacts that may contain extra fields from older pipeline versions |
+| Split monolithic files (pipeline.ts, fulltext-fetch.ts, pre-screen.ts) | **Deferred** | Large refactor with regression risk; better done incrementally as those files are touched for other reasons |
+| JSDoc on 6 largest files | **Deferred** | High effort, low immediate value — code is well-typed and self-documenting for working contributors |
+| `docs/cli-flags.md` | **Deferred** | Better served by inline `--help` per command in a future pass |
+| `docs/troubleshooting.md` | **Deferred** | Most common errors are surfaced by the (now human-readable) `doctor` command |
+| Snapshot tests for report output | **Deferred** | Useful but lower priority than boundary tests (JSON extraction, truncation) |
+| Dark mode / UI polish | **Deferred** | Cosmetic; local-only tool |
+| E2E test with fixture data | **Deferred** | Requires live GROBID + API keys; better as gated integration test in CI |
 
 ---
 

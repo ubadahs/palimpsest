@@ -21,8 +21,8 @@ import {
   type AnalysisRunStatus,
   type AnalysisStageSummary,
   type StageKey,
-} from "../ui-contract/run-types.js";
-import { getStageDefinition, stageDefinitions } from "../ui-contract/stages.js";
+} from "../contract/run-types.js";
+import { getStageDefinition, stageDefinitions } from "../contract/stages.js";
 
 type RunRow = {
   id: string;

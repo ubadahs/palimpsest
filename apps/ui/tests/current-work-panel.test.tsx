@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { StageWorkflowSnapshot } from "palimpsest/ui-contract";
+import type { StageWorkflowSnapshot } from "palimpsest/contract";
 
 import { CurrentWorkPanel } from "../components/current-work-panel";
 

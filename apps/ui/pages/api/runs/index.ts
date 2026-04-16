@@ -6,7 +6,7 @@ import {
   analysisRunConfigSchema,
   analysisRunConfigObjectSchema,
   stageKeySchema,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 import { z } from "zod";
 
 import { createRun, getDashboardData } from "@/lib/run-queries";

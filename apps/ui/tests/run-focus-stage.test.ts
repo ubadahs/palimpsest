@@ -3,7 +3,7 @@ import {
   computeAggregateStageStatus,
   type AnalysisRunStage,
   type LogicalStageGroup,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { resolveFocusStage } from "../lib/run-focus-stage";
 

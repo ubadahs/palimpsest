@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildStageInspectorPayload } from "../../src/ui-contract/selectors.js";
+import { buildStageInspectorPayload } from "../../src/contract/selectors.js";
 
 const baseSeed = {
   doi: "10.1234/seed",

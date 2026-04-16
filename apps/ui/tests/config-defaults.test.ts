@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { analysisRunConfigSchema } from "palimpsest/ui-contract";
+import { analysisRunConfigSchema } from "palimpsest/contract";
 
 /**
  * Form defaults extracted from new-run-form.tsx's defaultState + flattenConfig.

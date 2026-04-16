@@ -61,10 +61,10 @@ The root package exposes a narrow shared contract for the UI:
 - stage keys and ordering
 - run schemas: dashboard/run detail use `stages: LogicalStageGroup[]` (one entry per `stageKey`, each with `aggregateStatus`, `members: AnalysisRunStage[]`, optional merged `summary`)
 - `RunStageGroupDetail` / `RunStageDetail` for stage pages and polling
-- `buildLogicalStageGroups`, `computeAggregateStageStatus` (`src/ui-contract/stage-groups.ts`)
+- `buildLogicalStageGroups`, `computeAggregateStageStatus` (`src/contract/stage-groups.ts`)
 - environment health checks
 - artifact discovery and stage-summary selectors (including stem-aware resolution for per-family artifacts)
 - stage-specific inspector payload builders
 - workflow snapshot types derived from `CF_PROGRESS` telemetry
 
-Client components import only the client-safe `palimpsest/ui-contract` entrypoint. Server code uses `palimpsest/ui-contract/server`.
+Client components import only the client-safe `palimpsest/contract` entrypoint. Server code uses `palimpsest/contract/server`.

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { DashboardStats } from "palimpsest/ui-contract";
-import type { EnvironmentHealthSummary } from "palimpsest/ui-contract/server";
+import type { DashboardStats } from "palimpsest/contract";
+import type { EnvironmentHealthSummary } from "palimpsest/contract/server";
 
 import { DashboardRibbon } from "@/components/dashboard-ribbon";
 import { DashboardRunSections } from "@/components/dashboard-run-sections";

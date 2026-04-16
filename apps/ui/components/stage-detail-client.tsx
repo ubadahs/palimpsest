@@ -6,7 +6,7 @@ import type {
   RunStageDetail,
   RunStageGroupDetail,
   StageKey,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { ArtifactTabs } from "@/components/artifact-tabs";
 import { Breadcrumbs } from "@/components/breadcrumbs";

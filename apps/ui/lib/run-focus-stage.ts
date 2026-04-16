@@ -1,7 +1,7 @@
 import type {
   AnalysisRunStage,
   LogicalStageGroup,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
   return (

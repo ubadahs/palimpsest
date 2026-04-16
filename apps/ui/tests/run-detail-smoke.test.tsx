@@ -6,7 +6,7 @@ import {
   type AnalysisRunStage,
   type RunDetail,
   type StageWorkflowSnapshot,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { RunDetailClient } from "../components/run-detail-client";
 

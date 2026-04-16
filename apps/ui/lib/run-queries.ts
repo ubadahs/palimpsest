@@ -24,7 +24,7 @@ import {
   type RunVerdictSummary,
   type StageInspectorPayload,
   type StageKey,
-} from "palimpsest/ui-contract/server";
+} from "palimpsest/contract/server";
 import {
   createAnalysisRun,
   getAnalysisRun,

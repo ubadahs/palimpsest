@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { stageKeySchema } from "palimpsest/ui-contract";
+import { stageKeySchema } from "palimpsest/contract";
 
 import { getArtifactContent } from "@/lib/run-queries";
 import {

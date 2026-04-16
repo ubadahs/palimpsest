@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
-import type { DashboardStats } from "palimpsest/ui-contract";
-import type { EnvironmentHealthSummary } from "palimpsest/ui-contract/server";
+import type { DashboardStats } from "palimpsest/contract";
+import type { EnvironmentHealthSummary } from "palimpsest/contract/server";
 
 import {
   buildHealthCheckRows,

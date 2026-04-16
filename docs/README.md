@@ -53,4 +53,4 @@ Before merging a large workflow, artifact, or UI change:
 | UI wording | Search `*.md` for stale wording about the local UI or hosted-product boundary |
 | Run layout | Verify stage folders under `data/runs/<runId>/` still match [artifact-workflow.md](./artifact-workflow.md) |
 | Status ledger | Update [status.md](./status.md) when shipped behavior materially changes |
-| Package exports | Verify [package.json](../package.json) exports still match docs that mention `palimpsest/ui-contract` |
+| Package exports | Verify [package.json](../package.json) exports still match docs that mention `palimpsest/contract` |
