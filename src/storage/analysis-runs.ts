@@ -515,3 +515,21 @@ export function getClaimGateBlockReasonForRun(
 export function parseStoredConfig(raw: string): AnalysisRunConfig {
   return analysisRunConfigSchema.parse(JSON.parse(raw) as unknown);
 }
+
+/**
+ * Delete completed/failed/interrupted runs older than `daysOld` days.
+ * Cascade deletes associated stage rows. Returns the number of deleted runs.
+ */
+export function purgeOldRuns(
+  database: Database.Database,
+  daysOld: number = 90,
+): number {
+  const result = database
+    .prepare(
+      `DELETE FROM analysis_runs
+       WHERE status IN ('succeeded', 'failed', 'interrupted')
+         AND updated_at < datetime('now', ? || ' days')`,
+    )
+    .run(`-${String(daysOld)}`);
+  return result.changes;
+}
