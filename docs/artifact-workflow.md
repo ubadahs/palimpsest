@@ -30,7 +30,7 @@ Every primary JSON artifact also gets:
 
 - `*_manifest.json`
 
-The canonical program definition for stage keys, ordering, and suffixes lives in [src/ui-contract/stages.ts](../src/ui-contract/stages.ts).
+The canonical program definition for stage keys, ordering, and suffixes lives in [src/contract/stages.ts](../src/contract/stages.ts).
 
 ## Where Artifacts Are Written
 

@@ -16,7 +16,7 @@ import {
   getPreviousStageKey,
   type AnalysisRun,
   type StageKey,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { getDatabase } from "./database";
 import { getRepoRoot } from "./root-path";

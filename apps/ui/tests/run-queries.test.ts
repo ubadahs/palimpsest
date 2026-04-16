@@ -14,7 +14,7 @@ import { setRunStatus, updateStageStatus } from "palimpsest/storage";
 import {
   analysisRunConfigSchema,
   serializeProgressEvent,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import {
   createRun,

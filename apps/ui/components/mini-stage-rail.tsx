@@ -1,7 +1,7 @@
 import {
   getStageDefinition,
   type LogicalStageGroup,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { railSegmentClass } from "@/lib/status-variants";
 import { cn } from "@/lib/utils";

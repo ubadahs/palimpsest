@@ -50,7 +50,7 @@ src/
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
-  ui-contract/  Shared stage/run types; package exports: palimpsest/ui-contract (+ /server)
+  contract/  Shared stage/run types; package exports: palimpsest/contract (+ /server)
 tests/          Mirrors src/ structure
 ```
 
@@ -71,7 +71,7 @@ tests/          Mirrors src/ structure
 - **Migrations**: Sequential `.sql` files in `src/storage/migrations/` named `NNNN_description.sql`. Applied via `schema_migrations` table. Never modify existing migration files.
 - **ESM modules**: The project uses `"type": "module"` with NodeNext resolution. All local imports must use `.js` extensions.
 - **Type imports**: ESLint enforces `import type` for type-only imports (`@typescript-eslint/consistent-type-imports`).
-- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/ui-contract/inspector-payloads.ts` via `buildStageInspectorPayload()`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing.
+- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/contract/inspector-payloads.ts` via `buildStageInspectorPayload()`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing.
 
 ### Domain Model
 
