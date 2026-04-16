@@ -3,7 +3,7 @@ import {
   serializeProgressEvent,
   type StageKey,
   type StageProgressEvent,
-} from "../ui-contract/index.js";
+} from "../contract/index.js";
 
 type ProgressPayload = Omit<StageProgressEvent, "stage" | "step" | "status">;
 

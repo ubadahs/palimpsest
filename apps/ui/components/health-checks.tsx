@@ -1,4 +1,4 @@
-import type { EnvironmentHealthSummary } from "palimpsest/ui-contract/server";
+import type { EnvironmentHealthSummary } from "palimpsest/contract/server";
 
 import { Badge } from "@/components/ui/badge";
 import { pathRelativeToWorkspace } from "@/lib/path-display";

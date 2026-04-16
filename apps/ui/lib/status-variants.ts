@@ -2,7 +2,7 @@ import type {
   AnalysisRunStageStatus,
   AnalysisRunStatus,
   LogicalStageGroup,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import type { BadgeVariant } from "@/components/ui/badge";
 

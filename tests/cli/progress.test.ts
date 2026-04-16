@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTrackedCliProgressReporter } from "../../src/cli/progress.js";
-import { parseProgressEventLine } from "../../src/ui-contract/workflow.js";
+import { parseProgressEventLine } from "../../src/contract/workflow.js";
 
 describe("createTrackedCliProgressReporter", () => {
   beforeEach(() => {

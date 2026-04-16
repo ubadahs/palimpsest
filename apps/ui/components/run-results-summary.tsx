@@ -6,7 +6,7 @@ import type {
   AdjudicateInspectorPayload,
   RunDetail,
   RunStageGroupDetail,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RichText } from "@/lib/rich-text";

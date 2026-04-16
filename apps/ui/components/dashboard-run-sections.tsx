@@ -7,7 +7,7 @@ import {
   getStageDefinition,
   type RunSummary,
   type StageKey,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { MiniStageRail } from "@/components/mini-stage-rail";
 import { MiniVerdictBar } from "@/components/mini-verdict-bar";

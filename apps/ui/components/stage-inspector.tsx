@@ -12,7 +12,7 @@ import type {
   LegacyDiscoverInspectorPayload,
   RunStageDetail,
   ScreenInspectorPayload,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { ChevronDown } from "lucide-react";
 

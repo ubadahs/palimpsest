@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import type { StageKey } from "palimpsest/ui-contract";
+import type { StageKey } from "palimpsest/contract";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";

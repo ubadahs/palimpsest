@@ -1,4 +1,4 @@
-import { stageKeySchema } from "palimpsest/ui-contract";
+import { stageKeySchema } from "palimpsest/contract";
 
 import { StageDetailClient } from "@/components/stage-detail-client";
 import {
