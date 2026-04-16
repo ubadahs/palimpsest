@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
@@ -75,6 +75,18 @@ export function loadJsonArtifact<T>(
   schema: z.ZodType<T>,
   artifactLabel: string,
 ): T {
+  if (!existsSync(artifactPath)) {
+    throw new Error(
+      `${artifactLabel} file not found: ${artifactPath}. If resuming a run, the artifact may have been deleted.`,
+    );
+  }
+  const stat = statSync(artifactPath);
+  if (stat.size === 0) {
+    throw new Error(
+      `${artifactLabel} file is empty (0 bytes): ${artifactPath}`,
+    );
+  }
+
   const raw = readFileSync(artifactPath, "utf8");
   let parsedJson: unknown;
 

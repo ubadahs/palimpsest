@@ -57,7 +57,7 @@ export const analysisRunConfigObjectSchema = z
       .default("attribution_first"),
     discoverTopN: z.number().int().positive().default(5),
     discoverRank: z.boolean().default(true),
-    discoverModel: z.string().min(1).default("claude-haiku-4-5"),
+    discoverModel: z.string().min(1).default("claude-sonnet-4-6"),
     discoverThinking: z.boolean().default(false),
     discoverProbeBudget: z.number().int().positive().default(100),
     discoverShortlistCap: z.number().int().positive().default(5),

@@ -1,4 +1,10 @@
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -42,7 +48,11 @@ import {
   type DiscoverySeedEntry,
   type DiscoveryStrategy,
 } from "../../pipeline/discovery-stage.js";
-import type { DiscoveryHandoffMap } from "../../domain/types.js";
+import {
+  type DiscoveryHandoffMap,
+  serializeHandoffMap,
+  deserializeHandoffMap,
+} from "../../domain/discovery-handoff.js";
 import { runM2Extraction } from "../../pipeline/extract.js";
 import { buildPackets } from "../../classification/build-packets.js";
 import { resolveCitedPaperSource } from "../../pipeline/evidence.js";
@@ -748,8 +758,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
 
     let seeds: DiscoverySeedEntry[];
     let screenInputArtifactPath: string | undefined;
-    // Rich in-memory handoff from attribution-first discovery.
-    // Undefined on resume (discover already succeeded) — screen falls back to full path.
+    // Rich handoff from attribution-first discovery.
+    // Serialized to disk after discovery; deserialized on --run-id resume.
     let discoveryHandoffs: DiscoveryHandoffMap | undefined;
 
     if (succeededArtifact("discover")) {
@@ -761,6 +771,24 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         "shortlist input",
       );
       seeds = loaded.seeds;
+      // Attempt to restore serialized handoffs for thin screen path on resume.
+      const handoffPath = resolve(outputDir, "inputs", "discovery-handoffs.json");
+      if (existsSync(handoffPath)) {
+        try {
+          discoveryHandoffs = deserializeHandoffMap(
+            readFileSync(handoffPath, "utf8"),
+          );
+          log(
+            "discover",
+            `Restored discovery handoffs (${String(discoveryHandoffs.size)} seed(s))`,
+          );
+        } catch {
+          log(
+            "discover",
+            "Could not restore discovery handoffs — screen will use full path",
+          );
+        }
+      }
       log(
         "discover",
         `Skipped (already succeeded) — ${String(seeds.length)} seed(s)`,
@@ -888,6 +916,12 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
       seeds = discoveryStage.seeds;
       // Capture the rich handoff for use by thin screen and mention-reuse in extract.
       discoveryHandoffs = discoveryStage.handoffs;
+      // Persist handoffs so --run-id resume can use the thin screen path.
+      if (discoveryHandoffs && discoveryHandoffs.size > 0) {
+        const handoffPath = resolve(outputDir, "inputs", "discovery-handoffs.json");
+        mkdirSync(resolve(outputDir, "inputs"), { recursive: true });
+        writeFileSync(handoffPath, serializeHandoffMap(discoveryHandoffs), "utf8");
+      }
 
       let shortlistPath: string;
       let discoverPrimaryPath: string;
