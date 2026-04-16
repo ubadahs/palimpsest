@@ -38,8 +38,8 @@ import {
   writeArtifactManifest,
   writeJsonArtifact,
 } from "../shared/artifact-io.js";
-import type { StageKey } from "../ui-contract/run-types.js";
-import { getStageDefinition } from "../ui-contract/stages.js";
+import type { StageKey } from "../contract/run-types.js";
+import { getStageDefinition } from "../contract/stages.js";
 import {
   resolveStageArtifactPaths,
   resolveStageExtraArtifactPath,

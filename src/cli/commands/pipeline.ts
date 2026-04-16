@@ -89,14 +89,14 @@ import {
   writeScreenArtifacts,
 } from "../stage-artifact-writers.js";
 import { nextRunStampFromDirectories } from "../run-stamp.js";
-import { stageDefinitions } from "../../ui-contract/stages.js";
+import { stageDefinitions } from "../../contract/stages.js";
 import {
   analysisRunConfigSchema,
   type StageKey,
-} from "../../ui-contract/run-types.js";
-import { deriveStageSummary } from "../../ui-contract/selectors.js";
-import type { StageProgressEvent } from "../../ui-contract/workflow.js";
-import { serializeProgressEvent } from "../../ui-contract/workflow.js";
+} from "../../contract/run-types.js";
+import { deriveStageSummary } from "../../contract/selectors.js";
+import type { StageProgressEvent } from "../../contract/workflow.js";
+import { serializeProgressEvent } from "../../contract/workflow.js";
 import { pMap } from "../../shared/p-map.js";
 
 // ---------------------------------------------------------------------------

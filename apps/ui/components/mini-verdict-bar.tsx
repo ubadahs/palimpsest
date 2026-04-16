@@ -1,4 +1,4 @@
-import type { RunVerdictSummary } from "palimpsest/ui-contract";
+import type { RunVerdictSummary } from "palimpsest/contract";
 
 import { VERDICT_BG_COLORS, VERDICT_ORDER } from "@/lib/verdict-tokens";
 
