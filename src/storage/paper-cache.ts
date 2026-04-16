@@ -5,7 +5,6 @@ import type Database from "better-sqlite3";
 import type {
   CachedPaper,
   CachePolicy,
-  DerivedArtifact,
   ParsedPaperData,
 } from "../domain/types.js";
 
@@ -153,53 +152,6 @@ export function getParsedPaper(
   }
 
   return cached;
-}
-
-export function storeDerivedArtifact(
-  db: Database.Database,
-  artifact: DerivedArtifact,
-): void {
-  db.prepare(
-    `
-    INSERT INTO derived_artifacts (
-      artifact_id, paper_id, artifact_type, generator, created_at,
-      source_span_ids_json, confidence, status, content
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `,
-  ).run(
-    artifact.artifactId,
-    artifact.paperId,
-    artifact.artifactType,
-    artifact.generator,
-    artifact.createdAt,
-    JSON.stringify(artifact.sourceSpanIds),
-    artifact.confidence,
-    artifact.status,
-    artifact.content,
-  );
-}
-
-export function getDerivedArtifacts(
-  db: Database.Database,
-  paperId: string,
-): DerivedArtifact[] {
-  const rows = db
-    .prepare("SELECT * FROM derived_artifacts WHERE paper_id = ?")
-    .all(paperId) as Record<string, unknown>[];
-
-  return rows.map((row) => ({
-    artifactId: row["artifact_id"] as string,
-    paperId: row["paper_id"] as string,
-    artifactType: row["artifact_type"] as DerivedArtifact["artifactType"],
-    generator: row["generator"] as string,
-    createdAt: row["created_at"] as string,
-    sourceSpanIds: JSON.parse(
-      (row["source_span_ids_json"] as string) ?? "[]",
-    ) as string[],
-    confidence: row["confidence"] as DerivedArtifact["confidence"],
-    status: "provisional" as const,
-    content: row["content"] as string,
-  }));
 }
 
 export function computeContentHash(text: string): string {
