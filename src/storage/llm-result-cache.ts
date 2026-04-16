@@ -31,6 +31,12 @@ export type LLMCacheKeyInput = {
    * output schema changes to auto-invalidate stale entries.
    */
   keyVersion: string;
+  /**
+   * Optional fingerprint of the output Zod schema. Included for
+   * generateObject() calls so that the same prompt with different
+   * schemas produces distinct cache keys.
+   */
+  schemaFingerprint?: string;
 };
 
 export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
@@ -40,6 +46,7 @@ export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
     input.prompt,
     input.thinkingConfig,
     input.keyVersion,
+    input.schemaFingerprint ?? "",
   ].join("\0");
 
   return createHash("sha256").update(payload).digest("hex");
