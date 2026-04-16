@@ -20,8 +20,9 @@ import {
 } from "../shared/citation-context-window.js";
 import { pMap } from "../shared/p-map.js";
 
-/** Bump when the adjudication prompt template or verdict schema changes. */
-const ADJUDICATION_CACHE_KEY_VERSION = "adjudication-2026-04-14-v8";
+import { LLM_CACHE_VERSIONS } from "../config/llm-versions.js";
+
+const ADJUDICATION_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.adjudication;
 
 const verdictSchema = z.object({
   // comparison comes first to anchor reasoning before the verdict is assigned

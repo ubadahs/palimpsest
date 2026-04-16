@@ -37,6 +37,15 @@ Available commands:
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "help";
 
+  if (command === "--help" || command === "-h") {
+    printHelp();
+    return;
+  }
+  if (command === "--version" || command === "-v") {
+    console.info("palimpsest 0.1.0");
+    return;
+  }
+
   if (command === "doctor") {
     await runDoctorCommand();
     return;
