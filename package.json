@@ -10,8 +10,8 @@
     "./config": "./src/config/index.ts",
     "./shared": "./src/shared/index.ts",
     "./storage": "./src/storage/index.ts",
-    "./ui-contract": "./src/ui-contract/index.ts",
-    "./ui-contract/server": "./src/ui-contract/server.ts"
+    "./contract": "./src/contract/index.ts",
+    "./contract/server": "./src/contract/server.ts"
   },
   "scripts": {
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
@@ -47,6 +47,7 @@
   "homepage": "https://github.com/ubadahs/palimpsest#readme",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.66",
+    "@rolldown/binding-linux-arm64-gnu": "^1.0.0-rc.12",
     "@xmldom/xmldom": "^0.8.12",
     "ai": "^6.0.146",
     "better-sqlite3": "^12.8.0",

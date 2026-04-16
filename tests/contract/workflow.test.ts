@@ -6,8 +6,8 @@ import {
   getStageWorkflowDefinition,
   parseProgressEventLine,
   progressLogPrefix,
-} from "../../src/ui-contract/workflow.js";
-import { stageKeyValues } from "../../src/ui-contract/stages.js";
+} from "../../src/contract/workflow.js";
+import { stageKeyValues } from "../../src/contract/stages.js";
 
 describe("stage workflow definitions", () => {
   it("defines ordered, non-empty workflows for every stage", () => {

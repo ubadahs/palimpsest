@@ -4,7 +4,7 @@ import {
   getStageDefinition,
   type LogicalStageGroup,
   type RunDetail,
-} from "palimpsest/ui-contract";
+} from "palimpsest/contract";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";

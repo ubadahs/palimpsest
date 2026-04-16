@@ -14,7 +14,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { z } from "zod";
 
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
-import type { StageKey } from "../ui-contract/run-types.js";
+import type { StageKey } from "../contract/run-types.js";
 import type { DatabaseConnection } from "../storage/database.js";
 import {
   computeLLMCacheKey,

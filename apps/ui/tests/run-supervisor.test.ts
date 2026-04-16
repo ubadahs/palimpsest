@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPreviousStageKey } from "palimpsest/ui-contract";
+import { getPreviousStageKey } from "palimpsest/contract";
 
 describe("stage ordering for rerun validation", () => {
   it("discover has no previous stage", () => {

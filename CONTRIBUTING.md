@@ -34,7 +34,7 @@ src/
   reporting/    JSON and Markdown artifact generation
   storage/      SQLite schema, migrations, repositories
   shared/       Cross-cutting primitives
-  ui-contract/  Shared stage/run types (consumed by both CLI and UI)
+  contract/  Shared stage/run types (consumed by both CLI and UI)
 apps/ui/        Local-only Next.js dashboard
 tests/          Mirrors src/ structure
 ```
