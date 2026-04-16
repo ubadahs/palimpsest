@@ -7,6 +7,8 @@
  *   - Token usage, latency, and estimated cost are captured automatically.
  */
 
+import { createHash } from "node:crypto";
+
 import { generateObject, generateText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { z } from "zod";
@@ -243,6 +245,21 @@ export class LLMProviderError extends Error {
     this.name = "LLMProviderError";
     this.classification = classification;
     this.fatal = fatal;
+  }
+}
+
+/**
+ * Produce a short hash of a Zod schema for cache-key differentiation.
+ * Uses JSON.stringify on the schema's internal definition so that two
+ * structurally identical schemas yield the same fingerprint.
+ */
+export function schemaFingerprint(schema: z.ZodType): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+    const raw = JSON.stringify((schema as any)._zod_def ?? (schema as any)._def ?? schema.description ?? "");
+    return createHash("sha256").update(raw).digest("hex").slice(0, 16);
+  } catch {
+    return "unknown";
   }
 }
 
@@ -844,6 +861,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const context = { ...options.defaultContext, ...params.context };
 
       // --- Exact-result cache lookup ---
+      const sf = schemaFingerprint(params.schema);
       if (db && params.exactCache && !forceRefresh) {
         const cacheKey = computeLLMCacheKey({
           purpose: params.purpose,
@@ -851,6 +869,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           prompt: params.prompt,
           thinkingConfig: "",
           keyVersion: params.exactCache.keyVersion,
+          schemaFingerprint: sf,
         });
         const cached = getCachedLLMResult(db, cacheKey);
         if (cached) {
@@ -896,6 +915,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               prompt: params.prompt,
               thinkingConfig: "",
               keyVersion: params.exactCache.keyVersion,
+              schemaFingerprint: sf,
             }),
             purpose: params.purpose,
             model: modelId,
