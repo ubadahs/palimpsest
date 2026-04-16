@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { undefinedable } from "./common.js";
-import { confidenceSchema } from "./extraction.js";
 import { parsedPaperParserKindSchema } from "./parsing.js";
 
 export const cachedPaperSchema = z
@@ -40,21 +39,3 @@ export const parsedPaperDataSchema = z
   .passthrough();
 export type ParsedPaperData = z.infer<typeof parsedPaperDataSchema>;
 
-export const derivedArtifactSchema = z
-  .object({
-    artifactId: z.string().min(1),
-    paperId: z.string().min(1),
-    artifactType: z.enum([
-      "candidate_claim",
-      "section_summary",
-      "chunk_embedding",
-    ]),
-    generator: z.string().min(1),
-    createdAt: z.string().min(1),
-    sourceSpanIds: z.array(z.string()),
-    confidence: confidenceSchema,
-    status: z.literal("provisional"),
-    content: z.string(),
-  })
-  .passthrough();
-export type DerivedArtifact = z.infer<typeof derivedArtifactSchema>;
