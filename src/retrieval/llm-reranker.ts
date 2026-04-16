@@ -18,8 +18,9 @@ import type {
 import type { EvaluationMode, Result } from "../domain/types.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
-/** Bump when the rerank prompt template or output schema changes. */
-const RERANK_CACHE_KEY_VERSION = "rerank-2026-04-11-v1";
+import { LLM_CACHE_VERSIONS } from "../config/llm-versions.js";
+
+const RERANK_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.rerank;
 
 // ---------------------------------------------------------------------------
 // Types
