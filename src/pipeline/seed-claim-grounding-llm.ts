@@ -48,11 +48,24 @@ export type SeedClaimLlmGroundingOptions = {
   enableExactCache?: boolean;
 };
 
+/**
+ * Cap at ~37K tokens.  If the manuscript exceeds this, truncate and append a
+ * notice so the LLM knows the document is incomplete.
+ */
+const MAX_MANUSCRIPT_CHARS = 150_000;
+
 export function buildSeedFullTextForLlm(doc: ParsedPaperDocument): string {
-  return doc.blocks
+  const full = doc.blocks
     .map((b) => b.text.trim())
     .filter((t) => t.length > 0)
     .join("\n\n");
+
+  if (full.length <= MAX_MANUSCRIPT_CHARS) return full;
+
+  console.error(
+    `[grounding] Manuscript is ${String(full.length)} chars (~${String(Math.round(full.length / 4))} tokens); truncating to ${String(MAX_MANUSCRIPT_CHARS)} chars.`,
+  );
+  return full.slice(0, MAX_MANUSCRIPT_CHARS) + "\n\n[Document truncated]";
 }
 
 export function sha256Utf8(text: string): string {
