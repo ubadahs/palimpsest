@@ -207,10 +207,52 @@ async function rerankBlocksLLM(
   return reranked;
 }
 
+const MAX_EVIDENCE_CHARS = 600;
+const SENTENCE_BOUNDARY_RE = /[.!?](?:\s|$)/;
+
+/**
+ * Truncate text to approximately `MAX_EVIDENCE_CHARS` but snap to a sentence
+ * boundary so we never cut mid-sentence.  If no boundary is found in the
+ * first MAX_EVIDENCE_CHARS range, extend to the next boundary (up to 20%
+ * over) to avoid breaking a critical clause.
+ */
+function truncateAtSentence(text: string): string {
+  if (text.length <= MAX_EVIDENCE_CHARS) return text;
+
+  // Look for the last sentence-end within the budget.
+  let cutoff = -1;
+  for (let i = MAX_EVIDENCE_CHARS; i >= 0; i--) {
+    if (SENTENCE_BOUNDARY_RE.test(text.slice(i, i + 2))) {
+      cutoff = i + 1; // include the punctuation
+      break;
+    }
+  }
+
+  // If no sentence boundary within budget, extend up to 20% over.
+  if (cutoff <= 0) {
+    const extended = Math.min(
+      Math.round(MAX_EVIDENCE_CHARS * 1.2),
+      text.length,
+    );
+    for (let i = MAX_EVIDENCE_CHARS; i < extended; i++) {
+      if (SENTENCE_BOUNDARY_RE.test(text.slice(i, i + 2))) {
+        cutoff = i + 1;
+        break;
+      }
+    }
+  }
+
+  // Hard fallback: slice at budget.
+  if (cutoff <= 0) cutoff = MAX_EVIDENCE_CHARS;
+
+  const result = text.slice(0, cutoff).trimEnd();
+  return result.length < text.length ? result + " ..." : result;
+}
+
 function toEvidenceSpan(rankedBlock: RankedBlock): EvidenceSpan {
   const span: EvidenceSpan = {
     spanId: randomUUID(),
-    text: rankedBlock.block.text.substring(0, 600),
+    text: truncateAtSentence(rankedBlock.block.text),
     sectionTitle: rankedBlock.block.sectionTitle,
     blockKind: rankedBlock.block.blockKind,
     matchMethod: rankedBlock.matchMethod,

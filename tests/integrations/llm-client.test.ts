@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import {
   createLLMClient,
   resolvePromptCacheControl,
+  schemaFingerprint,
   type LLMRunLedger,
 } from "../../src/integrations/llm-client.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
@@ -129,13 +130,25 @@ describe("exact-result cache integration via LLM client", () => {
   });
 
   it("returns cached generateObject response and records a non-billable cache hit", async () => {
-    // Pre-seed a cached JSON result
+    const { z } = await import("zod");
+    const schema = z.object({
+      results: z.array(
+        z.object({
+          blockId: z.string(),
+          relevanceScore: z.number(),
+          extractedSentences: z.string(),
+        }),
+      ),
+    });
+
+    // Pre-seed a cached JSON result (include schemaFingerprint to match generateObject key)
     const cacheKey = computeLLMCacheKey({
       purpose: "evidence-rerank",
       model: "claude-haiku-4-5",
       prompt: "test prompt",
       thinkingConfig: "",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(schema),
     });
     const cachedObject = {
       results: [
@@ -149,17 +162,6 @@ describe("exact-result cache integration via LLM client", () => {
       keyVersion: "v1",
       responseText: JSON.stringify(cachedObject),
       createdAt: "2026-04-11T00:00:00Z",
-    });
-
-    const { z } = await import("zod");
-    const schema = z.object({
-      results: z.array(
-        z.object({
-          blockId: z.string(),
-          relevanceScore: z.number(),
-          extractedSentences: z.string(),
-        }),
-      ),
     });
 
     const client = createLLMClient({
