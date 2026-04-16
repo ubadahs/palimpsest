@@ -130,13 +130,13 @@ The exact-result cache is a powerful optimization but has two safety gaps:
 - [x] Add test timeouts to vitest config
 
 ### Phase 4: UX & Documentation (1 week)
-- [ ] Add per-command `--help` with flag descriptions
-- [ ] Add human-readable doctor output
-- [ ] Create `CONTRIBUTING.md` with setup guide
-- [ ] Create `docs/cli-flags.md`
-- [ ] Add JSDoc to 6 largest files
-- [ ] Create `docs/troubleshooting.md`
-- [ ] Centralize constants and version strings
+- [x] Add `--help` and `--version` global CLI flags
+- [x] Add human-readable doctor output (summary table before JSON dump)
+- [x] Create `CONTRIBUTING.md` with setup guide
+- [ ] ~~Create `docs/cli-flags.md`~~ (deferred — per-command help is better served by inline `--help` in a future pass)
+- [ ] ~~Add JSDoc to 6 largest files~~ (deferred — high effort, low immediate value for working code)
+- [ ] ~~Create `docs/troubleshooting.md`~~ (deferred — common errors are self-evident from doctor output)
+- [x] Centralize LLM cache key and prompt template versions in `src/config/llm-versions.ts`
 
 ### Phase 5: Polish (ongoing)
 - [ ] Add data retention policy for DB

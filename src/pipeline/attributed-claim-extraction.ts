@@ -22,14 +22,11 @@ import type {
 } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
-/** Bump when the extraction prompt template or response schema changes. */
-const EXTRACTION_CACHE_KEY_VERSION = "extraction-2026-04-11-v1";
+import { LLM_CACHE_VERSIONS, LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
 
-// ---------------------------------------------------------------------------
-// Prompt
-// ---------------------------------------------------------------------------
+const EXTRACTION_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.extraction;
 
-export const ATTRIBUTED_CLAIM_PROMPT_TEMPLATE_VERSION = "2026-04-08-v1";
+export const ATTRIBUTED_CLAIM_PROMPT_TEMPLATE_VERSION = LLM_PROMPT_VERSIONS.extraction;
 
 const DEFAULT_MODEL = "claude-haiku-4-5";
 

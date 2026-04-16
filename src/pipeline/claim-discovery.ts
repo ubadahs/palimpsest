@@ -88,7 +88,9 @@ function buildManuscriptForDiscovery(doc: ParsedPaperDocument): string {
 // Prompt
 // ---------------------------------------------------------------------------
 
-export const DISCOVERY_PROMPT_TEMPLATE_VERSION = "2026-04-07-v1";
+import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+
+export const DISCOVERY_PROMPT_TEMPLATE_VERSION = LLM_PROMPT_VERSIONS.discovery;
 
 function buildDiscoveryPrompt(params: {
   paper: ResolvedPaper;
