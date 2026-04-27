@@ -9,28 +9,54 @@ This document defines the storage contract for Palimpsest artifacts: what files 
 - JSON artifacts are the canonical machine outputs
 - primary JSON artifacts get adjacent manifest files
 - Markdown companions are for inspection, not for machine integration
+- diagnostic sidecars preserve provenance and debugging context, but most are not consumed by downstream stages
 - artifact loading is schema-validated
 - reruns are append-only; the newest successful artifact becomes the current pointer
+
+## Artifact Roles
+
+Artifacts fall into four roles:
+
+| Role | Meaning |
+|------|---------|
+| `primary` | Canonical machine output for a stage, or a machine handoff consumed by a later stage |
+| `report` | Human-readable Markdown inspection output |
+| `diagnostic` | Provenance, trace, debugging, or review-support output that is not the main downstream contract |
+| `manifest` | Reproducibility metadata written beside each primary JSON artifact |
+
+The simple operator model is:
+
+```text
+discover produces candidate families
+screen produces qualified families
+extract produces citation contexts
+classify produces evaluation tasks
+evidence produces evidence-backed tasks
+curate produces audit records
+adjudicate produces adjudicated records
+```
+
+The additional sidecars make those transitions inspectable; they do not add extra pipeline stages.
 
 ## Canonical Stage Outputs
 
 Use the stage key as the canonical name. Some artifact suffixes intentionally preserve older prefixes for compatibility.
 
-| Order | Stage key | CLI command | UI run directory | Primary JSON | Markdown report | Extra companion artifacts |
-|------|-----------|-------------|------------------|--------------|-----------------|---------------------------|
-| 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json` | `*_discovery-report.md` | `*_discovery-shortlist.json`, `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json` |
-| 1 | `screen` | `screen` | `01-screen/` | `*_pre-screen-results.json` | `*_pre-screen-report.md` | `*_pre-screen-grounding-trace.json` |
-| 2 | `extract` | `extract` | `02-extract/` | `*_m2-extraction-results.json` | `*_m2-extraction-report.md` | `*_m2-inspection.md` |
+| Order | Stage key | CLI command | UI run directory | Primary machine output | Report | Companion artifacts |
+|------|-----------|-------------|------------------|------------------------|--------|---------------------|
+| 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json`; `*_discovery-shortlist.json` is the downstream shortlist handoff | `*_discovery-report.md` | Diagnostic: `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json` |
+| 1 | `screen` | `screen` | `01-screen/` | `*_pre-screen-results.json` | `*_pre-screen-report.md` | Diagnostic: `*_pre-screen-grounding-trace.json` |
+| 2 | `extract` | `extract` | `02-extract/` | `*_m2-extraction-results.json` | `*_m2-extraction-report.md` | Diagnostic: `*_m2-inspection.md` |
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
-| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md` | `*_agreement-report.md` when agreement reporting is available |
+| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | none |
 
 Every primary JSON artifact also gets:
 
 - `*_manifest.json`
 
-The canonical program definition for stage keys, ordering, and suffixes lives in [src/contract/stages.ts](../src/contract/stages.ts).
+The canonical program definition for stage keys, ordering, suffixes, and companion-artifact roles lives in [src/contract/stages.ts](../src/contract/stages.ts).
 
 ## Where Artifacts Are Written
 

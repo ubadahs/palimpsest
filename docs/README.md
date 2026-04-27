@@ -18,7 +18,7 @@ If design documents disagree on scope, follow this order:
 ## If You Want To Run Or Inspect The Tool
 
 - [pipeline.md](./pipeline.md) — what each stage reads, writes, and decides
-- [artifact-workflow.md](./artifact-workflow.md) — artifact names, run layout, manifests, benchmark outputs
+- [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests, benchmark outputs
 - [status.md](./status.md) — what is implemented in the repo today
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
 - [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
