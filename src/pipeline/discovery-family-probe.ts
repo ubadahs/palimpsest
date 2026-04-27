@@ -10,10 +10,8 @@
 import type {
   AttributedClaimExtractionRecord,
   AttributedClaimFamilyCandidate,
-  ClaimGrounding,
   DiscoveryProbeSelection,
   DiscoveryShortlistEntry,
-  FamilyCandidateSeedGrounding,
   HarvestedSeedMention,
   PaperHarvestSummary,
   ParsedPaperDocument,
@@ -22,29 +20,32 @@ import type {
   SeedNeighborhoodSnapshot,
 } from "../domain/types.js";
 import type { ParsedPaperMaterializeResult } from "../retrieval/parsed-paper.js";
-import type {
-  MentionHarvestAdapters,
-  MentionHarvestResult,
-} from "../retrieval/seed-mention-harvest.js";
-import { harvestSeedMentions } from "../retrieval/seed-mention-harvest.js";
+import type { MentionHarvestAdapters } from "../retrieval/seed-mention-harvest.js";
 import type { LLMClient } from "../integrations/llm-client.js";
-import { extractAttributedClaims } from "./attributed-claim-extraction.js";
 import {
   buildSingletonFamilies,
   collapseExactDuplicateTrackedClaimFamilies,
   dedupeAttributedClaimFamilies,
-  selectDiverseShortlistFamilies,
 } from "./attributed-claim-families.js";
-import { pMap } from "../shared/p-map.js";
-import {
-  runLlmFullDocumentClaimGrounding,
-  buildSeedFullTextForLlm,
-  type SeedClaimLlmGroundingOptions,
-} from "./seed-claim-grounding-llm.js";
+import type { SeedClaimLlmGroundingOptions } from "./seed-claim-grounding-llm.js";
 import {
   consolidateFamilyCandidates,
   type FamilyCandidateConsolidationResult,
 } from "./family-consolidation.js";
+import {
+  buildNeighborhood,
+  DEFAULT_PROBE_BUDGET,
+  selectProbeSet,
+} from "./discovery/probe-selection.js";
+import {
+  DEFAULT_HARVEST_CONCURRENCY,
+  harvestAndExtractAttributions,
+} from "./discovery/mention-harvest.js";
+import {
+  DEFAULT_GROUNDING_CONCURRENCY,
+  groundFamiliesAgainstSeed,
+} from "./discovery/family-grounding.js";
+import { rankAndSelectShortlist } from "./discovery/shortlist-ranking.js";
 
 import type { FamilyGroundingTrace } from "../domain/family-grounding-trace.js";
 export type { FamilyGroundingTrace } from "../domain/family-grounding-trace.js";
@@ -52,11 +53,6 @@ export type { FamilyGroundingTrace } from "../domain/family-grounding-trace.js";
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
-
-const DEFAULT_PROBE_BUDGET = 20;
-
-const DEFAULT_HARVEST_CONCURRENCY = 8;
-const DEFAULT_GROUNDING_CONCURRENCY = 5;
 
 export type AttributionDiscoveryOptions = {
   probeBudget?: number;
@@ -146,105 +142,6 @@ function emit(
   detail: string,
 ): void {
   onEvent?.({ step, status, detail });
-}
-
-function buildNeighborhood(
-  doi: string,
-  seedPaperId: string,
-  citingPapers: ResolvedPaper[],
-): SeedNeighborhoodSnapshot {
-  let available = 0;
-  let abstractOnly = 0;
-  let unavailable = 0;
-  for (const p of citingPapers) {
-    const hint = p.fullTextHints.providerAvailability;
-    if (hint === "available") available++;
-    else if (hint === "abstract_only") abstractOnly++;
-    else unavailable++;
-  }
-  return {
-    seedPaperId,
-    doi,
-    totalCitingPapers: citingPapers.length,
-    fullTextAvailableCount: available,
-    abstractOnlyCount: abstractOnly,
-    unavailableCount: unavailable,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function selectProbeSet(
-  doi: string,
-  seedPaperId: string,
-  citingPapers: ResolvedPaper[],
-  budget: number,
-): DiscoveryProbeSelection {
-  const useAll = citingPapers.length <= budget;
-
-  // Sort: full-text-available first, then by year (newest first).
-  const sorted = [...citingPapers].sort((a, b) => {
-    const aAvail = a.fullTextHints.providerAvailability === "available" ? 0 : 1;
-    const bAvail = b.fullTextHints.providerAvailability === "available" ? 0 : 1;
-    if (aAvail !== bAvail) return aAvail - bAvail;
-    return (b.publicationYear ?? 0) - (a.publicationYear ?? 0);
-  });
-
-  const papers = sorted.map((p, i) => {
-    const hasFullText = p.fullTextHints.providerAvailability === "available";
-    const selected = useAll ? hasFullText : i < budget && hasFullText;
-    return {
-      citingPaperId: p.id,
-      citingPaperTitle: p.title,
-      selected,
-      reason: selected
-        ? useAll
-          ? ("selected_all_auditable" as const)
-          : ("selected_full_text_available" as const)
-        : !hasFullText
-          ? ("excluded_no_full_text" as const)
-          : ("excluded_probe_budget" as const),
-    };
-  });
-
-  return {
-    seedPaperId,
-    doi,
-    strategy: useAll ? "all_auditable" : "capped",
-    ...(useAll ? {} : { probeBudget: budget }),
-    papers,
-    selectedCount: papers.filter((p) => p.selected).length,
-    excludedCount: papers.filter((p) => !p.selected).length,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function toSeedGrounding(
-  grounding: ClaimGrounding,
-): FamilyCandidateSeedGrounding {
-  const spanTexts = grounding.supportSpans.map((s) => s.text);
-  return {
-    status: grounding.status,
-    normalizedClaim: grounding.normalizedClaim,
-    supportSpanText: spanTexts.length > 0 ? spanTexts.join(" … ") : undefined,
-    groundingDetail: grounding.detailReason,
-  };
-}
-
-function toShortlistEntry(
-  family: AttributedClaimFamilyCandidate,
-): DiscoveryShortlistEntry {
-  return {
-    doi: family.doi,
-    trackedClaim: family.canonicalTrackedClaim,
-    familyId: family.familyId,
-    discoveryMethod: "attribution_first",
-    supportingMentionCount: family.memberMentionIds.length,
-    supportingPaperCount: family.memberCitingPaperIds.length,
-    seedGroundingStatus: family.seedGrounding.status,
-    notes: family.shortlistReason,
-    dedupeGroupId: family.dedupe.dedupeGroupId,
-    dedupeStatus: family.dedupe.dedupeStatus,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,62 +269,33 @@ export async function runAttributionDiscovery(
     probeSelection.papers.some((e) => e.citingPaperId === p.id && e.selected),
   );
 
-  const allMentions: HarvestedSeedMention[] = [];
-  const allSummaries: PaperHarvestSummary[] = [];
-  const allRecords: AttributedClaimExtractionRecord[] = [];
-
   const harvestConcurrency =
     options.harvestConcurrency ?? DEFAULT_HARVEST_CONCURRENCY;
-  const probeTotal = selectedPapers.length;
-  let harvestCompleted = 0;
 
-  const harvestChunks = await pMap(
+  const harvestResult = await harvestAndExtractAttributions({
+    seedPaper,
     selectedPapers,
-    async (citingPaper) => {
-      const harvest: MentionHarvestResult = await harvestSeedMentions(
-        citingPaper,
-        seedPaper,
-        adapters.mentionHarvest,
-      );
-
-      let records: AttributedClaimExtractionRecord[] = [];
-      if (harvest.outcome === "success" && harvest.mentions.length > 0) {
-        records = await extractAttributedClaims({
-          seedPaper,
-          citingPaperTitle: citingPaper.title,
-          mentions: harvest.mentions,
-          client: adapters.llmClient,
-          options: {
-            ...(options.extractionModel
-              ? { model: options.extractionModel }
-              : {}),
-            useThinking: options.extractionThinking ?? false,
-            enableExactCache: true,
-          },
-        });
-      }
-
-      harvestCompleted += 1;
+    mentionHarvest: adapters.mentionHarvest,
+    llmClient: adapters.llmClient,
+    ...(options.extractionModel
+      ? { extractionModel: options.extractionModel }
+      : {}),
+    ...(options.extractionThinking != null
+      ? { extractionThinking: options.extractionThinking }
+      : {}),
+    harvestConcurrency,
+    onPaperCompleted: (completed, total, title) =>
       emit(
         onEvent,
         "harvest_and_extract",
         "updated",
-        `[${String(harvestCompleted)}/${String(probeTotal)}] ${citingPaper.title.slice(0, 60)}`,
-      );
+        `[${String(completed)}/${String(total)}] ${title.slice(0, 60)}`,
+      ),
+  });
 
-      return { harvest, records };
-    },
-    { concurrency: harvestConcurrency },
-  );
-
-  for (const { harvest, records } of harvestChunks) {
-    allSummaries.push(harvest.summary);
-    if (harvest.outcome !== "success" || harvest.mentions.length === 0) {
-      continue;
-    }
-    allMentions.push(...harvest.mentions);
-    allRecords.push(...records);
-  }
+  const allMentions = harvestResult.mentions;
+  const allSummaries = harvestResult.harvestSummaries;
+  const allRecords = harvestResult.extractionRecords;
 
   emit(
     onEvent,
@@ -456,72 +324,24 @@ export async function runAttributionDiscovery(
       `Grounding ${String(families.length)} candidate(s)…`,
     );
 
-    const manuscript = buildSeedFullTextForLlm(seedParsedDocument);
-    if (manuscript.length > 0) {
-      const groundingConcurrency =
-        options.groundingConcurrency ?? DEFAULT_GROUNDING_CONCURRENCY;
-      const groundTotal = families.length;
-      let groundCompleted = 0;
-
-      const traces = await pMap(
-        families,
-        async (fam) => {
-          const { grounding, llmCall } = await runLlmFullDocumentClaimGrounding(
-            {
-              seed: { doi, trackedClaim: fam.canonicalTrackedClaim },
-              seedPaper,
-              parsedDocument: seedParsedDocument,
-              options: adapters.groundingOptions,
-            },
-          );
-          fam.seedGrounding = toSeedGrounding(grounding);
-
-          groundCompleted += 1;
-          emit(
-            onEvent,
-            "ground_families",
-            "updated",
-            `[${String(groundCompleted)}/${String(groundTotal)}] ${fam.canonicalTrackedClaim.slice(0, 60)}`,
-          );
-
-          return {
-            familyId: fam.familyId,
-            canonicalTrackedClaim: fam.canonicalTrackedClaim,
-            grounding,
-            ...(llmCall != null &&
-            (llmCall.inputTokens != null ||
-              typeof llmCall.cacheReadTokens === "number" ||
-              typeof llmCall.cacheWriteTokens === "number")
-              ? {
-                  llmUsage: {
-                    ...(llmCall.inputTokens != null
-                      ? { inputTokens: llmCall.inputTokens }
-                      : {}),
-                    ...(typeof llmCall.cacheReadTokens === "number"
-                      ? { cacheReadTokens: llmCall.cacheReadTokens }
-                      : {}),
-                    ...(typeof llmCall.cacheWriteTokens === "number"
-                      ? { cacheWriteTokens: llmCall.cacheWriteTokens }
-                      : {}),
-                  },
-                }
-              : {}),
-          } satisfies FamilyGroundingTrace;
-        },
-        { concurrency: groundingConcurrency },
-      );
-
-      traces.sort((a, b) => a.familyId.localeCompare(b.familyId));
-      groundingTraces.push(...traces);
-    } else {
-      for (const fam of families) {
-        fam.seedGrounding = {
-          status: "no_seed_fulltext",
-          supportSpanText: undefined,
-          groundingDetail: "Parsed document has no text blocks",
-        };
-      }
-    }
+    const groundingConcurrency =
+      options.groundingConcurrency ?? DEFAULT_GROUNDING_CONCURRENCY;
+    const traces = await groundFamiliesAgainstSeed({
+      doi,
+      seedPaper,
+      seedParsedDocument,
+      families,
+      groundingOptions: adapters.groundingOptions,
+      groundingConcurrency,
+      onFamilyGrounded: (completed, total, claim) =>
+        emit(
+          onEvent,
+          "ground_families",
+          "updated",
+          `[${String(completed)}/${String(total)}] ${claim.slice(0, 60)}`,
+        ),
+    });
+    groundingTraces.push(...traces);
 
     emit(
       onEvent,
@@ -573,35 +393,8 @@ export async function runAttributionDiscovery(
   // --- 8. Score + shortlist ---
   emit(onEvent, "emit_shortlist", "started", "Ranking families…");
 
-  // Sort: grounded first, then by grounding status, then by confidence.
-  const ranked = [...families].sort((a, b) => {
-    const statusOrder =
-      groundingStatusRank(a.seedGrounding.status) -
-      groundingStatusRank(b.seedGrounding.status);
-    if (statusOrder !== 0) return statusOrder;
-    return b.memberMentionIds.length - a.memberMentionIds.length;
-  });
-
   const cap = options.shortlistCap ?? 5;
-  const topCapByRank = new Set(ranked.slice(0, cap));
-  const shortlisted = selectDiverseShortlistFamilies(ranked, cap);
-  const shortlistedSet = new Set(shortlisted);
-
-  for (const fam of families) {
-    if (shortlistedSet.has(fam)) {
-      fam.shortlistEligible = true;
-      continue;
-    }
-    fam.shortlistEligible = false;
-    if (topCapByRank.has(fam)) {
-      fam.shortlistReason =
-        "Excluded from shortlist: near-identical citing papers vs a higher-ranked family";
-    } else {
-      fam.shortlistReason = "Excluded from shortlist by cap";
-    }
-  }
-
-  const shortlistEntries = shortlisted.map(toShortlistEntry);
+  const shortlistEntries = rankAndSelectShortlist(families, cap);
 
   emit(
     onEvent,
@@ -626,25 +419,4 @@ export async function runAttributionDiscovery(
     consolidation,
     warnings,
   };
-}
-
-function groundingStatusRank(
-  status: FamilyCandidateSeedGrounding["status"],
-): number {
-  switch (status) {
-    case "grounded":
-      return 0;
-    case "ambiguous":
-      return 1;
-    case "not_attempted":
-      return 2;
-    case "not_found":
-      return 3;
-    case "no_seed_fulltext":
-      return 4;
-    case "materialize_failed":
-      return 5;
-    default:
-      return 9;
-  }
 }
