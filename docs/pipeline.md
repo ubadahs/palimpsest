@@ -1,6 +1,6 @@
 # Pipeline Guide
 
-This document describes the current operational workflow: what each stage is for, what it reads, what it writes, and what can block or downgrade it. For research intent and scope, see [concept-memo.md](./concept-memo.md) and [prd.md](./prd.md).
+This document describes the current operational workflow: what each stage is for, what it reads, what it writes, and what can block or downgrade it. For a shorter glossary of the objects that move through the stages, see [pipeline-concepts.md](./pipeline-concepts.md). For research intent and scope, see [concept-memo.md](./concept-memo.md) and [prd.md](./prd.md).
 
 ## At A Glance
 
