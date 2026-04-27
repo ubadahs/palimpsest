@@ -14,10 +14,12 @@ If design documents disagree on scope, follow this order:
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
 - [runtime-setup.md](./runtime-setup.md) — environment variables, external services, required versus optional dependencies
 - [pipeline.md](./pipeline.md) — canonical stage-by-stage workflow guide
+- [pipeline-concepts.md](./pipeline-concepts.md) — short object-flow glossary for the pipeline
 
 ## If You Want To Run Or Inspect The Tool
 
 - [pipeline.md](./pipeline.md) — what each stage reads, writes, and decides
+- [pipeline-concepts.md](./pipeline-concepts.md) — main objects that move through the stages
 - [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests, benchmark outputs
 - [status.md](./status.md) — what is implemented in the repo today
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
