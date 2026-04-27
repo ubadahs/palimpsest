@@ -10,6 +10,8 @@ export const stageKeyValues = [
 
 type StageKey = (typeof stageKeyValues)[number];
 
+export type StageArtifactRole = "primary" | "report" | "diagnostic";
+
 export type StageDefinition = {
   key: StageKey;
   order: number;
@@ -21,6 +23,12 @@ export type StageDefinition = {
     primarySuffix: string;
     reportSuffix: string;
     extraSuffixes: string[];
+    /**
+     * Role metadata for extra suffixes, in the same order as `extraSuffixes`.
+     * This does not affect artifact discovery; it documents whether a companion
+     * file is part of the machine handoff or only diagnostic/reporting material.
+     */
+    extraRoles: StageArtifactRole[];
   };
 };
 
@@ -44,6 +52,15 @@ export const stageDefinitions: readonly StageDefinition[] = [
         "_discovery-family-candidates.json",
         "_discovery-grounding-trace.json",
       ],
+      extraRoles: [
+        "primary",
+        "diagnostic",
+        "diagnostic",
+        "diagnostic",
+        "diagnostic",
+        "diagnostic",
+        "diagnostic",
+      ],
     },
   },
   {
@@ -57,6 +74,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_pre-screen-results.json",
       reportSuffix: "_pre-screen-report.md",
       extraSuffixes: ["_pre-screen-grounding-trace.json"],
+      extraRoles: ["diagnostic"],
     },
   },
   {
@@ -70,6 +88,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_m2-extraction-results.json",
       reportSuffix: "_m2-extraction-report.md",
       extraSuffixes: ["_m2-inspection.md"],
+      extraRoles: ["diagnostic"],
     },
   },
   {
@@ -83,6 +102,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_classification-results.json",
       reportSuffix: "_classification-report.md",
       extraSuffixes: [],
+      extraRoles: [],
     },
   },
   {
@@ -96,6 +116,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_evidence-results.json",
       reportSuffix: "_evidence-report.md",
       extraSuffixes: [],
+      extraRoles: [],
     },
   },
   {
@@ -109,6 +130,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_audit-sample.json",
       reportSuffix: "_audit-sample-worksheet.md",
       extraSuffixes: [],
+      extraRoles: [],
     },
   },
   {
@@ -122,6 +144,7 @@ export const stageDefinitions: readonly StageDefinition[] = [
       primarySuffix: "_llm-audit-sample.json",
       reportSuffix: "_llm-summary.md",
       extraSuffixes: ["_agreement-report.md"],
+      extraRoles: ["report"],
     },
   },
 ] as const;

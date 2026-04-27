@@ -16,6 +16,8 @@ Palimpsest has one canonical seven-stage pipeline:
 
 You can run that workflow end to end with `pipeline`, or run the stages individually against upstream artifacts.
 
+The table below shows the main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
+
 | Stage | Command | Reads | Writes | Main decision |
 |------|---------|-------|--------|---------------|
 | Discover | `discover` | DOI input JSON | discovery results, report, shortlist | Which claims are promising enough to screen |
