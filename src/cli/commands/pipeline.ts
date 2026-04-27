@@ -735,8 +735,8 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
         discoveryHandoffs &&
         discoveryHandoffs.size > 0
       ) {
-        // Attribution-first with fresh-run handoff: skip re-resolution, re-fetch,
-        // and re-grounding. Only auditability + decision logic runs.
+        // Attribution-first with fresh or restored handoff: skip re-resolution,
+        // re-fetch, and re-grounding. Only auditability + decision logic runs.
         screenReporter.log("Using discovery handoff (thin screen path).");
         ({ families: screenedFamilies, groundingTrace } =
           await runPreScreenFromHandoff(
@@ -746,7 +746,7 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
             screenReporter.onProgress,
           ));
       } else {
-        // Legacy strategy or resume (no handoff available): full screen path.
+        // Legacy strategy or missing/unreadable handoff: full screen path.
         const preScreenAdapters: PreScreenAdapters = {
           resolveByDoi: (doi) =>
             resolvePaperByDoi(doi, {

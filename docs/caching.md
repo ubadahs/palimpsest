@@ -2,18 +2,18 @@
 
 There are three independent caching layers. They serve different purposes and work together.
 
-## 0. In-memory discovery handoff (within-run, attribution-first only)
+## 0. Discovery handoff bundle (attribution-first only)
 
-When `attribution_first` is the discovery strategy, `runDiscoveryStage` passes a `DiscoveryHandoffMap` in memory to downstream stages in the same pipeline run. This eliminates the most expensive redundant work:
+When `attribution_first` is the discovery strategy, `runDiscoveryStage` produces a `DiscoveryHandoffMap` for downstream stages. In a fresh run it is passed in memory; the pipeline also persists it under `inputs/discovery-handoffs.json` so `--run-id` resume can restore it when present. This eliminates the most expensive redundant work:
 
 | Stage | What is skipped |
 |-------|----------------|
 | `screen` | DOI resolution, OpenAlex citing-paper fetch, full-text fetch + LLM claim grounding |
 | `extract` | Full-text fetch + parse for papers that were probed during discovery |
 
-The handoff is never serialized. On resume (`--run-id`) it is `undefined` and downstream stages fall back to their full adapter-based paths automatically.
+If the serialized handoff bundle is unavailable or cannot be read, downstream stages fall back to their full adapter-based paths automatically. The bundle is reusable provenance for `screen` and `extract`, not a replacement for stage primary JSON artifacts.
 
-**Implementation**: `src/domain/discovery-handoff.ts` defines `DiscoveryHandoff` / `DiscoveryHandoffMap`; `src/pipeline/pre-screen.ts` exposes `runPreScreenFromHandoff`; `src/retrieval/citation-context.ts` exposes `extractEdgeContextFromMentions`; both are wired in `src/cli/commands/pipeline.ts`.
+**Implementation**: `src/domain/discovery-handoff.ts` defines `DiscoveryHandoff` / `DiscoveryHandoffMap` plus serialization helpers; `src/pipeline/pre-screen.ts` exposes `runPreScreenFromHandoff`; `src/retrieval/citation-context.ts` exposes `extractEdgeContextFromMentions`; both are wired in `src/cli/commands/pipeline.ts`.
 
 ## 1. Anthropic prompt caching (provider-level)
 
