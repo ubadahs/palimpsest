@@ -1,20 +1,18 @@
 # Pipeline Orchestration Audit
 
-## Overall Assessment: Well-engineered with critical handoff gap
+## Overall Assessment: Well-engineered; original handoff gap resolved
 
-The pipeline implements a sophisticated multi-stage flow with proper state tracking, per-family parallelization, and database-backed resume. However, handoff state loss on resume and missing artifact validation pose material risks.
+The pipeline implements a sophisticated multi-stage flow with proper state tracking, per-family parallelization, and database-backed resume. This audit originally identified handoff state loss on resume as critical; current code persists discovery handoffs to `inputs/discovery-handoffs.json` and restores them when available. Missing or unreadable handoffs still fall back to the full path.
 
 ---
 
 ## Critical Issues
 
-### 1. Handoff state lost on `--run-id` resume
+### 1. Handoff state lost on `--run-id` resume — resolved
 - **File:** `src/cli/commands/pipeline.ts:752-890`
-- **Severity:** CRITICAL
-- `discoveryHandoffs` (rich in-memory map from attribution-first discovery) is initialized as `undefined` on resume
-- Screen stage checks `if (discoveryHandoffs && discoveryHandoffs.size > 0)` — always fails on resume
-- Forces screen to take the **full path** instead of the optimized thin path, re-running DOI resolution, OpenAlex fetches, and LLM grounding
-- **Fix:** Serialize `discoveryHandoffs` to disk when discover completes. Deserialize on resume before screen stage. Add warning log if handoff unavailable.
+- **Original severity:** CRITICAL
+- **Current status:** Resolved. The pipeline serializes `DiscoveryHandoffMap` after attribution-first discovery and deserializes it on `--run-id` resume when `inputs/discovery-handoffs.json` exists.
+- **Fallback behavior:** If the handoff bundle is missing or unreadable, screen takes the full path and re-runs the required resolution, OpenAlex, and grounding work.
 
 ### 2. No artifact validation on resume
 - **File:** `src/cli/commands/pipeline.ts:755-767`

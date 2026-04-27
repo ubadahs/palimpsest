@@ -213,10 +213,11 @@ This avoids the old lossy `recordsBySeedDoi` map, which could overwrite multiple
 
 Pipeline execution can reuse expensive work across equivalent families within the same run:
 
+- attribution-first `discover` writes `inputs/discovery-handoffs.json` so `screen` and `extract` can reuse resolved seed metadata, citing-paper neighborhoods, harvested mentions, and family grounding traces on fresh runs and on resume when the bundle is available
 - `extract` reuses citation-context extraction for identical citing-paper neighborhoods
 - `classify` reuses packet construction for the same effective neighborhood inputs
 
-Artifacts remain canonical per family even when computation was reused. The extract/classify cache is run-scoped only. A separate persistent exact-result LLM cache (`llm_result_cache` table) provides cross-run reuse for identical LLM requests — see [caching.md](./caching.md) for details.
+Artifacts remain canonical per family even when computation was reused. The discovery handoff bundle is a reusable provenance artifact, not a replacement for stage primary JSON outputs. The extract/classify cache is run-scoped only. A separate persistent exact-result LLM cache (`llm_result_cache` table) provides cross-run reuse for identical LLM requests — see [caching.md](./caching.md) for details.
 
 ## Benchmark Workflow
 

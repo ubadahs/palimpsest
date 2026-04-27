@@ -1,10 +1,12 @@
 /**
- * In-memory rich handoff produced by attribution-first discovery and consumed
- * by downstream stages (screen, extract) to avoid redundant I/O and LLM calls.
+ * Rich handoff produced by attribution-first discovery and consumed by
+ * downstream stages (screen, extract) to avoid redundant I/O and LLM calls.
  *
- * This type is never serialized as an artifact contract — it exists only within
- * a single pipeline run. Sidecar JSON artifacts remain the canonical, inspectable
- * record of discovery work.
+ * During a fresh pipeline run this travels in memory. The pipeline also persists
+ * it under `inputs/discovery-handoffs.json` so `--run-id` resume can recover the
+ * thin screen path when that file is available. Stage primary JSON artifacts
+ * remain the canonical downstream machine outputs; this bundle is a reusable
+ * provenance and acceleration artifact.
  *
  * Structure:
  *   - One `DiscoveryHandoff` per seed DOI.
