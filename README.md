@@ -44,12 +44,12 @@ See [docs/pipeline.md](docs/pipeline.md) for when to use each path and what ever
 | Stage | Command | Purpose | Primary outputs |
 |------|---------|---------|-----------------|
 | Discover | `discover` | Extract candidate empirical claims from seed papers and build a shortlist | discovery results, discovery report, shortlist |
-| Screen | `screen` | Ground the tracked claim and decide whether a claim family is viable for deeper analysis | pre-screen results, report, grounding trace |
-| Extract | `extract` | Locate and normalize claim-bearing citation contexts in citing papers | extraction results, report, inspection notes |
-| Classify | `classify` | Turn extracted mentions into evaluation packets | classification results, report |
-| Evidence | `evidence` | Resolve the cited paper and attach retrieved evidence spans | evidence results, report |
-| Curate | `curate` | Sample a balanced adjudication set from evidence-backed tasks | audit sample, worksheet |
-| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for the sampled tasks | adjudicated audit sample, summary |
+| Screen | `screen` | Ground and qualify candidate families for deeper analysis | qualified-family results, report, grounding trace |
+| Extract | `extract` | Locate and normalize claim-bearing citation contexts in citing papers | citation-context results, report, inspection notes |
+| Classify | `classify` | Turn citation contexts into evaluation tasks | evaluation-task results, report |
+| Evidence | `evidence` | Resolve the cited paper and attach retrieved evidence spans | evidence-backed task results, report |
+| Curate | `curate` | Prepare audit records from evidence-backed tasks | audit records, worksheet |
+| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for audit records | adjudicated records, summary |
 
 Canonical stage names are `discover`, `screen`, `extract`, `classify`, `evidence`, `curate`, and `adjudicate`. Some artifact filenames still preserve older prefixes such as `_pre-screen-*` and `_m2-extraction-*`; the stage contract is documented in [docs/pipeline.md](docs/pipeline.md) and [docs/artifact-workflow.md](docs/artifact-workflow.md).
 
