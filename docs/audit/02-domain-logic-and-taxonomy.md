@@ -76,4 +76,4 @@ The domain layer is mostly pure (one critical import violation), has comprehensi
 - Zero `any` types; consistent `z.infer<>` pattern
 - All major data structures have Zod schemas
 - SafeParse used at LLM response boundaries
-- `DiscoveryHandoffMap` is in-memory only with no serialization data loss risk
+- `DiscoveryHandoffMap` has explicit serialization helpers for the pipeline resume bundle while keeping stage primary artifacts canonical

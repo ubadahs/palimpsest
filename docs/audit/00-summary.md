@@ -22,7 +22,7 @@ These are the highest-impact items across all 12 audits. Each one risks silent d
 |---|-------|--------|--------|
 | 1 | **Domain imports pipeline types** (circular dependency) | [Architecture](01-architecture-and-design.md) | Prevents clean separation; blocks refactoring |
 | 2 | **Storage imports UI contract** (dependency violation) | [Architecture](01-architecture-and-design.md) | UI changes force storage changes |
-| 3 | **Discovery handoff lost on `--run-id` resume** | [Pipeline](03-pipeline-orchestration.md) | Re-runs expensive DOI resolution, OpenAlex, LLM grounding on every resume |
+| 3 | **Discovery handoff lost on `--run-id` resume** | [Pipeline](03-pipeline-orchestration.md) | **Resolved:** pipeline persists `inputs/discovery-handoffs.json` and restores it when available |
 | 4 | **LLM cache key doesn't include output schema** | [LLM](04-llm-integration-and-prompts.md) | `generateObject()` can serve wrong cached data silently |
 | 5 | **Fragile JSON extraction from LLM output** | [Error Handling](06-error-handling-and-resilience.md) | Returns entire text to `JSON.parse()` when no JSON found |
 | 6 | **Hard-coded 600-char evidence truncation** | [Retrieval](10-retrieval-and-evidence.md) | Cuts mid-sentence; destroys evidence semantics for adjudicator |
