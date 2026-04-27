@@ -20,13 +20,27 @@ The table below shows the main operator-facing outputs. Additional trace and pro
 
 | Stage | Command | Reads | Writes | Main decision |
 |------|---------|-------|--------|---------------|
-| Discover | `discover` | DOI input JSON | discovery results, report, shortlist | Which claims are promising enough to screen |
-| Screen | `screen` | shortlist JSON | pre-screen results, report, grounding trace | Whether a claim family is viable and whether downstream analysis is blocked |
-| Extract | `extract` | screen results + seed DOI | extraction results, report, inspection notes | Which citing contexts are usable for downstream grounding |
-| Classify | `classify` | extraction results + screen results | classification results, report | Which extracted mentions become evaluation tasks |
-| Evidence | `evidence` | classification results | evidence results, report | Whether usable cited-paper evidence can be attached to each task |
-| Curate | `curate` | evidence results | audit sample, worksheet | Which evidence-backed tasks enter the adjudication sample |
-| Adjudicate | `adjudicate` | audit sample | adjudicated audit sample, summary, optional agreement report | Final support-style verdicts and rationales for sampled tasks |
+| Discover | `discover` | DOI input JSON | candidate families, report, shortlist | Which candidate families are promising enough to qualify |
+| Screen | `screen` | shortlist JSON | qualified-family results, report, grounding trace | Whether a candidate family is qualified for downstream analysis |
+| Extract | `extract` | screen results + seed DOI | citation-context results, report, inspection notes | Which citing contexts are usable for downstream grounding |
+| Classify | `classify` | extraction results + screen results | evaluation-task results, report | Which citation contexts become evaluation tasks |
+| Evidence | `evidence` | classification results | evidence-backed task results, report | Whether usable cited-paper evidence can be attached to each task |
+| Curate | `curate` | evidence results | audit records, worksheet | Which evidence-backed tasks become audit records |
+| Adjudicate | `adjudicate` | audit sample | adjudicated records, summary, optional agreement report | Final support-style verdicts and rationales for audit records |
+
+## Operator Vocabulary
+
+The pipeline keeps seven stable stage keys, but the main objects flowing through those stages are:
+
+| Object | Produced by | Meaning |
+|--------|-------------|---------|
+| candidate family | `discover` | A tracked claim candidate plus the citing papers and mentions that make it worth qualifying |
+| qualified family | `screen` | A candidate family that has been grounded, filtered, and marked viable or blocked/deprioritized |
+| citation context | `extract` | A claim-bearing citation passage and normalized mention context from a citing paper |
+| evaluation task | `classify` | A citation context converted into a task with role and evaluation-mode metadata |
+| evidence-backed task | `evidence` | An evaluation task with cited-paper resolution and retrieved evidence spans |
+| audit record | `curate` | A sampled, review-ready record selected from evidence-backed tasks |
+| adjudicated record | `adjudicate` | An audit record with support-style verdict, rationale, confidence, and retrieval-quality judgment |
 
 ## Two Ways To Start A Run
 
