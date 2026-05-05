@@ -1,61 +1,78 @@
 # Palimpsest
 
-Palimpsest is CLI-first tooling for auditing citation fidelity in scientific literature. It follows a claim family outward from a seed paper, checks which downstream citations are actually auditable, extracts the claim-bearing citing passages, retrieves evidence from the cited paper, and writes local JSON and Markdown artifacts for review.
+Palimpsest is local, CLI-first tooling for auditing citation fidelity in scientific literature. Starting from seed DOIs or a known claim shortlist, it follows claim families through the citing literature, checks auditability, retrieves cited-paper evidence, and writes reviewable JSON and Markdown artifacts.
 
-The CLI and artifacts are canonical. SQLite stores structured local state. The Next.js app in `apps/ui` is a local orchestration and inspection surface, not a separate hosted product.
+The CLI and artifacts are the source of truth. SQLite stores local run state. The Next.js app in `apps/ui` is only a local orchestration and inspection surface; it is not a hosted product.
+
+## Requirements
+
+- Node.js 22+
+- `GROBID_BASE_URL` for validated PDF parsing
+- `ANTHROPIC_API_KEY` for LLM-backed stages: `discover`, `screen`, `pipeline`, `adjudicate`, and `evidence` when LLM reranking is enabled
+
+See [docs/runtime-setup.md](docs/runtime-setup.md) for environment variables, GROBID setup, and optional providers.
 
 ## Quick Start
 
-Install dependencies, verify the runtime, and initialize the local database:
-
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev -- doctor
 npm run dev -- db:migrate
 ```
 
-`doctor` checks the runtime boundary. `GROBID_BASE_URL` must be configured; Anthropic is required only for stages that use LLMs. See [docs/runtime-setup.md](docs/runtime-setup.md).
+`doctor` checks the local runtime boundary. It fails if GROBID is unreachable, and reports Anthropic as configured or missing based on the stages you can run.
 
-## Main Ways To Run It
+## Run
 
-Run the full pipeline from DOI input:
+Use a DOI-first run when Palimpsest should discover claim families from citing behavior:
+
+```json
+{
+  "dois": ["10.0000/example"]
+}
+```
 
 ```bash
 npm run dev -- pipeline --input path/to/dois.json
 ```
 
-Run stage by stage:
+Use an existing shortlist when the tracked claim is already known:
+
+```bash
+npm run dev -- pipeline --shortlist path/to/shortlist.json
+```
+
+Run stages directly when you want to inspect or rerun a specific handoff:
 
 ```bash
 npm run dev -- discover --input path/to/dois.json
 npm run dev -- screen --input path/to/shortlist.json
 ```
 
-Run the local UI:
+Run the local UI for orchestration, logs, and artifact inspection:
 
 ```bash
 npm run ui:dev
 ```
 
-See [docs/pipeline.md](docs/pipeline.md) for when to use each path and what every stage consumes and produces.
+Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. See [docs/pipeline.md](docs/pipeline.md) for each stage's inputs, outputs, and blocking behavior.
 
-## Pipeline At A Glance
+## Pipeline
 
-| Stage | Command | Purpose | Primary outputs |
-|------|---------|---------|-----------------|
-| Discover | `discover` | Extract candidate empirical claims from seed papers and build a shortlist | discovery results, discovery report, shortlist |
-| Screen | `screen` | Ground and qualify candidate families for deeper analysis | qualified-family results, report, grounding trace |
-| Extract | `extract` | Locate and normalize claim-bearing citation contexts in citing papers | citation-context results, report, inspection notes |
-| Classify | `classify` | Turn citation contexts into evaluation tasks | evaluation-task results, report |
-| Evidence | `evidence` | Resolve the cited paper and attach retrieved evidence spans | evidence-backed task results, report |
-| Curate | `curate` | Prepare audit records from evidence-backed tasks | audit records, worksheet |
-| Adjudicate | `adjudicate` | Produce verdicts, rationales, and confidence for audit records | adjudicated records, summary |
-
-Canonical stage names are `discover`, `screen`, `extract`, `classify`, `evidence`, `curate`, and `adjudicate`. Some artifact filenames still preserve older prefixes such as `_pre-screen-*` and `_m2-extraction-*`; the stage contract is documented in [docs/pipeline.md](docs/pipeline.md) and [docs/artifact-workflow.md](docs/artifact-workflow.md).
+| Stage | Purpose |
+|------|---------|
+| `discover` | Harvest citing-side mentions, extract attributed claims, ground them to the seed paper, and emit a shortlist. The default strategy is `attribution_first`; `--strategy legacy` keeps the older seed-side path. |
+| `screen` | Qualify claim families for downstream analysis with seed grounding, family filtering, and auditability checks. |
+| `extract` | Locate and normalize claim-bearing citation contexts in citing papers. |
+| `classify` | Convert citation contexts into evaluation tasks with role and mode metadata. |
+| `evidence` | Resolve cited papers and attach retrieved evidence spans. |
+| `curate` | Sample evidence-backed tasks into review-ready audit records. |
+| `adjudicate` | Produce verdicts, rationales, confidence, and retrieval-quality judgments. |
 
 ## Where To Read
 
-- [docs/pipeline.md](docs/pipeline.md) — canonical stage-by-stage workflow guide
+- [docs/pipeline.md](docs/pipeline.md) — stage-by-stage workflow guide
 - [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests, benchmark outputs
 - [docs/runtime-setup.md](docs/runtime-setup.md) — environment variables, required services, failure and fallback behavior
 - [docs/status.md](docs/status.md) — what is implemented in the repo today
@@ -73,5 +90,6 @@ Canonical stage names are `discover`, `screen`, `extract`, `classify`, `evidence
 | `npm run lint` | Run ESLint over `src/` and `tests/` |
 | `npm run lint:all` | Run root lint plus UI workspace lint |
 | `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |
+| `npm --workspace @palimpsest/ui run test` | Run UI workspace tests |
 
 See [package.json](package.json) for the full script list.
