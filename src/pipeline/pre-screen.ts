@@ -6,8 +6,8 @@ import type {
   ClaimGrounding,
   DiscoveryHandoff,
   DiscoveryHandoffMap,
+  DownstreamPriority,
   FamilyUseProfileTag,
-  M2Priority,
   PreScreenEdge,
   PreScreenGroundingTraceFile,
   PreScreenGroundingTraceRecord,
@@ -342,12 +342,12 @@ function mergeClaimFamilyMetrics(
   };
 }
 
-// --- M2 priority: advisory recommendation, does not affect greenlight ---
+// --- Downstream priority: advisory recommendation, does not affect greenlight ---
 
-function computeM2Priority(
+function computeDownstreamPriority(
   metrics: PreScreenMetrics,
   decision: ClaimFamilyPreScreen["decision"],
-): M2Priority {
+): DownstreamPriority {
   if (decision === "deprioritize") {
     return "not_now";
   }
@@ -415,7 +415,7 @@ async function processOneSeed(
         seedFullTextAcquisition: undefined,
         claimGrounding: cg,
         familyUseProfile: [],
-        m2Priority: "not_now",
+        downstreamPriority: "not_now",
         decision: "deprioritize",
         decisionReason: `Failed to resolve seed: ${seedResult.error}`,
       },
@@ -540,7 +540,7 @@ async function processOneSeed(
         seedFullTextAcquisition: traceRecord.materialization,
         claimGrounding,
         familyUseProfile: [],
-        m2Priority: "not_now",
+        downstreamPriority: "not_now",
         decision,
         decisionReason: reason,
       },
@@ -733,7 +733,7 @@ async function processOneSeed(
     claimGrounding,
   );
   const familyUseProfile = computeFamilyUseProfile(metrics);
-  const m2Priority = computeM2Priority(metrics, decision);
+  const downstreamPriority = computeDownstreamPriority(metrics, decision);
   onProgress?.({
     step: "summarize_family_viability",
     status: "running",
@@ -757,7 +757,7 @@ async function processOneSeed(
       seedFullTextAcquisition: traceRecord.materialization,
       claimGrounding,
       familyUseProfile,
-      m2Priority,
+      downstreamPriority,
       decision,
       decisionReason: reason,
     },
@@ -765,22 +765,22 @@ async function processOneSeed(
   };
 }
 
-// --- Global M2 priority ranking: exactly one "first" across all greenlit families ---
+// --- Global downstream priority ranking: exactly one "first" across all greenlit families ---
 
-function m2Score(r: ClaimFamilyPreScreen): number {
+function downstreamScore(r: ClaimFamilyPreScreen): number {
   const auditable =
     r.metrics.auditableStructuredEdges + r.metrics.auditablePdfEdges;
   return auditable * r.metrics.primaryLikeEdgeRate;
 }
 
-function assignM2Priorities(results: ClaimFamilyPreScreen[]): void {
+function assignDownstreamPriorities(results: ClaimFamilyPreScreen[]): void {
   let bestIdx = -1;
   let bestScore = -1;
 
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
     if (r.decision !== "greenlight") continue;
-    const score = m2Score(r);
+    const score = downstreamScore(r);
     if (score > bestScore) {
       bestScore = score;
       bestIdx = i;
@@ -790,13 +790,13 @@ function assignM2Priorities(results: ClaimFamilyPreScreen[]): void {
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
     if (r.decision === "deprioritize") {
-      r.m2Priority = "not_now";
+      r.downstreamPriority = "not_now";
     } else if (i === bestIdx) {
-      r.m2Priority = "first";
+      r.downstreamPriority = "first";
     } else {
       const auditable =
         r.metrics.auditableStructuredEdges + r.metrics.auditablePdfEdges;
-      r.m2Priority = auditable >= 5 ? "later" : "caution";
+      r.downstreamPriority = auditable >= 5 ? "later" : "caution";
     }
   }
 }
@@ -881,7 +881,7 @@ function processOneSeedFromHandoff(
         seedFullTextAcquisition: undefined,
         claimGrounding: cg,
         familyUseProfile: [],
-        m2Priority: "not_now",
+        downstreamPriority: "not_now",
         decision,
         decisionReason: reason,
       },
@@ -961,7 +961,7 @@ function processOneSeedFromHandoff(
         seedFullTextAcquisition: undefined,
         claimGrounding,
         familyUseProfile: [],
-        m2Priority: "not_now",
+        downstreamPriority: "not_now",
         decision,
         decisionReason: reason,
       },
@@ -1066,7 +1066,7 @@ function processOneSeedFromHandoff(
     claimGrounding,
   );
   const familyUseProfile = computeFamilyUseProfile(metrics);
-  const m2Priority = computeM2Priority(metrics, decision);
+  const downstreamPriority = computeDownstreamPriority(metrics, decision);
 
   onProgress?.({
     step: "summarize_family_viability",
@@ -1091,7 +1091,7 @@ function processOneSeedFromHandoff(
       seedFullTextAcquisition: undefined,
       claimGrounding,
       familyUseProfile,
-      m2Priority,
+      downstreamPriority,
       decision,
       decisionReason: reason,
     },
@@ -1169,7 +1169,7 @@ export async function runPreScreen(
     });
   }
 
-  assignM2Priorities(results);
+  assignDownstreamPriorities(results);
 
   return {
     families: results,
@@ -1194,7 +1194,7 @@ export async function runPreScreen(
  *   - OpenAlex citing-paper fetch (handoff carries up to 200 papers)
  *   - LLM claim grounding (grounding ran during discovery; reused here)
  *
- * All auditability assessment, decision logic, and M2 prioritisation run
+ * All auditability assessment, decision logic, and downstream prioritisation run
  * exactly as in the full screen path. The claim-family filter is skipped:
  * attribution-first discovery already established citer→claim associations
  * via full-text analysis.
@@ -1230,7 +1230,7 @@ export function runPreScreenFromHandoff(
     });
   }
 
-  assignM2Priorities(results);
+  assignDownstreamPriorities(results);
 
   return Promise.resolve({
     families: results,

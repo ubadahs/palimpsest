@@ -1,6 +1,6 @@
 # Pipeline Guide
 
-This document describes the current operational workflow: what each stage is for, what it reads, what it writes, and what can block or downgrade it. For a shorter glossary of the objects that move through the stages, see [pipeline-concepts.md](./pipeline-concepts.md). For research intent and scope, see [concept-memo.md](./concept-memo.md) and [prd.md](./prd.md).
+This document describes the current operational workflow: what each stage is for, what it reads, what it writes, and what can block or downgrade it. For a shorter glossary of the objects that move through the stages, see [pipeline-concepts.md](./pipeline-concepts.md). For research intent and scope, see [concept-memo.md](./concept-memo.md) and [prd.md](./conception/prd.md).
 
 ## At A Glance
 
@@ -76,10 +76,10 @@ Canonical stage names are the stage keys exposed in the CLI, UI, and SQLite stat
 - `curate`
 - `adjudicate`
 
-Some artifact filenames still preserve older prefixes:
+Some artifact filenames still preserve older descriptive prefixes:
 
 - `screen` writes `_pre-screen-*`
-- `extract` writes `_m2-extraction-*`
+- older `extract` artifacts may use `_m2-*`; current runs write `_extraction-*`
 
 Those filenames are intentional compatibility details. Treat the stage key as the canonical name and the artifact suffix as the storage contract.
 
@@ -202,9 +202,11 @@ Reads:
 
 Writes:
 
-- `*_m2-extraction-results.json`
-- `*_m2-extraction-report.md`
-- `*_m2-inspection.md`
+- `*_extraction-results.json`
+- `*_extraction-report.md`
+- `*_extraction-inspection.md`
+
+Legacy `_m2-*` extraction artifacts remain readable by artifact selectors for old runs.
 
 What happens:
 
@@ -345,7 +347,7 @@ What the next stage consumes:
 
 ### Adjudicate
 
-Purpose: run the sampled audit records through the configured model and write final verdicts and rationales.
+Purpose: run the sampled audit records through the configured adjudication path and write final verdicts and rationales.
 
 Command: `adjudicate`
 
@@ -362,9 +364,10 @@ Writes:
 What happens:
 
 - load active audit records
-- adjudicate them with the configured model
-- persist verdicts, rationales, confidence, and retrieval-quality judgments
-- summarize the verdict distribution
+- call Anthropic through the centralized LLM client (**default adjudication model** `claude-opus-4-6`; thinking **on** unless `--no-thinking` / run config disables it)
+- **Advisor adjudication (default)** mirrors managed `pipeline` runs: the cheap first pass runs on **`adjudicateFirstPassModel`** (**Sonnet** by default); records with `judgeConfidence === "low"`, verdict **`cannot_determine`**, or bundled citations at **`medium`** confidence are re-run on the main adjudication model (**Opus** + thinking governed by adjudication config). Disable with **`--no-advisor`** or `adjudicateAdvisor: false` in persisted run config
+- persist support-style verdicts plus rationale, retrieval-quality judgments, telemetry; advisor-mode artifacts also expose `firstPassTelemetry`, `escalationTelemetry`, and `escalationCount` beside `runTelemetry`
+- optionally compare LLM adjudication outputs with a labeled human adjudication file via **`--human ...`** agreement report helpers
 
 What can block it:
 

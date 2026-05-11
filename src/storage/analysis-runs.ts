@@ -480,7 +480,7 @@ export function canRunFromStage(
 }
 
 /**
- * When pre-screen succeeded but claim grounding blocks M2+, return a human-readable reason.
+ * When pre-screen succeeded but claim grounding blocks downstream stages, return a human-readable reason.
  * Legacy artifacts without `claimGrounding` do not block.
  */
 export function getClaimGateBlockReasonForRun(

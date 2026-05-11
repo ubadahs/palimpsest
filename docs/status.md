@@ -1,14 +1,14 @@
 # Implementation status
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-05-11
 
-This file tracks **what exists in the codebase today**. For product intent and principles, see [implementation-plan.md](./implementation-plan.md), [prd.md](./prd.md), and [build-spec.md](./build-spec.md). For a map of all docs, see [README.md](./README.md).
+This file tracks **what exists in the codebase today**. For product intent and principles, see [`conception/implementation-plan.md`](./conception/implementation-plan.md), [`conception/prd.md`](./conception/prd.md), and [`conception/build-spec.md`](./conception/build-spec.md). For a map of all docs, see [README.md](./README.md).
 
 ## Pipeline (CLI)
 
 | Area | Command | Status | Notes |
 |------|---------|--------|--------|
-| Claim discovery | `discover` | Done | Two strategies selectable via `--strategy`: `attribution_first` (default in pipeline) harvests real citing mentions from a probe set (bounded parallel harvest + extract), extracts attributed claims, collapses identical normalized tracked-claim text per DOI before grounding, grounds families with bounded parallel LLM calls, conservatively dedupes exact and near-duplicate families (exact match includes same tracked claim even when grounded paraphrases differ), then ranks and shortlists with a greedy diversity filter on citing-paper overlap (Jaccard ≥ 0.85 skips near-duplicates). Default `--shortlist-cap` **5**. `legacy` extracts seed-side claim units and optionally ranks by citing-paper engagement. Discover defaults (legacy extraction, attribution-first extraction, and seed-family grounding during discover) to `claude-haiku-4-5` with extended thinking **disabled** (`--thinking` / `--discover-thinking` to enable). JSON + Markdown artifacts plus persistent sidecars (neighborhood, probe, mentions, attributed claims, family candidates, grounding trace) |
+| Claim discovery | `discover` | Done | **`attribution_first` is the default** (same as `pipeline` without `--strategy`; use `--strategy legacy` for seed-side claim extraction). Two strategies selectable via `--strategy`: `attribution_first` harvests citing mentions from a probe set (bounded parallel harvest + extract), extracts attributed claims, collapses identical normalized tracked-claim text per DOI before grounding, grounds families with bounded parallel LLM calls, conservatively dedupes exact and near-duplicate families (exact match includes same tracked claim even when grounded paraphrases differ), then ranks and shortlists with a greedy diversity filter on citing-paper overlap (Jaccard ≥ 0.85 skips near-duplicates). Default `--shortlist-cap` **5**. `legacy` extracts seed-side claim units and optionally ranks by citing-paper engagement. Discovery LLM defaults (legacy extraction, attribution-first extraction, and seed-family grounding during discovery) default to `claude-haiku-4-5` with extended thinking **disabled** (`--thinking` / `--discover-thinking` to enable). JSON + Markdown artifacts plus persistent sidecars (neighborhood, probe, mentions, attributed claims, family candidates, grounding trace) |
 | Bootstrap / health | `doctor` | Done | Config + taxonomy sanity check, GROBID health required, reranker health optional |
 | Database | `db:migrate` | Done | SQLite migrations; paper cache tables included |
 | Claim-family qualification | `screen` | Done | Requires `ANTHROPIC_API_KEY`: full-manuscript LLM `claimGrounding` (verbatim-quote verification), `*_pre-screen-grounding-trace.json` diagnostic sidecar (prompt, raw response, usage); centralized full-text acquisition for seed parsing with provenance; claim-scoped citing filter (title/abstract BM25); neighborhood + claim metrics; OpenAlex/S2; dedup; auditability; JSON + Markdown reports. Seed grounding defaults to `claude-sonnet-4-6` with thinking enabled. The grounding trace now stores an ordered `records[]` collection so multiple same-DOI tracked claims do not overwrite one another. Accepts both legacy shortlist entries and attribution-first candidate families. Ungrounded claims (`not_found` grounding) no longer block downstream — treated as a fidelity finding worth surfacing. **Thin-screen path**: when `attribution_first` discovery produces a reusable `DiscoveryHandoff`, screen skips DOI resolution, OpenAlex re-fetch, and LLM claim grounding through `runPreScreenFromHandoff`. Fresh pipeline runs pass that bundle in memory; resume can restore it from `inputs/discovery-handoffs.json` when present. The citing-paper list carried by the handoff (up to 200) is also larger than the standard screen cap (50). |
@@ -46,7 +46,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Citation scope annotation (`seedRefLabel`) | Done | `seedRefLabel` populated at mention-harvest time from matched bibliography entry's `authorSurnames` + `year`; propagated through extraction → classification → curate → adjudication; adjudicator prompt wraps attributed sentences with `▶ ... ◀` markers; context window centers on `seedRefLabel` instead of raw marker for proper disambiguation |
 | Reporting (JSON + Markdown) | Done | `src/reporting/` per stage; benchmark diff and benchmark summary Markdown added |
 | Unit / fixture tests | Done | `npm test`; Vitest limited to `tests/**/*.ts` |
-| UI workspace tests | Done | Vitest in `apps/ui/tests` (run-queries, run-focus-stage, run-supervisor, component smoke); full browser E2E not added |
+| UI workspace tests | Done | Intended coverage in `apps/ui/tests` via Vitest **3.x** with `happy-dom` (avoids jsdom/HTML-encoding-sniffer `ERR_REQUIRE_ESM` quirks on older Node); `@vitejs/plugin-react` **5.x** keeps Vite on **6** (Vitest-aligned) instead of Rolldown-backed Vite 8. Repo `engines.node` is **>=22** — use Node 22+ locally to match CI and satisfy plugin engine ranges. Command: `npm --workspace @palimpsest/ui run test`. |
 
 ## Retrieval and Parsing Notes
 
@@ -71,7 +71,7 @@ This file tracks **what exists in the codebase today**. For product intent and p
 | Area | Status | Notes |
 |------|--------|--------|
 | Paper-level synthesis score | Not started | No single paper- or family-level fidelity rollup in product form |
-| Automated challenger routing (e.g. thinking model escalation) | Not started | Policy discussed; not wired in CLI |
+| Broader challenger / routing policies (beyond adjudication advisor) | Partial | Advisor adjudication (Sonnet+thinking first pass → Opus+thinking escalation on low confidence / `cannot_determine` / bundled `medium`) is implemented and on by default. Cross-stage or policy-driven challenger routing remains future scope. |
 | Multi–claim-family batch at scale | Partial | Commands are family-oriented; expansion is operational, not a separate module |
 | Full PRD `F/D/E/U` output stack | Partial | Operational adjudication uses support-style verdicts; see `adjudication-rubric.md` |
 

@@ -4,7 +4,7 @@ import type {
   ClaimFamilyPreScreen,
   ResolvedPaper,
 } from "../../src/domain/types.js";
-import { runM2Extraction } from "../../src/pipeline/extract.js";
+import { runCitationExtraction } from "../../src/pipeline/extract.js";
 import type { ExtractionAdapters } from "../../src/retrieval/citation-context.js";
 
 const GROBID_TEI = `<?xml version="1.0" encoding="UTF-8"?>
@@ -181,7 +181,7 @@ function makeFamily(
     neighborhoodMetrics: metrics,
     claimGrounding,
     familyUseProfile: [],
-    m2Priority: "first",
+    downstreamPriority: "first",
     decision: "greenlight",
     decisionReason: "Test",
   };
@@ -213,10 +213,10 @@ function makeTestAdapters(): ExtractionAdapters {
   };
 }
 
-describe("runM2Extraction", () => {
+describe("runCitationExtraction", () => {
   it("skips non-auditable edges", async () => {
     const family = makeFamily(1, 2);
-    const result = await runM2Extraction(family, makeTestAdapters());
+    const result = await runCitationExtraction(family, makeTestAdapters());
 
     expect(result.groundedSeedClaimText).toBe("Test claim");
     expect(result.summary.totalEdges).toBe(3);
@@ -231,7 +231,7 @@ describe("runM2Extraction", () => {
 
   it("returns correct summary counts", async () => {
     const family = makeFamily(2, 1);
-    const result = await runM2Extraction(family, makeTestAdapters());
+    const result = await runCitationExtraction(family, makeTestAdapters());
 
     expect(result.summary.totalEdges).toBe(3);
     expect(result.summary.attemptedEdges).toBe(2);
@@ -241,7 +241,7 @@ describe("runM2Extraction", () => {
 
   it("reports structured extraction outcomes", async () => {
     const family = makeFamily(1, 0);
-    const result = await runM2Extraction(family, makeTestAdapters());
+    const result = await runCitationExtraction(family, makeTestAdapters());
 
     const edge = result.edgeResults[0]!;
     expect(edge.extractionOutcome).toBe("success_grobid");

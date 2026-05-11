@@ -1,6 +1,6 @@
 /**
  * Shared regex patterns for classifying sections and context by type.
- * Used by both the M2 mention-analysis layer and the M2.5 triage classifier.
+ * Used by both the mention-analysis layer and the triage classifier.
  */
 
 export const METHODS_SECTION_PATTERNS: RegExp[] = [

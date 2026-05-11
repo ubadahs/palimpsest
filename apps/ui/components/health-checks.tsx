@@ -17,7 +17,7 @@ function healthCheckBadgeVariant(
   return "failed";
 }
 
-export type HealthCheckRow = {
+type HealthCheckRow = {
   label: string;
   status: string;
   detail: string;

@@ -38,4 +38,3 @@ export const parsedPaperDataSchema = z
   })
   .passthrough();
 export type ParsedPaperData = z.infer<typeof parsedPaperDataSchema>;
-

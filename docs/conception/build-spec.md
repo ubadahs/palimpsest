@@ -31,7 +31,7 @@ This build does not include:
 - citation-chain inference beyond the selected local cluster
 - automatic scoring of all papers in a corpus
 
-**In-scope exception:** a **local-only** orchestration UI (for example Next.js under `apps/ui`) that runs the same CLI, reads/writes the same SQLite database and artifact layout, and does not replace CLI or artifact semantics. See [ui-architecture.md](./ui-architecture.md).
+**In-scope exception:** a **local-only** orchestration UI (for example Next.js under `apps/ui`) that runs the same CLI, reads/writes the same SQLite database and artifact layout, and does not replace CLI or artifact semantics. See [`../ui-architecture.md`](../ui-architecture.md).
 
 ## System Boundary
 

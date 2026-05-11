@@ -65,8 +65,7 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
     totalBillableCalls: ledger.totalBillableCalls,
     totalExactCacheHits: ledger.totalExactCacheHits,
     byStage: [...stageMap.values()].sort(
-      (a, b) =>
-        a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
+      (a, b) => a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
     ),
     byPurpose: ledger.byPurpose,
     generatedAt: new Date().toISOString(),

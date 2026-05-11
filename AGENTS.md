@@ -8,7 +8,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers — domain-agnostic and not limited to any single citation function. Local SQLite storage. **CLI and JSON/Markdown artifacts are canonical; there is no hosted multi-user product. A local-only Next.js app in `apps/ui` may orchestrate CLI subprocesses and inspect artifacts.**
 
-The project follows a milestone-based implementation plan in `docs/implementation-plan.md`. **What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). The canonical design documents live in `docs/` (PRD, build spec, evaluation protocol, concept memo). Do not build infrastructure for later milestones early.
+The project follows a milestone-based implementation plan in [`docs/conception/implementation-plan.md`](docs/conception/implementation-plan.md). **What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). The canonical PRD/build spec live under `docs/conception/`; companion docs (`evaluation-protocol`, `concept memo`, etc.) sit alongside them in `docs/`. Do not build infrastructure for later milestones early.
 
 ## Commands
 
@@ -27,12 +27,14 @@ npm run dev -- db:migrate  # apply pending SQLite migrations
 npm run dev -- discover --input dois.json      # attribution-first discovery: harvest citing mentions, extract attributed claims, ground to seed, emit shortlist (needs ANTHROPIC_API_KEY)
 npm run dev -- discover --input dois.json --strategy legacy  # legacy seed-side claim extraction with optional ranking
 npm run dev -- pipeline --input dois.json     # full e2e: discover → screen → … → adjudicate (tracked in DB, visible in UI)
+npm run dev -- pipeline --input dois.json --seed-pdf paper.pdf  # e2e with local PDF for the seed paper (bypasses OA lookup)
 npm run dev -- pipeline --shortlist shortlist.json  # e2e from existing shortlist (skip discover)
 npm run dev -- screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_KEY; writes *_pre-screen-grounding-trace.json)
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
 npm run ui:start
-npm --workspace @palimpsest/ui run test   # UI workspace tests
+npm --workspace @palimpsest/ui run test   # UI workspace tests (Vitest + happy-dom)
+npx knip --reporter compact               # optional dead-code / deps (see repo knip.json)
 ```
 
 ## Architecture
