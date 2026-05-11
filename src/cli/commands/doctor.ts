@@ -20,13 +20,23 @@ export async function runDoctorCommand(): Promise<void> {
 
   console.info("\nPalimpsest Runtime Health Check\n");
   console.info(`  Node env:       ${environmentHealth.nodeEnv}`);
-  console.info(`  Database:       ${statusIcon(h.database)}  ${h.database.detail ?? environmentHealth.databasePath}`);
-  console.info(`  GROBID:         ${statusIcon(h.grobid)}  ${h.grobid.detail ?? environmentHealth.providerBaseUrls.grobid}`);
-  console.info(`  Anthropic:      ${statusIcon(h.anthropic)}  ${h.anthropic.detail ?? "configured"}`);
-  console.info(`  Reranker:       ${statusIcon(h.reranker)}  ${h.reranker.detail ?? environmentHealth.localRerankerBaseUrl ?? "not configured (optional)"}`);
+  console.info(
+    `  Database:       ${statusIcon(h.database)}  ${h.database.detail ?? environmentHealth.databasePath}`,
+  );
+  console.info(
+    `  GROBID:         ${statusIcon(h.grobid)}  ${h.grobid.detail ?? environmentHealth.providerBaseUrls.grobid}`,
+  );
+  console.info(
+    `  Anthropic:      ${statusIcon(h.anthropic)}  ${h.anthropic.detail ?? "configured"}`,
+  );
+  console.info(
+    `  Reranker:       ${statusIcon(h.reranker)}  ${h.reranker.detail ?? environmentHealth.localRerankerBaseUrl ?? "not configured (optional)"}`,
+  );
 
   if (environmentHealth.institutionalProxyUrl) {
-    console.info(`  Proxy:          ${environmentHealth.institutionalProxyUrl}`);
+    console.info(
+      `  Proxy:          ${environmentHealth.institutionalProxyUrl}`,
+    );
   }
 
   console.info("");

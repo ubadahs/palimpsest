@@ -9,7 +9,7 @@ import {
 
 import { getRepoRoot } from "./root-path";
 
-export function getRunsRoot(): string {
+function getRunsRoot(): string {
   return resolve(getRepoRoot(), "data", "runs");
 }
 

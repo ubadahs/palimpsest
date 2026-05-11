@@ -4,8 +4,8 @@
 
 **Date:** March 2026  
 **Status:** Draft  
-**Implementation progress:** See [status.md](./status.md) for what is built in the repo today (CLI-aligned).  
-**Purpose:** Translate the [PRD](./prd.md), [Build Spec](./build-spec.md), and [Evaluation Protocol](./evaluation-protocol.md) into an execution-oriented plan for a clean, type-safe, elegant codebase.
+**Implementation progress:** See [`../status.md`](../status.md) for what is built in the repo today (CLI-aligned).  
+**Purpose:** Translate the [PRD](./prd.md), [Build Spec](./build-spec.md), and [Evaluation Protocol](../evaluation-protocol.md) into an execution-oriented plan for a clean, type-safe, elegant codebase.
 
 ## Canonical Order
 
@@ -13,7 +13,7 @@ If documents conflict, follow this order:
 
 1. [PRD](./prd.md)
 2. [Build Spec](./build-spec.md)
-3. [Evaluation Protocol](./evaluation-protocol.md)
+3. [Evaluation Protocol](../evaluation-protocol.md)
 4. This document
 
 This document does not change product scope. It defines how to implement the scoped POC cleanly.
@@ -41,7 +41,7 @@ Default choices:
 - Storage: SQLite
 - Validation: runtime schemas at all external boundaries
 - Testing: lightweight unit and fixture-based integration tests
-- Interface: CLI scripts as the canonical surface; no hosted multi-user web product. A **local-only** UI may orchestrate CLI subprocesses and inspect artifacts (see [ui-architecture.md](./ui-architecture.md)).
+- Interface: CLI scripts as the canonical surface; no hosted multi-user web product. A **local-only** UI may orchestrate CLI subprocesses and inspect artifacts (see [`../ui-architecture.md`](../ui-architecture.md)).
 
 If the stack changes later, keep the same architectural rules and module boundaries.
 

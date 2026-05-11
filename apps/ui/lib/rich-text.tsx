@@ -40,8 +40,7 @@ export function RichText({
   );
 }
 
-/** Build a resolvable DOI URL. */
-export function doiUrl(doi: string): string {
+function doiUrl(doi: string): string {
   return `https://doi.org/${encodeURIComponent(doi)}`;
 }
 

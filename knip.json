@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreIssues": {
+    "src/domain/**/*": [
+      "exports",
+      "types",
+      "enumMembers",
+      "nsExports",
+      "nsTypes"
+    ],
+    "apps/ui/components/ui/button.tsx": ["exports", "types"],
+    "**/benchmark/**": ["exports", "types"],
+    "**/integrations/llm-client.ts": ["exports", "types"],
+    "**/pipeline/**": ["exports", "types"],
+    "**/adjudication/**": ["exports", "types"],
+    "**/cli/**": ["exports", "types"],
+    "**/classification/**": ["exports", "types"],
+    "**/reporting/**": ["exports", "types"],
+    "**/retrieval/**": ["exports", "types"],
+    "**/shared/**": ["exports", "types"],
+    "**/storage/**": ["exports", "types"],
+    "**/contract/**": ["exports", "types"],
+    "**/integrations/**": ["exports", "types"]
+  }
+}

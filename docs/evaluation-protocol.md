@@ -4,11 +4,11 @@
 
 **Date:** March 2026  
 **Status:** Draft  
-**Purpose:** Define how to evaluate whether the implementation satisfies the [PRD](./prd.md).
+**Purpose:** Define how to evaluate whether the implementation satisfies the [PRD](./conception/prd.md).
 
 ## Canonical Reference
 
-The [PRD](./prd.md) is the source of truth for:
+The [PRD](./conception/prd.md) is the source of truth for:
 
 - scope
 - taxonomy
@@ -125,7 +125,7 @@ Track the following metrics separately.
 
 ## Success Readout
 
-Use the metrics in this document to determine whether the [PRD](./prd.md) success criteria have been met. This protocol does not redefine those criteria.
+Use the metrics in this document to determine whether the [PRD](./conception/prd.md) success criteria have been met. This protocol does not redefine those criteria.
 
 The readout should report both claim-mutation findings and auditability findings for the selected claim families.
 
@@ -143,7 +143,7 @@ The POC should be considered weak if any of the following dominate:
 
 ## Stop Rule
 
-Apply the kill criterion from the [PRD](./prd.md).
+Apply the kill criterion from the [PRD](./conception/prd.md).
 
 Also stop early if grounding quality is too poor to support meaningful review. If the reviewer cannot trust the cited spans, the rest of the pipeline is not ready.
 

@@ -39,20 +39,22 @@ describe("stage-output helpers", () => {
         "2026-04-07_003_family-2",
       );
       expect(extractPaths.primaryPath).toBe(
-        `${dir}/02-extract/2026-04-07_003_family-2_m2-extraction-results.json`,
+        `${dir}/02-extract/2026-04-07_003_family-2_extraction-results.json`,
       );
       expect(extractPaths.reportPath).toBe(
-        `${dir}/02-extract/2026-04-07_003_family-2_m2-extraction-report.md`,
+        `${dir}/02-extract/2026-04-07_003_family-2_extraction-report.md`,
       );
       expect(
         resolveStageExtraArtifactPath(
           dir,
           "extract",
           "2026-04-07_003",
-          "_m2-inspection.md",
+          "_extraction-inspection.md",
           1,
         ),
-      ).toBe(`${dir}/02-extract/2026-04-07_003_family-2_m2-inspection.md`);
+      ).toBe(
+        `${dir}/02-extract/2026-04-07_003_family-2_extraction-inspection.md`,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -104,7 +104,7 @@ function renderSeedSection(result: ClaimFamilyPreScreen): string {
   if (cg) {
     lines.push(
       "",
-      `**Claim grounding (LLM):** \`${cg.status}\`${claimGroundingBlocksAnalysis(cg) ? " — **blocks M2+** until revised" : ""}`,
+      `**Claim grounding (LLM):** \`${cg.status}\`${claimGroundingBlocksAnalysis(cg) ? " — **blocks downstream stages** until revised" : ""}`,
       `**Normalized claim:** ${cg.normalizedClaim}`,
       `**Grounding detail:** ${cg.detailReason}`,
     );
@@ -133,7 +133,7 @@ function renderSeedSection(result: ClaimFamilyPreScreen): string {
     lines.push(`**Family profile:** ${display}`);
   }
 
-  lines.push(`**M2 priority:** ${result.m2Priority}`);
+  lines.push(`**Downstream priority:** ${result.downstreamPriority}`);
 
   if (result.neighborhoodMetrics) {
     lines.push(
@@ -147,7 +147,7 @@ function renderSeedSection(result: ClaimFamilyPreScreen): string {
 
   lines.push(
     ...renderAuditabilityTable(
-      "Claim-scoped auditability (M2+ uses these edges)",
+      "Claim-scoped auditability (downstream stages use these edges)",
       metrics,
     ),
   );
@@ -200,7 +200,7 @@ function renderSummaryTable(results: ClaimFamilyPreScreen[]): string {
   const lines: string[] = [
     "## Summary",
     "",
-    "| Seed | Claim edges | Grounding | Coverage | Primary-like | Reviews | Profile | M2 | Decision |",
+    "| Seed | Claim edges | Grounding | Coverage | Primary-like | Reviews | Profile | Downstream | Decision |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
 
@@ -213,7 +213,7 @@ function renderSummaryTable(results: ClaimFamilyPreScreen[]): string {
         : "—";
     const ground = r.claimGrounding?.status ?? "—";
     lines.push(
-      `| ${title} | ${String(r.metrics.uniqueEdges)} | ${ground} | ${formatPercent(r.metrics.auditableCoverage)} | ${formatPercent(r.metrics.primaryLikeEdgeRate)} | ${formatPercent(r.metrics.reviewEdgeRate)} | ${profile} | ${r.m2Priority} | ${dec} |`,
+      `| ${title} | ${String(r.metrics.uniqueEdges)} | ${ground} | ${formatPercent(r.metrics.auditableCoverage)} | ${formatPercent(r.metrics.primaryLikeEdgeRate)} | ${formatPercent(r.metrics.reviewEdgeRate)} | ${profile} | ${r.downstreamPriority} | ${dec} |`,
     );
   }
 

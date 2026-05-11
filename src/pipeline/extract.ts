@@ -14,7 +14,7 @@ import {
   type ExtractionAdapters,
 } from "../retrieval/citation-context.js";
 
-export type M2ExtractionProgressEvent = {
+export type CitationExtractionProgressEvent = {
   step:
     | "select_auditable_papers"
     | "fetch_and_parse_full_text"
@@ -85,10 +85,10 @@ function computeSummary(
   };
 }
 
-export async function runM2Extraction(
+export async function runCitationExtraction(
   family: ClaimFamilyPreScreen,
   adapters: ExtractionAdapters,
-  onProgress?: (event: M2ExtractionProgressEvent) => void,
+  onProgress?: (event: CitationExtractionProgressEvent) => void,
 ): Promise<FamilyExtractionResult> {
   const seedPaper = family.resolvedSeedPaper;
 

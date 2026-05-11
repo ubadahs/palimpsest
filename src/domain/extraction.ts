@@ -128,7 +128,7 @@ export const familyExtractionResultSchema = z
   .object({
     seed: seedPaperInputSchema,
     resolvedSeedPaper: resolvedPaperSchema,
-    /** Normalized claim text after pre-screen grounding in the seed paper (M4 retrieval). */
+    /** Normalized claim text after pre-screen grounding in the seed paper (evidence retrieval). */
     groundedSeedClaimText: undefinedable(z.string().min(1)),
     edgeResults: z.array(edgeExtractionResultSchema),
     summary: extractionSummarySchema,

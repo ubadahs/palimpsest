@@ -102,7 +102,7 @@ function makeExtraction(): FamilyExtractionResult {
   };
 }
 
-describe("M3→M4→M5 fixture chain", () => {
+describe("classify→evidence→curate fixture chain", () => {
   it("produces validated, section-aware evidence and audit sample outputs", async () => {
     const classification = familyClassificationResultSchema.parse(
       buildPackets(makeExtraction(), "all_functions_census", {

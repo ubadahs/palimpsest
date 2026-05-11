@@ -4,7 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { buildStageInspectorPayload } from "../../src/contract/selectors.js";
+import {
+  artifactStemFromPrimaryPath,
+  buildStageInspectorPayload,
+  listStageArtifacts,
+  listStageArtifactsForStem,
+} from "../../src/contract/selectors.js";
 
 const baseSeed = {
   doi: "10.1234/seed",
@@ -54,6 +59,48 @@ describe("buildStageInspectorPayload", () => {
 
   beforeEach(() => {
     tempRoot = mkdtempSync(join(tmpdir(), "palimpsest-selectors-"));
+  });
+
+  it("discovers legacy extraction artifact suffixes for old runs", () => {
+    const primaryPath = writeArtifact(
+      "2026-04-07_003_m2-extraction-results.json",
+      {
+        seed: baseSeed,
+        edgeResults: [],
+        summary: {
+          totalEdges: 0,
+          attemptedEdges: 0,
+          successfulEdgesRaw: 0,
+          successfulEdgesUsable: 0,
+          rawMentionCount: 0,
+          deduplicatedMentionCount: 0,
+          usableMentionCount: 0,
+          failureCountsByOutcome: {},
+        },
+      },
+    );
+    writeFileSync(
+      join(tempRoot, "2026-04-07_003_m2-extraction-report.md"),
+      "# Legacy report\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(tempRoot, "2026-04-07_003_m2-inspection.md"),
+      "# Legacy inspection\n",
+      "utf8",
+    );
+
+    const artifacts = listStageArtifacts("extract", tempRoot);
+    const stem = artifactStemFromPrimaryPath(primaryPath, "extract");
+    const byStem = listStageArtifactsForStem("extract", tempRoot, stem);
+
+    expect(stem).toBe("2026-04-07_003");
+    expect(artifacts.primaryArtifactPath).toBe(primaryPath);
+    expect(artifacts.reportArtifactPath).toContain("_m2-extraction-report.md");
+    expect(artifacts.extraArtifacts[0]?.kind).toBe("extraction-inspection");
+    expect(artifacts.extraArtifacts[0]?.path).toContain("_m2-inspection.md");
+    expect(byStem.primaryArtifactPath).toBe(primaryPath);
+    expect(byStem.reportArtifactPath).toContain("_m2-extraction-report.md");
   });
 
   afterEach(() => {

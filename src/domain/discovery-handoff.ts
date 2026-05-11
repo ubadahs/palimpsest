@@ -67,9 +67,7 @@ type SerializedDiscoveryHandoff = Omit<
   groundingByFamilyId: Record<string, FamilyGroundingTrace>;
 };
 
-export function serializeHandoffMap(
-  map: DiscoveryHandoffMap,
-): string {
+export function serializeHandoffMap(map: DiscoveryHandoffMap): string {
   const plain: Record<string, SerializedDiscoveryHandoff> = {};
   for (const [doi, handoff] of map) {
     plain[doi] = {
@@ -81,9 +79,7 @@ export function serializeHandoffMap(
   return JSON.stringify(plain, null, 2);
 }
 
-export function deserializeHandoffMap(
-  json: string,
-): DiscoveryHandoffMap {
+export function deserializeHandoffMap(json: string): DiscoveryHandoffMap {
   const plain = JSON.parse(json) as Record<string, SerializedDiscoveryHandoff>;
   const map: DiscoveryHandoffMap = new Map();
   for (const [doi, serialized] of Object.entries(plain)) {
