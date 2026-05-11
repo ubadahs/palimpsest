@@ -25,7 +25,7 @@ import { sampleAuditSet } from "../adjudication/sample-audit.js";
 import { buildPackets } from "../classification/build-packets.js";
 import type { AnalysisRunConfig, StageKey } from "../contract/run-types.js";
 import { resolveCitedPaperSource } from "./evidence.js";
-import { runM2Extraction } from "./extract.js";
+import { runCitationExtraction } from "./extract.js";
 import type { RunTracker } from "./run-tracker.js";
 import type { FullTextFetchAdapters } from "../retrieval/fulltext-fetch.js";
 import { retrieveEvidence } from "../retrieval/evidence-retrieval.js";
@@ -45,10 +45,10 @@ import { createStageReporter, log } from "../cli/stage-reporter.js";
 
 type ExtractionCacheValue = {
   resolvedSeedPaper: Awaited<
-    ReturnType<typeof runM2Extraction>
+    ReturnType<typeof runCitationExtraction>
   >["resolvedSeedPaper"];
-  edgeResults: Awaited<ReturnType<typeof runM2Extraction>>["edgeResults"];
-  summary: Awaited<ReturnType<typeof runM2Extraction>>["summary"];
+  edgeResults: Awaited<ReturnType<typeof runCitationExtraction>>["edgeResults"];
+  summary: Awaited<ReturnType<typeof runCitationExtraction>>["summary"];
 };
 
 type ClassificationCacheValue = {
@@ -200,7 +200,7 @@ export async function runFamilyStages(
           edgeResults: cachedExtraction.edgeResults,
           summary: cachedExtraction.summary,
         }
-      : await runM2Extraction(
+      : await runCitationExtraction(
           family,
           familyExtractionAdapters,
           extractReporter.onProgress,

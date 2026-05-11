@@ -6,7 +6,7 @@ import type {
 } from "../domain/types.js";
 import { CONFIDENCE_SORT_ORDER, truncate } from "./report-utils.js";
 
-export function toM2Json(result: FamilyExtractionResult): string {
+export function toExtractionJson(result: FamilyExtractionResult): string {
   return JSON.stringify(result, null, 2);
 }
 
@@ -64,12 +64,12 @@ function renderFailureSummary(
   return entries.map(([k, v]) => `${k}: ${String(v)}`).join(", ");
 }
 
-export function toM2Markdown(result: FamilyExtractionResult): string {
+export function toExtractionMarkdown(result: FamilyExtractionResult): string {
   const { seed, summary } = result;
   const title = result.resolvedSeedPaper?.title ?? seed.doi;
 
   const sections: string[] = [
-    "# M2 Citation-Context Extraction Report",
+    "# Citation-Context Extraction Report",
     "",
     `## Seed: ${title}`,
     "",
@@ -126,7 +126,7 @@ export function toM2Markdown(result: FamilyExtractionResult): string {
 
 // --- Compact manual inspection artifact ---
 
-export function toM2InspectionArtifact(
+export function toExtractionInspectionArtifact(
   result: FamilyExtractionResult,
   mentionLimit: number = 10,
   failedEdgeLimit: number = 3,
@@ -134,7 +134,7 @@ export function toM2InspectionArtifact(
   const title = result.resolvedSeedPaper?.title ?? result.seed.doi;
 
   const lines: string[] = [
-    "# M2 Compact Inspection Artifact",
+    "# Citation-Context Inspection Artifact",
     "",
     `## Seed: ${title}`,
     `**Tracked claim:** ${result.seed.trackedClaim}`,

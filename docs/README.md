@@ -4,10 +4,10 @@ Use this as the map of the docs set. The goal is not to document every internal 
 
 If design documents disagree on scope, follow this order:
 
-1. [prd.md](./prd.md)
-2. [build-spec.md](./build-spec.md)
+1. [prd.md](./conception/prd.md)
+2. [build-spec.md](./conception/build-spec.md)
 3. [evaluation-protocol.md](./evaluation-protocol.md)
-4. [implementation-plan.md](./implementation-plan.md)
+4. [implementation-plan.md](./conception/implementation-plan.md)
 
 ## Start Here
 
@@ -28,10 +28,16 @@ If design documents disagree on scope, follow this order:
 ## If You Want The Project Intent
 
 - [concept-memo.md](./concept-memo.md) — why this project is worth testing
-- [prd.md](./prd.md) — canonical scope, taxonomy, outputs, success criteria
-- [build-spec.md](./build-spec.md) — minimum implementation and non-goals
+- [prd.md](./conception/prd.md) — canonical scope, taxonomy, outputs, success criteria
+- [build-spec.md](./conception/build-spec.md) — minimum implementation and non-goals
 - [evaluation-protocol.md](./evaluation-protocol.md) — how the POC is judged
-- [implementation-plan.md](./implementation-plan.md) — execution-oriented plan for the scoped POC
+- [implementation-plan.md](./conception/implementation-plan.md) — execution-oriented plan for the scoped POC
+
+## Archived / Historical
+
+Snapshots that can mislead if read without context:
+
+- [`archive/README.md`](./archive/README.md) — superseded pipeline split note and archived April 2026 audit snapshots
 
 ## Focused Reference Docs
 
@@ -41,7 +47,8 @@ If design documents disagree on scope, follow this order:
 ## Lint And Tests
 
 - Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
-- UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test`
+- UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (Vitest + `happy-dom`; `@vitejs/plugin-react` aligns with Vite 6 alongside root Vitest 3.x)
+- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json) to suppress intentional export noise under `src/domain/**` (taxonomy surface) plus other internal modules; widen or tighten `ignoreIssues` entries when refactoring public API
 
 ## Large-Change Checklist
 

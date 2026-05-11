@@ -118,7 +118,7 @@ export function buildScreenInspectorPayload(data: ClaimFamilyPreScreen[]) {
       decision: family.decision,
       decisionReason: family.decisionReason,
       familyUseProfile: family.familyUseProfile,
-      m2Priority: family.m2Priority,
+      downstreamPriority: family.downstreamPriority,
       metrics: family.metrics,
       edges: family.edges.map((edge) => ({
         citingPaperId: edge.citingPaperId,

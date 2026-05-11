@@ -20,15 +20,15 @@ export const familyUseProfileValues = [
 export const familyUseProfileSchema = z.enum(familyUseProfileValues);
 export type FamilyUseProfileTag = z.infer<typeof familyUseProfileSchema>;
 
-export const m2PriorityValues = [
+export const downstreamPriorityValues = [
   "first",
   "later",
   "caution",
   "not_now",
 ] as const;
 
-export const m2PrioritySchema = z.enum(m2PriorityValues);
-export type M2Priority = z.infer<typeof m2PrioritySchema>;
+export const downstreamPrioritySchema = z.enum(downstreamPriorityValues);
+export type DownstreamPriority = z.infer<typeof downstreamPrioritySchema>;
 
 export const preScreenDecisionValues = ["greenlight", "deprioritize"] as const;
 
@@ -143,7 +143,7 @@ export const claimGroundingSchema = z
     /** Canonical wording used for claim-family retrieval (from LLM grounding). */
     normalizedClaim: z.string().min(1),
     supportSpans: z.array(seedClaimSupportSpanSchema),
-    /** When true, M2+ must not run for this family until the claim is revised or grounding is fixed. Ignored for status `ambiguous` (see {@link claimFamilyBlocksDownstream}). */
+    /** When true, downstream stages must not run for this family until the claim is revised or grounding is fixed. Ignored for status `ambiguous` (see {@link claimFamilyBlocksDownstream}). */
     blocksDownstream: z.boolean(),
     detailReason: z.string().min(1),
   })
@@ -188,7 +188,18 @@ export const duplicateGroupSchema = z
   .passthrough();
 export type DuplicateGroup = z.infer<typeof duplicateGroupSchema>;
 
-export const claimFamilyPreScreenSchema = z
+function migrateClaimFamilyPreScreenFields(val: unknown): unknown {
+  if (typeof val !== "object" || val === null) return val;
+  const obj = val as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...obj };
+  if ("m2Priority" in obj && !("downstreamPriority" in obj)) {
+    out["downstreamPriority"] = obj["m2Priority"];
+    delete out["m2Priority"];
+  }
+  return out;
+}
+
+const claimFamilyPreScreenObjectSchema = z
   .object({
     seed: seedPaperInputSchema,
     resolvedSeedPaper: undefinedable(resolvedPaperSchema),
@@ -202,17 +213,22 @@ export const claimFamilyPreScreenSchema = z
     seedFullTextAcquisition: undefinedable(fullTextAcquisitionSchema),
     claimGrounding: undefinedable(claimGroundingSchema),
     familyUseProfile: z.array(familyUseProfileSchema),
-    m2Priority: m2PrioritySchema,
+    downstreamPriority: downstreamPrioritySchema,
     decision: preScreenDecisionSchema,
     decisionReason: z.string().min(1),
   })
   .passthrough();
+
+export const claimFamilyPreScreenSchema = z.preprocess(
+  migrateClaimFamilyPreScreenFields,
+  claimFamilyPreScreenObjectSchema,
+);
 export type ClaimFamilyPreScreen = z.infer<typeof claimFamilyPreScreenSchema>;
 
 export const preScreenResultsSchema = z.array(claimFamilyPreScreenSchema);
 
 /**
- * Whether this grounding outcome should block M2+ and claim-scoped pre-screen metrics.
+ * Whether this grounding outcome should block downstream stages and claim-scoped pre-screen metrics.
  * `ambiguous` never blocks: several strong matches still mean the claim is present in the seed text.
  */
 export function claimGroundingBlocksAnalysis(g: ClaimGrounding): boolean {
@@ -222,7 +238,7 @@ export function claimGroundingBlocksAnalysis(g: ClaimGrounding): boolean {
   return g.blocksDownstream;
 }
 
-/** True when pre-screen requires revising the claim or grounding before M2+. */
+/** True when pre-screen requires revising the claim or grounding before downstream stages. */
 export function claimFamilyBlocksDownstream(
   family: ClaimFamilyPreScreen,
 ): boolean {

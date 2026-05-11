@@ -1,3 +1,5 @@
+> **Historical (May 2026):** The split described here has landed. Pipeline orchestration now lives under `src/pipeline/run-orchestrator.ts`, `family-runner.ts`, `run-tracker.ts`, and `cost-summary.ts`; [`src/cli/commands/pipeline.ts`](../../src/cli/commands/pipeline.ts) is the thin CLI entry.
+
 # Plan: Split `cli/commands/pipeline.ts`
 
 ## Problem

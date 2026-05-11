@@ -187,7 +187,7 @@ const sampleResult: ClaimFamilyPreScreen = {
     detailReason: "Claim grounded in one seed passage(s).",
   },
   familyUseProfile: ["primary_empirical_heavy"],
-  m2Priority: "not_now",
+  downstreamPriority: "not_now",
   decision: "deprioritize",
   decisionReason: "Only 1 auditable edge(s), need at least 3",
 };
@@ -201,7 +201,7 @@ describe("toPreScreenJson", () => {
     expect(parsed[0]!.decision).toBe("deprioritize");
     expect(parsed[0]!.metrics.auditableCoverage).toBe(0.5);
     expect(parsed[0]!.familyUseProfile).toContain("primary_empirical_heavy");
-    expect(parsed[0]!.m2Priority).toBe("not_now");
+    expect(parsed[0]!.downstreamPriority).toBe("not_now");
   });
 });
 
@@ -257,10 +257,10 @@ describe("toPreScreenMarkdown", () => {
     expect(md).toContain("Reviews");
   });
 
-  it("includes family profile and m2 priority", () => {
+  it("includes family profile and downstream priority", () => {
     const md = toPreScreenMarkdown([sampleResult]);
     expect(md).toContain("Family profile:");
-    expect(md).toContain("M2 priority:");
+    expect(md).toContain("Downstream priority:");
     expect(md).toContain("primary_empirical_heavy");
   });
 
@@ -268,7 +268,7 @@ describe("toPreScreenMarkdown", () => {
     const md = toPreScreenMarkdown([sampleResult]);
     expect(md).toContain("Primary-like");
     expect(md).toContain("Profile");
-    expect(md).toContain("M2");
+    expect(md).toContain("Downstream");
     expect(md).toContain("Grounding");
     expect(md).toContain("Claim edges");
   });

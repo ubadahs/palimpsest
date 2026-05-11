@@ -9,7 +9,7 @@ import {
   preScreenResultsSchema,
 } from "../../domain/types.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
-import { runM2Extraction } from "../../pipeline/extract.js";
+import { runCitationExtraction } from "../../pipeline/extract.js";
 import { createFullTextAdapters } from "../paper-adapters.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
 import { writeExtractionArtifacts } from "../stage-artifact-writers.js";
@@ -122,7 +122,7 @@ export async function runExtractCommand(argv: string[]): Promise<void> {
       },
     };
 
-    const result = await runM2Extraction(family, adapters, (event) => {
+    const result = await runCitationExtraction(family, adapters, (event) => {
       const payload = {
         ...(event.detail ? { detail: event.detail } : {}),
         ...(event.current != null && event.total != null

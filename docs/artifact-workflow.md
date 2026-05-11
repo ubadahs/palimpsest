@@ -40,13 +40,13 @@ The additional sidecars make those transitions inspectable; they do not add extr
 
 ## Canonical Stage Outputs
 
-Use the stage key as the canonical name. Some artifact suffixes intentionally preserve older prefixes for compatibility.
+Use the stage key as the canonical name. Some artifact readers intentionally preserve older suffixes for compatibility.
 
 | Order | Stage key | CLI command | UI run directory | Primary machine output | Report | Companion artifacts |
 |------|-----------|-------------|------------------|------------------------|--------|---------------------|
 | 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json`; `*_discovery-shortlist.json` is the downstream shortlist handoff | `*_discovery-report.md` | Diagnostic: `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json` |
 | 1 | `screen` | `screen` | `01-screen/` | `*_pre-screen-results.json` | `*_pre-screen-report.md` | Diagnostic: `*_pre-screen-grounding-trace.json` |
-| 2 | `extract` | `extract` | `02-extract/` | `*_m2-extraction-results.json` | `*_m2-extraction-report.md` | Diagnostic: `*_m2-inspection.md` |
+| 2 | `extract` | `extract` | `02-extract/` | `*_extraction-results.json` | `*_extraction-report.md` | Diagnostic: `*_extraction-inspection.md`; legacy `_m2-*` suffixes remain readable |
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
@@ -76,7 +76,7 @@ The `pipeline` command writes into one chosen output root, but it now mirrors th
 - `05-curate/`
 - `06-adjudicate/`
 
-Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_m2-extraction-results.json`.
+Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_extraction-results.json`.
 
 Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, and adjudication. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups. It also includes `byPurpose` per-purpose breakdowns (token counts, cost, and `exactCacheHits`) and `totalExactCacheHits` at the top level.
 

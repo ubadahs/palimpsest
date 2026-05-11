@@ -57,7 +57,7 @@ export const analysisRunConfigObjectSchema = z
       .default("attribution_first"),
     discoverTopN: z.number().int().positive().default(5),
     discoverRank: z.boolean().default(true),
-    discoverModel: z.string().min(1).default("claude-sonnet-4-6"),
+    discoverModel: z.string().min(1).default("claude-haiku-4-5"),
     discoverThinking: z.boolean().default(false),
     discoverProbeBudget: z.number().int().positive().default(100),
     discoverShortlistCap: z.number().int().positive().default(5),
@@ -81,7 +81,7 @@ function migrateConfigFields(val: unknown): unknown {
   if (typeof val !== "object" || val === null) return val;
   const obj = val as Record<string, unknown>;
   const out: Record<string, unknown> = { ...obj };
-  // Migrate old field names from stored config_json
+  // Migrate legacy field names from stored config_json.
   if ("m5TargetSize" in obj && !("curateTargetSize" in obj)) {
     out["curateTargetSize"] = obj["m5TargetSize"];
     delete out["m5TargetSize"];

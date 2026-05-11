@@ -57,8 +57,8 @@ The POC is worth continuing only if it produces a reviewable artifact that teach
 
 ## Canonical References
 
-- [PRD](./prd.md): canonical source for scope, taxonomy, outputs, non-goals, and success criteria
-- [Build Spec](./build-spec.md): implementation details for the POC pipeline
+- [PRD](./conception/prd.md): canonical source for scope, taxonomy, outputs, non-goals, and success criteria
+- [Build Spec](./conception/build-spec.md): implementation details for the POC pipeline
 - [Evaluation Protocol](./evaluation-protocol.md): review procedure and stop-go logic
 
 ## Beyond The POC: Multi-Hop Claim Drift

@@ -25,9 +25,9 @@ import {
   toClassificationMarkdown,
 } from "../reporting/classification-report.js";
 import {
-  toM2InspectionArtifact,
-  toM2Json,
-  toM2Markdown,
+  toExtractionInspectionArtifact,
+  toExtractionJson,
+  toExtractionMarkdown,
 } from "../reporting/extraction-report.js";
 import {
   toEvidenceJson,
@@ -404,7 +404,7 @@ export function writeExtractionArtifacts(options: {
     stageKey: "extract",
     stamp: options.stamp,
     suffix: inspectionSuffix,
-    content: toM2InspectionArtifact(options.result),
+    content: toExtractionInspectionArtifact(options.result),
     format: "text",
     ...(options.familyIndex != null
       ? { familyIndex: options.familyIndex }
@@ -417,9 +417,9 @@ export function writeExtractionArtifacts(options: {
     ...(options.familyIndex != null
       ? { familyIndex: options.familyIndex }
       : {}),
-    primaryContent: toM2Json(options.result),
+    primaryContent: toExtractionJson(options.result),
     primaryFormat: "json-string",
-    reportContent: toM2Markdown(options.result),
+    reportContent: toExtractionMarkdown(options.result),
     artifactType: "extraction-results",
     generator: "extract",
     sourceArtifacts: options.sourceArtifacts,

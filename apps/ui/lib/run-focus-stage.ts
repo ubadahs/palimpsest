@@ -1,7 +1,4 @@
-import type {
-  AnalysisRunStage,
-  LogicalStageGroup,
-} from "palimpsest/contract";
+import type { AnalysisRunStage, LogicalStageGroup } from "palimpsest/contract";
 
 function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
   return (

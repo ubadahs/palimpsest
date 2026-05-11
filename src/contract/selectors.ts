@@ -12,11 +12,9 @@ import {
 } from "../domain/types.js";
 import { claimDiscoveryResultSchema } from "../domain/discovery.js";
 import {
-  artifactManifestSchema,
   loadJsonArtifact,
   manifestPathForArtifact,
 } from "../shared/artifact-io.js";
-import type { ArtifactManifest } from "../shared/artifact-io.js";
 import type { AuditSample } from "../domain/types.js";
 import { getStageDefinition } from "./stages.js";
 import {
@@ -186,10 +184,24 @@ export function listStageArtifacts(
       .at(-1);
   }
 
-  const primaryName = findLatestBySuffix(
+  function findLatestBySuffixWithAliases(
+    suffix: string,
+    aliases: string[] = [],
+  ): string | undefined {
+    return (
+      findLatestBySuffix(suffix) ??
+      aliases.map(findLatestBySuffix).find(Boolean)
+    );
+  }
+
+  const primaryName = findLatestBySuffixWithAliases(
     definition.artifactGlobs.primarySuffix,
+    definition.artifactGlobs.legacyPrimarySuffixes,
   );
-  const reportName = findLatestBySuffix(definition.artifactGlobs.reportSuffix);
+  const reportName = findLatestBySuffixWithAliases(
+    definition.artifactGlobs.reportSuffix,
+    definition.artifactGlobs.legacyReportSuffixes,
+  );
   const primaryArtifactPath = primaryName
     ? resolve(stageDirectory, primaryName)
     : undefined;
@@ -202,8 +214,11 @@ export function listStageArtifacts(
       ? manifestPathForArtifact(primaryArtifactPath)
       : undefined;
   const extraArtifacts = definition.artifactGlobs.extraSuffixes
-    .map((suffix) => {
-      const match = findLatestBySuffix(suffix);
+    .map((suffix, index) => {
+      const match = findLatestBySuffixWithAliases(
+        suffix,
+        definition.artifactGlobs.legacyExtraSuffixes?.[index],
+      );
       return match
         ? {
             kind: suffix.replace(/^_/, "").replace(/\.[^.]+$/, ""),
@@ -247,11 +262,20 @@ export function listStageArtifactsForStem(
     return entries.includes(name) ? resolve(stageDirectory, name) : undefined;
   }
 
-  const primaryArtifactPath = pathForSuffix(
+  function pathForSuffixWithAliases(
+    suffix: string,
+    aliases: string[] = [],
+  ): string | undefined {
+    return pathForSuffix(suffix) ?? aliases.map(pathForSuffix).find(Boolean);
+  }
+
+  const primaryArtifactPath = pathForSuffixWithAliases(
     definition.artifactGlobs.primarySuffix,
+    definition.artifactGlobs.legacyPrimarySuffixes,
   );
-  const reportArtifactPath = pathForSuffix(
+  const reportArtifactPath = pathForSuffixWithAliases(
     definition.artifactGlobs.reportSuffix,
+    definition.artifactGlobs.legacyReportSuffixes,
   );
   const manifestPath =
     primaryArtifactPath &&
@@ -260,8 +284,11 @@ export function listStageArtifactsForStem(
       : undefined;
 
   const extraArtifacts = definition.artifactGlobs.extraSuffixes
-    .map((suffix) => {
-      const match = pathForSuffix(suffix);
+    .map((suffix, index) => {
+      const match = pathForSuffixWithAliases(
+        suffix,
+        definition.artifactGlobs.legacyExtraSuffixes?.[index],
+      );
       return match
         ? {
             kind: suffix.replace(/^_/, "").replace(/\.[^.]+$/, ""),
@@ -292,23 +319,15 @@ export function artifactStemFromPrimaryPath(
 ): string {
   const definition = getStageDefinition(stageKey);
   const base = basename(primaryPath);
-  const suf = definition.artifactGlobs.primarySuffix;
-  if (!base.endsWith(suf)) {
+  const suffixes = [
+    definition.artifactGlobs.primarySuffix,
+    ...(definition.artifactGlobs.legacyPrimarySuffixes ?? []),
+  ];
+  const suf = suffixes.find((suffix) => base.endsWith(suffix));
+  if (!suf) {
     return base.replace(/\.[^.]+$/, "");
   }
   return base.slice(0, base.length - suf.length);
-}
-
-export function readArtifactManifest(
-  manifestPath: string | undefined,
-): ArtifactManifest | undefined {
-  if (!manifestPath || !existsSync(manifestPath)) {
-    return undefined;
-  }
-
-  return artifactManifestSchema.parse(
-    JSON.parse(readFileSync(manifestPath, "utf8")) as unknown,
-  );
 }
 
 function summarizeAuditSample(
@@ -540,8 +559,4 @@ export function buildStageInspectorPayload<K extends StageKey>(
   return buildAdjudicateInspectorPayload(
     artifact.data,
   ) as StageInspectorPayload<K>;
-}
-
-export function artifactLabel(path: string): string {
-  return basename(path);
 }

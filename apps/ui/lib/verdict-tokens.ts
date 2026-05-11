@@ -10,9 +10,6 @@ export const VERDICT_ORDER = [
 
 export type VerdictKey = (typeof VERDICT_ORDER)[number];
 
-/** Alias for adjudicate filter UI (same ordering as distribution bars). */
-export const VERDICT_OPTIONS = VERDICT_ORDER;
-
 export const VERDICT_LABELS: Record<VerdictKey, string> = {
   supported: "Supported",
   partially_supported: "Partially supported",

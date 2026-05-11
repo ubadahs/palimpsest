@@ -257,8 +257,16 @@ export class LLMProviderError extends Error {
  */
 export function schemaFingerprint(schema: z.ZodType): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-    const raw = JSON.stringify((schema as any)._zod_def ?? (schema as any)._def ?? schema.description ?? "");
+    const schemaInternals = schema as z.ZodType & {
+      _zod_def?: unknown;
+      _def?: unknown;
+    };
+    const raw = JSON.stringify(
+      schemaInternals._zod_def ??
+        schemaInternals._def ??
+        schema.description ??
+        "",
+    );
     return createHash("sha256").update(raw).digest("hex").slice(0, 16);
   } catch {
     return "unknown";
@@ -615,7 +623,10 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   const MAX_RETRIES = 2;
   const RETRY_BASE_MS = 1_000;
 
-  async function withRetry<T>(fn: () => Promise<T>, purpose: string): Promise<T> {
+  async function withRetry<T>(
+    fn: () => Promise<T>,
+    purpose: string,
+  ): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await fn();
