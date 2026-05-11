@@ -17,10 +17,14 @@ import type {
 import { createLLMClient } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
-import { LLM_CACHE_VERSIONS, LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+import {
+  LLM_CACHE_VERSIONS,
+  LLM_PROMPT_VERSIONS,
+} from "../config/llm-versions.js";
 
 const GROUNDING_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.grounding;
-export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION = LLM_PROMPT_VERSIONS.grounding;
+export const GROUNDING_LLM_PROMPT_TEMPLATE_VERSION =
+  LLM_PROMPT_VERSIONS.grounding;
 
 const MAX_LLM_SUPPORT_SPANS = 8;
 

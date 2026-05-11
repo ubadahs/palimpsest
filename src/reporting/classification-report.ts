@@ -74,7 +74,7 @@ export function toClassificationMarkdown(
   const { extractionState: es, literatureStructure: ls } = result.summary;
 
   const sections: string[] = [
-    "# M3 Citation-Function Classification Report",
+    "# Citation-Function Classification Report",
     "",
     `## Seed: ${result.resolvedSeedPaperTitle}`,
     `**Tracked claim:** ${result.seed.trackedClaim}`,

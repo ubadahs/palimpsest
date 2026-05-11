@@ -33,7 +33,8 @@ npm run dev -- screen --input shortlist.json  # pre-screen (needs ANTHROPIC_API_
 npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
 npm run ui:start
-npm --workspace @palimpsest/ui run test   # UI workspace tests
+npm --workspace @palimpsest/ui run test   # UI workspace tests (Vitest + happy-dom)
+npx knip --reporter compact               # optional dead-code / deps (see repo knip.json)
 ```
 
 ## Architecture

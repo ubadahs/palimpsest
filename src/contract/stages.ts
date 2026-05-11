@@ -23,6 +23,9 @@ export type StageDefinition = {
     primarySuffix: string;
     reportSuffix: string;
     extraSuffixes: string[];
+    legacyPrimarySuffixes?: string[];
+    legacyReportSuffixes?: string[];
+    legacyExtraSuffixes?: string[][];
     /**
      * Role metadata for extra suffixes, in the same order as `extraSuffixes`.
      * This does not affect artifact discovery; it documents whether a companion
@@ -85,9 +88,12 @@ export const stageDefinitions: readonly StageDefinition[] = [
     directoryName: "02-extract",
     command: "extract",
     artifactGlobs: {
-      primarySuffix: "_m2-extraction-results.json",
-      reportSuffix: "_m2-extraction-report.md",
-      extraSuffixes: ["_m2-inspection.md"],
+      primarySuffix: "_extraction-results.json",
+      reportSuffix: "_extraction-report.md",
+      extraSuffixes: ["_extraction-inspection.md"],
+      legacyPrimarySuffixes: ["_m2-extraction-results.json"],
+      legacyReportSuffixes: ["_m2-extraction-report.md"],
+      legacyExtraSuffixes: [["_m2-inspection.md"]],
       extraRoles: ["diagnostic"],
     },
   },

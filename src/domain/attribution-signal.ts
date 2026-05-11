@@ -50,7 +50,7 @@ export function classifyEdge(paper: ResolvedPaper): EdgeClassification {
 
   // A paper is "primary-like" if it is not a review, commentary, letter, or
   // book chapter. This is a candidate for the empirical-attribution pipeline
-  // in M2 -- it says nothing about the paper's importance or quality.
+  // during extraction -- it says nothing about the paper's importance or quality.
   const isPrimaryLike =
     !isReview && !isBookChapter && !isLetter && !isCommentary;
 

@@ -62,7 +62,7 @@ Pipeline and UI artifacts are written locally under `data/runs/` when using mana
 
 | Stage | Purpose |
 |------|---------|
-| `discover` | Harvest citing-side mentions, extract attributed claims, ground them to the seed paper, and emit a shortlist. The default strategy is `attribution_first`; `--strategy legacy` keeps the older seed-side path. |
+| `discover` | Harvest citing-side mentions by default (**`attribution_first`** matches `pipeline`); use `--strategy legacy` for older seed-side claim extraction and optional ranking. |
 | `screen` | Qualify claim families for downstream analysis with seed grounding, family filtering, and auditability checks. |
 | `extract` | Locate and normalize claim-bearing citation contexts in citing papers. |
 | `classify` | Convert citation contexts into evaluation tasks with role and mode metadata. |

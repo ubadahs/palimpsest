@@ -25,7 +25,7 @@ import { DoiLink, RichText } from "@/lib/rich-text";
 import {
   formatVerdictSlug,
   verdictBadgeVariant,
-  VERDICT_OPTIONS,
+  VERDICT_ORDER,
   type VerdictKey,
 } from "@/lib/verdict-tokens";
 import { cn } from "@/lib/utils";
@@ -570,7 +570,7 @@ function AdjudicateInspector({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        {VERDICT_OPTIONS.map((option) => {
+        {VERDICT_ORDER.map((option) => {
           const count = countByVerdict[option] ?? 0;
           return (
             <Button

@@ -70,11 +70,7 @@ export class RunTracker {
     });
   }
 
-  stageBlocked(
-    stageKey: StageKey,
-    familyIndex: number,
-    message: string,
-  ): void {
+  stageBlocked(stageKey: StageKey, familyIndex: number, message: string): void {
     updateStageStatus(this.db, this.runId, stageKey, "blocked", {
       familyIndex,
       errorMessage: message,
@@ -147,6 +143,8 @@ export class RunTracker {
   ): string | undefined {
     if (!hasExistingRun) return undefined;
     const stage = getRunStage(this.db, this.runId, stageKey);
-    return stage?.status === "succeeded" ? stage.primaryArtifactPath : undefined;
+    return stage?.status === "succeeded"
+      ? stage.primaryArtifactPath
+      : undefined;
   }
 }

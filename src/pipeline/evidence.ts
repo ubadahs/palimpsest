@@ -7,7 +7,7 @@ import type {
 } from "../domain/types.js";
 import type { ParsedPaperMaterializeResult } from "../retrieval/parsed-paper.js";
 
-export type M4EvidenceAdapters = {
+export type EvidenceAdapters = {
   resolveByDoi: (doi: string) => Promise<Result<ResolvedPaper>>;
   resolveByMetadata: (locator: {
     doi?: string;
@@ -27,7 +27,7 @@ export type MaterializedCitedPaperSource = {
   citedPaperParsedDocument: ParsedPaperDocument | undefined;
 };
 
-export type M4ResolveProgressEvent = {
+export type EvidenceResolveProgressEvent = {
   step: "resolve_cited_paper" | "fetch_and_parse_cited_full_text";
   status: "running" | "completed";
   detail?: string;
@@ -35,8 +35,8 @@ export type M4ResolveProgressEvent = {
 
 export async function resolveCitedPaperSource(
   classification: FamilyClassificationResult,
-  adapters: M4EvidenceAdapters,
-  onProgress?: (event: M4ResolveProgressEvent) => void,
+  adapters: EvidenceAdapters,
+  onProgress?: (event: EvidenceResolveProgressEvent) => void,
 ): Promise<MaterializedCitedPaperSource> {
   const seedPacket = classification.packets[0];
   const citedPaperLocator = seedPacket?.citedPaper;

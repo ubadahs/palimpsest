@@ -32,7 +32,7 @@ DOIs
 Some filenames preserve older labels:
 
 - `screen` writes `_pre-screen-*`
-- `extract` writes `_m2-extraction-*`
+- older `extract` artifacts may use `_m2-*`; current runs write `_extraction-*`
 - current adjudication artifacts use support-style verdicts
 
 Those names are compatibility details. The stage keys above remain the stable CLI, UI, and SQLite contract.

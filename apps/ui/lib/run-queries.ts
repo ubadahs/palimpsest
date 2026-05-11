@@ -366,7 +366,7 @@ export function getRunDetailOrThrow(runId: string): RunDetail {
   };
 }
 
-export function buildRunStageDetail<K extends StageKey>(
+function buildRunStageDetail<K extends StageKey>(
   runId: string,
   stage: AnalysisRunStage & { stageKey: K },
 ): RunStageDetail<K> {
@@ -525,7 +525,7 @@ export function getArtifactContent(
   };
 }
 
-export type RunCostPurposeSummary = {
+type RunCostPurposeSummary = {
   attempted: number;
   successful: number;
   failed: number;
@@ -537,7 +537,7 @@ export type RunCostPurposeSummary = {
   estimatedCostUsd: number;
 };
 
-export type RunCostSummary = {
+type RunCostSummary = {
   totalEstimatedCostUsd: number;
   totalCalls: number;
   totalAttemptedCalls: number;

@@ -68,7 +68,7 @@ function parseArgs(argv: string[]): {
   let thinking = false;
   let rank = true;
   let topN = DEFAULT_TOP_N;
-  let strategy: DiscoveryStrategy = "legacy";
+  let strategy: DiscoveryStrategy = "attribution_first";
   let probeBudget = 20;
   let shortlistCap = 5;
   let fromYear: number | undefined;

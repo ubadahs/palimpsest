@@ -22,11 +22,15 @@ import type {
 } from "../integrations/llm-client.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 
-import { LLM_CACHE_VERSIONS, LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+import {
+  LLM_CACHE_VERSIONS,
+  LLM_PROMPT_VERSIONS,
+} from "../config/llm-versions.js";
 
 const EXTRACTION_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.extraction;
 
-export const ATTRIBUTED_CLAIM_PROMPT_TEMPLATE_VERSION = LLM_PROMPT_VERSIONS.extraction;
+export const ATTRIBUTED_CLAIM_PROMPT_TEMPLATE_VERSION =
+  LLM_PROMPT_VERSIONS.extraction;
 
 const DEFAULT_MODEL = "claude-haiku-4-5";
 
