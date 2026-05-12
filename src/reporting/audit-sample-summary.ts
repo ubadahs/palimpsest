@@ -19,6 +19,22 @@ function formatAgreement(value: boolean | undefined): string {
   return value ? "yes" : "no";
 }
 
+function incrementCount(counts: Record<string, number>, key: string): void {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function pushCountRows(
+  sections: string[],
+  counts: Record<string, number>,
+): void {
+  const entries = Object.entries(counts).sort((left, right) =>
+    left[0].localeCompare(right[0]),
+  );
+  for (const [key, count] of entries) {
+    sections.push(`| ${key} | ${String(count)} |`);
+  }
+}
+
 export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
   const active = set.records.filter((r) => !r.excluded);
   const adjudicated = active.filter((r) => r.verdict != null);
@@ -112,6 +128,108 @@ export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
     sections.push(
       `| ${q} | ${String(count)} | ${formatPercent(count, total)} |`,
     );
+  }
+
+  const vectorFirstRecords = adjudicated.filter(
+    (r) => r.vectorRoutingDecision?.adjudicationMode === "vector_first",
+  );
+  if (vectorFirstRecords.length > 0) {
+    const sourceCounts: Record<string, number> = {};
+    const adaptiveReasonCounts: Record<string, number> = {};
+    const escalationReasonCounts: Record<string, number> = {};
+    let acceptedByVector = 0;
+    let escalatedToCategorical = 0;
+    let adaptiveSamplingCount = 0;
+    let vectorCalls = 0;
+    let vectorCost = 0;
+
+    for (const r of vectorFirstRecords) {
+      const decision = r.vectorRoutingDecision!;
+      incrementCount(sourceCounts, decision.finalVerdictSource);
+      if (decision.finalVerdictSource === "axis_derived") {
+        acceptedByVector++;
+      } else {
+        escalatedToCategorical++;
+      }
+      if (decision.triggeredAdaptiveSampling) {
+        adaptiveSamplingCount++;
+      }
+      for (const reason of decision.adaptiveSamplingReasons) {
+        incrementCount(adaptiveReasonCounts, reason);
+      }
+      for (const reason of decision.categoricalEscalationReasons) {
+        incrementCount(escalationReasonCounts, reason);
+      }
+      vectorCalls +=
+        r.fidelityVectorTrace?.telemetry?.totalCalls ??
+        r.fidelityVectorTrace?.samples.length ??
+        0;
+      vectorCost += r.fidelityVectorTrace?.telemetry?.estimatedCostUsd ?? 0;
+    }
+
+    const avgSamples =
+      vectorFirstRecords.length > 0
+        ? vectorCalls / vectorFirstRecords.length
+        : 0;
+    const categoricalCost = set.runTelemetry?.estimatedCostUsd ?? 0;
+
+    sections.push(
+      "",
+      "## Vector-First Routing Summary",
+      "",
+      `Adjudication mode: vector_first`,
+      "",
+      "| Metric | Value |",
+      "| --- | ---: |",
+      `| Vector-derived accepted records | ${String(acceptedByVector)} |`,
+      `| Categorical escalations | ${String(escalatedToCategorical)} |`,
+      `| Adaptive sampling records | ${String(adaptiveSamplingCount)} |`,
+      `| Vector sample calls | ${String(vectorCalls)} |`,
+      `| Average vector samples / record | ${avgSamples.toFixed(2)} |`,
+      `| Estimated vector cost | $${vectorCost.toFixed(4)} |`,
+      `| Estimated categorical escalation cost | $${categoricalCost.toFixed(4)} |`,
+      `| Estimated adjudication cost | $${(vectorCost + categoricalCost).toFixed(4)} |`,
+      "",
+      "### Verdict Source Distribution",
+      "",
+      "| Source | Count |",
+      "| --- | ---: |",
+    );
+    pushCountRows(sections, sourceCounts);
+
+    sections.push(
+      "",
+      "### Adaptive Sampling Reasons",
+      "",
+      "| Reason | Count |",
+      "| --- | ---: |",
+    );
+    if (Object.keys(adaptiveReasonCounts).length === 0) {
+      sections.push("| none | 0 |");
+    } else {
+      pushCountRows(sections, adaptiveReasonCounts);
+    }
+
+    sections.push(
+      "",
+      "### Categorical Escalation Reasons",
+      "",
+      "| Reason | Count |",
+      "| --- | ---: |",
+    );
+    if (Object.keys(escalationReasonCounts).length === 0) {
+      sections.push("| none | 0 |");
+    } else {
+      pushCountRows(sections, escalationReasonCounts);
+    }
+
+    const examples = vectorFirstRecords.slice(0, 5);
+    sections.push("", "### Vector-First Examples", "");
+    for (const r of examples) {
+      sections.push(
+        `- **${r.taskId}**: ${r.verdict ?? "—"} (${r.vectorRoutingDecision!.finalVerdictSource})`,
+      );
+    }
   }
 
   const vectorRecords = adjudicated.filter((r) => r.fidelityVectorTrace);
