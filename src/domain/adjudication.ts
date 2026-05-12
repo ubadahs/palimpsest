@@ -13,6 +13,7 @@ import {
 } from "./evidence.js";
 import { fidelityVectorTraceSchema } from "./fidelity-vector.js";
 import { seedPaperInputSchema } from "./pre-screen.js";
+import { vectorRoutingDecisionSchema } from "./vector-routing.js";
 
 export const adjudicationVerdictValues = [
   "supported",
@@ -95,6 +96,7 @@ export const adjudicationRecordSchema = z
     excludeReason: undefinedable(z.string()),
     telemetry: undefinedable(llmCallTelemetrySchema),
     fidelityVectorTrace: undefinedable(fidelityVectorTraceSchema),
+    vectorRoutingDecision: undefinedable(vectorRoutingDecisionSchema),
   })
   .passthrough();
 export type AdjudicationRecord = z.infer<typeof adjudicationRecordSchema>;

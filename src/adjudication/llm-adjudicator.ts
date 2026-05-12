@@ -25,6 +25,7 @@ import {
   DEFAULT_FIDELITY_VECTOR_MODEL,
   generateFidelityVectorTrace,
 } from "./fidelity-vector-scorer.js";
+import { runVectorFirstAdjudication } from "./vector-first-adjudicator.js";
 
 const ADJUDICATION_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.adjudication;
 
@@ -116,6 +117,7 @@ export type AdjudicatorOptions = {
   apiKey: string;
   model?: string;
   useExtendedThinking?: boolean;
+  adjudicationMode?: "categorical" | "vector_first";
   /** Optional pre-existing LLM client for shared ledger tracking. */
   llmClient?: LLMClient;
   /** Max concurrent adjudication LLM calls. Default 5. */
@@ -139,6 +141,15 @@ export type AdjudicatorOptions = {
     model?: string;
     temperature: number;
     /** Max concurrent vector traces. Defaults to 2. */
+    concurrency?: number;
+  };
+  /** Opt-in vector-first adjudication. Does not run post-hoc traces. */
+  vectorFirst?: {
+    initialSamples: number;
+    maxSamples: number;
+    model?: string;
+    temperature: number;
+    /** Max concurrent vector-first record workers. Defaults to 2. */
     concurrency?: number;
   };
 };
@@ -540,6 +551,20 @@ async function attachFidelityVectorTraces(
   };
 }
 
+async function runCategoricalAdjudication(
+  set: AuditSample,
+  options: AdjudicatorOptions,
+  client: LLMClient,
+  modelId: string,
+  onProgress?: (index: number, total: number) => void,
+): Promise<AuditSample> {
+  if (options.advisor) {
+    return runAdvisorAdjudication(set, options, client, modelId);
+  }
+
+  return runPass(set, options, client, modelId, onProgress);
+}
+
 export async function adjudicateAuditSample(
   set: AuditSample,
   options: AdjudicatorOptions,
@@ -549,6 +574,25 @@ export async function adjudicateAuditSample(
   const client =
     options.llmClient ??
     createLLMClient({ apiKey: options.apiKey, defaultModel: modelId });
+
+  if (options.adjudicationMode === "vector_first") {
+    const vectorFirstOptions = options.vectorFirst ?? {
+      initialSamples: 1,
+      maxSamples: 3,
+      model: DEFAULT_FIDELITY_VECTOR_MODEL,
+      temperature: 0.7,
+      concurrency: 2,
+    };
+
+    return runVectorFirstAdjudication({
+      set,
+      client,
+      options: vectorFirstOptions,
+      runCategoricalAdjudication: (subset) =>
+        runCategoricalAdjudication(subset, options, client, modelId),
+      ...(onProgress ? { onProgress } : {}),
+    });
+  }
 
   if (options.advisor) {
     const result = await runAdvisorAdjudication(set, options, client, modelId);

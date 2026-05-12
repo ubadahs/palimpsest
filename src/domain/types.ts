@@ -10,5 +10,6 @@ export * from "./classification.js";
 export * from "./evidence.js";
 export * from "./adjudication.js";
 export * from "./fidelity-vector.js";
+export * from "./vector-routing.js";
 export * from "./storage.js";
 export * from "./taxonomy.js";
