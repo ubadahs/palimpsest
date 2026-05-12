@@ -40,6 +40,12 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
   let fidelityVectorSamples: number | undefined;
   let fidelityVectorModel: string | undefined;
   let fidelityVectorTemperature: number | undefined;
+  let adjudicationMode: PipelineCliOverrides["adjudicationMode"];
+  let vectorFirstInitialSamples: number | undefined;
+  let vectorFirstMaxSamples: number | undefined;
+  let vectorFirstModel: string | undefined;
+  let vectorFirstTemperature: number | undefined;
+  let vectorFirstConcurrency: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -148,6 +154,42 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
         Math.max(0, Number(argv[i + 1]!)),
       );
       i++;
+    } else if (arg === "--adjudication-mode" && i + 1 < argv.length) {
+      const val = argv[i + 1]!;
+      if (val === "categorical" || val === "vector_first") {
+        adjudicationMode = val;
+      } else {
+        console.error(
+          `Invalid --adjudication-mode value "${val}". Use "categorical" or "vector_first".`,
+        );
+        process.exitCode = 1;
+        throw new Error("Invalid --adjudication-mode");
+      }
+      i++;
+    } else if (
+      arg === "--vector-first-initial-samples" &&
+      i + 1 < argv.length
+    ) {
+      vectorFirstInitialSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--vector-first-max-samples" && i + 1 < argv.length) {
+      vectorFirstMaxSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--vector-first-model" && i + 1 < argv.length) {
+      vectorFirstModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--vector-first-temperature" && i + 1 < argv.length) {
+      vectorFirstTemperature = Math.min(2, Math.max(0, Number(argv[i + 1]!)));
+      i++;
+    } else if (arg === "--vector-first-concurrency" && i + 1 < argv.length) {
+      vectorFirstConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
+      i++;
     }
     // Run settings
     else if (arg === "--force-refresh") {
@@ -199,6 +241,12 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
     fidelityVectorSamples,
     fidelityVectorModel,
     fidelityVectorTemperature,
+    adjudicationMode,
+    vectorFirstInitialSamples,
+    vectorFirstMaxSamples,
+    vectorFirstModel,
+    vectorFirstTemperature,
+    vectorFirstConcurrency,
     forceRefresh,
     familyConcurrency,
   };

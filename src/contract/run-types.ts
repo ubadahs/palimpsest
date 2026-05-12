@@ -56,6 +56,14 @@ export const analysisRunConfigObjectSchema = z
     fidelityVectorSamples: z.number().int().min(1).max(10).default(3),
     fidelityVectorModel: z.string().min(1).default("claude-sonnet-4-6"),
     fidelityVectorTemperature: z.number().min(0).max(2).default(0.7),
+    adjudicationMode: z
+      .enum(["categorical", "vector_first"])
+      .default("categorical"),
+    vectorFirstInitialSamples: z.number().int().min(1).max(10).default(1),
+    vectorFirstMaxSamples: z.number().int().min(1).max(10).default(3),
+    vectorFirstModel: z.string().min(1).default("claude-sonnet-4-6"),
+    vectorFirstTemperature: z.number().min(0).max(2).default(0.7),
+    vectorFirstConcurrency: z.number().int().positive().default(2),
     evidenceLlmRerank: z.boolean().default(true),
     discoverStrategy: z
       .enum(["legacy", "attribution_first"])

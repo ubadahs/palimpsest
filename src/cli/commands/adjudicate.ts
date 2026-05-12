@@ -22,6 +22,12 @@ function parseArgs(argv: string[]): {
   fidelityVectorSamples: number;
   fidelityVectorModel: string;
   fidelityVectorTemperature: number;
+  adjudicationMode: "categorical" | "vector_first";
+  vectorFirstInitialSamples: number;
+  vectorFirstMaxSamples: number;
+  vectorFirstModel: string;
+  vectorFirstTemperature: number;
+  vectorFirstConcurrency: number;
 } {
   let auditSamplePath: string | undefined;
   let humanPath: string | undefined;
@@ -32,6 +38,12 @@ function parseArgs(argv: string[]): {
   let fidelityVectorSamples = 3;
   let fidelityVectorModel = DEFAULT_FIDELITY_VECTOR_MODEL;
   let fidelityVectorTemperature = 0.7;
+  let adjudicationMode: "categorical" | "vector_first" = "categorical";
+  let vectorFirstInitialSamples = 1;
+  let vectorFirstMaxSamples = 3;
+  let vectorFirstModel = DEFAULT_FIDELITY_VECTOR_MODEL;
+  let vectorFirstTemperature = 0.7;
+  let vectorFirstConcurrency = 2;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -73,6 +85,42 @@ function parseArgs(argv: string[]): {
         Math.max(0, Number(argv[i + 1]!)),
       );
       i++;
+    } else if (arg === "--adjudication-mode" && i + 1 < argv.length) {
+      const val = argv[i + 1]!;
+      if (val === "categorical" || val === "vector_first") {
+        adjudicationMode = val;
+      } else {
+        console.error(
+          `Invalid --adjudication-mode value "${val}". Use "categorical" or "vector_first".`,
+        );
+        process.exitCode = 1;
+        throw new Error("Invalid --adjudication-mode");
+      }
+      i++;
+    } else if (
+      arg === "--vector-first-initial-samples" &&
+      i + 1 < argv.length
+    ) {
+      vectorFirstInitialSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--vector-first-max-samples" && i + 1 < argv.length) {
+      vectorFirstMaxSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--vector-first-model" && i + 1 < argv.length) {
+      vectorFirstModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--vector-first-temperature" && i + 1 < argv.length) {
+      vectorFirstTemperature = Math.min(2, Math.max(0, Number(argv[i + 1]!)));
+      i++;
+    } else if (arg === "--vector-first-concurrency" && i + 1 < argv.length) {
+      vectorFirstConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
+      i++;
     }
   }
 
@@ -94,6 +142,12 @@ function parseArgs(argv: string[]): {
     fidelityVectorSamples,
     fidelityVectorModel,
     fidelityVectorTemperature,
+    adjudicationMode,
+    vectorFirstInitialSamples,
+    vectorFirstMaxSamples,
+    vectorFirstModel,
+    vectorFirstTemperature,
+    vectorFirstConcurrency,
   };
 }
 
@@ -131,9 +185,15 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
     console.info(
       `  Model: ${args.model}${args.thinking ? " (extended thinking)" : ""}`,
     );
+    console.info(`  Adjudication mode: ${args.adjudicationMode}`);
     if (args.fidelityVectorTrace) {
       console.info(
         `  Fidelity vector trace: ${String(args.fidelityVectorSamples)} samples, ${args.fidelityVectorModel}, temperature ${String(args.fidelityVectorTemperature)}`,
+      );
+    }
+    if (args.adjudicationMode === "vector_first") {
+      console.info(
+        `  Vector-first: ${String(args.vectorFirstInitialSamples)} initial / ${String(args.vectorFirstMaxSamples)} max samples, ${args.vectorFirstModel}, temperature ${String(args.vectorFirstTemperature)}, concurrency ${String(args.vectorFirstConcurrency)}`,
       );
     }
     console.info(`  Records: ${String(activeCount)} active\n`);
@@ -148,12 +208,20 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
         apiKey: config.anthropicApiKey,
         model: args.model,
         useExtendedThinking: args.thinking,
+        adjudicationMode: args.adjudicationMode,
         fidelityVectorTrace: {
           enabled: args.fidelityVectorTrace,
           sampleCount: args.fidelityVectorSamples,
           model: args.fidelityVectorModel,
           temperature: args.fidelityVectorTemperature,
           concurrency: 2,
+        },
+        vectorFirst: {
+          initialSamples: args.vectorFirstInitialSamples,
+          maxSamples: args.vectorFirstMaxSamples,
+          model: args.vectorFirstModel,
+          temperature: args.vectorFirstTemperature,
+          concurrency: args.vectorFirstConcurrency,
         },
       },
       (i, total) => {
