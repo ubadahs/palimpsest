@@ -147,6 +147,18 @@ export type FidelityVectorVerdictCounts = z.infer<
   typeof fidelityVectorVerdictCountsSchema
 >;
 
+export const sampledVerdictDistributionSchema = z
+  .object({
+    sampleCount: z.number().int().nonnegative(),
+    counts: fidelityVectorVerdictCountsSchema,
+    modalSampledVerdict: fidelityVectorVerdictSchema,
+    entropy: z.number().min(0).max(1),
+  })
+  .strict();
+export type SampledVerdictDistribution = z.infer<
+  typeof sampledVerdictDistributionSchema
+>;
+
 export const scopeDirectionDistributionSchema = z
   .object({
     none: z.number().int().nonnegative(),
@@ -177,14 +189,10 @@ export const fidelityVectorAggregateSchema = z
   .object({
     meanAxes: fidelityVectorAxisValuesSchema,
     varianceAxes: fidelityVectorAxisValuesSchema,
-    verdictDistribution: z
-      .object({
-        sampleCount: z.number().int().nonnegative(),
-        counts: fidelityVectorVerdictCountsSchema,
-        modalVerdict: fidelityVectorVerdictSchema,
-        entropy: z.number().min(0).max(1),
-      })
-      .strict(),
+    sampledVerdictDistribution: sampledVerdictDistributionSchema,
+    axisDerivedVerdict: fidelityVectorVerdictSchema,
+    axisDerivedVerdictReason: z.string().min(1),
+    axisDerivedVerdictRule: z.string().min(1),
     scopeDirectionDistribution: scopeDirectionDistributionSchema,
     certaintyDirectionDistribution: certaintyDirectionDistributionSchema,
     disagreementScore: z.number().min(0).max(1),
@@ -205,6 +213,8 @@ export const fidelityVectorTraceSchema = z
     aggregate: fidelityVectorAggregateSchema,
     canonicalVerdict: undefinedable(fidelityVectorVerdictSchema),
     canonicalVerdictAgreement: undefinedable(z.boolean()),
+    canonicalSampledVerdictAgreement: undefinedable(z.boolean()),
+    canonicalAxisDerivedVerdictAgreement: undefinedable(z.boolean()),
     telemetry: undefinedable(fidelityVectorTelemetrySummarySchema),
   })
   .strict();

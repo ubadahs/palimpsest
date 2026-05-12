@@ -122,8 +122,8 @@ export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
       "",
       "## Fidelity Vector Trace Summary",
       "",
-      "| Task | Canonical verdict | Vector verdict | Agreement | Support | Grounding | Claim identity | Scope | Certainty | Uncertainty |",
-      "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+      "| Task | Canonical verdict | Modal sampled verdict | Axis-derived verdict | Canonical/axis agreement | Support | Grounding | Claim identity | Scope | Certainty | Uncertainty |",
+      "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     );
 
     for (const r of vectorRecords) {
@@ -132,7 +132,7 @@ export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
       vectorCalls += trace.telemetry?.totalCalls ?? trace.samples.length;
       vectorCost += trace.telemetry?.estimatedCostUsd ?? 0;
       sections.push(
-        `| ${r.taskId} | ${r.verdict ?? "—"} | ${trace.aggregate.verdictDistribution.modalVerdict} | ${formatAgreement(trace.canonicalVerdictAgreement)} | ${formatScore(means.support)} | ${formatScore(means.evidenceGrounding)} | ${formatScore(means.claimIdentity)} | ${formatScore(means.scopeMatch)} | ${formatScore(means.certaintyMatch)} | ${formatScore(means.uncertainty)} |`,
+        `| ${r.taskId} | ${r.verdict ?? "—"} | ${trace.aggregate.sampledVerdictDistribution.modalSampledVerdict} | ${trace.aggregate.axisDerivedVerdict} | ${formatAgreement(trace.canonicalAxisDerivedVerdictAgreement)} | ${formatScore(means.support)} | ${formatScore(means.evidenceGrounding)} | ${formatScore(means.claimIdentity)} | ${formatScore(means.scopeMatch)} | ${formatScore(means.certaintyMatch)} | ${formatScore(means.uncertainty)} |`,
       );
     }
 
