@@ -368,7 +368,16 @@ What happens:
 - **Advisor adjudication (default)** mirrors managed `pipeline` runs: the cheap first pass runs on **`adjudicateFirstPassModel`** (**Sonnet** by default); records with `judgeConfidence === "low"`, verdict **`cannot_determine`**, or bundled citations at **`medium`** confidence are re-run on the main adjudication model (**Opus** + thinking governed by adjudication config). Disable with **`--no-advisor`** or `adjudicateAdvisor: false` in persisted run config
 - persist support-style verdicts plus rationale, retrieval-quality judgments, telemetry; advisor-mode artifacts also expose `firstPassTelemetry`, `escalationTelemetry`, and `escalationCount` beside `runTelemetry`
 - optionally attach `fidelityVectorTrace` with **`--fidelity-vector-trace`** / `adjudicateFidelityVectorTrace: true`; this is disabled by default, uses separate `"fidelity-vector"` LLM purpose telemetry, defaults to **`claude-sonnet-4-6`**, samples final active records only, and does not affect canonical verdicts or advisor escalation
+- optionally use the **vector-first adjudicator** with **`--adjudication-mode vector_first`** / `adjudicationMode: "vector_first"`; this samples vector axes first, adaptively adds samples for simple borderline cases, accepts clear `axisDerivedVerdict` outputs as final axis-derived verdicts, and escalates risky records to the existing categorical adjudicator using the original unmodified audit records. Vector-first mode writes `vectorRoutingDecision` provenance and does not run the post-hoc diagnostic trace path after its own vector trace
 - optionally compare LLM adjudication outputs with a labeled human adjudication file via **`--human ...`** agreement report helpers
+
+Vector-first tuning flags for `pipeline` and standalone `adjudicate`:
+
+- `--vector-first-initial-samples` (default **1**)
+- `--vector-first-max-samples` (default **3**)
+- `--vector-first-model` (default **`claude-sonnet-4-6`**)
+- `--vector-first-temperature` (default **0.7**)
+- `--vector-first-concurrency` (default **2**)
 
 What can block it:
 
