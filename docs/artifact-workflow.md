@@ -50,7 +50,7 @@ Use the stage key as the canonical name. Some artifact readers intentionally pre
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
-| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | none |
+| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | Optional in-record diagnostic: `fidelityVectorTrace` when enabled |
 
 Every primary JSON artifact also gets:
 
@@ -78,7 +78,7 @@ The `pipeline` command writes into one chosen output root, but it now mirrors th
 
 Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_extraction-results.json`.
 
-Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, and adjudication. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups. It also includes `byPurpose` per-purpose breakdowns (token counts, cost, and `exactCacheHits`) and `totalExactCacheHits` at the top level.
+Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, adjudication, and optional fidelity vector tracing. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups. It also includes `byPurpose` per-purpose breakdowns (token counts, cost, and `exactCacheHits`) and `totalExactCacheHits` at the top level. Fidelity vector calls appear under the separate `"fidelity-vector"` purpose.
 
 ### UI runs
 
@@ -255,7 +255,7 @@ The benchmark workflow is append-only and artifact-driven.
 npm run dev -- benchmark:blind --input path/to/audit-sample.json
 ```
 
-This removes adjudication outcome fields from active records while preserving record order and task identity.
+This removes adjudication outcome fields from active records while preserving record order and task identity. Optional `fidelityVectorTrace` values are stripped because they are adjudication outcome diagnostics.
 
 Excluded records are carried through unchanged.
 

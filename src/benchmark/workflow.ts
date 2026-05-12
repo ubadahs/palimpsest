@@ -28,6 +28,7 @@ function blindRecord(record: AdjudicationRecord): BlindAuditRecord {
   delete blind["adjudicator"];
   delete blind["adjudicatedAt"];
   delete blind["telemetry"];
+  delete blind["fidelityVectorTrace"];
   return blind as BlindAdjudicationRecord;
 }
 
