@@ -109,6 +109,12 @@ export type PipelineCliOverrides = {
   fidelityVectorSamples: number | undefined;
   fidelityVectorModel: string | undefined;
   fidelityVectorTemperature: number | undefined;
+  adjudicationMode: AnalysisRunConfig["adjudicationMode"] | undefined;
+  vectorFirstInitialSamples: number | undefined;
+  vectorFirstMaxSamples: number | undefined;
+  vectorFirstModel: string | undefined;
+  vectorFirstTemperature: number | undefined;
+  vectorFirstConcurrency: number | undefined;
   // Run settings
   forceRefresh: boolean | undefined;
   familyConcurrency: number | undefined;
@@ -165,6 +171,18 @@ function buildCliOverrides(
     cliOverrides["fidelityVectorModel"] = args.fidelityVectorModel;
   if (args.fidelityVectorTemperature != null)
     cliOverrides["fidelityVectorTemperature"] = args.fidelityVectorTemperature;
+  if (args.adjudicationMode != null)
+    cliOverrides["adjudicationMode"] = args.adjudicationMode;
+  if (args.vectorFirstInitialSamples != null)
+    cliOverrides["vectorFirstInitialSamples"] = args.vectorFirstInitialSamples;
+  if (args.vectorFirstMaxSamples != null)
+    cliOverrides["vectorFirstMaxSamples"] = args.vectorFirstMaxSamples;
+  if (args.vectorFirstModel != null)
+    cliOverrides["vectorFirstModel"] = args.vectorFirstModel;
+  if (args.vectorFirstTemperature != null)
+    cliOverrides["vectorFirstTemperature"] = args.vectorFirstTemperature;
+  if (args.vectorFirstConcurrency != null)
+    cliOverrides["vectorFirstConcurrency"] = args.vectorFirstConcurrency;
   if (args.familyConcurrency != null)
     cliOverrides["familyConcurrency"] = args.familyConcurrency;
   if (args.seedPdfPath != null) cliOverrides["seedPdfPath"] = args.seedPdfPath;

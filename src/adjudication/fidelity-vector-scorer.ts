@@ -74,6 +74,22 @@ export type GenerateFidelityVectorTraceParams = {
   sampleCount: number;
 };
 
+export type GenerateFidelityVectorSamplesParams = {
+  record: AdjudicationRecord;
+  client: LLMClient;
+  model: string;
+  temperature: number;
+  sampleCount: number;
+  startIndex?: number;
+};
+
+export type BuildFidelityVectorTraceParams = {
+  samples: FidelityVectorTrace["samples"];
+  model: string;
+  temperature: number;
+  canonicalVerdict?: NonNullable<AdjudicationRecord["verdict"]>;
+};
+
 export function toFidelityVectorCallTelemetry(
   record: LLMCallRecord,
 ): FidelityVectorCallTelemetry {
@@ -133,14 +149,16 @@ export function summarizeFidelityVectorTelemetry(
   };
 }
 
-export async function generateFidelityVectorTrace({
+export async function generateFidelityVectorSamples({
   record,
-  canonicalVerdict,
   client,
   model,
   temperature,
   sampleCount,
-}: GenerateFidelityVectorTraceParams): Promise<FidelityVectorTrace> {
+  startIndex = 0,
+}: GenerateFidelityVectorSamplesParams): Promise<
+  FidelityVectorTrace["samples"]
+> {
   if (!Number.isInteger(sampleCount) || sampleCount < 1) {
     throw new Error("fidelity vector sampleCount must be a positive integer");
   }
@@ -159,10 +177,23 @@ export async function generateFidelityVectorTrace({
     samples.push(
       fidelityVectorSampleSchema.parse({
         ...result.object,
-        sampleIndex: i,
+        sampleIndex: startIndex + i,
         telemetry: toFidelityVectorCallTelemetry(result.record),
       }),
     );
+  }
+
+  return samples;
+}
+
+export function buildFidelityVectorTrace({
+  samples,
+  model,
+  temperature,
+  canonicalVerdict,
+}: BuildFidelityVectorTraceParams): FidelityVectorTrace {
+  if (samples.length === 0) {
+    throw new Error("fidelity vector trace requires at least one sample");
   }
 
   const aggregate = aggregateFidelityVectorSamples(samples);
@@ -170,7 +201,7 @@ export async function generateFidelityVectorTrace({
     version: "fidelity-vector-trace-v1",
     model,
     temperature,
-    sampleCount,
+    sampleCount: samples.length,
     samples,
     aggregate,
     telemetry: summarizeFidelityVectorTelemetry(
@@ -189,6 +220,34 @@ export async function generateFidelityVectorTrace({
   }
 
   return trace;
+}
+
+export async function generateFidelityVectorTrace({
+  record,
+  canonicalVerdict,
+  client,
+  model,
+  temperature,
+  sampleCount,
+}: GenerateFidelityVectorTraceParams): Promise<FidelityVectorTrace> {
+  if (!Number.isInteger(sampleCount) || sampleCount < 1) {
+    throw new Error("fidelity vector sampleCount must be a positive integer");
+  }
+
+  const samples = await generateFidelityVectorSamples({
+    record,
+    client,
+    model,
+    temperature,
+    sampleCount,
+  });
+
+  return buildFidelityVectorTrace({
+    samples,
+    model,
+    temperature,
+    ...(canonicalVerdict != null ? { canonicalVerdict } : {}),
+  });
 }
 
 function buildFidelityVectorPrompt(record: AdjudicationRecord): string {
