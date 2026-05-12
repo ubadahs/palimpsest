@@ -50,7 +50,7 @@ Use the stage key as the canonical name. Some artifact readers intentionally pre
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
-| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | Optional in-record diagnostic: `fidelityVectorTrace` when enabled |
+| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | Optional in-record diagnostic: `fidelityVectorTrace` when enabled; opt-in vector-first provenance: `vectorRoutingDecision` |
 
 Every primary JSON artifact also gets:
 
@@ -255,7 +255,7 @@ The benchmark workflow is append-only and artifact-driven.
 npm run dev -- benchmark:blind --input path/to/audit-sample.json
 ```
 
-This removes adjudication outcome fields from active records while preserving record order and task identity. Optional `fidelityVectorTrace` values are stripped because they are adjudication outcome diagnostics.
+This removes adjudication outcome fields from active records while preserving record order and task identity. Optional `fidelityVectorTrace` values and vector-first `vectorRoutingDecision` provenance are stripped because they are adjudication outcome diagnostics.
 
 Excluded records are carried through unchanged.
 
