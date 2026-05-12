@@ -72,8 +72,14 @@ describe("fidelity vector stats", () => {
 
     expect(aggregate.meanAxes.support).toBeCloseTo(0.5);
     expect(aggregate.varianceAxes.support).toBeCloseTo(0.25);
-    expect(aggregate.verdictDistribution.counts.not_supported).toBe(2);
-    expect(aggregate.verdictDistribution.modalVerdict).toBe("not_supported");
+    expect(aggregate.sampledVerdictDistribution.counts.not_supported).toBe(2);
+    expect(aggregate.sampledVerdictDistribution.modalSampledVerdict).toBe(
+      "not_supported",
+    );
+    expect(aggregate.axisDerivedVerdict).toBe("cannot_determine");
+    expect(aggregate.axisDerivedVerdictRule).toBe(
+      "cannot_determine_insufficient_support_or_grounding",
+    );
     expect(aggregate.scopeDirectionDistribution.expansion).toBe(1);
     expect(aggregate.certaintyDirectionDistribution.escalation).toBe(1);
     expect(aggregate.disagreementScore).toBeGreaterThanOrEqual(0);
