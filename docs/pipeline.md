@@ -367,6 +367,7 @@ What happens:
 - call Anthropic through the centralized LLM client (**default adjudication model** `claude-opus-4-6`; thinking **on** unless `--no-thinking` / run config disables it)
 - **Advisor adjudication (default)** mirrors managed `pipeline` runs: the cheap first pass runs on **`adjudicateFirstPassModel`** (**Sonnet** by default); records with `judgeConfidence === "low"`, verdict **`cannot_determine`**, or bundled citations at **`medium`** confidence are re-run on the main adjudication model (**Opus** + thinking governed by adjudication config). Disable with **`--no-advisor`** or `adjudicateAdvisor: false` in persisted run config
 - persist support-style verdicts plus rationale, retrieval-quality judgments, telemetry; advisor-mode artifacts also expose `firstPassTelemetry`, `escalationTelemetry`, and `escalationCount` beside `runTelemetry`
+- optionally attach `fidelityVectorTrace` with **`--fidelity-vector-trace`** / `adjudicateFidelityVectorTrace: true`; this is disabled by default, uses separate `"fidelity-vector"` LLM purpose telemetry, defaults to **`claude-sonnet-4-6`**, samples final active records only, and does not affect canonical verdicts or advisor escalation
 - optionally compare LLM adjudication outputs with a labeled human adjudication file via **`--human ...`** agreement report helpers
 
 What can block it:

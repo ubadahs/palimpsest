@@ -105,6 +105,10 @@ export type PipelineCliOverrides = {
   // Adjudicate
   adjudicateAdvisor: boolean | undefined;
   adjudicateFirstPassModel: string | undefined;
+  adjudicateFidelityVectorTrace: boolean | undefined;
+  fidelityVectorSamples: number | undefined;
+  fidelityVectorModel: string | undefined;
+  fidelityVectorTemperature: number | undefined;
   // Run settings
   forceRefresh: boolean | undefined;
   familyConcurrency: number | undefined;
@@ -152,6 +156,15 @@ function buildCliOverrides(
     cliOverrides["adjudicateAdvisor"] = args.adjudicateAdvisor;
   if (args.adjudicateFirstPassModel != null)
     cliOverrides["adjudicateFirstPassModel"] = args.adjudicateFirstPassModel;
+  if (args.adjudicateFidelityVectorTrace != null)
+    cliOverrides["adjudicateFidelityVectorTrace"] =
+      args.adjudicateFidelityVectorTrace;
+  if (args.fidelityVectorSamples != null)
+    cliOverrides["fidelityVectorSamples"] = args.fidelityVectorSamples;
+  if (args.fidelityVectorModel != null)
+    cliOverrides["fidelityVectorModel"] = args.fidelityVectorModel;
+  if (args.fidelityVectorTemperature != null)
+    cliOverrides["fidelityVectorTemperature"] = args.fidelityVectorTemperature;
   if (args.familyConcurrency != null)
     cliOverrides["familyConcurrency"] = args.familyConcurrency;
   if (args.seedPdfPath != null) cliOverrides["seedPdfPath"] = args.seedPdfPath;

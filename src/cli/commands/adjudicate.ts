@@ -5,6 +5,7 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { auditSampleSchema } from "../../domain/types.js";
 import { adjudicateAuditSample } from "../../adjudication/llm-adjudicator.js";
+import { DEFAULT_FIDELITY_VECTOR_MODEL } from "../../adjudication/fidelity-vector-scorer.js";
 import { createTrackedCliProgressReporter } from "../progress.js";
 import { toAgreementMarkdown } from "../../reporting/agreement-report.js";
 import { loadJsonArtifact } from "../../shared/artifact-io.js";
@@ -17,12 +18,20 @@ function parseArgs(argv: string[]): {
   model: string;
   thinking: boolean;
   output: string;
+  fidelityVectorTrace: boolean;
+  fidelityVectorSamples: number;
+  fidelityVectorModel: string;
+  fidelityVectorTemperature: number;
 } {
   let auditSamplePath: string | undefined;
   let humanPath: string | undefined;
   let model = "claude-opus-4-6";
   let thinking = true;
   let output = "data/adjudication";
+  let fidelityVectorTrace = false;
+  let fidelityVectorSamples = 3;
+  let fidelityVectorModel = DEFAULT_FIDELITY_VECTOR_MODEL;
+  let fidelityVectorTemperature = 0.7;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -45,18 +54,47 @@ function parseArgs(argv: string[]): {
     } else if (arg === "--output" && i + 1 < argv.length) {
       output = argv[i + 1]!;
       i++;
+    } else if (arg === "--fidelity-vector-trace") {
+      fidelityVectorTrace = true;
+    } else if (arg === "--no-fidelity-vector-trace") {
+      fidelityVectorTrace = false;
+    } else if (arg === "--fidelity-vector-samples" && i + 1 < argv.length) {
+      fidelityVectorSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--fidelity-vector-model" && i + 1 < argv.length) {
+      fidelityVectorModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--fidelity-vector-temperature" && i + 1 < argv.length) {
+      fidelityVectorTemperature = Math.min(
+        2,
+        Math.max(0, Number(argv[i + 1]!)),
+      );
+      i++;
     }
   }
 
   if (!auditSamplePath) {
     console.error(
-      "Usage: adjudicate --audit-sample <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>]",
+      "Usage: adjudicate --audit-sample <path> [--human <path>] [--model <id>] [--thinking] [--output <dir>] [--fidelity-vector-trace]",
     );
     process.exitCode = 1;
     throw new Error("Missing required arguments");
   }
 
-  return { auditSamplePath, humanPath, model, thinking, output };
+  return {
+    auditSamplePath,
+    humanPath,
+    model,
+    thinking,
+    output,
+    fidelityVectorTrace,
+    fidelityVectorSamples,
+    fidelityVectorModel,
+    fidelityVectorTemperature,
+  };
 }
 
 export async function runAdjudicateCommand(argv: string[]): Promise<void> {
@@ -93,6 +131,11 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
     console.info(
       `  Model: ${args.model}${args.thinking ? " (extended thinking)" : ""}`,
     );
+    if (args.fidelityVectorTrace) {
+      console.info(
+        `  Fidelity vector trace: ${String(args.fidelityVectorSamples)} samples, ${args.fidelityVectorModel}, temperature ${String(args.fidelityVectorTemperature)}`,
+      );
+    }
     console.info(`  Records: ${String(activeCount)} active\n`);
 
     progress.startStep("adjudicate_records", {
@@ -105,6 +148,13 @@ export async function runAdjudicateCommand(argv: string[]): Promise<void> {
         apiKey: config.anthropicApiKey,
         model: args.model,
         useExtendedThinking: args.thinking,
+        fidelityVectorTrace: {
+          enabled: args.fidelityVectorTrace,
+          sampleCount: args.fidelityVectorSamples,
+          model: args.fidelityVectorModel,
+          temperature: args.fidelityVectorTemperature,
+          concurrency: 2,
+        },
       },
       (i, total) => {
         console.info(`  [${String(i)}/${String(total)}] adjudicating...`);

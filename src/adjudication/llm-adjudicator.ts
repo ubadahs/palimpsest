@@ -14,13 +14,17 @@ import type {
 import { createLLMClient } from "../integrations/llm-client.js";
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
-import {
-  annotateCitingContext,
-  extractCitingWindow,
-} from "../shared/citation-context-window.js";
 import { pMap } from "../shared/p-map.js";
 
 import { LLM_CACHE_VERSIONS } from "../config/llm-versions.js";
+import {
+  buildAdjudicationPacket,
+  renderAdjudicationPacket,
+} from "./adjudication-packet.js";
+import {
+  DEFAULT_FIDELITY_VECTOR_MODEL,
+  generateFidelityVectorTrace,
+} from "./fidelity-vector-scorer.js";
 
 const ADJUDICATION_CACHE_KEY_VERSION = LLM_CACHE_VERSIONS.adjudication;
 
@@ -39,105 +43,14 @@ const verdictSchema = z.object({
   judgeConfidence: z.enum(["high", "medium", "low"]),
 });
 
-/**
- * Returns a warning note when retrieval did not produce full-text evidence,
- * so the adjudicator knows why the evidence block is empty or weak.
- */
-function retrievalStatusNote(status: string): string {
-  switch (status) {
-    case "no_fulltext":
-      return "Note: The cited paper's full text was not available — evidence is abstract-only or absent. Default to cannot_determine unless the abstract alone is sufficient to judge.";
-    case "abstract_only_matches":
-      return "Note: Only abstract-level passages were retrieved; body text was unavailable or yielded no matches. Abstract evidence is weaker — rate retrievalQuality as medium or low.";
-    case "unresolved_cited_paper":
-      return "Note: The cited paper metadata could not be resolved. No full-text evidence was retrieved. Verdict should be cannot_determine.";
-    case "no_matches":
-      return "Note: No matching passages were found in the cited paper. This may indicate a retrieval gap or a mismatch between the citation and the paper's content.";
-    default:
-      return "";
-  }
-}
-
-const EVIDENCE_LEGEND =
-  "Evidence legend: llm_reranked = LLM-curated key sentences (score 0–100); bm25 / bm25_reranked = lexical keyword match.";
-
 function buildPrompt(record: AdjudicationRecord): string {
-  const spansText =
-    record.evidenceSpans.length > 0
-      ? EVIDENCE_LEGEND +
-        "\n\n" +
-        record.evidenceSpans
-          .slice(0, 3)
-          .map((s, i) => {
-            // Only show score for llm_reranked — the 0–100 scale is meaningful;
-            // BM25 scores are not comparable and would be noise.
-            const scoreLabel =
-              s.matchMethod === "llm_reranked"
-                ? `, relevance ${String(s.relevanceScore)}/100`
-                : "";
-            const sectionLabel = s.sectionTitle
-              ? ` (section: "${s.sectionTitle}")`
-              : "";
-            return `Evidence span ${String(i + 1)} [${s.matchMethod}${scoreLabel}]${sectionLabel}:\n"${s.text}"`;
-          })
-          .join("\n\n")
-      : "No evidence spans retrieved.";
-
-  const statusNote = retrievalStatusNote(record.evidenceRetrievalStatus);
-  const evidenceBlock = statusNote
-    ? `${statusNote}\n\n${spansText}`
-    : spansText;
-
-  const modifiers: string[] = [];
-  if (record.modifiers.isBundled) {
-    const size = record.modifiers.bundleSize;
-    modifiers.push(
-      size != null && size > 1
-        ? `bundled citation (${String(size)} references share this marker group)`
-        : "bundled citation",
-    );
-  }
-  if (record.modifiers.isReviewMediated) modifiers.push("review-mediated");
-  const modifierStr =
-    modifiers.length > 0 ? `\nModifiers: ${modifiers.join(", ")}` : "";
-
-  const seedClaimBlock = record.groundedSeedClaimText
-    ? `\nTracked seed claim (grounded in the cited/seed paper during pre-screen): "${record.groundedSeedClaimText}"\nUse this as the analyst's anchor for what the citation family is about, while still judging the citing span on its own terms.\n`
-    : "";
+  const packet = buildAdjudicationPacket(record);
 
   const fullPrompt = `You are a citation fidelity adjudicator for a metascience project.
 
 Your task: determine whether a citing paper's use of a cited paper is faithful to what the cited paper actually says.
 
-## Context
-
-Citation role: ${record.citationRole}
-Evaluation mode: ${record.evaluationMode}${modifierStr}
-Citing paper: "${record.citingPaperTitle}"
-Cited paper: "${record.citedPaperTitle}"
-${seedClaimBlock}
-## Rubric question
-
-${record.rubricQuestion}
-
-## Citing context
-
-Section: ${record.citingSpanSection ?? "unknown"}
-Citation marker for the paper under evaluation: "${record.citingMarker}"
-
-"${annotateCitingContext(extractCitingWindow(record.citingSpan, record.seedRefLabel ?? record.citingMarker, 800), record.citingMarker, record.seedRefLabel)}"
-
-Sentences wrapped in ▶ ... ◀ are the ones that directly cite the paper under evaluation. Unmarked sentences cite other papers and are provided as surrounding context only.
-
-## Citation scope
-
-- If ▶ ... ◀ markers are present: only evaluate claims within the marked sentences. Unmarked sentences reference different papers — they provide context but are NOT attributed to the cited paper.
-- If no ▶ ... ◀ markers appear AND the citation marker "${record.citingMarker}" is visible in the text: the entire context is attributed to the cited paper.
-- If no ▶ ... ◀ markers appear AND the citation marker is NOT visible in the text: the context window may not contain the attributed sentence. Default to cannot_determine.
-
-## Evidence from cited paper
-
-${evidenceBlock}
+${renderAdjudicationPacket(packet)}
 
 ## Instructions
 
@@ -218,6 +131,15 @@ export type AdjudicatorOptions = {
   advisor?: {
     /** Model for the cheap first pass (e.g. "claude-sonnet-4-6"). */
     firstPassModel: string;
+  };
+  /** Optional diagnostic vector tracing. Runs only after final adjudication. */
+  fidelityVectorTrace?: {
+    enabled: boolean;
+    sampleCount: number;
+    model?: string;
+    temperature: number;
+    /** Max concurrent vector traces. Defaults to 2. */
+    concurrency?: number;
   };
 };
 
@@ -569,6 +491,55 @@ async function runAdvisorAdjudication(
   };
 }
 
+async function attachFidelityVectorTraces(
+  set: AuditSample,
+  options: AdjudicatorOptions,
+  client: LLMClient,
+): Promise<AuditSample> {
+  const traceOptions = options.fidelityVectorTrace;
+  if (!traceOptions?.enabled) {
+    return set;
+  }
+
+  const concurrency = traceOptions.concurrency ?? 2;
+  const model = traceOptions.model ?? DEFAULT_FIDELITY_VECTOR_MODEL;
+  const records = await pMap(
+    set.records,
+    async (record) => {
+      if (record.excluded) {
+        return record;
+      }
+
+      try {
+        return {
+          ...record,
+          fidelityVectorTrace: await generateFidelityVectorTrace({
+            record,
+            ...(record.verdict != null
+              ? { canonicalVerdict: record.verdict }
+              : {}),
+            client,
+            model,
+            temperature: traceOptions.temperature,
+            sampleCount: traceOptions.sampleCount,
+          }),
+        } satisfies AdjudicationRecord;
+      } catch (error) {
+        console.error(
+          `[adjudicator] fidelity vector trace failed for record ${record.recordId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return record;
+      }
+    },
+    { concurrency },
+  );
+
+  return {
+    ...set,
+    records,
+  };
+}
+
 export async function adjudicateAuditSample(
   set: AuditSample,
   options: AdjudicatorOptions,
@@ -584,8 +555,9 @@ export async function adjudicateAuditSample(
     // Fire a single completion progress event.
     const total = set.records.filter((r) => !r.excluded).length;
     onProgress?.(total, total);
-    return result;
+    return attachFidelityVectorTraces(result, options, client);
   }
 
-  return runPass(set, options, client, modelId, onProgress);
+  const result = await runPass(set, options, client, modelId, onProgress);
+  return attachFidelityVectorTraces(result, options, client);
 }
