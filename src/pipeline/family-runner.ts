@@ -575,6 +575,7 @@ export async function runFamilyStages(
         apiKey,
         model: runConfig.adjudicateModel,
         useExtendedThinking: runConfig.adjudicateThinking,
+        adjudicationMode: runConfig.adjudicationMode,
         llmClient: adjudicationClient,
         enableExactCache: true,
         fidelityVectorTrace: {
@@ -583,6 +584,13 @@ export async function runFamilyStages(
           model: runConfig.fidelityVectorModel,
           temperature: runConfig.fidelityVectorTemperature,
           concurrency: 2,
+        },
+        vectorFirst: {
+          initialSamples: runConfig.vectorFirstInitialSamples,
+          maxSamples: runConfig.vectorFirstMaxSamples,
+          model: runConfig.vectorFirstModel,
+          temperature: runConfig.vectorFirstTemperature,
+          concurrency: runConfig.vectorFirstConcurrency,
         },
         ...(runConfig.adjudicateAdvisor
           ? {
