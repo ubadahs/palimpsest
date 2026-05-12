@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 
 import type {
   AdjudicationRecord,
@@ -14,10 +14,54 @@ import {
 } from "./adjudication-packet.js";
 import { aggregateFidelityVectorSamples } from "./fidelity-vector-stats.js";
 
-const fidelityVectorSampleResponseSchema = fidelityVectorSampleSchema.omit({
-  sampleIndex: true,
-  telemetry: true,
-});
+const looseAxisScoreSchema = z
+  .object({
+    score: z.number(),
+    rationale: z.string().min(1),
+  })
+  .strict();
+
+// Anthropic structured output rejects JSON Schema numeric min/max constraints.
+// Use a provider-compatible schema for generation, then validate strict bounds
+// with the domain schema after adding code-owned fields.
+const fidelityVectorSampleResponseSchema = z
+  .object({
+    axes: z
+      .object({
+        support: looseAxisScoreSchema,
+        evidenceGrounding: looseAxisScoreSchema,
+        claimIdentity: looseAxisScoreSchema,
+        directionalAlignment: looseAxisScoreSchema,
+        scopeMatch: looseAxisScoreSchema,
+        certaintyMatch: looseAxisScoreSchema,
+        attributionDirectness: looseAxisScoreSchema,
+        uncertainty: looseAxisScoreSchema,
+      })
+      .strict(),
+    scopeDirection: z.enum([
+      "none",
+      "expansion",
+      "contraction",
+      "shift",
+      "unclear",
+    ]),
+    certaintyDirection: z.enum([
+      "none",
+      "escalation",
+      "deflation",
+      "shift",
+      "unclear",
+    ]),
+    suggestedVerdict: z.enum([
+      "supported",
+      "partially_supported",
+      "overstated_or_generalized",
+      "not_supported",
+      "cannot_determine",
+    ]),
+    rationale: z.string().min(1),
+  })
+  .strict();
 
 export const DEFAULT_FIDELITY_VECTOR_MODEL = "claude-sonnet-4-6";
 
@@ -112,11 +156,13 @@ export async function generateFidelityVectorTrace({
       schema: fidelityVectorSampleResponseSchema,
       temperature,
     });
-    samples.push({
-      ...result.object,
-      sampleIndex: i,
-      telemetry: toFidelityVectorCallTelemetry(result.record),
-    });
+    samples.push(
+      fidelityVectorSampleSchema.parse({
+        ...result.object,
+        sampleIndex: i,
+        telemetry: toFidelityVectorCallTelemetry(result.record),
+      }),
+    );
   }
 
   const aggregate = aggregateFidelityVectorSamples(samples);
