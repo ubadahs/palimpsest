@@ -36,6 +36,10 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
   let familyConcurrency: number | undefined;
   let adjudicateAdvisor: boolean | undefined;
   let adjudicateFirstPassModel: string | undefined;
+  let adjudicateFidelityVectorTrace: boolean | undefined;
+  let fidelityVectorSamples: number | undefined;
+  let fidelityVectorModel: string | undefined;
+  let fidelityVectorTemperature: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -125,6 +129,25 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
     } else if (arg === "--advisor-first-pass-model" && i + 1 < argv.length) {
       adjudicateFirstPassModel = argv[i + 1]!;
       i++;
+    } else if (arg === "--fidelity-vector-trace") {
+      adjudicateFidelityVectorTrace = true;
+    } else if (arg === "--no-fidelity-vector-trace") {
+      adjudicateFidelityVectorTrace = false;
+    } else if (arg === "--fidelity-vector-samples" && i + 1 < argv.length) {
+      fidelityVectorSamples = Math.min(
+        10,
+        Math.max(1, parseInt(argv[i + 1]!, 10)),
+      );
+      i++;
+    } else if (arg === "--fidelity-vector-model" && i + 1 < argv.length) {
+      fidelityVectorModel = argv[i + 1]!;
+      i++;
+    } else if (arg === "--fidelity-vector-temperature" && i + 1 < argv.length) {
+      fidelityVectorTemperature = Math.min(
+        2,
+        Math.max(0, Number(argv[i + 1]!)),
+      );
+      i++;
     }
     // Run settings
     else if (arg === "--force-refresh") {
@@ -172,6 +195,10 @@ function parseArgs(argv: string[]): PipelineCliOverrides {
     targetSize,
     adjudicateAdvisor,
     adjudicateFirstPassModel,
+    adjudicateFidelityVectorTrace,
+    fidelityVectorSamples,
+    fidelityVectorModel,
+    fidelityVectorTemperature,
     forceRefresh,
     familyConcurrency,
   };

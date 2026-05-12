@@ -577,6 +577,13 @@ export async function runFamilyStages(
         useExtendedThinking: runConfig.adjudicateThinking,
         llmClient: adjudicationClient,
         enableExactCache: true,
+        fidelityVectorTrace: {
+          enabled: runConfig.adjudicateFidelityVectorTrace,
+          sampleCount: runConfig.fidelityVectorSamples,
+          model: runConfig.fidelityVectorModel,
+          temperature: runConfig.fidelityVectorTemperature,
+          concurrency: 2,
+        },
         ...(runConfig.adjudicateAdvisor
           ? {
               advisor: {

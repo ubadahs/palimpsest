@@ -19,6 +19,10 @@ These verdicts are the canonical machine outputs for:
 - agreement reports
 - benchmark blind/diff/summary/apply workflows
 
+Optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the canonical support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
+
+The trace is conditioned on the same compact adjudication packet as the canonical adjudicator: marked citing context plus retrieved cited-paper evidence snippets. It does not send full cited-paper text to vector sample calls, and vector scores are uncalibrated until benchmarked against human labels.
+
 ## Relationship To The PRD Taxonomy
 
 The PRD’s conceptual taxonomy remains important, but it is **not** the primary persisted output shape in the current implementation.

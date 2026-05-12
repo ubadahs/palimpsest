@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { AuditSample } from "../../src/domain/types.js";
+import type {
+  AuditSample,
+  FidelityVectorTrace,
+} from "../../src/domain/types.js";
 import {
   applyAuditSampleDeltas,
   createBlindAuditSample,
@@ -9,6 +12,64 @@ import {
 } from "../../src/benchmark/workflow.js";
 
 function makeAuditSample(): AuditSample {
+  const fidelityVectorTrace = {
+    version: "fidelity-vector-trace-v1",
+    model: "claude-sonnet-4-6",
+    temperature: 0.7,
+    sampleCount: 0,
+    samples: [],
+    aggregate: {
+      meanAxes: {
+        support: 0,
+        evidenceGrounding: 0,
+        claimIdentity: 0,
+        directionalAlignment: 0,
+        scopeMatch: 0,
+        certaintyMatch: 0,
+        attributionDirectness: 0,
+        uncertainty: 0,
+      },
+      varianceAxes: {
+        support: 0,
+        evidenceGrounding: 0,
+        claimIdentity: 0,
+        directionalAlignment: 0,
+        scopeMatch: 0,
+        certaintyMatch: 0,
+        attributionDirectness: 0,
+        uncertainty: 0,
+      },
+      verdictDistribution: {
+        sampleCount: 0,
+        counts: {
+          supported: 0,
+          partially_supported: 0,
+          overstated_or_generalized: 0,
+          not_supported: 0,
+          cannot_determine: 0,
+        },
+        modalVerdict: "cannot_determine",
+        entropy: 0,
+      },
+      scopeDirectionDistribution: {
+        none: 0,
+        expansion: 0,
+        contraction: 0,
+        shift: 0,
+        unclear: 0,
+      },
+      certaintyDirectionDistribution: {
+        none: 0,
+        escalation: 0,
+        deflation: 0,
+        shift: 0,
+        unclear: 0,
+      },
+      disagreementScore: 0,
+      overallUncertainty: 0,
+    },
+  } as FidelityVectorTrace;
+
   return {
     seed: { doi: "10.1234/seed", trackedClaim: "Claim" },
     resolvedSeedPaperTitle: "Seed Paper",
@@ -39,6 +100,7 @@ function makeAuditSample(): AuditSample {
         excluded: undefined,
         excludeReason: undefined,
         telemetry: undefined,
+        fidelityVectorTrace,
       },
       {
         recordId: "record-2",
@@ -81,6 +143,7 @@ describe("benchmark workflow", () => {
 
     expect(blind.records[0]).not.toHaveProperty("verdict");
     expect(blind.records[0]).not.toHaveProperty("adjudicator");
+    expect(blind.records[0]).not.toHaveProperty("fidelityVectorTrace");
     expect(blind.records[1]).toMatchObject({
       taskId: "task-2",
       verdict: "cannot_determine",
