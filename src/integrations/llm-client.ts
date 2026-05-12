@@ -31,6 +31,7 @@ export const llmPurposeValues = [
   "seed-grounding",
   "claim-family-filter",
   "adjudication",
+  "fidelity-vector",
   "evidence-rerank",
   "attributed-claim-extraction",
   "family-consolidation",
@@ -205,6 +206,7 @@ export type GenerateObjectParams<T extends z.ZodType> = {
   model?: string;
   prompt: string;
   schema: T;
+  temperature?: number;
   context?: LLMCallContext;
   /** Opt in to persistent exact-result caching. */
   exactCache?: ExactCacheConfig;
@@ -373,6 +375,10 @@ const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
   adjudication: {
+    minPromptChars: 5_000,
+    cacheControl: { type: "ephemeral", ttl: "5m" },
+  },
+  "fidelity-vector": {
     minPromptChars: 5_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
@@ -948,6 +954,9 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               model: anthropic(modelId),
               schema: params.schema,
               prompt: params.prompt,
+              ...(params.temperature != null
+                ? { temperature: params.temperature }
+                : {}),
               ...(providerOptions ? { providerOptions } : {}),
             }),
           params.purpose,

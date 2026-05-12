@@ -11,6 +11,7 @@ import {
   evidenceSpanSchema,
   taskEvidenceRetrievalStatusSchema,
 } from "./evidence.js";
+import { fidelityVectorTraceSchema } from "./fidelity-vector.js";
 import { seedPaperInputSchema } from "./pre-screen.js";
 
 export const adjudicationVerdictValues = [
@@ -93,6 +94,7 @@ export const adjudicationRecordSchema = z
     excluded: undefinedable(z.boolean()),
     excludeReason: undefinedable(z.string()),
     telemetry: undefinedable(llmCallTelemetrySchema),
+    fidelityVectorTrace: undefinedable(fidelityVectorTraceSchema),
   })
   .passthrough();
 export type AdjudicationRecord = z.infer<typeof adjudicationRecordSchema>;

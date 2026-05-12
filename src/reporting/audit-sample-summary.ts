@@ -10,6 +10,15 @@ function formatPercent(n: number, d: number): string {
   return `${((n / d) * 100).toFixed(0)}%`;
 }
 
+function formatScore(n: number): string {
+  return n.toFixed(2);
+}
+
+function formatAgreement(value: boolean | undefined): string {
+  if (value == null) return "—";
+  return value ? "yes" : "no";
+}
+
 export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
   const active = set.records.filter((r) => !r.excluded);
   const adjudicated = active.filter((r) => r.verdict != null);
@@ -102,6 +111,34 @@ export function toAuditSampleSummaryMarkdown(set: AuditSample): string {
     const count = rqCounts[q] ?? 0;
     sections.push(
       `| ${q} | ${String(count)} | ${formatPercent(count, total)} |`,
+    );
+  }
+
+  const vectorRecords = adjudicated.filter((r) => r.fidelityVectorTrace);
+  if (vectorRecords.length > 0) {
+    let vectorCalls = 0;
+    let vectorCost = 0;
+    sections.push(
+      "",
+      "## Fidelity Vector Trace Summary",
+      "",
+      "| Task | Canonical verdict | Vector verdict | Agreement | Support | Grounding | Claim identity | Scope | Certainty | Uncertainty |",
+      "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    );
+
+    for (const r of vectorRecords) {
+      const trace = r.fidelityVectorTrace!;
+      const means = trace.aggregate.meanAxes;
+      vectorCalls += trace.telemetry?.totalCalls ?? trace.samples.length;
+      vectorCost += trace.telemetry?.estimatedCostUsd ?? 0;
+      sections.push(
+        `| ${r.taskId} | ${r.verdict ?? "—"} | ${trace.aggregate.verdictDistribution.modalVerdict} | ${formatAgreement(trace.canonicalVerdictAgreement)} | ${formatScore(means.support)} | ${formatScore(means.evidenceGrounding)} | ${formatScore(means.claimIdentity)} | ${formatScore(means.scopeMatch)} | ${formatScore(means.certaintyMatch)} | ${formatScore(means.uncertainty)} |`,
+      );
+    }
+
+    sections.push(
+      "",
+      `Vector trace calls: ${String(vectorCalls)}; estimated vector cost: $${vectorCost.toFixed(4)}.`,
     );
   }
 
