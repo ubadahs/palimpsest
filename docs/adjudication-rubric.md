@@ -19,7 +19,9 @@ These verdicts are the canonical machine outputs for:
 - agreement reports
 - benchmark blind/diff/summary/apply workflows
 
-Optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the canonical support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
+In the default **categorical adjudicator** mode, optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the canonical support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
+
+The opt-in **vector-first adjudicator** (`adjudicationMode: "vector_first"`) uses the same canonical verdict labels but changes the verdict source for clear cases: it samples vector axes first, may adaptively add samples, and can accept `axisDerivedVerdict` as the final support-style verdict. Risky vector traces escalate to the existing categorical adjudicator, which still runs on the original unmodified audit record. Vector-first is a routing/source mode, not a new verdict taxonomy.
 
 The trace is conditioned on the same compact adjudication packet as the canonical adjudicator: marked citing context plus retrieved cited-paper evidence snippets. It does not send full cited-paper text to vector sample calls, and vector scores are uncalibrated until benchmarked against human labels.
 

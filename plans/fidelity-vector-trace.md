@@ -23,7 +23,7 @@ Do not do any of the following in this PR:
 - Do not replace canonical verdicts.
 - Do not change advisor escalation policy.
 - Do not change curation behavior.
-- Do not use vector scores to drive curation, escalation, or final verdicts.
+- Do not use vector scores to drive curation, escalation, or final verdicts in the diagnostic trace mode described by this plan. This has since been extended by the separate opt-in vector-first adjudicator experiment, where `adjudicationMode: "vector_first"` can use `axisDerivedVerdict` as the final verdict for clear cases while preserving the categorical adjudicator as the default.
 - Do not implement apparent/prior versus evidence/posterior support shift.
 - Do not add batched one-call multi-sample mode in v1.
 - Do not add MCTS, graph search, or multi-hop drift logic.
