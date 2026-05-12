@@ -46,6 +46,12 @@ describe("analysis runs repository", () => {
           fidelityVectorSamples: 3,
           fidelityVectorModel: "claude-sonnet-4-6",
           fidelityVectorTemperature: 0.7,
+          adjudicationMode: "vector_first",
+          vectorFirstInitialSamples: 1,
+          vectorFirstMaxSamples: 3,
+          vectorFirstModel: "claude-sonnet-4-6",
+          vectorFirstTemperature: 0.7,
+          vectorFirstConcurrency: 2,
           evidenceLlmRerank: true,
           discoverStrategy: "legacy",
           discoverTopN: 5,
@@ -66,6 +72,8 @@ describe("analysis runs repository", () => {
 
       const stages = listRunStages(database, run.id);
       expect(run.seedDoi).toBe("10.1234/seed");
+      expect(run.config.adjudicationMode).toBe("vector_first");
+      expect(run.config.vectorFirstMaxSamples).toBe(3);
       expect(stages).toHaveLength(7);
       expect(stages[0]?.stageKey).toBe("discover");
       expect(stages[0]?.status).toBe("succeeded"); // manual claim skips discover
@@ -99,6 +107,12 @@ describe("analysis runs repository", () => {
           fidelityVectorSamples: 3,
           fidelityVectorModel: "claude-sonnet-4-6",
           fidelityVectorTemperature: 0.7,
+          adjudicationMode: "categorical",
+          vectorFirstInitialSamples: 1,
+          vectorFirstMaxSamples: 3,
+          vectorFirstModel: "claude-sonnet-4-6",
+          vectorFirstTemperature: 0.7,
+          vectorFirstConcurrency: 2,
           evidenceLlmRerank: true,
           discoverStrategy: "legacy",
           discoverTopN: 5,

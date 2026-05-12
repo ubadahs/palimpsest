@@ -106,6 +106,18 @@ function makeAuditSample(): AuditSample {
         excludeReason: undefined,
         telemetry: undefined,
         fidelityVectorTrace,
+        vectorRoutingDecision: {
+          version: "vector-routing-v1",
+          adjudicationMode: "vector_first",
+          finalVerdictSource: "axis_derived",
+          triggeredAdaptiveSampling: false,
+          triggeredCategoricalAdjudicator: false,
+          initialSampleCount: 1,
+          finalSampleCount: 1,
+          adaptiveSamplingReasons: [],
+          categoricalEscalationReasons: [],
+          acceptedAxisDerivedVerdict: "supported",
+        },
       },
       {
         recordId: "record-2",
@@ -149,6 +161,7 @@ describe("benchmark workflow", () => {
     expect(blind.records[0]).not.toHaveProperty("verdict");
     expect(blind.records[0]).not.toHaveProperty("adjudicator");
     expect(blind.records[0]).not.toHaveProperty("fidelityVectorTrace");
+    expect(blind.records[0]).not.toHaveProperty("vectorRoutingDecision");
     expect(blind.records[1]).toMatchObject({
       taskId: "task-2",
       verdict: "cannot_determine",
@@ -297,6 +310,8 @@ describe("benchmark workflow", () => {
       "task-2",
     ]);
     expect(applied.records[0]!.verdict).toBe("partially_supported");
+    expect(applied.records[0]!.fidelityVectorTrace).toBeUndefined();
+    expect(applied.records[0]!.vectorRoutingDecision).toBeUndefined();
     expect(applied.version).toBe("v3");
   });
 
