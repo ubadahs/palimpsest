@@ -141,6 +141,28 @@ describe("fidelity vector schemas", () => {
     );
   });
 
+  it("parses adjudication records with vector-first routing provenance", () => {
+    const parsed = adjudicationRecordSchema.parse({
+      ...validRecord(),
+      vectorRoutingDecision: {
+        version: "vector-routing-v1",
+        adjudicationMode: "vector_first",
+        finalVerdictSource: "axis_derived",
+        triggeredAdaptiveSampling: false,
+        triggeredCategoricalAdjudicator: false,
+        initialSampleCount: 1,
+        finalSampleCount: 1,
+        adaptiveSamplingReasons: [],
+        categoricalEscalationReasons: [],
+        acceptedAxisDerivedVerdict: "supported",
+      },
+    });
+
+    expect(parsed.vectorRoutingDecision?.finalVerdictSource).toBe(
+      "axis_derived",
+    );
+  });
+
   it("rejects axis scores outside the unit interval", () => {
     const trace = validTrace();
     trace.samples[0]!.axes.support.score = 1.1;

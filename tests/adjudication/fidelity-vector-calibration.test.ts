@@ -140,9 +140,9 @@ describe("fidelity vector axis-derived verdict calibration", () => {
       sample({ claimIdentity: 0.72, attributionDirectness: 0.55 }, "supported"),
     ]);
 
-    expect(
-      aggregateResult.sampledVerdictDistribution.modalSampledVerdict,
-    ).toBe("supported");
+    expect(aggregateResult.sampledVerdictDistribution.modalSampledVerdict).toBe(
+      "supported",
+    );
     expect(aggregateResult.axisDerivedVerdict).toBe("partially_supported");
   });
 });

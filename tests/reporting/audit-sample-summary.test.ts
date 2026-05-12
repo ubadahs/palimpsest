@@ -139,4 +139,37 @@ describe("audit sample summary", () => {
       "Vector trace calls: 1; estimated vector cost: $0.0012.",
     );
   });
+
+  it("summarizes vector-first routing only when provenance is present", () => {
+    const withRouting: AuditSample = {
+      ...sample(true),
+      records: [
+        {
+          ...sample(true).records[0]!,
+          vectorRoutingDecision: {
+            version: "vector-routing-v1",
+            adjudicationMode: "vector_first",
+            finalVerdictSource: "axis_derived",
+            triggeredAdaptiveSampling: true,
+            triggeredCategoricalAdjudicator: false,
+            initialSampleCount: 1,
+            finalSampleCount: 3,
+            adaptiveSamplingReasons: ["core_axis_borderline"],
+            categoricalEscalationReasons: [],
+            acceptedAxisDerivedVerdict: "supported",
+          },
+        },
+      ],
+    };
+
+    expect(toAuditSampleSummaryMarkdown(sample(true))).not.toContain(
+      "Vector-First Routing Summary",
+    );
+
+    const markdown = toAuditSampleSummaryMarkdown(withRouting);
+    expect(markdown).toContain("## Vector-First Routing Summary");
+    expect(markdown).toContain("| Vector-derived accepted records | 1 |");
+    expect(markdown).toContain("| axis_derived | 1 |");
+    expect(markdown).toContain("| core_axis_borderline | 1 |");
+  });
 });
