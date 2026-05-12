@@ -181,7 +181,11 @@ export async function generateFidelityVectorTrace({
   if (canonicalVerdict != null) {
     trace.canonicalVerdict = canonicalVerdict;
     trace.canonicalVerdictAgreement =
-      canonicalVerdict === aggregate.verdictDistribution.modalVerdict;
+      canonicalVerdict ===
+      aggregate.sampledVerdictDistribution.modalSampledVerdict;
+    trace.canonicalSampledVerdictAgreement = trace.canonicalVerdictAgreement;
+    trace.canonicalAxisDerivedVerdictAgreement =
+      canonicalVerdict === aggregate.axisDerivedVerdict;
   }
 
   return trace;

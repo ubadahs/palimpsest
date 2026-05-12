@@ -173,6 +173,13 @@ describe("fidelity vector scorer wiring", () => {
     expect(
       result.records[0]!.fidelityVectorTrace?.canonicalVerdictAgreement,
     ).toBe(true);
+    expect(
+      result.records[0]!.fidelityVectorTrace?.canonicalSampledVerdictAgreement,
+    ).toBe(true);
+    expect(
+      result.records[0]!.fidelityVectorTrace
+        ?.canonicalAxisDerivedVerdictAgreement,
+    ).toBe(false);
     expect(result.records[0]!.fidelityVectorTrace?.sampleCount).toBe(3);
   });
 
@@ -238,5 +245,8 @@ describe("fidelity vector scorer wiring", () => {
     expect(
       result.records[0]!.fidelityVectorTrace?.canonicalVerdictAgreement,
     ).toBe(true);
+    expect(
+      result.records[0]!.fidelityVectorTrace?.aggregate.axisDerivedVerdict,
+    ).toBe("partially_supported");
   });
 });

@@ -39,7 +39,7 @@ function makeAuditSample(): AuditSample {
         attributionDirectness: 0,
         uncertainty: 0,
       },
-      verdictDistribution: {
+      sampledVerdictDistribution: {
         sampleCount: 0,
         counts: {
           supported: 0,
@@ -48,9 +48,14 @@ function makeAuditSample(): AuditSample {
           not_supported: 0,
           cannot_determine: 0,
         },
-        modalVerdict: "cannot_determine",
+        modalSampledVerdict: "cannot_determine",
         entropy: 0,
       },
+      axisDerivedVerdict: "cannot_determine",
+      axisDerivedVerdictReason:
+        "Support or evidence grounding is below the threshold needed for a partial-support diagnostic verdict.",
+      axisDerivedVerdictRule:
+        "cannot_determine_insufficient_support_or_grounding",
       scopeDirectionDistribution: {
         none: 0,
         expansion: 0,

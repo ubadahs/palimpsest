@@ -11,6 +11,7 @@ import type {
   ScopeDirectionDistribution,
 } from "../domain/types.js";
 import { fidelityAxisValues } from "../domain/types.js";
+import { deriveAxisVerdict } from "./fidelity-vector-calibration.js";
 
 const CONSERVATIVE_VERDICT_ORDER: FidelityVectorVerdict[] = [
   "cannot_determine",
@@ -83,24 +84,34 @@ export function aggregateFidelityVectorSamples(
   const meanAxisVariance = computeMean(
     fidelityAxisValues.map((axis) => varianceAxes[axis]),
   );
+  const scopeDirectionDistribution = countScopeDirections(samples);
+  const certaintyDirectionDistribution = countCertaintyDirections(samples);
+  const overallUncertainty = clamp01(
+    0.5 * meanAxes.uncertainty + 0.3 * verdictEntropy + 0.2 * meanAxisVariance,
+  );
+  const axisDerived = deriveAxisVerdict({
+    meanAxes,
+    scopeDirectionDistribution,
+    certaintyDirectionDistribution,
+    overallUncertainty,
+  });
 
   return {
     meanAxes,
     varianceAxes,
-    verdictDistribution: {
+    sampledVerdictDistribution: {
       sampleCount: samples.length,
       counts: verdictCounts,
-      modalVerdict: selectModalVerdict(verdictCounts),
+      modalSampledVerdict: selectModalVerdict(verdictCounts),
       entropy: verdictEntropy,
     },
-    scopeDirectionDistribution: countScopeDirections(samples),
-    certaintyDirectionDistribution: countCertaintyDirections(samples),
+    axisDerivedVerdict: axisDerived.verdict,
+    axisDerivedVerdictReason: axisDerived.reason,
+    axisDerivedVerdictRule: axisDerived.rule,
+    scopeDirectionDistribution,
+    certaintyDirectionDistribution,
     disagreementScore: verdictEntropy,
-    overallUncertainty: clamp01(
-      0.5 * meanAxes.uncertainty +
-        0.3 * verdictEntropy +
-        0.2 * meanAxisVariance,
-    ),
+    overallUncertainty,
   };
 }
 
