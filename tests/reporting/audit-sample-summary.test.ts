@@ -34,7 +34,7 @@ function trace(): FidelityVectorTrace {
         attributionDirectness: 0,
         uncertainty: 0,
       },
-      verdictDistribution: {
+      sampledVerdictDistribution: {
         sampleCount: 1,
         counts: {
           supported: 1,
@@ -43,9 +43,13 @@ function trace(): FidelityVectorTrace {
           not_supported: 0,
           cannot_determine: 0,
         },
-        modalVerdict: "supported",
+        modalSampledVerdict: "supported",
         entropy: 0,
       },
+      axisDerivedVerdict: "overstated_or_generalized",
+      axisDerivedVerdictReason:
+        "Evidence broadly supports the claim, but scope or certainty axes indicate expansion, shift, escalation, or weakened match.",
+      axisDerivedVerdictRule: "overstated_scope_or_certainty_warning",
       scopeDirectionDistribution: {
         none: 1,
         expansion: 0,
@@ -65,6 +69,8 @@ function trace(): FidelityVectorTrace {
     },
     canonicalVerdict: "supported",
     canonicalVerdictAgreement: true,
+    canonicalSampledVerdictAgreement: true,
+    canonicalAxisDerivedVerdictAgreement: false,
     telemetry: {
       totalCalls: 1,
       successfulCalls: 1,
@@ -127,7 +133,7 @@ describe("audit sample summary", () => {
 
     expect(markdown).toContain("## Fidelity Vector Trace Summary");
     expect(markdown).toContain(
-      "| task-1 | supported | supported | yes | 0.81 | 0.73 | 0.70 | 0.46 | 0.34 | 0.23 |",
+      "| task-1 | supported | supported | overstated_or_generalized | no | 0.81 | 0.73 | 0.70 | 0.46 | 0.34 | 0.23 |",
     );
     expect(markdown).toContain(
       "Vector trace calls: 1; estimated vector cost: $0.0012.",
