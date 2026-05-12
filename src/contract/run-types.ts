@@ -51,6 +51,11 @@ export const analysisRunConfigObjectSchema = z
     adjudicateAdvisor: z.boolean().default(true),
     /** First-pass model used when adjudicateAdvisor is true. */
     adjudicateFirstPassModel: z.string().min(1).default("claude-sonnet-4-6"),
+    /** Optional diagnostic vector trace sampled after final adjudication. */
+    adjudicateFidelityVectorTrace: z.boolean().default(false),
+    fidelityVectorSamples: z.number().int().min(1).max(10).default(3),
+    fidelityVectorModel: z.string().min(1).default("claude-sonnet-4-6"),
+    fidelityVectorTemperature: z.number().min(0).max(2).default(0.7),
     evidenceLlmRerank: z.boolean().default(true),
     discoverStrategy: z
       .enum(["legacy", "attribution_first"])
