@@ -61,7 +61,7 @@ function validTrace(): FidelityVectorTrace {
         attributionDirectness: 0,
         uncertainty: 0,
       },
-      verdictDistribution: {
+      sampledVerdictDistribution: {
         sampleCount: 1,
         counts: {
           supported: 1,
@@ -70,9 +70,13 @@ function validTrace(): FidelityVectorTrace {
           not_supported: 0,
           cannot_determine: 0,
         },
-        modalVerdict: "supported",
+        modalSampledVerdict: "supported",
         entropy: 0,
       },
+      axisDerivedVerdict: "overstated_or_generalized",
+      axisDerivedVerdictReason:
+        "Evidence broadly supports the claim, but scope or certainty axes indicate expansion, shift, escalation, or weakened match.",
+      axisDerivedVerdictRule: "overstated_scope_or_certainty_warning",
       scopeDirectionDistribution: {
         none: 1,
         expansion: 0,
@@ -92,6 +96,8 @@ function validTrace(): FidelityVectorTrace {
     },
     canonicalVerdict: "supported",
     canonicalVerdictAgreement: true,
+    canonicalSampledVerdictAgreement: true,
+    canonicalAxisDerivedVerdictAgreement: false,
   };
 }
 
@@ -126,10 +132,13 @@ describe("fidelity vector schemas", () => {
     });
 
     expect(
-      parsed.fidelityVectorTrace?.aggregate.verdictDistribution,
+      parsed.fidelityVectorTrace?.aggregate.sampledVerdictDistribution,
     ).toMatchObject({
-      modalVerdict: "supported",
+      modalSampledVerdict: "supported",
     });
+    expect(parsed.fidelityVectorTrace?.aggregate.axisDerivedVerdict).toBe(
+      "overstated_or_generalized",
+    );
   });
 
   it("rejects axis scores outside the unit interval", () => {
