@@ -29,6 +29,7 @@ function blindRecord(record: AdjudicationRecord): BlindAuditRecord {
   delete blind["adjudicatedAt"];
   delete blind["telemetry"];
   delete blind["fidelityVectorTrace"];
+  delete blind["vectorRoutingDecision"];
   return blind as BlindAdjudicationRecord;
 }
 
@@ -291,6 +292,8 @@ function applyDelta(
     judgeConfidence: delta.judgeConfidence ?? record.judgeConfidence,
     excluded: delta.excluded ?? record.excluded,
     excludeReason: delta.excludeReason ?? record.excludeReason,
+    fidelityVectorTrace: undefined,
+    vectorRoutingDecision: undefined,
   };
 }
 

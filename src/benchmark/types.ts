@@ -18,6 +18,7 @@ export const blindAdjudicationRecordSchema = adjudicationRecordSchema
     adjudicatedAt: true,
     telemetry: true,
     fidelityVectorTrace: true,
+    vectorRoutingDecision: true,
   })
   .passthrough();
 export type BlindAdjudicationRecord = z.infer<
