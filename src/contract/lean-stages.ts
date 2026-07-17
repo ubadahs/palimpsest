@@ -54,7 +54,7 @@ export const canonicalStageDefinitions = [
     key: "report",
     order: 5,
     responsibility:
-      "Render machine-readable and human-readable reports from adjudication artifacts.",
+      "Emit a deterministic JSON audit report plus Markdown rendering from the complete canonical artifact chain; JSON is authoritative and Markdown must not derive independent counts or rates.",
   },
 ] as const satisfies readonly CanonicalStageDefinition[];
 

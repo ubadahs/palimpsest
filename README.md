@@ -62,16 +62,16 @@ Pipeline and UI artifacts are written locally under `data/runs/` when using mana
 
 ## Output
 
-In the current executor, each adjudicated claim family produces two artifacts under `data/runs/<run>/06-adjudicate/`:
+In the temporary current executor, each adjudicated claim family produces two artifacts under `data/runs/<run>/06-adjudicate/`:
 
-- A **Markdown summary** (`_llm-summary.md`) — verdict distribution, verdict-by-mode and retrieval-quality breakdowns, and per-record notes on where a citing paper's attribution diverges from the cited text.
-- A **JSON audit sample** (`_llm-audit-sample.json`) — the same verdicts with per-record evidence spans, confidence, retrieval-quality judgments, and full LLM-call provenance, so each conclusion is traceable to the cited source.
+- A **Markdown summary** (`_llm-summary.md`) — support-style verdict distribution and per-record notes. This is not the canonical Report and must not be read as a calibrated faithfulness rate.
+- A **JSON audit sample** (`_llm-audit-sample.json`) — the same support-style verdicts with per-record evidence spans, confidence, retrieval-quality judgments, and full LLM-call provenance.
 
-See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layout and schemas.
+Canonical Report (isolated, not CLI-wired) instead emits authoritative JSON funnel/rate/trace accounting from the Discover→…→Adjudicate chain, plus a deterministic Markdown rendering of that JSON. See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layout and schemas.
 
 ## Pipeline
 
-The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, Evidence, and Adjudicate have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Canonical Adjudicate is isolated/not CLI-wired and explicitly uncalibrated: it consumes Evidence plus exact Prepare lineage, applies deterministic epistemic gates, runs one categorical model request per eligible record, and persists PRD `F`/`D`/`E`/`U` (or typed non-verdict outcomes) with no advisor/vector confidence routing. Until executor migration lands, the CLI and UI run these temporary stages:
+The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, Evidence, Adjudicate, and Report have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Canonical Adjudicate is isolated/not CLI-wired and explicitly uncalibrated: it consumes Evidence plus exact Prepare lineage, applies deterministic epistemic gates, runs one categorical model request per eligible record, and persists PRD `F`/`D`/`E`/`U` (or typed non-verdict outcomes) with no advisor/vector confidence routing. Canonical Report is isolated/not CLI-wired and deterministic: it tamper-verifies the full five-artifact chain, emits authoritative JSON funnel/rate/trace accounting (F/D/E/U rates use the adjudicated denominator only), and renders Markdown only from that validated JSON—no adapters, LLM calls, or evaluation/benchmark statistics. Until executor migration lands, the CLI and UI run these temporary stages:
 
 | Current executor stage | Purpose |
 |------|---------|

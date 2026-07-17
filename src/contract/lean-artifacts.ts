@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  adjudicationVerdictSchema,
   confidenceSchema,
   evaluationModeSchema,
   type CitationRole,
@@ -17,6 +16,14 @@ import {
   adjudicateArtifactPayloadSchema,
   validateAdjudicateArtifactLineage,
 } from "./canonical-adjudicate.js";
+import {
+  evidenceRerankStatusSchema,
+  evidenceRetrievalStatusSchema,
+} from "./canonical-evidence-statuses.js";
+import {
+  reportArtifactPayloadSchema,
+  validateReportArtifactLineage,
+} from "./canonical-report.js";
 import {
   artifactReferenceSchema,
   leanArtifactIdSchema,
@@ -60,6 +67,39 @@ export {
   type CanonicalAdjudicateMethod,
   type CanonicalAdjudicateModelOutput,
 } from "./canonical-adjudicate.js";
+export {
+  evidenceRerankStatusSchema,
+  evidenceRetrievalStatusSchema,
+  type EvidenceRerankStatus,
+  type EvidenceRetrievalStatus,
+} from "./canonical-evidence-statuses.js";
+export {
+  REPORT_DECISION_ACTOR_ID,
+  REPORT_INTERPRETATION_WARNING,
+  REPORT_PUBLICATION_REASON,
+  REQUIRED_REPORT_RATE_METRIC_IDS,
+  buildReportDecisionRecordId,
+  buildReportCount,
+  buildReportRate,
+  canonicalReportMethod,
+  canonicalReportMethodId,
+  canonicalReportMethodSchema,
+  reportArtifactPayloadSchema,
+  reportInterpretationStatusSchema,
+  reportLineageSchema,
+  reportRateSchema,
+  reportRecordTraceSchema,
+  type CanonicalReportMethod,
+  type ReportArtifactPayload,
+  type ReportCount,
+  type ReportDecisionSummary,
+  type ReportExclusionSummary,
+  type ReportFunnelCounts,
+  type ReportLineage,
+  type ReportRate,
+  type ReportRecordTrace,
+  type ReportInterpretationStatus,
+} from "./canonical-report.js";
 
 export const leanArtifactSchemaVersion = 1 as const;
 export const leanArtifactVersion = 1 as const;
@@ -2451,27 +2491,6 @@ export type EvidencePreparedRecordLedgerEntry = z.infer<
   typeof evidencePreparedRecordLedgerEntrySchema
 >;
 
-export const evidenceRetrievalStatusSchema = z.enum([
-  "retrieved",
-  "no_lexical_matches",
-  "seed_text_unavailable",
-  "seed_acquisition_failed",
-  "retrieval_failed",
-]);
-export type EvidenceRetrievalStatus = z.infer<
-  typeof evidenceRetrievalStatusSchema
->;
-
-export const evidenceRerankStatusSchema = z.enum([
-  "disabled",
-  "not_attempted_no_candidates",
-  "not_attempted_unavailable",
-  "not_attempted_retrieval_failure",
-  "completed",
-  "failed",
-]);
-export type EvidenceRerankStatus = z.infer<typeof evidenceRerankStatusSchema>;
-
 export const evidenceRecordOutcomeSchema = z
   .object({
     recordId: stableIdentifierSchema,
@@ -2513,24 +2532,6 @@ export const evidenceArtifactPayloadSchema = z
 export type EvidenceArtifactPayload = z.infer<
   typeof evidenceArtifactPayloadSchema
 >;
-
-export const reportArtifactPayloadSchema = z
-  .object({
-    title: z.string().min(1),
-    summary: z.string().min(1),
-    recordIds: z.array(stableIdentifierSchema),
-    verdictCounts: z.partialRecord(
-      adjudicationVerdictSchema,
-      z.number().int().nonnegative(),
-    ),
-    metrics: z.record(
-      z.string().min(1),
-      z.union([z.string(), z.number(), z.boolean()]),
-    ),
-    markdown: z.string(),
-  })
-  .strict();
-export type ReportArtifactPayload = z.infer<typeof reportArtifactPayloadSchema>;
 
 const commonLeanArtifactEnvelopeSchema = z
   .object({
@@ -2606,7 +2607,11 @@ export const reportArtifactSchema = commonLeanArtifactEnvelopeSchema
     payload: reportArtifactPayloadSchema,
   })
   .strict()
-  .superRefine(validateLeanArtifactIdentity);
+  .superRefine((artifact, context) => {
+    validateLeanArtifactIdentity(artifact, context);
+    validateReportArtifactLineage(artifact, context);
+  });
+export type ReportArtifact = z.infer<typeof reportArtifactSchema>;
 
 export const leanStageArtifactSchema = z.discriminatedUnion("canonicalStage", [
   discoverArtifactSchema,
