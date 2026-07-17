@@ -110,7 +110,33 @@ The application and persistence seams are:
 - `writeCanonicalAdjudicateArtifact` — validates and writes only the current Adjudicate envelope
 - `loadCanonicalAdjudicateArtifact` — validates current version, lineage, complete accounting, provenance, stable identities, and tamper hashes
 
-Operational gates never become `U`. Confidence never routes another model. Advisor/vector paths are absent. Blinded human calibration is still required before trust claims or restoring routed methods. Production adapters, Report, CLI, and executor wiring remain unimplemented.
+Operational gates never become `U`. Confidence never routes another model. Advisor/vector paths are absent. Blinded human calibration is still required before trust claims or restoring routed methods. Production adapters, CLI, and executor wiring remain unimplemented.
+
+## Canonical Report Artifact
+
+Canonical Report reads the complete current Discover → Scope → Prepare → Evidence → Adjudicate chain. It reads no current-executor audit-summary/report artifacts and does not infer lineage from filenames. Its authoritative envelope contains:
+
+- exact five-artifact lineage in fixed order (Discover, Scope, Prepare, Evidence, Adjudicate) with artifact IDs/content hashes/roles/stages
+- method descriptor `canonical-audit-report-v1` with interpretation status `uncalibrated_research_output`
+- funnel counts with explicit units/populations for each distinct accounting unit; Discover citing-paper counts are seed-specific observations, not globally unique papers
+- schema-checked funnel partitions plus unique, deterministic status summaries that reconcile with parent populations and per-record traces
+- rate objects whose values are recomputed from numerator/denominator (null when denominator is zero; never NaN/Infinity), whose numerators cannot exceed denominators, and whose required numerator/denominator semantics bind to exact funnel counts
+- exactly one per-record trace per Prepare/Evidence/Adjudicate record
+- canonical stable identifiers for all trace IDs/references, exact Evidence retrieval/rerank/reference combinations, and strict adjudication variants that forbid fields from other statuses
+- separate BM25/reranked counts for unique final-selection objects and for family×occurrence record use, because a shared family selection can serve multiple records
+- summarized append-only decision/exclusion provenance needed to reconstruct funnel transitions
+- exactly two deterministic Report decisions (interpretation and publication status), each bound to all five inputs, and no Report-stage exclusions
+- empty prompt/model/response provenance; always deterministic and replayable
+
+The application and persistence seams are:
+
+- `runCanonicalReport` — verifies the full ancestor chain, computes funnel/rates/traces, and emits the JSON payload
+- `buildCanonicalReportArtifact` — binds all five direct inputs into the lean envelope
+- `renderCanonicalReportMarkdown` — pure Markdown formatting of validated JSON; no independent calculations
+- `writeCanonicalReportArtifacts` — rejects resolved JSON/Markdown path collisions before any write, then writes validated JSON first and Markdown from that exact parsed object
+- `loadCanonicalReportArtifact` — validates current JSON version, lineage, rates, traces, and tamper hashes
+
+Temporary current-executor Markdown/JSON stage reports in `src/reporting/` remain temporary and are not canonical Report. Blinded calibration and separate evaluation reports remain outstanding. CLI/executor wiring remains deferred.
 
 ## Artifact Roles
 
@@ -119,7 +145,7 @@ Artifacts fall into four roles:
 | Role | Meaning |
 |------|---------|
 | `primary` | Authoritative machine output for a current-executor stage, or a machine handoff consumed by a later stage |
-| `report` | Human-readable Markdown inspection output |
+| `report` | Human-readable Markdown inspection output (temporary executor stage reports, or the Markdown rendering beside canonical Report JSON) |
 | `diagnostic` | Provenance, trace, debugging, or review-support output that is not the main downstream contract |
 | `manifest` | Reproducibility metadata written beside each primary JSON artifact |
 

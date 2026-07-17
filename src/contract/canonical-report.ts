@@ -1,0 +1,1537 @@
+import { z } from "zod";
+
+import { fidelityTopLabelSchema } from "../domain/taxonomy.js";
+import {
+  buildStableId,
+  canonicalSerialize,
+} from "../shared/stable-identity.js";
+import {
+  adjudicateGateCodeSchema,
+  adjudicateNonfatalFailureCodeSchema,
+} from "./canonical-adjudicate.js";
+import {
+  evidenceRerankStatusSchema,
+  evidenceRetrievalStatusSchema,
+} from "./canonical-evidence-statuses.js";
+import {
+  artifactReferenceSchema,
+  stableIdentifierSchema,
+  type ArtifactReference,
+} from "./lean-artifact-primitives.js";
+import { canonicalStageKeySchema } from "./lean-stages.js";
+
+/**
+ * Canonical Report contract (isolated stage module). Shared envelope
+ * primitives come from a cycle-free module; scientific stage contracts stay
+ * outside that primitive boundary. Markdown is not part of the JSON payload —
+ * it is a pure deterministic rendering of validated JSON only.
+ */
+
+export const canonicalReportMethodId = "canonical-audit-report-v1" as const;
+
+export const canonicalReportMethodSchema = z
+  .object({
+    methodId: z.literal(canonicalReportMethodId),
+    strategy: z.literal("deterministic_funnel"),
+    calibrationStatus: z.literal("uncalibrated"),
+    outputs: z.literal("json_and_markdown"),
+  })
+  .strict();
+export type CanonicalReportMethod = z.infer<typeof canonicalReportMethodSchema>;
+
+export const canonicalReportMethod: CanonicalReportMethod = {
+  methodId: canonicalReportMethodId,
+  strategy: "deterministic_funnel",
+  calibrationStatus: "uncalibrated",
+  outputs: "json_and_markdown",
+};
+
+export const reportInterpretationStatusSchema = z.literal(
+  "uncalibrated_research_output",
+);
+export type ReportInterpretationStatus = z.infer<
+  typeof reportInterpretationStatusSchema
+>;
+
+export const REPORT_INTERPRETATION_WARNING =
+  "F/D/E/U labels are uncalibrated research outputs and have not been validated against blinded human labels. Do not treat verdict rates as calibrated faithfulness rates.";
+export const REPORT_PUBLICATION_REASON =
+  "Canonical Report publishes deterministic funnel accounting only; it does not manufacture scientific fidelity decisions.";
+export const REPORT_DECISION_ACTOR_ID = canonicalReportMethodId;
+
+export function buildReportDecisionRecordId(runId: string): string {
+  return buildStableId("report", {
+    identityKind: "canonical-report-run-record",
+    runId,
+  });
+}
+
+const reportDiscoverArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-discover-input"),
+    canonicalStage: z.literal("discover"),
+  })
+  .strict();
+
+const reportScopeArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-scope-input"),
+    canonicalStage: z.literal("scope"),
+  })
+  .strict();
+
+const reportPrepareArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-prepare-input"),
+    canonicalStage: z.literal("prepare"),
+  })
+  .strict();
+
+const reportEvidenceArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-evidence-input"),
+    canonicalStage: z.literal("evidence"),
+  })
+  .strict();
+
+const reportAdjudicateArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-adjudicate-input"),
+    canonicalStage: z.literal("adjudicate"),
+  })
+  .strict();
+
+/**
+ * Report binds all five upstream artifacts as direct inputs in fixed
+ * canonical order: Discover → Scope → Prepare → Evidence → Adjudicate.
+ */
+export const reportLineageSchema = z
+  .object({
+    runId: z.string().min(1),
+    discoverArtifact: reportDiscoverArtifactReferenceSchema,
+    scopeArtifact: reportScopeArtifactReferenceSchema,
+    prepareArtifact: reportPrepareArtifactReferenceSchema,
+    evidenceArtifact: reportEvidenceArtifactReferenceSchema,
+    adjudicateArtifact: reportAdjudicateArtifactReferenceSchema,
+  })
+  .strict();
+export type ReportLineage = z.infer<typeof reportLineageSchema>;
+
+export const reportCountUnitSchema = z.enum([
+  "seeds",
+  "citing_paper_observations",
+  "citation_occurrences",
+  "attributed_claim_records",
+  "candidates",
+  "families",
+  "family_occurrence_records",
+  "bm25_runs",
+  "rerank_runs",
+  "selections",
+  "decisions",
+  "exclusions",
+]);
+export type ReportCountUnit = z.infer<typeof reportCountUnitSchema>;
+
+export const reportCountSchema = z
+  .object({
+    metricId: z.string().min(1),
+    count: z.number().int().nonnegative(),
+    unit: reportCountUnitSchema,
+    population: z.string().min(1),
+  })
+  .strict();
+export type ReportCount = z.infer<typeof reportCountSchema>;
+
+export const reportRateSchema = z
+  .object({
+    metricId: z.string().min(1),
+    numerator: z.number().int().nonnegative(),
+    denominator: z.number().int().nonnegative(),
+    value: z.number().finite().nullable(),
+    unit: z.string().min(1),
+    populationLabel: z.string().min(1),
+    numeratorDefinition: z.string().min(1),
+    denominatorDefinition: z.string().min(1),
+  })
+  .strict()
+  .superRefine((rate, context) => {
+    if (
+      !Number.isFinite(rate.numerator) ||
+      !Number.isFinite(rate.denominator)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["numerator"],
+        message: "Rate numerator and denominator must be finite integers",
+      });
+      return;
+    }
+    if (rate.numerator > rate.denominator) {
+      context.addIssue({
+        code: "custom",
+        path: ["numerator"],
+        message: "Rate numerator cannot exceed its denominator",
+      });
+    }
+    if (rate.denominator === 0) {
+      if (rate.value !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["value"],
+          message:
+            "Zero-denominator rates must store value null (not estimable); never 0, NaN, or Infinity",
+        });
+      }
+      return;
+    }
+    const expected = rate.numerator / rate.denominator;
+    if (rate.value === null || !Number.isFinite(rate.value)) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message:
+          "Nonzero-denominator rates must store a finite recomputed numerator/denominator value",
+      });
+      return;
+    }
+    if (Math.abs(rate.value - expected) > 1e-12) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: `Rate value ${String(rate.value)} does not equal numerator/denominator ${String(expected)}`,
+      });
+    }
+  });
+export type ReportRate = z.infer<typeof reportRateSchema>;
+
+export const reportStatusCountSchema = z
+  .object({
+    status: z.string().min(1),
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const reportEvidenceRetrievalStatusCountSchema = z
+  .object({
+    status: evidenceRetrievalStatusSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const reportAdjudicateGateCountSchema = z
+  .object({
+    status: adjudicateGateCodeSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const reportAdjudicateFailureCountSchema = z
+  .object({
+    status: adjudicateNonfatalFailureCodeSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const discoverFunnelCountsSchema = z
+  .object({
+    seeds: reportCountSchema,
+    returnedCitingPaperObservations: reportCountSchema,
+    probed: reportCountSchema,
+    notProbed: reportCountSchema,
+    materializationSucceeded: reportCountSchema,
+    materializationFailed: reportCountSchema,
+    materializationUnavailable: reportCountSchema,
+    materializationNotAttempted: reportCountSchema,
+    harvestSucceeded: reportCountSchema,
+    harvestNoMentions: reportCountSchema,
+    harvestFailed: reportCountSchema,
+    harvestNotAttempted: reportCountSchema,
+    citationOccurrences: reportCountSchema,
+    extractionClaimsExtracted: reportCountSchema,
+    extractionNoClaims: reportCountSchema,
+    extractionFailed: reportCountSchema,
+    attributedClaimRecords: reportCountSchema,
+    candidateClaims: reportCountSchema,
+    selectedCandidates: reportCountSchema,
+    deferredCandidates: reportCountSchema,
+  })
+  .strict();
+export type DiscoverFunnelCounts = z.infer<typeof discoverFunnelCountsSchema>;
+
+export const scopeFunnelCountsSchema = z
+  .object({
+    scopedCandidates: reportCountSchema,
+    deferredCandidates: reportCountSchema,
+    families: reportCountSchema,
+    groundingStatusCounts: z.array(reportStatusCountSchema),
+  })
+  .strict();
+export type ScopeFunnelCounts = z.infer<typeof scopeFunnelCountsSchema>;
+
+export const prepareFunnelCountsSchema = z
+  .object({
+    expectedFamilyOccurrencePairs: reportCountSchema,
+    preparedRecords: reportCountSchema,
+    classified: reportCountSchema,
+    ambiguous: reportCountSchema,
+    failed: reportCountSchema,
+    lowInformation: reportCountSchema,
+    manualReview: reportCountSchema,
+  })
+  .strict();
+export type PrepareFunnelCounts = z.infer<typeof prepareFunnelCountsSchema>;
+
+export const evidenceFunnelCountsSchema = z
+  .object({
+    recordOutcomes: reportCountSchema,
+    retrievalStatusCounts: z.array(reportEvidenceRetrievalStatusCountSchema),
+    bm25MatchedRuns: reportCountSchema,
+    bm25NoMatchRuns: reportCountSchema,
+    rerankDisabled: reportCountSchema,
+    rerankCompleted: reportCountSchema,
+    rerankFailed: reportCountSchema,
+    rerankNotAttempted: reportCountSchema,
+    uniqueFinalSelectionsBm25: reportCountSchema,
+    uniqueFinalSelectionsReranked: reportCountSchema,
+    recordSelectionBm25: reportCountSchema,
+    recordSelectionReranked: reportCountSchema,
+  })
+  .strict();
+export type EvidenceFunnelCounts = z.infer<typeof evidenceFunnelCountsSchema>;
+
+export const adjudicateFunnelCountsSchema = z
+  .object({
+    totalRecordOutcomes: reportCountSchema,
+    adjudicated: reportCountSchema,
+    notAdjudicated: reportCountSchema,
+    adjudicationFailed: reportCountSchema,
+    invalidOutput: reportCountSchema,
+    gateCodeCounts: z.array(reportAdjudicateGateCountSchema),
+    failureCodeCounts: z.array(reportAdjudicateFailureCountSchema),
+    verdictCounts: z
+      .object({
+        F: reportCountSchema,
+        D: reportCountSchema,
+        E: reportCountSchema,
+        U: reportCountSchema,
+      })
+      .strict(),
+  })
+  .strict();
+export type AdjudicateFunnelCounts = z.infer<
+  typeof adjudicateFunnelCountsSchema
+>;
+
+export const reportFunnelCountsSchema = z
+  .object({
+    discover: discoverFunnelCountsSchema,
+    scope: scopeFunnelCountsSchema,
+    prepare: prepareFunnelCountsSchema,
+    evidence: evidenceFunnelCountsSchema,
+    adjudicate: adjudicateFunnelCountsSchema,
+  })
+  .strict();
+export type ReportFunnelCounts = z.infer<typeof reportFunnelCountsSchema>;
+
+const reportEvidenceTraceSchema = z
+  .object({
+    retrievalStatus: evidenceRetrievalStatusSchema,
+    rerankStatus: evidenceRerankStatusSchema,
+    rankingSource: z.enum(["bm25", "reranked"]).optional(),
+    queryId: stableIdentifierSchema,
+    bm25RunId: stableIdentifierSchema.optional(),
+    rerankRunId: stableIdentifierSchema.optional(),
+    finalSelectionId: stableIdentifierSchema.optional(),
+  })
+  .strict()
+  .superRefine((trace, context) => {
+    if ((trace.finalSelectionId == null) !== (trace.rankingSource == null)) {
+      context.addIssue({
+        code: "custom",
+        path: ["rankingSource"],
+        message:
+          "Evidence trace rankingSource and finalSelectionId must either both exist or both be absent",
+      });
+    }
+    if (
+      (trace.retrievalStatus === "retrieved") !==
+      (trace.finalSelectionId != null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["finalSelectionId"],
+        message:
+          "Only retrieved Evidence traces may carry a final selection, and every retrieved trace must carry one",
+      });
+    }
+    if (
+      (trace.rerankStatus === "completed" ||
+        trace.rerankStatus === "failed") !==
+      (trace.rerankRunId != null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rerankRunId"],
+        message:
+          "Completed/failed reranking requires rerankRunId; disabled/not-attempted reranking forbids it",
+      });
+    }
+
+    if (trace.retrievalStatus === "retrieved") {
+      if (trace.bm25RunId == null) {
+        context.addIssue({
+          code: "custom",
+          path: ["bm25RunId"],
+          message: "Retrieved Evidence traces require a BM25 run",
+        });
+      }
+      if (
+        trace.rerankStatus === "completed" &&
+        trace.rankingSource !== "reranked"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rankingSource"],
+          message:
+            "Completed reranking requires reranked as the final ranking source",
+        });
+      }
+      if (
+        (trace.rerankStatus === "disabled" ||
+          trace.rerankStatus === "failed") &&
+        trace.rankingSource !== "bm25"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rankingSource"],
+          message:
+            "BM25 must be the final ranking source when reranking is disabled or failed",
+        });
+      }
+      if (
+        trace.rerankStatus !== "disabled" &&
+        trace.rerankStatus !== "completed" &&
+        trace.rerankStatus !== "failed"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rerankStatus"],
+          message:
+            "Retrieved Evidence traces allow only disabled, completed, or failed rerank status",
+        });
+      }
+      return;
+    }
+
+    if (trace.retrievalStatus === "no_lexical_matches") {
+      if (trace.bm25RunId == null) {
+        context.addIssue({
+          code: "custom",
+          path: ["bm25RunId"],
+          message: "No-lexical-match Evidence traces require a BM25 run",
+        });
+      }
+      if (
+        trace.rerankRunId != null ||
+        trace.finalSelectionId != null ||
+        trace.rankingSource != null
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["finalSelectionId"],
+          message:
+            "No-lexical-match Evidence traces cannot claim reranking or a final selection",
+        });
+      }
+      if (
+        trace.rerankStatus !== "disabled" &&
+        trace.rerankStatus !== "not_attempted_no_candidates"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rerankStatus"],
+          message:
+            "No-lexical-match Evidence traces require disabled or not_attempted_no_candidates reranking",
+        });
+      }
+      return;
+    }
+
+    if (
+      trace.bm25RunId != null ||
+      trace.rerankRunId != null ||
+      trace.finalSelectionId != null ||
+      trace.rankingSource != null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["bm25RunId"],
+        message:
+          "Unavailable/acquisition/retrieval-failure Evidence traces cannot claim ranking runs or final selections",
+      });
+    }
+    const expectedNotAttempted =
+      trace.retrievalStatus === "retrieval_failed"
+        ? "not_attempted_retrieval_failure"
+        : "not_attempted_unavailable";
+    if (
+      trace.rerankStatus !== "disabled" &&
+      trace.rerankStatus !== expectedNotAttempted
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["rerankStatus"],
+        message: `${trace.retrievalStatus} Evidence traces require disabled or ${expectedNotAttempted} reranking`,
+      });
+    }
+  });
+
+const reportAdjudicationTraceSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("adjudicated"),
+      adjudicationResultId: stableIdentifierSchema,
+      verdict: fidelityTopLabelSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("not_adjudicated"),
+      adjudicationResultId: stableIdentifierSchema,
+      gateCode: adjudicateGateCodeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("adjudication_failed"),
+      adjudicationResultId: stableIdentifierSchema,
+      failureCode: adjudicateNonfatalFailureCodeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("invalid_output"),
+      adjudicationResultId: stableIdentifierSchema,
+    })
+    .strict(),
+]);
+
+export const reportRecordTraceSchema = z
+  .object({
+    recordId: stableIdentifierSchema,
+    familyId: stableIdentifierSchema,
+    citationOccurrenceId: stableIdentifierSchema,
+    prepareArtifact: reportPrepareArtifactReferenceSchema,
+    evidenceArtifact: reportEvidenceArtifactReferenceSchema,
+    adjudicateArtifact: reportAdjudicateArtifactReferenceSchema,
+    evidence: reportEvidenceTraceSchema,
+    adjudication: reportAdjudicationTraceSchema,
+  })
+  .strict();
+export type ReportRecordTrace = z.infer<typeof reportRecordTraceSchema>;
+
+export const reportDecisionSummarySchema = z
+  .object({
+    stage: canonicalStageKeySchema,
+    decisionType: z.string().min(1),
+    outcome: z.string().min(1),
+    count: z.number().int().nonnegative(),
+    unit: z.literal("decisions"),
+  })
+  .strict();
+export type ReportDecisionSummary = z.infer<typeof reportDecisionSummarySchema>;
+
+export const reportExclusionSummarySchema = z
+  .object({
+    stage: canonicalStageKeySchema,
+    reasonCode: z.string().min(1),
+    count: z.number().int().nonnegative(),
+    unit: z.literal("exclusions"),
+  })
+  .strict();
+export type ReportExclusionSummary = z.infer<
+  typeof reportExclusionSummarySchema
+>;
+
+export const REQUIRED_REPORT_RATE_METRIC_IDS = [
+  "scope_selection_rate",
+  "retrieval_coverage",
+  "adjudication_coverage",
+  "verdict_F_rate",
+  "verdict_D_rate",
+  "verdict_E_rate",
+  "verdict_U_rate",
+] as const;
+
+export const reportArtifactPayloadSchema = z
+  .object({
+    lineage: reportLineageSchema,
+    method: canonicalReportMethodSchema,
+    interpretationStatus: reportInterpretationStatusSchema,
+    interpretationWarning: z.literal(REPORT_INTERPRETATION_WARNING),
+    deterministic: z.literal(true),
+    replayableFromInputs: z.literal(true),
+    funnel: reportFunnelCountsSchema,
+    rates: z.array(reportRateSchema),
+    recordTraces: z.array(reportRecordTraceSchema),
+    decisionSummaries: z.array(reportDecisionSummarySchema),
+    exclusionSummaries: z.array(reportExclusionSummarySchema),
+  })
+  .strict()
+  .superRefine(validateReportPayload);
+export type ReportArtifactPayload = z.infer<typeof reportArtifactPayloadSchema>;
+
+function validateReportPayload(
+  payload: z.infer<typeof reportArtifactPayloadSchema>,
+  context: z.RefinementCtx,
+): void {
+  if (payload.method.methodId !== canonicalReportMethodId) {
+    context.addIssue({
+      code: "custom",
+      path: ["method", "methodId"],
+      message:
+        "Canonical Report method ID is not the current audit report method",
+    });
+  }
+  if (payload.method.calibrationStatus !== "uncalibrated") {
+    context.addIssue({
+      code: "custom",
+      path: ["method", "calibrationStatus"],
+      message:
+        "Canonical Report remains uncalibrated until blinded human labels exist",
+    });
+  }
+  if (payload.interpretationStatus !== "uncalibrated_research_output") {
+    context.addIssue({
+      code: "custom",
+      path: ["interpretationStatus"],
+      message: "Canonical Report must declare uncalibrated_research_output",
+    });
+  }
+
+  const forbiddenRateIds = new Set([
+    "accuracy",
+    "agreement",
+    "benchmark",
+    "calibration",
+    "headline_score",
+    "quality_score",
+    "faithfulness_rate",
+    "partial_fidelity_rate",
+    "human_vs_model",
+    "evaluation_statistics",
+  ]);
+
+  const rateIds = payload.rates.map((rate) => rate.metricId);
+  addDuplicateIdentifierIssue(rateIds, ["rates"], context);
+  for (const metricId of rateIds) {
+    if (forbiddenRateIds.has(metricId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `Canonical Report forbids evaluation/headline rate metric: ${metricId}`,
+      });
+    }
+  }
+  for (const requiredId of REQUIRED_REPORT_RATE_METRIC_IDS) {
+    if (!rateIds.includes(requiredId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `Missing required rate metric: ${requiredId}`,
+      });
+    }
+  }
+
+  const sortedRateIds = [...rateIds].sort(compareCodeUnits);
+  if (canonicalSerialize(rateIds) !== canonicalSerialize(sortedRateIds)) {
+    context.addIssue({
+      code: "custom",
+      path: ["rates"],
+      message: "Report rates must be ordered by stable metricId",
+    });
+  }
+
+  const recordIds = payload.recordTraces.map((trace) => trace.recordId);
+  addDuplicateIdentifierIssue(recordIds, ["recordTraces"], context);
+  const sortedRecordIds = [...recordIds].sort(compareCodeUnits);
+  if (canonicalSerialize(recordIds) !== canonicalSerialize(sortedRecordIds)) {
+    context.addIssue({
+      code: "custom",
+      path: ["recordTraces"],
+      message: "Report record traces must be ordered by stable recordId",
+    });
+  }
+
+  validateOrderedUniqueStatusCounts(
+    payload.funnel.scope.groundingStatusCounts,
+    ["funnel", "scope", "groundingStatusCounts"],
+    context,
+  );
+  validateOrderedUniqueStatusCounts(
+    payload.funnel.evidence.retrievalStatusCounts,
+    ["funnel", "evidence", "retrievalStatusCounts"],
+    context,
+  );
+  validateOrderedUniqueStatusCounts(
+    payload.funnel.adjudicate.gateCodeCounts,
+    ["funnel", "adjudicate", "gateCodeCounts"],
+    context,
+  );
+  validateOrderedUniqueStatusCounts(
+    payload.funnel.adjudicate.failureCodeCounts,
+    ["funnel", "adjudicate", "failureCodeCounts"],
+    context,
+  );
+
+  const prepareCount = payload.funnel.prepare.preparedRecords.count;
+  const evidenceCount = payload.funnel.evidence.recordOutcomes.count;
+  const adjudicateCount = payload.funnel.adjudicate.totalRecordOutcomes.count;
+  if (
+    prepareCount !== evidenceCount ||
+    prepareCount !== adjudicateCount ||
+    prepareCount !== payload.recordTraces.length
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["recordTraces"],
+      message:
+        "Report must emit exactly one per-record trace for every Prepare/Evidence/Adjudicate record",
+    });
+  }
+
+  const adjudicationCoverage = payload.rates.find(
+    (rate) => rate.metricId === "adjudication_coverage",
+  );
+  if (
+    adjudicationCoverage != null &&
+    (adjudicationCoverage.numerator !==
+      payload.funnel.adjudicate.adjudicated.count ||
+      adjudicationCoverage.denominator !== adjudicateCount)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["rates"],
+      message:
+        "adjudication_coverage must use adjudicated records over all canonical Prepare/Evidence/Adjudicate records",
+    });
+  }
+
+  const adjudicated = payload.funnel.adjudicate.adjudicated.count;
+  for (const verdict of ["F", "D", "E", "U"] as const) {
+    const rate = payload.rates.find(
+      (entry) => entry.metricId === `verdict_${verdict}_rate`,
+    );
+    if (rate == null) continue;
+    if (rate.denominator !== adjudicated) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `verdict_${verdict}_rate denominator must be adjudicated records only`,
+      });
+    }
+    const count = payload.funnel.adjudicate.verdictCounts[verdict].count;
+    if (rate.numerator !== count) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `verdict_${verdict}_rate numerator must match adjudicated ${verdict} count`,
+      });
+    }
+  }
+
+  const retrievalCoverage = payload.rates.find(
+    (rate) => rate.metricId === "retrieval_coverage",
+  );
+  const retrievedCount = statusCount(
+    payload.funnel.evidence.retrievalStatusCounts,
+    "retrieved",
+  );
+  if (
+    retrievalCoverage != null &&
+    (retrievalCoverage.numerator !== retrievedCount ||
+      retrievalCoverage.denominator !== prepareCount)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["rates"],
+      message:
+        "retrieval_coverage must use retrieved Evidence records over all Prepare records",
+    });
+  }
+
+  const scopeSelection = payload.rates.find(
+    (rate) => rate.metricId === "scope_selection_rate",
+  );
+  const discoverCandidates =
+    payload.funnel.discover.selectedCandidates.count +
+    payload.funnel.discover.deferredCandidates.count;
+  if (
+    scopeSelection != null &&
+    (scopeSelection.numerator !==
+      payload.funnel.discover.selectedCandidates.count ||
+      scopeSelection.denominator !== discoverCandidates)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["rates"],
+      message:
+        "scope_selection_rate must use selected Discover candidates over all Discover candidates",
+    });
+  }
+
+  validateFunnelPartitions(payload, context);
+  validateTraceAccounting(payload, context);
+
+  const statusSum =
+    payload.funnel.adjudicate.adjudicated.count +
+    payload.funnel.adjudicate.notAdjudicated.count +
+    payload.funnel.adjudicate.adjudicationFailed.count +
+    payload.funnel.adjudicate.invalidOutput.count;
+  if (statusSum !== adjudicateCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate"],
+      message: "Adjudicate status counts must sum to total record outcomes",
+    });
+  }
+
+  const verdictSum =
+    payload.funnel.adjudicate.verdictCounts.F.count +
+    payload.funnel.adjudicate.verdictCounts.D.count +
+    payload.funnel.adjudicate.verdictCounts.E.count +
+    payload.funnel.adjudicate.verdictCounts.U.count;
+  if (verdictSum !== adjudicated) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "verdictCounts"],
+      message:
+        "F/D/E/U counts must sum to adjudicated records only; operational failures never enter verdict counts",
+    });
+  }
+}
+
+function validateFunnelPartitions(
+  payload: ReportArtifactPayload,
+  context: z.RefinementCtx,
+): void {
+  const { discover, scope, prepare, evidence } = payload.funnel;
+  for (const [field, entry] of Object.entries({
+    returnedCitingPaperObservations: discover.returnedCitingPaperObservations,
+    probed: discover.probed,
+    notProbed: discover.notProbed,
+    materializationSucceeded: discover.materializationSucceeded,
+    materializationFailed: discover.materializationFailed,
+    materializationUnavailable: discover.materializationUnavailable,
+    materializationNotAttempted: discover.materializationNotAttempted,
+    harvestSucceeded: discover.harvestSucceeded,
+    harvestNoMentions: discover.harvestNoMentions,
+    harvestFailed: discover.harvestFailed,
+    harvestNotAttempted: discover.harvestNotAttempted,
+  })) {
+    if (entry.unit !== "citing_paper_observations") {
+      context.addIssue({
+        code: "custom",
+        path: ["funnel", "discover", field, "unit"],
+        message:
+          "Discover citing-paper records are seed-specific citing-paper observations, not globally unique papers",
+      });
+    }
+  }
+  for (const [field, entry] of Object.entries({
+    uniqueFinalSelectionsBm25: evidence.uniqueFinalSelectionsBm25,
+    uniqueFinalSelectionsReranked: evidence.uniqueFinalSelectionsReranked,
+  })) {
+    if (entry.unit !== "selections") {
+      context.addIssue({
+        code: "custom",
+        path: ["funnel", "evidence", field, "unit"],
+        message: "Unique final-selection counts must use selections",
+      });
+    }
+  }
+  for (const [field, entry] of Object.entries({
+    recordSelectionBm25: evidence.recordSelectionBm25,
+    recordSelectionReranked: evidence.recordSelectionReranked,
+  })) {
+    if (entry.unit !== "family_occurrence_records") {
+      context.addIssue({
+        code: "custom",
+        path: ["funnel", "evidence", field, "unit"],
+        message:
+          "Per-record final-selection use must use family×occurrence records",
+      });
+    }
+  }
+  const returned = discover.returnedCitingPaperObservations.count;
+  assertCountEqual(
+    discover.probed.count + discover.notProbed.count,
+    returned,
+    ["funnel", "discover"],
+    "Discover probed + notProbed must equal returned citing-paper observations",
+    context,
+  );
+  assertCountEqual(
+    discover.materializationSucceeded.count +
+      discover.materializationFailed.count +
+      discover.materializationUnavailable.count +
+      discover.materializationNotAttempted.count,
+    returned,
+    ["funnel", "discover"],
+    "Discover materialization statuses must partition returned citing-paper observations",
+    context,
+  );
+  assertCountEqual(
+    discover.harvestSucceeded.count +
+      discover.harvestNoMentions.count +
+      discover.harvestFailed.count +
+      discover.harvestNotAttempted.count,
+    returned,
+    ["funnel", "discover"],
+    "Discover harvest statuses must partition returned citing-paper observations",
+    context,
+  );
+  assertCountEqual(
+    discover.extractionClaimsExtracted.count +
+      discover.extractionNoClaims.count +
+      discover.extractionFailed.count,
+    discover.citationOccurrences.count,
+    ["funnel", "discover"],
+    "Discover extraction statuses must partition citation occurrences",
+    context,
+  );
+  assertCountEqual(
+    discover.selectedCandidates.count + discover.deferredCandidates.count,
+    discover.candidateClaims.count,
+    ["funnel", "discover"],
+    "Discover selected + deferred candidates must equal candidate claims",
+    context,
+  );
+
+  assertCountEqual(
+    scope.scopedCandidates.count + scope.deferredCandidates.count,
+    discover.candidateClaims.count,
+    ["funnel", "scope"],
+    "Scope scoped + deferred candidates must equal all Discover candidates",
+    context,
+  );
+  assertCountEqual(
+    scope.scopedCandidates.count,
+    discover.selectedCandidates.count,
+    ["funnel", "scope", "scopedCandidates"],
+    "Scope scoped candidates must equal Discover selected candidates",
+    context,
+  );
+  assertCountEqual(
+    scope.deferredCandidates.count,
+    discover.deferredCandidates.count,
+    ["funnel", "scope", "deferredCandidates"],
+    "Scope deferred candidates must equal Discover deferred candidates",
+    context,
+  );
+  assertCountEqual(
+    sumStatusCounts(scope.groundingStatusCounts),
+    scope.families.count,
+    ["funnel", "scope", "groundingStatusCounts"],
+    "Scope grounding-status counts must partition scoped families",
+    context,
+  );
+
+  assertCountEqual(
+    prepare.expectedFamilyOccurrencePairs.count,
+    prepare.preparedRecords.count,
+    ["funnel", "prepare"],
+    "Expected Prepare family×occurrence pairs must equal prepared records",
+    context,
+  );
+  assertCountEqual(
+    prepare.classified.count + prepare.ambiguous.count + prepare.failed.count,
+    prepare.preparedRecords.count,
+    ["funnel", "prepare"],
+    "Prepare classification statuses must partition prepared records",
+    context,
+  );
+
+  assertCountEqual(
+    sumStatusCounts(evidence.retrievalStatusCounts),
+    evidence.recordOutcomes.count,
+    ["funnel", "evidence", "retrievalStatusCounts"],
+    "Evidence retrieval statuses must partition Evidence record outcomes",
+    context,
+  );
+  assertCountEqual(
+    evidence.rerankDisabled.count +
+      evidence.rerankCompleted.count +
+      evidence.rerankFailed.count +
+      evidence.rerankNotAttempted.count,
+    evidence.recordOutcomes.count,
+    ["funnel", "evidence"],
+    "Evidence rerank status populations must partition Evidence record outcomes",
+    context,
+  );
+  assertCountEqual(
+    evidence.recordSelectionBm25.count + evidence.recordSelectionReranked.count,
+    statusCount(evidence.retrievalStatusCounts, "retrieved"),
+    ["funnel", "evidence"],
+    "Evidence per-record final-selection uses must equal retrieved records",
+    context,
+  );
+  if (
+    evidence.uniqueFinalSelectionsBm25.count >
+      evidence.recordSelectionBm25.count ||
+    evidence.uniqueFinalSelectionsReranked.count >
+      evidence.recordSelectionReranked.count
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "evidence"],
+      message:
+        "Unique final-selection counts cannot exceed their per-record selection-use counts",
+    });
+  }
+}
+
+function validateTraceAccounting(
+  payload: ReportArtifactPayload,
+  context: z.RefinementCtx,
+): void {
+  const traces = payload.recordTraces;
+  const evidence = payload.funnel.evidence;
+  const adjudicate = payload.funnel.adjudicate;
+
+  const expectedRetrievalCounts = summarizeStatuses(
+    traces.map((trace) => trace.evidence.retrievalStatus),
+  );
+  if (
+    canonicalSerialize(evidence.retrievalStatusCounts) !==
+    canonicalSerialize(expectedRetrievalCounts)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "evidence", "retrievalStatusCounts"],
+      message:
+        "Evidence retrieval-status summary must exactly match per-record traces",
+    });
+  }
+
+  const rerankDisabled = traces.filter(
+    (trace) => trace.evidence.rerankStatus === "disabled",
+  ).length;
+  const rerankCompleted = traces.filter(
+    (trace) => trace.evidence.rerankStatus === "completed",
+  ).length;
+  const rerankFailed = traces.filter(
+    (trace) => trace.evidence.rerankStatus === "failed",
+  ).length;
+  const rerankNotAttempted = traces.filter((trace) =>
+    trace.evidence.rerankStatus.startsWith("not_attempted_"),
+  ).length;
+  assertCountEqual(
+    evidence.rerankDisabled.count,
+    rerankDisabled,
+    ["funnel", "evidence", "rerankDisabled"],
+    "Rerank-disabled count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.rerankCompleted.count,
+    rerankCompleted,
+    ["funnel", "evidence", "rerankCompleted"],
+    "Rerank-completed count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.rerankFailed.count,
+    rerankFailed,
+    ["funnel", "evidence", "rerankFailed"],
+    "Rerank-failed count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.rerankNotAttempted.count,
+    rerankNotAttempted,
+    ["funnel", "evidence", "rerankNotAttempted"],
+    "Rerank-not-attempted count must match per-record traces",
+    context,
+  );
+
+  const bm25SelectionIds = new Set<string>();
+  const rerankedSelectionIds = new Set<string>();
+  let recordSelectionBm25 = 0;
+  let recordSelectionReranked = 0;
+  for (const trace of traces) {
+    const selectionId = trace.evidence.finalSelectionId;
+    if (selectionId == null) continue;
+    if (trace.evidence.rankingSource === "bm25") {
+      bm25SelectionIds.add(selectionId);
+      recordSelectionBm25 += 1;
+    } else if (trace.evidence.rankingSource === "reranked") {
+      rerankedSelectionIds.add(selectionId);
+      recordSelectionReranked += 1;
+    }
+  }
+  assertCountEqual(
+    evidence.uniqueFinalSelectionsBm25.count,
+    bm25SelectionIds.size,
+    ["funnel", "evidence", "uniqueFinalSelectionsBm25"],
+    "Unique BM25 final-selection count must match unique selection IDs in traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.uniqueFinalSelectionsReranked.count,
+    rerankedSelectionIds.size,
+    ["funnel", "evidence", "uniqueFinalSelectionsReranked"],
+    "Unique reranked final-selection count must match unique selection IDs in traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.recordSelectionBm25.count,
+    recordSelectionBm25,
+    ["funnel", "evidence", "recordSelectionBm25"],
+    "BM25 record-selection count must match per-record selection use",
+    context,
+  );
+  assertCountEqual(
+    evidence.recordSelectionReranked.count,
+    recordSelectionReranked,
+    ["funnel", "evidence", "recordSelectionReranked"],
+    "Reranked record-selection count must match per-record selection use",
+    context,
+  );
+
+  const adjudicationStatusCounts = summarizeStatuses(
+    traces.map((trace) => trace.adjudication.status),
+  );
+  const statusCountFromTrace = (status: string) =>
+    statusCount(adjudicationStatusCounts, status);
+  assertCountEqual(
+    adjudicate.adjudicated.count,
+    statusCountFromTrace("adjudicated"),
+    ["funnel", "adjudicate", "adjudicated"],
+    "Adjudicated count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    adjudicate.notAdjudicated.count,
+    statusCountFromTrace("not_adjudicated"),
+    ["funnel", "adjudicate", "notAdjudicated"],
+    "Not-adjudicated count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    adjudicate.adjudicationFailed.count,
+    statusCountFromTrace("adjudication_failed"),
+    ["funnel", "adjudicate", "adjudicationFailed"],
+    "Adjudication-failed count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    adjudicate.invalidOutput.count,
+    statusCountFromTrace("invalid_output"),
+    ["funnel", "adjudicate", "invalidOutput"],
+    "Invalid-output count must match per-record traces",
+    context,
+  );
+
+  const expectedGateCounts = summarizeStatuses(
+    traces.flatMap((trace) =>
+      trace.adjudication.status === "not_adjudicated"
+        ? [trace.adjudication.gateCode]
+        : [],
+    ),
+  );
+  if (
+    canonicalSerialize(adjudicate.gateCodeCounts) !==
+    canonicalSerialize(expectedGateCounts)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "gateCodeCounts"],
+      message: "Gate-code summary must exactly match per-record traces",
+    });
+  }
+  const expectedFailureCounts = summarizeStatuses(
+    traces.flatMap((trace) =>
+      trace.adjudication.status === "adjudication_failed"
+        ? [trace.adjudication.failureCode]
+        : [],
+    ),
+  );
+  if (
+    canonicalSerialize(adjudicate.failureCodeCounts) !==
+    canonicalSerialize(expectedFailureCounts)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "failureCodeCounts"],
+      message: "Failure-code summary must exactly match per-record traces",
+    });
+  }
+  for (const verdict of ["F", "D", "E", "U"] as const) {
+    assertCountEqual(
+      adjudicate.verdictCounts[verdict].count,
+      traces.filter(
+        (trace) =>
+          trace.adjudication.status === "adjudicated" &&
+          trace.adjudication.verdict === verdict,
+      ).length,
+      ["funnel", "adjudicate", "verdictCounts", verdict],
+      `Verdict ${verdict} count must match per-record traces`,
+      context,
+    );
+  }
+}
+
+function validateOrderedUniqueStatusCounts(
+  counts: ReadonlyArray<{ status: string; count: number }>,
+  path: Array<string | number>,
+  context: z.RefinementCtx,
+): void {
+  const statuses = counts.map((entry) => entry.status);
+  addDuplicateIdentifierIssue(statuses, path, context);
+  if (
+    canonicalSerialize(statuses) !==
+    canonicalSerialize([...statuses].sort(compareCodeUnits))
+  ) {
+    context.addIssue({
+      code: "custom",
+      path,
+      message: "Status-count entries must be ordered by stable status value",
+    });
+  }
+}
+
+function summarizeStatuses(
+  statuses: readonly string[],
+): Array<{ status: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const status of statuses) {
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([status, count]) => ({ status, count }));
+}
+
+function sumStatusCounts(counts: ReadonlyArray<{ count: number }>): number {
+  return counts.reduce((sum, entry) => sum + entry.count, 0);
+}
+
+function statusCount(
+  counts: ReadonlyArray<{ status: string; count: number }>,
+  status: string,
+): number {
+  return counts.find((entry) => entry.status === status)?.count ?? 0;
+}
+
+function assertCountEqual(
+  actual: number,
+  expected: number,
+  path: Array<string | number>,
+  message: string,
+  context: z.RefinementCtx,
+): void {
+  if (actual !== expected) {
+    context.addIssue({
+      code: "custom",
+      path,
+      message,
+    });
+  }
+}
+
+export function validateReportArtifactLineage(
+  artifact: {
+    runId: string;
+    inputArtifacts: ArtifactReference[];
+    decisions: Array<{
+      recordId: string;
+      decisionType: string;
+      outcome: string;
+      reason: string;
+      recordedAt: string;
+      actor: {
+        kind: "deterministic" | "model" | "external" | "human";
+        identifier: string;
+      };
+      evidenceArtifacts: ArtifactReference[];
+      supersedesDecisionId?: string | undefined;
+    }>;
+    exclusions: unknown[];
+    provenance: {
+      models: unknown[];
+      prompts: unknown[];
+    };
+    execution: {
+      kind: string;
+      replayableFromInputs?: boolean;
+      responseArtifacts?: ArtifactReference[] | undefined;
+    };
+    payload: ReportArtifactPayload;
+  },
+  context: z.RefinementCtx,
+): void {
+  const { lineage } = artifact.payload;
+  if (artifact.runId !== lineage.runId) {
+    context.addIssue({
+      code: "custom",
+      path: ["payload", "lineage", "runId"],
+      message: "Report run ID must match its verified five-artifact lineage",
+    });
+  }
+
+  const expectedInputs = [
+    lineage.discoverArtifact,
+    lineage.scopeArtifact,
+    lineage.prepareArtifact,
+    lineage.evidenceArtifact,
+    lineage.adjudicateArtifact,
+  ];
+  if (
+    artifact.inputArtifacts.length !== 5 ||
+    !expectedInputs.every((expected, index) =>
+      sameArtifactReference(artifact.inputArtifacts[index], expected),
+    )
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["inputArtifacts"],
+      message:
+        "Report must reference Discover, Scope, Prepare, Evidence, and Adjudicate inputs in that fixed order",
+    });
+  }
+
+  validateReportDecisions(artifact, expectedInputs, context);
+  if (artifact.exclusions.length !== 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["exclusions"],
+      message:
+        "Canonical Report performs complete accounting and cannot add report-stage exclusions",
+    });
+  }
+
+  if (
+    artifact.execution.kind !== "deterministic" ||
+    artifact.execution.replayableFromInputs !== true
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["execution"],
+      message:
+        "Canonical Report must be deterministic and replayable from inputs",
+    });
+  }
+  if (
+    artifact.provenance.prompts.length !== 0 ||
+    artifact.provenance.models.length !== 0 ||
+    (artifact.execution.responseArtifacts?.length ?? 0) !== 0
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["provenance"],
+      message:
+        "Canonical Report forbids prompt, model, and response execution provenance",
+    });
+  }
+
+  if (artifact.payload.deterministic !== true) {
+    context.addIssue({
+      code: "custom",
+      path: ["payload", "deterministic"],
+      message: "Canonical Report payload must declare deterministic: true",
+    });
+  }
+  if (artifact.payload.replayableFromInputs !== true) {
+    context.addIssue({
+      code: "custom",
+      path: ["payload", "replayableFromInputs"],
+      message:
+        "Canonical Report payload must declare replayableFromInputs: true",
+    });
+  }
+
+  for (const [index, trace] of artifact.payload.recordTraces.entries()) {
+    if (
+      !sameArtifactReference(trace.prepareArtifact, lineage.prepareArtifact) ||
+      !sameArtifactReference(
+        trace.evidenceArtifact,
+        lineage.evidenceArtifact,
+      ) ||
+      !sameArtifactReference(
+        trace.adjudicateArtifact,
+        lineage.adjudicateArtifact,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "recordTraces", index],
+        message:
+          "Per-record trace upstream artifact references must match Report lineage exactly",
+      });
+    }
+  }
+}
+
+function validateReportDecisions(
+  artifact: {
+    runId: string;
+    decisions: Array<{
+      recordId: string;
+      decisionType: string;
+      outcome: string;
+      reason: string;
+      recordedAt: string;
+      actor: {
+        kind: "deterministic" | "model" | "external" | "human";
+        identifier: string;
+      };
+      evidenceArtifacts: ArtifactReference[];
+      supersedesDecisionId?: string | undefined;
+    }>;
+  },
+  expectedInputs: ArtifactReference[],
+  context: z.RefinementCtx,
+): void {
+  const expected = [
+    {
+      decisionType: "report_interpretation_status",
+      outcome: "uncalibrated_research_output",
+      reason: REPORT_INTERPRETATION_WARNING,
+    },
+    {
+      decisionType: "report_publication_status",
+      outcome: "research_artifact_only",
+      reason: REPORT_PUBLICATION_REASON,
+    },
+  ] as const;
+  if (artifact.decisions.length !== expected.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["decisions"],
+      message:
+        "Canonical Report must contain exactly interpretation-status and publication-status decisions",
+    });
+  }
+
+  const expectedRecordId = buildReportDecisionRecordId(artifact.runId);
+  for (const [index, expectedDecision] of expected.entries()) {
+    const decision = artifact.decisions[index];
+    if (decision == null) continue;
+    if (
+      decision.decisionType !== expectedDecision.decisionType ||
+      decision.outcome !== expectedDecision.outcome ||
+      decision.reason !== expectedDecision.reason ||
+      decision.recordId !== expectedRecordId ||
+      decision.actor.kind !== "deterministic" ||
+      decision.actor.identifier !== REPORT_DECISION_ACTOR_ID ||
+      decision.supersedesDecisionId != null ||
+      decision.evidenceArtifacts.length !== expectedInputs.length ||
+      !expectedInputs.every((reference, referenceIndex) =>
+        sameArtifactReference(
+          decision.evidenceArtifacts[referenceIndex],
+          reference,
+        ),
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["decisions", index],
+        message: `Canonical Report decision does not match exact ${expectedDecision.decisionType} contract`,
+      });
+    }
+  }
+  const firstRecordedAt = artifact.decisions[0]?.recordedAt;
+  if (
+    firstRecordedAt != null &&
+    artifact.decisions.some(
+      (decision) => decision.recordedAt !== firstRecordedAt,
+    )
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["decisions"],
+      message: "Canonical Report decisions must share one recording timestamp",
+    });
+  }
+}
+
+export function buildReportRate(input: {
+  metricId: string;
+  numerator: number;
+  denominator: number;
+  unit: string;
+  populationLabel: string;
+  numeratorDefinition: string;
+  denominatorDefinition: string;
+}): ReportRate {
+  const value =
+    input.denominator === 0 ? null : input.numerator / input.denominator;
+  return reportRateSchema.parse({
+    ...input,
+    value,
+  });
+}
+
+export function buildReportCount(input: {
+  metricId: string;
+  count: number;
+  unit: ReportCountUnit;
+  population: string;
+}): ReportCount {
+  return reportCountSchema.parse(input);
+}
+
+function addDuplicateIdentifierIssue(
+  values: readonly string[],
+  path: Array<string | number>,
+  context: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      context.addIssue({
+        code: "custom",
+        path,
+        message: `Duplicate identifier: ${value}`,
+      });
+      return;
+    }
+    seen.add(value);
+  }
+}
+
+function sameArtifactReference(
+  left:
+    | {
+        artifactId: string;
+        contentHash: string;
+        role: string;
+        canonicalStage?: string | undefined;
+        uri?: string | undefined;
+      }
+    | undefined,
+  right: {
+    artifactId: string;
+    contentHash: string;
+    role: string;
+    canonicalStage?: string | undefined;
+    uri?: string | undefined;
+  },
+): boolean {
+  return (
+    left != null &&
+    left.artifactId === right.artifactId &&
+    left.contentHash === right.contentHash &&
+    left.role === right.role &&
+    left.canonicalStage === right.canonicalStage &&
+    left.uri === right.uri
+  );
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}

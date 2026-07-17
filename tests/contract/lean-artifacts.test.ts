@@ -13,10 +13,13 @@ import {
   buildCitingPaperRecordId,
   buildEvidenceQueryId,
   buildNeighborhoodQueryId,
+  buildReportDecisionRecordId,
   buildScopedFamilyId,
   buildSeedId,
   createAppendOnlyDecision,
   createAppendOnlyExclusion,
+  buildReportCount,
+  buildReportRate,
   createLeanStageArtifact,
   discoverArtifactPayloadSchema,
   discoverArtifactSchema,
@@ -27,6 +30,9 @@ import {
   leanStageArtifactSchema,
   parseLeanStageArtifact,
   prepareArtifactSchema,
+  REPORT_DECISION_ACTOR_ID,
+  REPORT_INTERPRETATION_WARNING,
+  REPORT_PUBLICATION_REASON,
   reportArtifactSchema,
   sha256DigestSchema,
   scopedFamilySchema,
@@ -637,17 +643,429 @@ function buildAllStageArtifacts() {
       records: [],
     },
   });
+  const zeroFamilyOccurrence = (metricId: string, population: string) =>
+    buildReportCount({
+      metricId,
+      count: 0,
+      unit: "family_occurrence_records",
+      population,
+    });
+  const zeroCandidates = (metricId: string, population: string) =>
+    buildReportCount({
+      metricId,
+      count: 0,
+      unit: "candidates",
+      population,
+    });
+  const reportDiscover = {
+    artifactId: discover.artifactId,
+    contentHash: discover.contentHash,
+    role: "canonical-discover-input" as const,
+    canonicalStage: "discover" as const,
+  };
+  const reportScope = {
+    artifactId: scope.artifactId,
+    contentHash: scope.contentHash,
+    role: "canonical-scope-input" as const,
+    canonicalStage: "scope" as const,
+  };
+  const reportPrepare = {
+    artifactId: prepare.artifactId,
+    contentHash: prepare.contentHash,
+    role: "canonical-prepare-input" as const,
+    canonicalStage: "prepare" as const,
+  };
+  const reportEvidence = {
+    artifactId: evidence.artifactId,
+    contentHash: evidence.contentHash,
+    role: "canonical-evidence-input" as const,
+    canonicalStage: "evidence" as const,
+  };
+  const reportAdjudicate = {
+    artifactId: adjudicate.artifactId,
+    contentHash: adjudicate.contentHash,
+    role: "canonical-adjudicate-input" as const,
+    canonicalStage: "adjudicate" as const,
+  };
+  const reportInputs = [
+    reportDiscover,
+    reportScope,
+    reportPrepare,
+    reportEvidence,
+    reportAdjudicate,
+  ];
+  const reportRecordId = buildReportDecisionRecordId("run-contract-test");
+  const reportDecisions = [
+    createAppendOnlyDecision({
+      recordId: reportRecordId,
+      decisionType: "report_interpretation_status",
+      outcome: "uncalibrated_research_output",
+      reason: REPORT_INTERPRETATION_WARNING,
+      recordedAt: "2026-07-16T12:00:00.000Z",
+      actor: {
+        kind: "deterministic",
+        identifier: REPORT_DECISION_ACTOR_ID,
+      },
+      evidenceArtifacts: reportInputs,
+    }),
+    createAppendOnlyDecision({
+      recordId: reportRecordId,
+      decisionType: "report_publication_status",
+      outcome: "research_artifact_only",
+      reason: REPORT_PUBLICATION_REASON,
+      recordedAt: "2026-07-16T12:00:00.000Z",
+      actor: {
+        kind: "deterministic",
+        identifier: REPORT_DECISION_ACTOR_ID,
+      },
+      evidenceArtifacts: reportInputs,
+    }),
+  ];
   const report = createLeanStageArtifact({
     ...baseEnvelope(),
     canonicalStage: "report",
-    inputArtifacts: [asReference(adjudicate, "adjudication-results")],
+    inputArtifacts: reportInputs,
+    decisions: reportDecisions,
     payload: {
-      title: "Citation fidelity report",
-      summary: "No records were adjudicated.",
-      recordIds: [],
-      verdictCounts: {},
-      metrics: { records: 0 },
-      markdown: "# Citation fidelity report\n",
+      lineage: {
+        runId: "run-contract-test",
+        discoverArtifact: reportDiscover,
+        scopeArtifact: reportScope,
+        prepareArtifact: reportPrepare,
+        evidenceArtifact: reportEvidence,
+        adjudicateArtifact: reportAdjudicate,
+      },
+      method: {
+        methodId: "canonical-audit-report-v1",
+        strategy: "deterministic_funnel",
+        calibrationStatus: "uncalibrated",
+        outputs: "json_and_markdown",
+      },
+      interpretationStatus: "uncalibrated_research_output",
+      interpretationWarning: REPORT_INTERPRETATION_WARNING,
+      deterministic: true,
+      replayableFromInputs: true,
+      funnel: {
+        discover: {
+          seeds: buildReportCount({
+            metricId: "discover.seeds",
+            count: 0,
+            unit: "seeds",
+            population: "Discover seed papers",
+          }),
+          returnedCitingPaperObservations: buildReportCount({
+            metricId: "discover.returned_citing_paper_observations",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Returned citing-paper observations",
+          }),
+          probed: buildReportCount({
+            metricId: "discover.probed",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Probed citing papers",
+          }),
+          notProbed: buildReportCount({
+            metricId: "discover.not_probed",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Not-probed citing papers",
+          }),
+          materializationSucceeded: buildReportCount({
+            metricId: "discover.materialization_succeeded",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Succeeded materializations",
+          }),
+          materializationFailed: buildReportCount({
+            metricId: "discover.materialization_failed",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Failed materializations",
+          }),
+          materializationUnavailable: buildReportCount({
+            metricId: "discover.materialization_unavailable",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Unavailable materializations",
+          }),
+          materializationNotAttempted: buildReportCount({
+            metricId: "discover.materialization_not_attempted",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Not-attempted materializations",
+          }),
+          harvestSucceeded: buildReportCount({
+            metricId: "discover.harvest_succeeded",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Successful harvests",
+          }),
+          harvestNoMentions: buildReportCount({
+            metricId: "discover.harvest_no_mentions",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "No-mention harvests",
+          }),
+          harvestFailed: buildReportCount({
+            metricId: "discover.harvest_failed",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Failed harvests",
+          }),
+          harvestNotAttempted: buildReportCount({
+            metricId: "discover.harvest_not_attempted",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Not-attempted harvests",
+          }),
+          citationOccurrences: buildReportCount({
+            metricId: "discover.citation_occurrences",
+            count: 0,
+            unit: "citation_occurrences",
+            population: "Citation occurrences",
+          }),
+          extractionClaimsExtracted: buildReportCount({
+            metricId: "discover.extraction_claims_extracted",
+            count: 0,
+            unit: "citation_occurrences",
+            population: "Extractions claims",
+          }),
+          extractionNoClaims: buildReportCount({
+            metricId: "discover.extraction_no_claims",
+            count: 0,
+            unit: "citation_occurrences",
+            population: "No-claim extractions",
+          }),
+          extractionFailed: buildReportCount({
+            metricId: "discover.extraction_failed",
+            count: 0,
+            unit: "citation_occurrences",
+            population: "Failed extractions",
+          }),
+          attributedClaimRecords: buildReportCount({
+            metricId: "discover.attributed_claim_records",
+            count: 0,
+            unit: "attributed_claim_records",
+            population: "Attributed claim records",
+          }),
+          candidateClaims: zeroCandidates(
+            "discover.candidate_claims",
+            "Candidate claims",
+          ),
+          selectedCandidates: zeroCandidates(
+            "discover.selected_candidates",
+            "Selected candidates",
+          ),
+          deferredCandidates: zeroCandidates(
+            "discover.deferred_candidates",
+            "Deferred candidates",
+          ),
+        },
+        scope: {
+          scopedCandidates: zeroCandidates(
+            "scope.scoped_candidates",
+            "Scoped candidates",
+          ),
+          deferredCandidates: zeroCandidates(
+            "scope.deferred_candidates",
+            "Deferred candidates",
+          ),
+          families: buildReportCount({
+            metricId: "scope.families",
+            count: 0,
+            unit: "families",
+            population: "Scoped families",
+          }),
+          groundingStatusCounts: [],
+        },
+        prepare: {
+          expectedFamilyOccurrencePairs: zeroFamilyOccurrence(
+            "prepare.expected_family_occurrence_pairs",
+            "Expected pairs",
+          ),
+          preparedRecords: zeroFamilyOccurrence(
+            "prepare.prepared_records",
+            "Prepared records",
+          ),
+          classified: zeroFamilyOccurrence(
+            "prepare.classified",
+            "Classified records",
+          ),
+          ambiguous: zeroFamilyOccurrence(
+            "prepare.ambiguous",
+            "Ambiguous records",
+          ),
+          failed: zeroFamilyOccurrence("prepare.failed", "Failed records"),
+          lowInformation: zeroFamilyOccurrence(
+            "prepare.low_information",
+            "Low-information records",
+          ),
+          manualReview: zeroFamilyOccurrence(
+            "prepare.manual_review",
+            "Manual-review records",
+          ),
+        },
+        evidence: {
+          recordOutcomes: zeroFamilyOccurrence(
+            "evidence.record_outcomes",
+            "Evidence outcomes",
+          ),
+          retrievalStatusCounts: [],
+          bm25MatchedRuns: buildReportCount({
+            metricId: "evidence.bm25_matched_runs",
+            count: 0,
+            unit: "bm25_runs",
+            population: "Matched BM25 runs",
+          }),
+          bm25NoMatchRuns: buildReportCount({
+            metricId: "evidence.bm25_no_match_runs",
+            count: 0,
+            unit: "bm25_runs",
+            population: "No-match BM25 runs",
+          }),
+          rerankDisabled: zeroFamilyOccurrence(
+            "evidence.rerank_disabled",
+            "Rerank disabled",
+          ),
+          rerankCompleted: zeroFamilyOccurrence(
+            "evidence.rerank_completed",
+            "Rerank completed",
+          ),
+          rerankFailed: zeroFamilyOccurrence(
+            "evidence.rerank_failed",
+            "Rerank failed",
+          ),
+          rerankNotAttempted: zeroFamilyOccurrence(
+            "evidence.rerank_not_attempted",
+            "Rerank not attempted",
+          ),
+          uniqueFinalSelectionsBm25: buildReportCount({
+            metricId: "evidence.unique_final_selections_bm25",
+            count: 0,
+            unit: "selections",
+            population: "Unique BM25 final selections",
+          }),
+          uniqueFinalSelectionsReranked: buildReportCount({
+            metricId: "evidence.unique_final_selections_reranked",
+            count: 0,
+            unit: "selections",
+            population: "Unique reranked final selections",
+          }),
+          recordSelectionBm25: zeroFamilyOccurrence(
+            "evidence.record_selection_bm25",
+            "Records using BM25 selections",
+          ),
+          recordSelectionReranked: zeroFamilyOccurrence(
+            "evidence.record_selection_reranked",
+            "Records using reranked selections",
+          ),
+        },
+        adjudicate: {
+          totalRecordOutcomes: zeroFamilyOccurrence(
+            "adjudicate.total_record_outcomes",
+            "Total adjudicate outcomes",
+          ),
+          adjudicated: zeroFamilyOccurrence(
+            "adjudicate.adjudicated",
+            "Adjudicated records",
+          ),
+          notAdjudicated: zeroFamilyOccurrence(
+            "adjudicate.not_adjudicated",
+            "Not adjudicated",
+          ),
+          adjudicationFailed: zeroFamilyOccurrence(
+            "adjudicate.adjudication_failed",
+            "Adjudication failed",
+          ),
+          invalidOutput: zeroFamilyOccurrence(
+            "adjudicate.invalid_output",
+            "Invalid output",
+          ),
+          gateCodeCounts: [],
+          failureCodeCounts: [],
+          verdictCounts: {
+            F: zeroFamilyOccurrence("adjudicate.verdict_F", "Verdict F"),
+            D: zeroFamilyOccurrence("adjudicate.verdict_D", "Verdict D"),
+            E: zeroFamilyOccurrence("adjudicate.verdict_E", "Verdict E"),
+            U: zeroFamilyOccurrence("adjudicate.verdict_U", "Verdict U"),
+          },
+        },
+      },
+      rates: [
+        buildReportRate({
+          metricId: "adjudication_coverage",
+          numerator: 0,
+          denominator: 0,
+          unit: "adjudicated_records / family_occurrence_records",
+          populationLabel: "Adjudication coverage",
+          numeratorDefinition: "Adjudicated records",
+          denominatorDefinition: "All records",
+        }),
+        buildReportRate({
+          metricId: "retrieval_coverage",
+          numerator: 0,
+          denominator: 0,
+          unit: "retrieved_records / family_occurrence_records",
+          populationLabel: "Retrieval coverage",
+          numeratorDefinition: "Retrieved records",
+          denominatorDefinition: "Prepare records",
+        }),
+        buildReportRate({
+          metricId: "scope_selection_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "selected_candidates / candidates",
+          populationLabel: "Scope selection rate",
+          numeratorDefinition: "Selected candidates",
+          denominatorDefinition: "All Discover candidates",
+        }),
+        buildReportRate({
+          metricId: "verdict_D_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "D_verdicts / adjudicated_records",
+          populationLabel: "D rate",
+          numeratorDefinition: "D verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_E_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "E_verdicts / adjudicated_records",
+          populationLabel: "E rate",
+          numeratorDefinition: "E verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_F_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "F_verdicts / adjudicated_records",
+          populationLabel: "F rate",
+          numeratorDefinition: "F verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_U_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "U_verdicts / adjudicated_records",
+          populationLabel: "U rate",
+          numeratorDefinition: "U verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+      ].sort((left, right) =>
+        left.metricId < right.metricId
+          ? -1
+          : left.metricId > right.metricId
+            ? 1
+            : 0,
+      ),
+      recordTraces: [],
+      decisionSummaries: [],
+      exclusionSummaries: [],
     },
   });
   return { discover, scope, prepare, evidence, adjudicate, report };
