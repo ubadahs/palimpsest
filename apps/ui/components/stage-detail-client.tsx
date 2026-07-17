@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import type {
   RunDetail,
-  RunStageDetail,
   RunStageGroupDetail,
   StageKey,
 } from "palimpsest/contract";
@@ -15,56 +14,22 @@ import { StageInspector } from "@/components/stage-inspector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { DoiLink, RichText } from "@/lib/rich-text";
+import { DoiLink } from "@/lib/rich-text";
 import { stageBadgeVariant } from "@/lib/status-variants";
 import { usePoll } from "@/lib/use-poll";
-import { cn, fetchJson, formatDuration, formatTime } from "@/lib/utils";
+import { fetchJson, formatDuration, formatTime } from "@/lib/utils";
 
 const stageDescriptions: Record<StageKey, string> = {
-  discover:
-    "Harvests citing-paper mentions, extracts attributed claims, grounds family candidates to the seed, and builds a shortlist for screening.",
-  screen:
-    "Finds citing papers and checks whether the tracked claim can be grounded in the seed paper.",
-  extract: "Extracts citation context from each citing paper's full text.",
-  classify: "Classifies citation function and builds evaluation packets.",
+  discover: "Harvests citing-paper mentions and extracts attributed claims.",
+  scope:
+    "Scopes candidates, materializes seed text, and records grounding annotations.",
+  prepare: "Builds complete occurrence-local records for scoped families.",
   evidence:
-    "Retrieves evidence spans from cited papers to compare against citations.",
-  curate: "Selects an audit sample for human review.",
-  adjudicate: "Runs LLM adjudication to produce fidelity verdicts.",
+    "Retrieves deterministic seed-text evidence for every prepared record.",
+  adjudicate:
+    "Runs one canonical categorical F/D/E/U adjudication per eligible record.",
+  report: "Produces the deterministic canonical JSON and Markdown report.",
 };
-
-function getDiscoverDescription(
-  payload: RunStageDetail<"discover">["inspectorPayload"],
-): string {
-  if (payload?.strategy === "legacy") {
-    return "Legacy path: seed-side claim extraction and optional citing-paper engagement ranking.";
-  }
-  return stageDescriptions.discover;
-}
-
-function defaultFamilyIndex(group: RunStageGroupDetail): number {
-  const running = group.members.find((m) => m.status === "running");
-  return running?.familyIndex ?? group.members[0]?.familyIndex ?? 0;
-}
-
-function extractTrackedClaim(detail: RunStageDetail): string | undefined {
-  switch (detail.stageKey) {
-    case "extract":
-    case "classify":
-    case "evidence":
-    case "curate":
-    case "adjudicate":
-      return detail.inspectorPayload?.seed?.trackedClaim;
-    default:
-      return undefined;
-  }
-}
-
-function familyHasFailures(group: RunStageGroupDetail): boolean {
-  return group.members.some((m) =>
-    ["failed", "cancelled", "interrupted"].includes(m.status),
-  );
-}
 
 export function StageDetailClient({
   initialRun,
@@ -75,22 +40,11 @@ export function StageDetailClient({
 }) {
   const [run, setRun] = useState(initialRun);
   const [group, setGroup] = useState(initialGroup);
-  const [selectedFamilyIndex, setSelectedFamilyIndex] = useState(() =>
-    defaultFamilyIndex(initialGroup),
-  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const detail: RunStageDetail | undefined = useMemo(
-    () => group.members.find((m) => m.familyIndex === selectedFamilyIndex),
-    [group.members, selectedFamilyIndex],
-  );
-
-  useEffect(() => {
-    if (!group.members.some((m) => m.familyIndex === selectedFamilyIndex)) {
-      setSelectedFamilyIndex(defaultFamilyIndex(group));
-    }
-  }, [group, selectedFamilyIndex]);
+  // Canonical runs keep exactly one row per stage.
+  const detail = group.members[0];
 
   const anyRunning =
     run.status === "running" ||
@@ -132,14 +86,6 @@ export function StageDetailClient({
     return null;
   }
 
-  const screenDeprioritized =
-    group.stageKey === "screen" &&
-    group.aggregateStatus === "succeeded" &&
-    detail.stageKey === "screen" &&
-    detail.inspectorPayload?.families?.some(
-      (family) => family.decision === "deprioritize",
-    );
-
   return (
     <div className="space-y-6">
       <Breadcrumbs
@@ -156,9 +102,6 @@ export function StageDetailClient({
               <Badge variant={stageBadgeVariant(group.aggregateStatus)}>
                 {group.aggregateStatus}
               </Badge>
-              {screenDeprioritized ? (
-                <Badge variant="warning">deprioritized</Badge>
-              ) : null}
               <span className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
                 {group.stageKey}
               </span>
@@ -167,9 +110,7 @@ export function StageDetailClient({
               {group.stageTitle}
             </h2>
             <p className="max-w-xl text-sm text-[var(--text-muted)]">
-              {detail.stageKey === "discover"
-                ? getDiscoverDescription(detail.inspectorPayload)
-                : stageDescriptions[group.stageKey]}
+              {stageDescriptions[group.stageKey]}
             </p>
             <p
               className="text-xs text-[var(--text-muted)]"
@@ -187,61 +128,13 @@ export function StageDetailClient({
                 </span>
               ) : null}
             </p>
-            {group.members.length > 1 ? (
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center gap-1">
-                  <span className="mr-2 text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                    {String(group.members.length)} claims
-                  </span>
-                  {group.members.map((m) => {
-                    const isFailed = [
-                      "failed",
-                      "cancelled",
-                      "interrupted",
-                    ].includes(m.status);
-                    return (
-                      <button
-                        key={m.familyIndex}
-                        onClick={() => setSelectedFamilyIndex(m.familyIndex)}
-                        type="button"
-                        title={
-                          extractTrackedClaim(m) ?? `Claim ${m.familyIndex + 1}`
-                        }
-                        className={cn(
-                          "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition",
-                          m.familyIndex === selectedFamilyIndex
-                            ? "bg-[var(--accent)] text-white"
-                            : "border border-[var(--border)] bg-white/60 text-[var(--text-muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-                          isFailed &&
-                            m.familyIndex !== selectedFamilyIndex &&
-                            "border-[rgba(154,64,54,0.4)] text-[var(--danger)]",
-                        )}
-                      >
-                        {m.familyIndex + 1}
-                      </button>
-                    );
-                  })}
-                  {familyHasFailures(group) ? (
-                    <span className="ml-2 text-xs text-[var(--danger)]">
-                      {
-                        group.members.filter((m) =>
-                          ["failed", "cancelled", "interrupted"].includes(
-                            m.status,
-                          ),
-                        ).length
-                      }{" "}
-                      failed
-                    </span>
-                  ) : null}
-                </div>
-                {extractTrackedClaim(detail) ? (
-                  <RichText
-                    html={extractTrackedClaim(detail)!}
-                    as="p"
-                    className="max-w-2xl text-sm leading-6 text-[var(--text)]"
-                  />
-                ) : null}
-              </div>
+            {group.aggregateStatus === "stale" ||
+            group.aggregateStatus === "not_started" ||
+            group.aggregateStatus === "running" ||
+            group.aggregateStatus === "blocked" ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                Awaiting result for this canonical stage.
+              </p>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -261,7 +154,7 @@ export function StageDetailClient({
         ) : null}
       </Card>
 
-      <StageInspector detail={detail} />
+      <StageInspector detail={detail} runId={run.id} />
       <CurrentWorkPanel
         progressVariant={detail.status === "running" ? "live" : "archive"}
         title="Stage workflow"

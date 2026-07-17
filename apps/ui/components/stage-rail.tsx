@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import {
   getStageDefinition,
+  stageDefinitions,
   type LogicalStageGroup,
   type RunDetail,
 } from "palimpsest/contract";
@@ -28,11 +29,28 @@ function groupTimeBounds(group: LogicalStageGroup): {
 }
 
 export function StageRail({ run }: { run: RunDetail }) {
-  const total = run.stages.length;
-  const completed = run.stages.filter(
+  const targetOrder = getStageDefinition(run.targetStage).order;
+  const groups = stageDefinitions.map(
+    (definition) =>
+      run.stages.find((group) => group.stageKey === definition.key) ?? {
+        stageKey: definition.key,
+        stageOrder: definition.order,
+        aggregateStatus: "not_started" as const,
+        members: [],
+      },
+  );
+  const targetedGroups = groups.filter(
+    (group) => group.stageOrder <= targetOrder,
+  );
+  const total = targetedGroups.length;
+  const completed = targetedGroups.filter(
     (g) => g.aggregateStatus === "succeeded",
   ).length;
-  const allDone = run.status === "succeeded";
+  const allDone = run.status === "succeeded" && completed === total;
+  const completionLabel =
+    run.targetStage === "report"
+      ? `All ${String(total)} stages complete`
+      : `All ${String(total)} targeted stages complete through ${getStageDefinition(run.targetStage).title}`;
 
   return (
     <Card className="overflow-hidden">
@@ -43,7 +61,7 @@ export function StageRail({ run }: { run: RunDetail }) {
           ) : null}
           <span className="text-sm font-semibold text-[var(--text)]">
             {allDone
-              ? `All ${String(total)} stages complete`
+              ? completionLabel
               : run.status === "running"
                 ? `Running…`
                 : `${String(completed)} of ${String(total)} stages complete`}
@@ -51,7 +69,7 @@ export function StageRail({ run }: { run: RunDetail }) {
         </div>
         {!allDone ? (
           <div className="flex gap-1">
-            {run.stages.map((group) => (
+            {groups.map((group) => (
               <div
                 key={group.stageKey}
                 className={`h-1.5 w-6 rounded-full transition-colors ${railSegmentClass(group.aggregateStatus)}`}
@@ -61,17 +79,8 @@ export function StageRail({ run }: { run: RunDetail }) {
           </div>
         ) : null}
       </div>
-      <CardContent className="grid gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
-        {run.stages.map((group) => {
-          const greenlitMetric = group.summary?.metrics.find(
-            (m) => m.label === "Greenlit",
-          );
-          const isDeprioritized =
-            group.stageKey === "screen" &&
-            group.aggregateStatus === "succeeded" &&
-            greenlitMetric != null &&
-            Number(greenlitMetric.value) === 0;
-
+      <CardContent className="grid gap-3 p-4 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-6">
+        {groups.map((group) => {
           const { startedAt, finishedAt } = groupTimeBounds(group);
 
           return (
@@ -85,14 +94,8 @@ export function StageRail({ run }: { run: RunDetail }) {
                   {group.stageOrder.toString().padStart(2, "0")}
                 </p>
                 <div className="flex items-center gap-1.5">
-                  <Badge
-                    variant={
-                      isDeprioritized
-                        ? "warning"
-                        : stageBadgeVariant(group.aggregateStatus)
-                    }
-                  >
-                    {isDeprioritized ? "deprioritized" : group.aggregateStatus}
+                  <Badge variant={stageBadgeVariant(group.aggregateStatus)}>
+                    {group.aggregateStatus}
                   </Badge>
                 </div>
               </div>
@@ -101,11 +104,6 @@ export function StageRail({ run }: { run: RunDetail }) {
               </p>
               <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
                 {group.stageKey}
-                {group.members.length > 1 ? (
-                  <span className="ml-1 text-[var(--text-muted)]">
-                    · {String(group.members.length)} families
-                  </span>
-                ) : null}
               </p>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 {group.summary?.headline ?? "Awaiting execution"}

@@ -49,11 +49,14 @@ function headlineStageTitle(run: RunSummary): string {
 }
 
 function stageProgressLabel(run: RunSummary): string {
-  const total = run.stages.length;
-  const done = run.stages.filter(
+  const targetOrder = getStageDefinition(run.targetStage).order;
+  const targetedStages = run.stages.filter(
+    (group) => group.stageOrder <= targetOrder,
+  );
+  const done = targetedStages.filter(
     (g) => g.aggregateStatus === "succeeded",
   ).length;
-  return `${String(done)}/${String(total)} stages`;
+  return `${String(done)}/${String(targetedStages.length)} targeted stages`;
 }
 
 function sortByUpdatedDesc(a: RunSummary, b: RunSummary): number {
@@ -101,7 +104,7 @@ function RunRowCard({
             {run.seedDoi}
           </h3>
           <p className="max-w-3xl text-sm text-[var(--text-muted)]">
-            {run.trackedClaim ?? "Auto-discover"}
+            Canonical DOI-first pipeline
           </p>
           {showVerdictRow && verdictSummary ? (
             <div className="space-y-1.5 pt-1">
@@ -114,7 +117,13 @@ function RunRowCard({
           ) : null}
           {showStageRail ? (
             <div className="pt-1">
-              <MiniStageRail stages={run.stages} />
+              <MiniStageRail
+                stages={run.stages.filter(
+                  (group) =>
+                    group.stageOrder <=
+                    getStageDefinition(run.targetStage).order,
+                )}
+              />
             </div>
           ) : null}
         </div>
