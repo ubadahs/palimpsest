@@ -8,7 +8,7 @@ This document records shipped behavior. The runnable production workflow is the 
 discover → scope → prepare → evidence → adjudicate → report
 ```
 
-The public CLI, SQLite run registry, local UI, artifact layout, resume logic, and stage inspection use only these six stage keys. Fresh runs are DOI-first (`pipeline --input <dois.json>`). Manual shortlist/tracked-claim starts and the `screen`, `extract`, `classify`, and `curate` stage vocabulary have been removed from the public workflow.
+The public CLI, SQLite run registry, local UI, artifact layout, resume logic, and stage inspection use only these six stage keys. Fresh runs are DOI-first (`pipeline --input <dois.json>`). Manual shortlist/tracked-claim starts and the `screen`, `extract`, `classify`, and `curate` stage vocabulary have been removed. Legacy orchestration modules and their tests have been deleted; the source tree is canonical-only.
 
 ## Pipeline (CLI)
 
@@ -39,7 +39,9 @@ There is no `curate` or sampling boundary: Scope, Prepare, Evidence, and Adjudic
 
 ## Compatibility and cleanup
 
-Migration `0011_purge_pre_canonical_runs.sql` plus startup config validation purge unsupported `analysis_runs` / `analysis_run_stages` rows from the former seven-stage executor. Paper/LLM caches and on-disk `data/runs/` directories are preserved; those runs must not be resumed, converted, or bridged into canonical artifacts. Public benchmark CLI commands are removed until a canonical blinded evaluation workflow exists.
+Migration `0011_purge_pre_canonical_runs.sql` plus startup config validation purge unsupported `analysis_runs` / `analysis_run_stages` rows from the former seven-stage executor. Paper/LLM caches and on-disk `data/runs/` directories are preserved; those runs must not be resumed, converted, or bridged into canonical artifacts. Public benchmark CLI commands remain removed until a canonical blinded evaluation workflow exists.
+
+The physical SQLite column `analysis_run_stages.family_index` remains because it is part of an immutable migration primary key. Canonical execution always writes `0` (one row per stage). UI/API surfaces no longer expose per-family query parameters.
 
 ## Local UI
 
@@ -52,3 +54,4 @@ Migration `0011_purge_pre_canonical_runs.sql` plus startup config validation pur
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
+- LLM purposes are limited to `attributed-claim-extraction`, `seed-grounding`, `evidence-rerank`, and `adjudication`.

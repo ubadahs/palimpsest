@@ -23,7 +23,6 @@ describe("loadEnvironment", () => {
       PALIMPSEST_DB_PATH: "tmp/test.sqlite",
       NODE_ENV: "test",
       GROBID_BASE_URL: "http://grobid.internal:8070",
-      LOCAL_RERANKER_BASE_URL: "http://reranker.internal:8080",
     });
 
     const config = createAppConfig(environment, "/workspace");
@@ -34,6 +33,5 @@ describe("loadEnvironment", () => {
       "https://api.semanticscholar.org/graph/v1",
     );
     expect(config.providerBaseUrls.grobid).toBe("http://grobid.internal:8070");
-    expect(config.localRerankerBaseUrl).toBe("http://reranker.internal:8080");
   });
 });

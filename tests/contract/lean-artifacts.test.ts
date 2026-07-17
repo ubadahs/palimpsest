@@ -30,7 +30,7 @@ import {
   leanStageArtifactSchema,
   parseLeanStageArtifact,
   prepareArtifactSchema,
-  REPORT_DECISION_ACTOR_ID,
+  canonicalReportMethodId,
   REPORT_INTERPRETATION_WARNING,
   REPORT_PUBLICATION_REASON,
   reportArtifactSchema,
@@ -704,7 +704,7 @@ function buildAllStageArtifacts() {
       recordedAt: "2026-07-16T12:00:00.000Z",
       actor: {
         kind: "deterministic",
-        identifier: REPORT_DECISION_ACTOR_ID,
+        identifier: canonicalReportMethodId,
       },
       evidenceArtifacts: reportInputs,
     }),
@@ -716,7 +716,7 @@ function buildAllStageArtifacts() {
       recordedAt: "2026-07-16T12:00:00.000Z",
       actor: {
         kind: "deterministic",
-        identifier: REPORT_DECISION_ACTOR_ID,
+        identifier: canonicalReportMethodId,
       },
       evidenceArtifacts: reportInputs,
     }),

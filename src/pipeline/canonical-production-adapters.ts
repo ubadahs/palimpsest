@@ -1,8 +1,8 @@
 /**
  * Production adapters for the canonical six-stage executor.
  *
- * Reuses low-level resolution, acquisition, harvest, classification, and LLM
- * helpers. Does not route through old shortlist/screen/extract/classify/curate
+ * Reuses low-level resolution, acquisition, parsing, classification, and LLM
+ * helpers. Does not route through shortlist/screen/extract/classify/curate
  * orchestration or artifact shapes.
  *
  * Provenance: when upstream APIs do not expose exact wire bodies, adapters
@@ -27,7 +27,7 @@ import {
   type ArtifactReference,
   type DiscoverCitationOccurrence,
 } from "../contract/lean-artifacts.js";
-import type { ResolvedPaper } from "../domain/types.js";
+import type { ResolvedPaper } from "../domain/common.js";
 import { isReviewPaperType } from "../domain/attribution-signal.js";
 import {
   buildNormalizedLLMCallProvenance,
@@ -125,7 +125,7 @@ function llmRequestProvenanceFields(params: {
   });
 }
 
-export type CanonicalAdapterSession = {
+type CanonicalAdapterSession = {
   resolvedSeedsByDoi: Map<string, ResolvedPaper>;
   citingPapersByProviderId: Map<string, ResolvedPaper>;
 };
@@ -272,7 +272,7 @@ export function selectSeedReferenceMentions<
   );
 }
 
-export function createCanonicalAdapterSession(): CanonicalAdapterSession {
+function createCanonicalAdapterSession(): CanonicalAdapterSession {
   return {
     resolvedSeedsByDoi: new Map(),
     citingPapersByProviderId: new Map(),
@@ -1193,7 +1193,7 @@ export function buildCanonicalPrepareAdapters(): CanonicalPrepareAdapters {
   };
 }
 
-export function buildCanonicalEvidenceAdapters(
+function buildCanonicalEvidenceAdapters(
   deps: CanonicalProductionAdapterDeps,
 ): CanonicalEvidenceAdapters {
   if (!deps.runConfig.evidence.rerankEnabled) {

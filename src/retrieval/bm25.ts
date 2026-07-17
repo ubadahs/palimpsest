@@ -7,9 +7,9 @@ export type DetailedRankedDocument<TDocument> = RankedDocument<TDocument> & {
   rank: number;
 };
 
-export const BM25_TOKEN_PATTERN = String.raw`\b[\p{L}\p{N}][\p{L}\p{N}-]{1,}\b`;
+const BM25_TOKEN_PATTERN = String.raw`\b[\p{L}\p{N}][\p{L}\p{N}-]{1,}\b`;
 
-export const BM25_STOP_WORDS = [
+const BM25_STOP_WORDS = [
   "the",
   "a",
   "an",

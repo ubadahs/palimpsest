@@ -26,7 +26,7 @@ describe("stage-output helpers", () => {
     );
   });
 
-  it("builds family-specific canonical artifact names", () => {
+  it("builds one artifact stem per stage", () => {
     const dir = mkdtempSync(join(tmpdir(), "stage-output-"));
 
     try {
@@ -34,15 +34,11 @@ describe("stage-output helpers", () => {
         dir,
         "prepare",
         "2026-04-07_003",
-        1,
       );
 
       expect(buildStageArtifactStem("2026-04-07_003")).toBe("2026-04-07_003");
-      expect(buildStageArtifactStem("2026-04-07_003", 1)).toBe(
-        "2026-04-07_003_family-2",
-      );
       expect(preparePaths.primaryPath).toBe(
-        `${dir}/02-prepare/2026-04-07_003_family-2_canonical-prepare.json`,
+        `${dir}/02-prepare/2026-04-07_003_canonical-prepare.json`,
       );
       expect(
         resolveStageExtraArtifactPath(
@@ -50,9 +46,8 @@ describe("stage-output helpers", () => {
           "prepare",
           "2026-04-07_003",
           "_inspection.md",
-          1,
         ),
-      ).toBe(`${dir}/02-prepare/2026-04-07_003_family-2_inspection.md`);
+      ).toBe(`${dir}/02-prepare/2026-04-07_003_inspection.md`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

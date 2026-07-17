@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ResolvedPaper } from "../../src/domain/types.js";
+import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
   fetchFullText,
   type FullTextFetchResponse,

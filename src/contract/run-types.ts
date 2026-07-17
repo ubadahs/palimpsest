@@ -40,7 +40,7 @@ export type AnalysisRunStageStatus = z.infer<
  * Minimal canonical run config. Grouped by stage where practical.
  * Old seven-stage fields (screen/curate/advisor/vector/shortlist) are rejected.
  */
-export const analysisRunConfigObjectSchema = z
+export const analysisRunConfigSchema = z
   .object({
     stopAfterStage: stageKeySchema.default("report"),
     forceRefresh: z.boolean().default(false),
@@ -141,7 +141,6 @@ export const analysisRunConfigObjectSchema = z
     }
   });
 
-export const analysisRunConfigSchema = analysisRunConfigObjectSchema;
 export type AnalysisRunConfig = z.infer<typeof analysisRunConfigSchema>;
 
 export const stageArtifactPointerSchema = z
@@ -173,8 +172,6 @@ export const analysisRunStageSchema = z
     runId: z.string().min(1),
     stageKey: stageKeySchema,
     stageOrder: z.number().int().nonnegative(),
-    /** Internal row discriminator; canonical execution always writes zero. */
-    familyIndex: z.number().int().nonnegative().default(0),
     status: analysisRunStageStatusSchema,
     inputArtifactPath: undefinedable(z.string()),
     primaryArtifactPath: undefinedable(z.string()),

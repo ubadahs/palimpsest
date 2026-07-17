@@ -57,7 +57,6 @@ export const REPORT_INTERPRETATION_WARNING =
   "F/D/E/U labels are uncalibrated research outputs and have not been validated against blinded human labels. Do not treat verdict rates as calibrated faithfulness rates.";
 export const REPORT_PUBLICATION_REASON =
   "Canonical Report publishes deterministic funnel accounting only; it does not manufacture scientific fidelity decisions.";
-export const REPORT_DECISION_ACTOR_ID = canonicalReportMethodId;
 
 export function buildReportDecisionRecordId(runId: string): string {
   return buildStableId("report", {
@@ -117,7 +116,7 @@ export const reportLineageSchema = z
   .strict();
 export type ReportLineage = z.infer<typeof reportLineageSchema>;
 
-export const reportCountUnitSchema = z.enum([
+const reportCountUnitSchema = z.enum([
   "seeds",
   "citing_paper_observations",
   "citation_occurrences",
@@ -133,7 +132,7 @@ export const reportCountUnitSchema = z.enum([
 ]);
 export type ReportCountUnit = z.infer<typeof reportCountUnitSchema>;
 
-export const reportCountSchema = z
+const reportCountSchema = z
   .object({
     metricId: z.string().min(1),
     count: z.number().int().nonnegative(),
@@ -205,7 +204,7 @@ export const reportRateSchema = z
   });
 export type ReportRate = z.infer<typeof reportRateSchema>;
 
-export const reportStatusCountSchema = z
+const reportStatusCountSchema = z
   .object({
     status: z.string().min(1),
     count: z.number().int().nonnegative(),
@@ -233,7 +232,7 @@ const reportAdjudicateFailureCountSchema = z
   })
   .strict();
 
-export const discoverFunnelCountsSchema = z
+const discoverFunnelCountsSchema = z
   .object({
     seeds: reportCountSchema,
     returnedCitingPaperObservations: reportCountSchema,
@@ -257,9 +256,7 @@ export const discoverFunnelCountsSchema = z
     deferredCandidates: reportCountSchema,
   })
   .strict();
-export type DiscoverFunnelCounts = z.infer<typeof discoverFunnelCountsSchema>;
-
-export const scopeFunnelCountsSchema = z
+const scopeFunnelCountsSchema = z
   .object({
     scopedCandidates: reportCountSchema,
     deferredCandidates: reportCountSchema,
@@ -267,9 +264,7 @@ export const scopeFunnelCountsSchema = z
     groundingStatusCounts: z.array(reportStatusCountSchema),
   })
   .strict();
-export type ScopeFunnelCounts = z.infer<typeof scopeFunnelCountsSchema>;
-
-export const prepareFunnelCountsSchema = z
+const prepareFunnelCountsSchema = z
   .object({
     expectedFamilyOccurrencePairs: reportCountSchema,
     preparedRecords: reportCountSchema,
@@ -280,9 +275,7 @@ export const prepareFunnelCountsSchema = z
     manualReview: reportCountSchema,
   })
   .strict();
-export type PrepareFunnelCounts = z.infer<typeof prepareFunnelCountsSchema>;
-
-export const evidenceFunnelCountsSchema = z
+const evidenceFunnelCountsSchema = z
   .object({
     recordOutcomes: reportCountSchema,
     retrievalStatusCounts: z.array(reportEvidenceRetrievalStatusCountSchema),
@@ -298,9 +291,7 @@ export const evidenceFunnelCountsSchema = z
     recordSelectionReranked: reportCountSchema,
   })
   .strict();
-export type EvidenceFunnelCounts = z.infer<typeof evidenceFunnelCountsSchema>;
-
-export const adjudicateFunnelCountsSchema = z
+const adjudicateFunnelCountsSchema = z
   .object({
     totalRecordOutcomes: reportCountSchema,
     adjudicated: reportCountSchema,
@@ -319,11 +310,7 @@ export const adjudicateFunnelCountsSchema = z
       .strict(),
   })
   .strict();
-export type AdjudicateFunnelCounts = z.infer<
-  typeof adjudicateFunnelCountsSchema
->;
-
-export const reportFunnelCountsSchema = z
+const reportFunnelCountsSchema = z
   .object({
     discover: discoverFunnelCountsSchema,
     scope: scopeFunnelCountsSchema,
@@ -531,7 +518,7 @@ export const reportRecordTraceSchema = z
   .strict();
 export type ReportRecordTrace = z.infer<typeof reportRecordTraceSchema>;
 
-export const reportDecisionSummarySchema = z
+const reportDecisionSummarySchema = z
   .object({
     stage: canonicalStageKeySchema,
     decisionType: z.string().min(1),
@@ -542,7 +529,7 @@ export const reportDecisionSummarySchema = z
   .strict();
 export type ReportDecisionSummary = z.infer<typeof reportDecisionSummarySchema>;
 
-export const reportExclusionSummarySchema = z
+const reportExclusionSummarySchema = z
   .object({
     stage: canonicalStageKeySchema,
     reasonCode: z.string().min(1),
@@ -1425,7 +1412,7 @@ function validateReportDecisions(
       decision.reason !== expectedDecision.reason ||
       decision.recordId !== expectedRecordId ||
       decision.actor.kind !== "deterministic" ||
-      decision.actor.identifier !== REPORT_DECISION_ACTOR_ID ||
+      decision.actor.identifier !== canonicalReportMethodId ||
       decision.supersedesDecisionId != null ||
       decision.evidenceArtifacts.length !== expectedInputs.length ||
       !expectedInputs.every((reference, referenceIndex) =>

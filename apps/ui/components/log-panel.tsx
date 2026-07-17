@@ -14,7 +14,6 @@ export function LogPanel({
   stageTitle,
   active,
   defaultCollapsed = false,
-  familyIndex,
 }: {
   runId: string;
   stageKey: StageKey | undefined;
@@ -22,8 +21,6 @@ export function LogPanel({
   stageTitle?: string;
   active: boolean;
   defaultCollapsed?: boolean;
-  /** Per-family stage row index when logs differ by family (optional). */
-  familyIndex?: number;
 }) {
   const [content, setContent] = useState("");
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -37,10 +34,8 @@ export function LogPanel({
     let cancelled = false;
 
     async function load(): Promise<void> {
-      const qs =
-        familyIndex != null ? `?familyIndex=${String(familyIndex)}` : "";
       const next = await fetchJson<{ content: string }>(
-        `/api/runs/${runId}/stages/${stageKey}/log${qs}`,
+        `/api/runs/${runId}/stages/${stageKey}/log`,
       );
       if (!cancelled) {
         setContent(next.content);
@@ -62,7 +57,7 @@ export function LogPanel({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [active, collapsed, familyIndex, runId, stageKey]);
+  }, [active, collapsed, runId, stageKey]);
 
   return (
     <Card className="overflow-hidden">

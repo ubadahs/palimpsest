@@ -2,15 +2,15 @@ import { z } from "zod";
 
 import type Database from "better-sqlite3";
 
+import type { CachePolicy } from "../domain/classification.js";
 import type {
-  CachePolicy,
   FullTextAcquisition,
   FullTextAcquisitionMethod,
   FullTextAcquisitionSelectedLocatorKind,
-  FullTextFormat,
   ResolvedPaper,
   Result,
-} from "../domain/types.js";
+} from "../domain/common.js";
+import type { FullTextFormat } from "../domain/parsing.js";
 import {
   fetchJson,
   type FetchJsonOptions,
@@ -44,12 +44,12 @@ export type FullTextFetchAdapters = {
   institutionalProxyUrl: string | undefined;
 };
 
-export type FullTextAcquisitionSuccess = {
+type FullTextAcquisitionSuccess = {
   ok: true;
   data: FullTextContent & { acquisition: FullTextAcquisition };
 };
 
-export type FullTextAcquisitionFailure = {
+type FullTextAcquisitionFailure = {
   ok: false;
   error: string;
   acquisition: FullTextAcquisition | undefined;
@@ -1436,16 +1436,4 @@ export function createDefaultAdapters(
     email: options.email,
     institutionalProxyUrl: options.institutionalProxyUrl,
   };
-}
-
-export function formatAcquisitionSummary(
-  acquisition: FullTextAcquisition | undefined,
-): string {
-  if (!acquisition?.selectedMethod) {
-    return acquisition?.failureReason ?? "acquisition unavailable";
-  }
-  const locator = acquisition.selectedLocatorKind
-    ? ` (${acquisition.selectedLocatorKind})`
-    : "";
-  return `${acquisition.selectedMethod}${locator}`;
 }

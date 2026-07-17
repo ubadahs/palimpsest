@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ResolvedPaper } from "../../src/domain/types.js";
+import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
   materializeParsedPaper,
   PARSED_PAPER_PARSER_VERSION,

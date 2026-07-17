@@ -56,10 +56,6 @@ export const canonicalPrepareClassificationResultSchema = z.union([
   prepareClassificationSchema,
   fatalClassificationResultSchema,
 ]);
-export type CanonicalPrepareClassificationResult = z.infer<
-  typeof canonicalPrepareClassificationResultSchema
->;
-
 export type CanonicalPrepareClassifierInput = {
   family: ScopedFamily;
   sourceCandidates: PreparedCitationInstance["sourceCandidates"];
@@ -78,7 +74,7 @@ export type CanonicalPrepareAdapters = {
   ) => Promise<unknown>;
 };
 
-export type CanonicalPrepareProvenanceInputs = {
+type CanonicalPrepareProvenanceInputs = {
   prompts: LeanArtifactProvenance["prompts"];
   models: LeanArtifactProvenance["models"];
   responseArtifacts: ArtifactReference[];

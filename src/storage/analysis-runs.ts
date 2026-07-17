@@ -36,7 +36,6 @@ type StageRow = {
   run_id: string;
   stage_key: string;
   stage_order: number;
-  family_index: number;
   status: string;
   input_artifact_path: string | null;
   primary_artifact_path: string | null;
@@ -83,7 +82,6 @@ function toStage(row: StageRow): AnalysisRunStage {
     runId: row.run_id,
     stageKey: row.stage_key,
     stageOrder: row.stage_order,
-    familyIndex: row.family_index,
     status: row.status,
     inputArtifactPath: row.input_artifact_path ?? undefined,
     primaryArtifactPath: row.primary_artifact_path ?? undefined,
@@ -247,7 +245,7 @@ export function listRunStages(
 ): AnalysisRunStage[] {
   const rows = database
     .prepare(
-      "SELECT * FROM analysis_run_stages WHERE run_id = ? ORDER BY stage_order ASC, family_index ASC",
+      "SELECT * FROM analysis_run_stages WHERE run_id = ? AND family_index = 0 ORDER BY stage_order ASC",
     )
     .all(runId) as StageRow[];
 
@@ -258,13 +256,12 @@ export function getRunStage(
   database: Database.Database,
   runId: string,
   stageKey: StageKey,
-  familyIndex = 0,
 ): AnalysisRunStage | undefined {
   const row = database
     .prepare(
-      "SELECT * FROM analysis_run_stages WHERE run_id = ? AND stage_key = ? AND family_index = ?",
+      "SELECT * FROM analysis_run_stages WHERE run_id = ? AND stage_key = ? AND family_index = 0",
     )
-    .get(runId, stageKey, familyIndex) as StageRow | undefined;
+    .get(runId, stageKey) as StageRow | undefined;
 
   return row ? toStage(row) : undefined;
 }
@@ -293,7 +290,6 @@ export function updateStageStatus(
   stageKey: StageKey,
   status: AnalysisRunStageStatus,
   options: {
-    familyIndex?: number;
     inputArtifactPath?: string;
     primaryArtifactPath?: string;
     reportArtifactPath?: string;
@@ -307,7 +303,6 @@ export function updateStageStatus(
   } = {},
 ): void {
   analysisRunStageStatusSchema.parse(status);
-  const familyIndex = options.familyIndex ?? 0;
 
   // Artifact pointers and summaries are preserved unless explicitly provided.
   // Only markDownstreamStagesStale() intentionally clears them for reruns.
@@ -327,7 +322,7 @@ export function updateStageStatus(
         started_at = COALESCE(?, started_at),
         finished_at = ?,
         process_id = ?
-      WHERE run_id = ? AND stage_key = ? AND family_index = ?
+      WHERE run_id = ? AND stage_key = ? AND family_index = 0
     `,
     )
     .run(
@@ -344,29 +339,9 @@ export function updateStageStatus(
       options.processId ?? null,
       runId,
       stageKey,
-      familyIndex,
     );
 
   updateRunTimestamp(database, runId);
-}
-
-export function ensureFamilyStageRow(
-  database: Database.Database,
-  runId: string,
-  stageKey: StageKey,
-  familyIndex: number,
-  logPath?: string,
-): void {
-  const definition = getStageDefinition(stageKey);
-  database
-    .prepare(
-      `
-      INSERT OR IGNORE INTO analysis_run_stages (
-        run_id, stage_key, stage_order, family_index, status, log_path
-      ) VALUES (?, ?, ?, ?, 'not_started', ?)
-    `,
-    )
-    .run(runId, stageKey, definition.order, familyIndex, logPath ?? null);
 }
 
 export function setStageInputArtifact(

@@ -490,9 +490,7 @@ function latestSucceededStage(
   database: Database.Database,
   runId: string,
 ): StageKey | undefined {
-  const stages = listRunStages(database, runId).filter(
-    (stage) => stage.familyIndex === 0,
-  );
+  const stages = listRunStages(database, runId);
   let latest: StageKey | undefined;
   for (const definition of stageDefinitions) {
     const row = stages.find((stage) => stage.stageKey === definition.key);

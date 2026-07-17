@@ -11,13 +11,11 @@ function stage(
   key: AnalysisRunStage["stageKey"],
   order: number,
   status: AnalysisRunStage["status"],
-  familyIndex = 0,
 ): AnalysisRunStage {
   return {
     runId: "r1",
     stageKey: key,
     stageOrder: order,
-    familyIndex,
     status,
     inputArtifactPath: undefined,
     primaryArtifactPath: undefined,

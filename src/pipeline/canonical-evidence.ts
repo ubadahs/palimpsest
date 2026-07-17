@@ -52,7 +52,7 @@ import {
   canonicalSha256,
 } from "../shared/stable-identity.js";
 
-export const canonicalEvidenceOptionsSchema = z
+const canonicalEvidenceOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     prepareArtifactUri: z.string().min(1).optional(),
@@ -76,27 +76,24 @@ export type CanonicalEvidenceOptions = z.input<
   typeof canonicalEvidenceOptionsSchema
 >;
 
-export const canonicalEvidenceRerankerResultSchema = z.discriminatedUnion(
-  "status",
-  [
-    z
-      .object({
-        status: z.literal("completed"),
-        rawOutput: z.unknown(),
-        execution: evidenceRerankModelExecutionSchema,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: evidenceRerankFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: evidenceRerankModelExecutionSchema,
-      })
-      .strict(),
-  ],
-);
-export type CanonicalEvidenceRerankerResult = z.infer<
+const canonicalEvidenceRerankerResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("completed"),
+      rawOutput: z.unknown(),
+      execution: evidenceRerankModelExecutionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: evidenceRerankFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: evidenceRerankModelExecutionSchema,
+    })
+    .strict(),
+]);
+type CanonicalEvidenceRerankerResult = z.infer<
   typeof canonicalEvidenceRerankerResultSchema
 >;
 
@@ -126,7 +123,7 @@ export type CanonicalEvidenceAdapters = {
   rerank?: (input: CanonicalEvidenceRerankerInput) => Promise<unknown>;
 };
 
-export type CanonicalEvidenceProvenanceInputs = {
+type CanonicalEvidenceProvenanceInputs = {
   prompts: LeanArtifactProvenance["prompts"];
   models: LeanArtifactProvenance["models"];
   responseArtifacts: ArtifactReference[];

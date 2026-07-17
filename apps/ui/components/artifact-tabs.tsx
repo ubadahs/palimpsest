@@ -12,25 +12,19 @@ export function ArtifactTabs({
   stageKey,
   stageTitle,
   artifactPointers,
-  familyIndex,
 }: {
   runId: string;
   stageKey: StageKey;
   stageTitle?: string;
   artifactPointers: StageArtifactPointer[];
-  /** Which per-family row’s artifacts to load (defaults to 0 server-side). */
-  familyIndex?: number;
 }) {
   const [activeTab, setActiveTab] = useState("primary");
   const [content, setContent] = useState<Record<string, string>>({});
   const availableKinds = artifactPointers.map((pointer) => pointer.kind);
 
-  const familyQs =
-    familyIndex != null ? `?familyIndex=${String(familyIndex)}` : "";
-
   useEffect(() => {
     setContent({});
-  }, [familyIndex, runId, stageKey]);
+  }, [runId, stageKey]);
 
   useEffect(() => {
     const nextTab = availableKinds.includes(activeTab)
@@ -42,12 +36,12 @@ export function ArtifactTabs({
 
     void (async () => {
       const response = await fetch(
-        `/api/runs/${runId}/stages/${stageKey}/artifacts/${nextTab}${familyQs}`,
+        `/api/runs/${runId}/stages/${stageKey}/artifacts/${nextTab}`,
       );
       const text = await response.text();
       setContent((current) => ({ ...current, [nextTab]: text }));
     })();
-  }, [activeTab, availableKinds, content, familyQs, runId, stageKey]);
+  }, [activeTab, availableKinds, content, runId, stageKey]);
 
   if (availableKinds.length === 0) {
     return (

@@ -1,4 +1,4 @@
-import type { EdgeClassification, ResolvedPaper } from "./types.js";
+import type { EdgeClassification, ResolvedPaper } from "./common.js";
 
 const REVIEW_TYPES = new Set(["review", "literature-review"]);
 const BOOK_CHAPTER_TYPES = new Set(["book-chapter", "book-section"]);
@@ -53,8 +53,7 @@ export function classifyEdge(paper: ResolvedPaper): EdgeClassification {
     paper.referencedWorksCount > HIGH_REFERENCE_COUNT_THRESHOLD;
 
   // A paper is "primary-like" if it is not a review, commentary, letter, or
-  // book chapter. This is a candidate for the empirical-attribution pipeline
-  // during extraction -- it says nothing about the paper's importance or quality.
+  // book chapter. This is a coarse provider-type signal only.
   const isPrimaryLike =
     !isReview && !isBookChapter && !isLetter && !isCommentary;
 

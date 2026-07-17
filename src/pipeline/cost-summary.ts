@@ -1,8 +1,7 @@
 import type { LLMRunLedger } from "../integrations/llm-client.js";
 
-export type RunCostStageSummary = {
+type RunCostStageSummary = {
   stage: string;
-  familyIndex: number;
   estimatedCostUsd: number;
   calls: number;
   attemptedCalls: number;
@@ -30,9 +29,7 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
 
   for (const call of ledger.calls) {
     const stage = call.stageKey ?? "unknown";
-    const familyIndex = call.familyIndex ?? 0;
-    const key = `${stage}:${String(familyIndex)}`;
-    const existing = stageMap.get(key);
+    const existing = stageMap.get(stage);
     if (existing) {
       existing.estimatedCostUsd += call.estimatedCostUsd;
       existing.calls += 1;
@@ -42,9 +39,8 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
       existing.billableCalls += call.billable ? 1 : 0;
       existing.exactCacheHits += call.exactCacheHit ? 1 : 0;
     } else {
-      stageMap.set(key, {
+      stageMap.set(stage, {
         stage,
-        familyIndex,
         estimatedCostUsd: call.estimatedCostUsd,
         calls: 1,
         attemptedCalls: 1,
@@ -64,8 +60,8 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
     totalFailedCalls: ledger.totalFailedCalls,
     totalBillableCalls: ledger.totalBillableCalls,
     totalExactCacheHits: ledger.totalExactCacheHits,
-    byStage: [...stageMap.values()].sort(
-      (a, b) => a.stage.localeCompare(b.stage) || a.familyIndex - b.familyIndex,
+    byStage: [...stageMap.values()].sort((a, b) =>
+      a.stage.localeCompare(b.stage),
     ),
     byPurpose: ledger.byPurpose,
     generatedAt: new Date().toISOString(),

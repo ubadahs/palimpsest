@@ -80,7 +80,7 @@ export function writeCanonicalStageManifest(
   return manifestPath;
 }
 
-export function resolveCanonicalInputsDirectory(runRoot: string): string {
+function resolveCanonicalInputsDirectory(runRoot: string): string {
   const directory = resolve(runRoot, "inputs");
   mkdirSync(directory, { recursive: true });
   return directory;

@@ -4,6 +4,10 @@ Use this as the map of the docs set. The goal is not to document every internal 
 
 If design documents disagree on scope, follow this order:
 
+1. [pipeline.md](./pipeline.md) — runnable canonical six-stage workflow
+2. [status.md](./status.md) — what is implemented in the repo today
+3. [adjudication-rubric.md](./adjudication-rubric.md) — F/D/E/U and Report denominator rules
+
 ## Start Here
 
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
@@ -15,25 +19,23 @@ If design documents disagree on scope, follow this order:
 
 - [pipeline.md](./pipeline.md) — what each stage reads, writes, and decides
 - [pipeline-concepts.md](./pipeline-concepts.md) — main objects that move through the stages
-- [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests, benchmark outputs
+- [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests
 - [status.md](./status.md) — what is implemented in the repo today
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
 - [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
 
 ## Archived / Historical
 
-Snapshots that can mislead if read without context:
-
 ## Focused Reference Docs
 
 - [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric and Report denominator rules
-- [eval-reranker-model-selection.md](./eval-reranker-model-selection.md) — reranker evaluation note and current retrieval-model rationale
+- [caching.md](./caching.md) — paper and LLM exact-result cache behavior
 
 ## Lint And Tests
 
 - Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
 - UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (Vitest + `happy-dom`; `@vitejs/plugin-react` aligns with Vite 6 alongside root Vitest 3.x)
-- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json) to suppress intentional export noise under `src/domain/**` (taxonomy surface) plus other internal modules; widen or tighten `ignoreIssues` entries when refactoring public API
+- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so legacy modules stay visible
 
 ## Large-Change Checklist
 

@@ -504,15 +504,14 @@ function buildRunStageDetail<K extends StageKey>(
   } as RunStageDetail<K>;
 }
 
-/** Single family row (default family 0). */
-export function getStageDetailOrThrow<K extends StageKey>(
+/** Canonical runs store one row per stage (`family_index = 0`). */
+function getStageDetailOrThrow<K extends StageKey>(
   runId: string,
   stageKey: K,
-  familyIndex = 0,
 ): RunStageDetail<K> {
   const database = getDatabase();
   const run = getAnalysisRun(database, runId);
-  const stage = getRunStage(database, runId, stageKey, familyIndex);
+  const stage = getRunStage(database, runId, stageKey);
 
   if (!run || !stage) {
     throw new Error("Run stage not found.");
@@ -536,9 +535,7 @@ export function getStageGroupDetailOrThrow<K extends StageKey>(
   }
 
   const flat = attachStageSummaries(listRunStages(database, runId), runId);
-  const members = flat
-    .filter((s) => s.stageKey === stageKey)
-    .sort((a, b) => a.familyIndex - b.familyIndex);
+  const members = flat.filter((s) => s.stageKey === stageKey);
 
   if (members.length === 0) {
     throw new Error("Run stage not found.");
@@ -554,17 +551,8 @@ export function getStageGroupDetailOrThrow<K extends StageKey>(
   } as RunStageGroupDetail<K>;
 }
 
-export function getLogTail(
-  runId: string,
-  stageKey: StageKey,
-  familyIndex?: number,
-): string {
-  const database = getDatabase();
-  const path =
-    familyIndex != null
-      ? (getRunStage(database, runId, stageKey, familyIndex)?.logPath ??
-        getStageLogPath(runId, stageKey))
-      : getStageLogPath(runId, stageKey);
+export function getLogTail(runId: string, stageKey: StageKey): string {
+  const path = getStageLogPath(runId, stageKey);
 
   let raw = "";
   try {
@@ -584,9 +572,8 @@ export function getArtifactContent(
   runId: string,
   stageKey: StageKey,
   kind: string,
-  familyIndex = 0,
 ): { content: string; path: string } {
-  const detail = getStageDetailOrThrow(runId, stageKey, familyIndex);
+  const detail = getStageDetailOrThrow(runId, stageKey);
   const pointer = detail.artifactPointers.find((entry) => entry.kind === kind);
   if (!pointer) {
     throw new Error(`Artifact not found for kind "${kind}".`);
@@ -620,7 +607,6 @@ type RunCostSummary = {
   totalExactCacheHits: number;
   byStage: Array<{
     stage: string;
-    familyIndex: number;
     estimatedCostUsd: number;
     calls: number;
     attemptedCalls: number;

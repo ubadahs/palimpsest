@@ -13,81 +13,39 @@ const TERMINAL: ReadonlySet<AnalysisRunStageStatus> = new Set([
   "interrupted",
 ]);
 
-/**
- * Roll up per-family stage rows into one status for the stage rail / overview.
- */
+/** Resolve the status for a canonical stage's single registry row. */
 export function computeAggregateStageStatus(
   members: AnalysisRunStage[],
 ): AnalysisRunStageStatus {
   if (members.length === 0) {
     return "not_started";
   }
-  const ordered = [...members].sort((a, b) => a.familyIndex - b.familyIndex);
-  if (ordered.some((m) => m.status === "running")) {
+  if (members.some((m) => m.status === "running")) {
     return "running";
   }
-  const terminal = ordered.find((m) => TERMINAL.has(m.status));
+  const terminal = members.find((m) => TERMINAL.has(m.status));
   if (terminal) {
     return terminal.status;
   }
-  if (ordered.every((m) => m.status === "succeeded")) {
+  if (members.every((m) => m.status === "succeeded")) {
     return "succeeded";
   }
-  if (ordered.some((m) => m.status === "stale")) {
+  if (members.some((m) => m.status === "stale")) {
     return "stale";
   }
-  if (ordered.some((m) => m.status === "blocked")) {
+  if (members.some((m) => m.status === "blocked")) {
     return "blocked";
   }
-  return ordered[0]!.status;
+  return members[0]!.status;
 }
 
 function mergeGroupSummary(
   members: AnalysisRunStage[],
-  aggregateStatus: AnalysisRunStageStatus,
 ): AnalysisStageSummary | undefined {
-  if (members.length === 1) {
-    return members[0]!.summary;
-  }
-
-  const succ = members.filter((m) => m.status === "succeeded").length;
-  const run = members.filter((m) => m.status === "running").length;
-  const fail = members.filter((m) => TERMINAL.has(m.status)).length;
-  const stale = members.filter((m) => m.status === "stale").length;
-
-  let headline: string;
-  if (run > 0) {
-    headline = `${String(run)} family pipeline(s) running`;
-  } else if (fail > 0) {
-    headline = `${String(fail)} family pipeline(s) stopped with errors`;
-  } else if (aggregateStatus === "stale" || stale > 0) {
-    headline = "Some family outputs are stale — rerun upstream stages";
-  } else if (succ === members.length) {
-    headline = `All ${String(members.length)} families complete`;
-  } else {
-    headline = `${String(succ)}/${String(members.length)} families complete`;
-  }
-
-  const metrics = [
-    { label: "Families", value: String(members.length) },
-    { label: "Succeeded", value: String(succ) },
-  ];
-  if (run > 0) {
-    metrics.push({ label: "Running", value: String(run) });
-  }
-  if (fail > 0) {
-    metrics.push({ label: "Failed", value: String(fail) });
-  }
-
-  const artifacts =
-    members.find((m) => m.familyIndex === 0)?.summary?.artifacts ?? [];
-
-  return { headline, metrics, artifacts };
+  return members[0]?.summary;
 }
 
-/**
- * Group flat DB stage rows into one logical stage per canonical stage key.
- */
+/** Group the six flat DB rows into one logical entry per canonical stage. */
 export function buildLogicalStageGroups(
   flat: AnalysisRunStage[],
 ): LogicalStageGroup[] {
@@ -99,14 +57,17 @@ export function buildLogicalStageGroups(
   }
 
   return stageDefinitions.flatMap((def) => {
-    const members = (byKey.get(def.key) ?? []).sort(
-      (a, b) => a.familyIndex - b.familyIndex,
-    );
+    const members = byKey.get(def.key) ?? [];
     if (members.length === 0) {
       return [];
     }
+    if (members.length !== 1) {
+      throw new Error(
+        `Canonical stage ${def.key} must have exactly one registry row`,
+      );
+    }
     const aggregateStatus = computeAggregateStageStatus(members);
-    const summary = mergeGroupSummary(members, aggregateStatus);
+    const summary = mergeGroupSummary(members);
     const group: LogicalStageGroup = {
       stageKey: def.key,
       stageOrder: def.order,
