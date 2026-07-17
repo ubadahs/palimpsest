@@ -1,219 +1,69 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import type {
-  AdjudicateInspectorPayload,
-  RunDetail,
-  RunStageGroupDetail,
-} from "palimpsest/contract";
+import type { RunDetail, RunVerdictSummary } from "palimpsest/contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { RichText } from "@/lib/rich-text";
 import {
   VERDICT_BG_COLORS,
   VERDICT_LABELS,
   VERDICT_ORDER,
   VERDICT_TEXT_COLORS,
 } from "@/lib/verdict-tokens";
-import { fetchJson } from "@/lib/utils";
 
-type VerdictCounts = {
-  supported: number;
-  partially_supported: number;
-  overstated_or_generalized: number;
-  not_supported: number;
-  cannot_determine: number;
-  total: number;
-};
-
-function countVerdicts(
-  records: AdjudicateInspectorPayload["records"],
-): VerdictCounts {
-  let supported = 0;
-  let partially_supported = 0;
-  let overstated_or_generalized = 0;
-  let not_supported = 0;
-  let cannot_determine = 0;
-  let total = 0;
-
-  for (const record of records) {
-    if (record.excluded) continue;
-    total++;
-    const v = record.verdict ?? "";
-    if (v === "supported") supported++;
-    else if (v === "partially_supported") partially_supported++;
-    else if (v === "overstated_or_generalized") overstated_or_generalized++;
-    else if (v === "not_supported") not_supported++;
-    else if (v === "cannot_determine") cannot_determine++;
-  }
-
-  return {
-    supported,
-    partially_supported,
-    overstated_or_generalized,
-    not_supported,
-    cannot_determine,
-    total,
-  };
-}
-
-function buildHeadline(counts: VerdictCounts): string {
-  const { total, supported, partially_supported } = counts;
-  const faithful = supported + partially_supported;
-  if (total === 0) return "No verdicts recorded.";
-  return `${String(faithful)} of ${String(total)} adjudicated citations faithfully represent the claim.`;
+function headline(summary: RunVerdictSummary): string {
+  if (summary.total === 0) return "No adjudicated records.";
+  return `${String(summary.F)} of ${String(summary.total)} adjudicated records are faithful.`;
 }
 
 export function RunResultsSummary({ run }: { run: RunDetail }) {
-  const [group, setGroup] = useState<RunStageGroupDetail<"adjudicate"> | null>(
-    null,
-  );
-
-  useEffect(() => {
-    void fetchJson<RunStageGroupDetail<"adjudicate">>(
-      `/api/runs/${run.id}/stages/adjudicate`,
-    )
-      .then(setGroup)
-      .catch(() => null);
-  }, [run.id]);
-
-  if (!group) {
-    return null;
-  }
-
-  const records = group.members.flatMap(
-    (member) => member.inspectorPayload?.records ?? [],
-  );
-  if (records.length === 0) return null;
-
-  const counts = countVerdicts(records);
-  const headline = buildHeadline(counts);
-
-  // Flagged = not_supported or overstated
-  const flagged = records.filter((record) => {
-    const verdict = record.verdict ?? "";
-    return (
-      (verdict === "not_supported" ||
-        verdict === "overstated_or_generalized") &&
-      !record.excluded
-    );
-  });
+  const verdicts = run.verdictSummary;
+  if (!verdicts) return null;
+  if (verdicts.total === 0 && verdicts.notAdjudicated === 0) return null;
 
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-          Results
+          Canonical results
         </p>
         <h2 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
-          {headline}
+          {headline(verdicts)}
         </h2>
-        <p className="mt-2 max-w-3xl text-sm text-[var(--text-muted)]">
-          {run.trackedClaim}
-        </p>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Verdict distribution */}
-        <div>
-          <div className="mb-3 flex gap-1 overflow-hidden rounded-full">
-            {VERDICT_ORDER.map((v) => {
-              const count = counts[v];
-              if (count === 0 || counts.total === 0) return null;
-              const pct = (count / counts.total) * 100;
-              return (
-                <div
-                  key={v}
-                  className={`h-3 ${VERDICT_BG_COLORS[v]}`}
-                  style={{ width: `${pct}%` }}
-                  title={`${VERDICT_LABELS[v]}: ${String(count)}`}
-                />
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap gap-4">
-            {VERDICT_ORDER.map((v) => {
-              const count = counts[v];
-              if (count === 0) return null;
-              return (
-                <div key={v} className="flex items-center gap-2">
-                  <span
-                    className={`text-lg font-bold ${VERDICT_TEXT_COLORS[v]}`}
-                  >
-                    {String(count)}
-                  </span>
-                  <span className="text-sm text-[var(--text-muted)]">
-                    {VERDICT_LABELS[v]}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+      <CardContent className="space-y-5">
+        <div className="flex gap-1 overflow-hidden rounded-full">
+          {VERDICT_ORDER.map((verdict) => {
+            const count = verdicts[verdict];
+            if (count === 0 || verdicts.total === 0) return null;
+            return (
+              <div
+                className={`h-3 ${VERDICT_BG_COLORS[verdict]}`}
+                key={verdict}
+                style={{ width: `${String((count / verdicts.total) * 100)}%` }}
+                title={`${VERDICT_LABELS[verdict]}: ${String(count)}`}
+              />
+            );
+          })}
         </div>
-
-        {/* Flagged citations */}
-        {flagged.length > 0 ? (
-          <div>
-            <p className="mb-3 text-sm font-semibold text-[var(--text)]">
-              Citations needing attention
-            </p>
-            <div className="space-y-2">
-              {flagged.slice(0, 5).map((record, i) => (
-                <div
-                  className="rounded-[20px] border border-[rgba(154,64,54,0.15)] bg-[rgba(154,64,54,0.04)] p-4"
-                  key={record.recordId ?? `${record.taskId}-${String(i)}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--danger)]">
-                        {(record.verdict && VERDICT_LABELS[record.verdict]) ??
-                          record.verdict ??
-                          ""}
-                      </p>
-                      <RichText
-                        html={record.citingPaperTitle}
-                        as="p"
-                        className="mt-1 text-sm font-semibold text-[var(--text)]"
-                      />
-                      {record.groundedSeedClaimText ? (
-                        <p className="mt-1.5 text-sm italic text-[var(--text-muted)]">
-                          Claim: &ldquo;{record.groundedSeedClaimText}&rdquo;
-                        </p>
-                      ) : null}
-                      {record.comparison ? (
-                        <p className="mt-1 line-clamp-2 text-sm text-[var(--text-muted)]">
-                          {record.comparison}
-                        </p>
-                      ) : null}
-                    </div>
-                    <Link
-                      className="shrink-0 text-sm font-semibold text-[var(--accent)] hover:underline"
-                      href={`/runs/${run.id}/stages/adjudicate`}
-                    >
-                      View
-                    </Link>
-                  </div>
-                </div>
-              ))}
-              {flagged.length > 5 ? (
-                <p className="text-sm text-[var(--text-muted)]">
-                  +{String(flagged.length - 5)} more —{" "}
-                  <Link
-                    className="font-semibold text-[var(--accent)]"
-                    href={`/runs/${run.id}/stages/adjudicate`}
-                  >
-                    view all in adjudicate stage
-                  </Link>
-                </p>
-              ) : null}
+        <div className="flex flex-wrap gap-5">
+          {VERDICT_ORDER.map((verdict) => (
+            <div key={verdict}>
+              <span
+                className={`text-lg font-bold ${VERDICT_TEXT_COLORS[verdict]}`}
+              >
+                {verdicts[verdict]}
+              </span>
+              <span className="ml-2 text-sm text-[var(--text-muted)]">
+                {verdict} · {VERDICT_LABELS[verdict]}
+              </span>
             </div>
-          </div>
-        ) : counts.not_supported === 0 &&
-          counts.overstated_or_generalized === 0 ? (
-          <p className="text-sm text-[var(--success)]">
-            No citations were flagged as not supported or overstated.
-          </p>
-        ) : null}
+          ))}
+        </div>
+        <p className="text-sm text-[var(--text-muted)]">
+          Operational non-verdicts: {verdicts.notAdjudicated} not adjudicated,{" "}
+          {verdicts.adjudicationFailed} failed, and {verdicts.invalidOutput}{" "}
+          invalid output.
+        </p>
       </CardContent>
     </Card>
   );
