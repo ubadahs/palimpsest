@@ -16,28 +16,27 @@ import { analysisRunConfigSchema } from "palimpsest/contract";
  * the form default drifted (fix it back).
  */
 const formDefaults = {
-  stopAfterStage: "adjudicate",
+  stopAfterStage: "report",
   forceRefresh: false,
-  discoverStrategy: "attribution_first",
-  discoverModel: "claude-haiku-4-5",
-  discoverThinking: false,
-  discoverTopN: 5,
-  discoverRank: true,
-  discoverProbeBudget: 100,
-  discoverShortlistCap: 5,
-  screenGroundingModel: "claude-sonnet-4-6",
-  screenGroundingThinking: true,
-  screenFilterModel: "claude-haiku-4-5",
-  screenFilterConcurrency: 10,
-  evidenceLlmRerank: true,
-  evidenceRerankModel: "claude-haiku-4-5",
-  evidenceRerankTopN: 5,
-  curateTargetSize: 20,
-  adjudicateModel: "claude-opus-4-6",
-  adjudicateThinking: true,
-  adjudicateAdvisor: true,
-  adjudicateFirstPassModel: "claude-sonnet-4-6",
-  familyConcurrency: 5,
+  discover: {
+    neighborhoodProvider: "openalex",
+    neighborhoodQuery: "works-citing-seed",
+    neighborhoodLimit: 200,
+    probeBudget: 100,
+    scopeCandidateCap: 5,
+    extractionModel: "claude-haiku-4-5",
+    extractionThinking: false,
+  },
+  scope: { groundingModel: "claude-sonnet-4-6", groundingThinking: true },
+  prepare: { classifier: "deterministic" },
+  evidence: {
+    rerankEnabled: false,
+    rerankModel: "claude-haiku-4-5",
+    rerankTopN: 5,
+    bm25CandidateLimit: 20,
+    selectionLimit: 5,
+  },
+  adjudicate: { model: "claude-opus-4-6", thinking: true },
 };
 
 describe("config defaults contract", () => {
@@ -45,10 +44,11 @@ describe("config defaults contract", () => {
     const schemaDefaults = analysisRunConfigSchema.parse({});
 
     for (const [key, formValue] of Object.entries(formDefaults)) {
-      const schemaValue = (schemaDefaults as Record<string, unknown>)[key];
-      expect(schemaValue, `schema default for "${key}" should match form`).toBe(
-        formValue,
-      );
+      const schemaValue = schemaDefaults[key as keyof typeof schemaDefaults];
+      expect(
+        schemaValue,
+        `schema default for "${key}" should match form`,
+      ).toStrictEqual(formValue);
     }
   });
 });

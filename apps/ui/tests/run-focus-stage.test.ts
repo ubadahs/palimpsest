@@ -46,36 +46,36 @@ function groupOf(members: AnalysisRunStage[]): LogicalStageGroup {
 describe("resolveFocusStage", () => {
   it("prefers the running stage", () => {
     const stages: LogicalStageGroup[] = [
-      groupOf([stage("screen", 1, "succeeded")]),
-      groupOf([stage("extract", 2, "running")]),
-      groupOf([stage("classify", 3, "not_started")]),
+      groupOf([stage("scope", 1, "succeeded")]),
+      groupOf([stage("prepare", 2, "running")]),
+      groupOf([stage("evidence", 3, "not_started")]),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("prepare");
   });
 
   it("uses the earliest terminal failure in pipeline order", () => {
     const stages: LogicalStageGroup[] = [
-      groupOf([stage("screen", 1, "succeeded")]),
-      groupOf([stage("extract", 2, "failed")]),
-      groupOf([stage("classify", 3, "not_started")]),
+      groupOf([stage("scope", 1, "succeeded")]),
+      groupOf([stage("prepare", 2, "failed")]),
+      groupOf([stage("evidence", 3, "not_started")]),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("prepare");
   });
 
   it("uses the last succeeded stage when idle", () => {
     const stages: LogicalStageGroup[] = [
-      groupOf([stage("screen", 1, "succeeded")]),
-      groupOf([stage("extract", 2, "succeeded")]),
-      groupOf([stage("classify", 3, "not_started")]),
+      groupOf([stage("scope", 1, "succeeded")]),
+      groupOf([stage("prepare", 2, "succeeded")]),
+      groupOf([stage("evidence", 3, "not_started")]),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("extract");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("prepare");
   });
 
   it("falls back to the first stage when nothing has started", () => {
     const stages: LogicalStageGroup[] = [
-      groupOf([stage("screen", 1, "not_started")]),
-      groupOf([stage("extract", 2, "not_started")]),
+      groupOf([stage("discover", 0, "not_started")]),
+      groupOf([stage("scope", 1, "not_started")]),
     ];
-    expect(resolveFocusStage(stages)?.stageKey).toBe("screen");
+    expect(resolveFocusStage(stages)?.stageKey).toBe("discover");
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
@@ -7,7 +7,7 @@ import {
   buildStageInspectorPayload,
   buildStageWorkflowSnapshot,
   computeAggregateStageStatus,
-  deriveStageSummary,
+  deriveCanonicalStageSummaryFromPath,
   extractStageFailureDetailFromLog,
   getEnvironmentHealthSummary,
   getStageDefinition,
@@ -65,33 +65,42 @@ function buildHealthSummary(groups: LogicalStageGroup[]): string {
 }
 
 function countVerdictsFromAdjudicateInspectorRecords(
-  records: StageInspectorPayload<"adjudicate">["records"],
+  records: StageInspectorPayload<"adjudicate">["rawArtifact"]["payload"]["records"],
 ): RunVerdictSummary {
-  let supported = 0;
-  let partially_supported = 0;
-  let overstated_or_generalized = 0;
-  let not_supported = 0;
-  let cannot_determine = 0;
+  let F = 0;
+  let D = 0;
+  let E = 0;
+  let U = 0;
   let total = 0;
+  let notAdjudicated = 0;
+  let adjudicationFailed = 0;
+  let invalidOutput = 0;
 
   for (const record of records) {
-    if (record.excluded) continue;
-    total++;
-    const v = record.verdict ?? "";
-    if (v === "supported") supported++;
-    else if (v === "partially_supported") partially_supported++;
-    else if (v === "overstated_or_generalized") overstated_or_generalized++;
-    else if (v === "not_supported") not_supported++;
-    else if (v === "cannot_determine") cannot_determine++;
+    if (record.status === "adjudicated") {
+      total++;
+      if (record.verdict === "F") F++;
+      else if (record.verdict === "D") D++;
+      else if (record.verdict === "E") E++;
+      else if (record.verdict === "U") U++;
+    } else if (record.status === "not_adjudicated") {
+      notAdjudicated++;
+    } else if (record.status === "adjudication_failed") {
+      adjudicationFailed++;
+    } else if (record.status === "invalid_output") {
+      invalidOutput++;
+    }
   }
 
   return {
-    supported,
-    partially_supported,
-    overstated_or_generalized,
-    not_supported,
-    cannot_determine,
+    F,
+    D,
+    E,
+    U,
     total,
+    notAdjudicated,
+    adjudicationFailed,
+    invalidOutput,
   };
 }
 
@@ -106,14 +115,15 @@ function loadAdjudicateVerdictSummaryForRun(
     listRunStages(database, runId).filter((s) => s.stageKey === "adjudicate"),
     runId,
   );
-  const records: StageInspectorPayload<"adjudicate">["records"] = [];
+  const records: StageInspectorPayload<"adjudicate">["rawArtifact"]["payload"]["records"] =
+    [];
   for (const stage of adjudicateRows) {
     if (stage.status !== "succeeded") continue;
     const path = stage.primaryArtifactPath;
     if (!path) continue;
     try {
       const payload = buildStageInspectorPayload("adjudicate", path);
-      records.push(...payload.records);
+      records.push(...payload.rawArtifact.payload.records);
     } catch {
       /* artifact missing or invalid */
     }
@@ -197,11 +207,25 @@ function buildWorkflowSummary(
   };
 }
 
+const ARTIFACT_TRUSTED_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "interrupted",
+  "cancelled",
+]);
+
+/**
+ * Resolve artifacts for a stage row. Never fall back to the lexicographically
+ * latest file on disk when the DB pointer is null for non-succeeded rows —
+ * that would resurface superseded artifacts after a rerun.
+ */
 function resolveArtifactSetForRow(
   runId: string,
   stage: AnalysisRunStage,
 ): ReturnType<typeof listStageArtifacts> {
+  const empty: ReturnType<typeof listStageArtifacts> = { extraArtifacts: [] };
   const dir = getStageDirectory(runId, stage.stageKey);
+
   if (stage.primaryArtifactPath) {
     try {
       const stem = artifactStemFromPrimaryPath(
@@ -215,6 +239,25 @@ function resolveArtifactSetForRow(
     } catch {
       /* fall through */
     }
+    return {
+      extraArtifacts: [],
+      primaryArtifactPath: stage.primaryArtifactPath,
+      ...(stage.reportArtifactPath
+        ? { reportArtifactPath: stage.reportArtifactPath }
+        : {}),
+      ...(stage.manifestPath ? { manifestPath: stage.manifestPath } : {}),
+    };
+  }
+
+  if (!ARTIFACT_TRUSTED_STATUSES.has(stage.status)) {
+    return empty;
+  }
+
+  // Succeeded rows should always carry a DB pointer; filesystem listing is a
+  // last-resort recovery only for trusted terminal statuses that somehow lost
+  // their pointer, never for awaiting/stale/running rows.
+  if (stage.status !== "succeeded") {
+    return empty;
   }
   return listStageArtifacts(stage.stageKey, dir);
 }
@@ -226,6 +269,21 @@ function attachStageSummaries(
   return stages.map((stage) => {
     const logContent = readStageLogContent(runId, stage);
     const errorMessage = resolveStageErrorMessage(stage, logContent);
+    const awaitingResult = !ARTIFACT_TRUSTED_STATUSES.has(stage.status);
+    if (awaitingResult) {
+      return {
+        ...stage,
+        ...(errorMessage ? { errorMessage } : {}),
+        primaryArtifactPath: undefined,
+        reportArtifactPath: undefined,
+        manifestPath: undefined,
+        summary:
+          stage.status === "not_started" || stage.status === "stale"
+            ? undefined
+            : buildWorkflowSummary(runId, stage),
+      };
+    }
+
     const artifacts = resolveArtifactSetForRow(runId, stage);
     const primaryArtifactPath =
       stage.primaryArtifactPath ?? artifacts.primaryArtifactPath;
@@ -233,32 +291,31 @@ function attachStageSummaries(
       stage.reportArtifactPath ?? artifacts.reportArtifactPath;
     const manifestPath = stage.manifestPath ?? artifacts.manifestPath;
 
-    const pointers = [
-      ...(primaryArtifactPath
-        ? [{ kind: "primary", path: primaryArtifactPath }]
-        : []),
-      ...(reportArtifactPath
-        ? [{ kind: "report", path: reportArtifactPath }]
-        : []),
-      ...(manifestPath ? [{ kind: "manifest", path: manifestPath }] : []),
-      ...artifacts.extraArtifacts,
-    ];
-
     return {
       ...stage,
       ...(errorMessage ? { errorMessage } : {}),
-      primaryArtifactPath,
-      reportArtifactPath,
-      manifestPath,
+      ...(primaryArtifactPath
+        ? { primaryArtifactPath }
+        : { primaryArtifactPath: undefined }),
+      ...(reportArtifactPath
+        ? { reportArtifactPath }
+        : { reportArtifactPath: undefined }),
+      ...(manifestPath ? { manifestPath } : { manifestPath: undefined }),
       summary:
         stage.summary ??
-        deriveStageSummary(stage.stageKey, primaryArtifactPath, pointers, {
-          stageStatus: stage.status,
-          ...(errorMessage ? { errorMessage } : {}),
-        }) ??
-        (stage.status === "not_started"
-          ? undefined
-          : buildWorkflowSummary(runId, stage)),
+        (primaryArtifactPath
+          ? (() => {
+              try {
+                return deriveCanonicalStageSummaryFromPath(
+                  stage.stageKey,
+                  primaryArtifactPath,
+                );
+              } catch {
+                return undefined;
+              }
+            })()
+          : undefined) ??
+        buildWorkflowSummary(runId, stage),
     };
   });
 }
@@ -348,9 +405,14 @@ export function getRunDetailOrThrow(runId: string): RunDetail {
   const activeLogContent = activeStage
     ? readStageLogContent(runId, activeStage)
     : undefined;
+  const verdictSummary =
+    run.status === "succeeded"
+      ? loadAdjudicateVerdictSummaryForRun(database, runId)
+      : undefined;
   return {
     ...run,
     stages,
+    ...(verdictSummary ? { verdictSummary } : {}),
     ...(activeStage
       ? {
           activeWorkflow: buildStageWorkflowSnapshot({
@@ -371,12 +433,23 @@ function buildRunStageDetail<K extends StageKey>(
   stage: AnalysisRunStage & { stageKey: K },
 ): RunStageDetail<K> {
   const stageKey = stage.stageKey;
-  const artifacts = resolveArtifactSetForRow(runId, stage);
-  const primaryArtifactPath =
-    stage.primaryArtifactPath ?? artifacts.primaryArtifactPath;
-  const reportArtifactPath =
-    stage.reportArtifactPath ?? artifacts.reportArtifactPath;
-  const manifestPath = stage.manifestPath ?? artifacts.manifestPath;
+  const trusted = ARTIFACT_TRUSTED_STATUSES.has(stage.status);
+  const artifacts = trusted
+    ? resolveArtifactSetForRow(runId, stage)
+    : {
+        extraArtifacts: [] as ReturnType<
+          typeof listStageArtifacts
+        >["extraArtifacts"],
+      };
+  const primaryArtifactPath = trusted
+    ? (stage.primaryArtifactPath ?? artifacts.primaryArtifactPath)
+    : undefined;
+  const reportArtifactPath = trusted
+    ? (stage.reportArtifactPath ?? artifacts.reportArtifactPath)
+    : undefined;
+  const manifestPath = trusted
+    ? (stage.manifestPath ?? artifacts.manifestPath)
+    : undefined;
 
   const artifactPointers = [
     ...(primaryArtifactPath
@@ -393,7 +466,7 @@ function buildRunStageDetail<K extends StageKey>(
   const stageLogContent = readStageLogContent(runId, stage);
   let errorMessage = resolveStageErrorMessage(stage, stageLogContent);
 
-  if (primaryArtifactPath) {
+  if (primaryArtifactPath && stage.status === "succeeded") {
     try {
       inspectorPayload = buildStageInspectorPayload(
         stageKey,
@@ -619,54 +692,7 @@ export function getRunCostSummary(runId: string): RunCostSummary | undefined {
   );
   if (adjudicateStages.length === 0) return undefined;
 
-  const entries: RunCostSummary["byStage"] = [];
-  for (const stage of adjudicateStages) {
-    if (!stage.primaryArtifactPath || !existsSync(stage.primaryArtifactPath)) {
-      continue;
-    }
-    try {
-      const payload = buildStageInspectorPayload(
-        "adjudicate",
-        stage.primaryArtifactPath,
-      ) as Record<string, unknown>;
-      const telemetry = payload["runTelemetry"] as
-        | Record<string, unknown>
-        | undefined;
-      if (telemetry && typeof telemetry["estimatedCostUsd"] === "number") {
-        entries.push({
-          stage: "adjudicate",
-          familyIndex: stage.familyIndex ?? 0,
-          estimatedCostUsd: telemetry["estimatedCostUsd"],
-          calls: Number(telemetry["totalCalls"] ?? 0),
-          attemptedCalls: Number(telemetry["totalCalls"] ?? 0),
-          successfulCalls: Number(telemetry["successfulCalls"] ?? 0),
-          failedCalls: Number(telemetry["failedCalls"] ?? 0),
-          billableCalls: Number(telemetry["successfulCalls"] ?? 0),
-          exactCacheHits: 0,
-        });
-      }
-    } catch {
-      /* skip */
-    }
-  }
-
-  if (entries.length === 0) return undefined;
-
-  return {
-    totalEstimatedCostUsd: entries.reduce(
-      (sum, e) => sum + e.estimatedCostUsd,
-      0,
-    ),
-    totalCalls: entries.reduce((sum, e) => sum + e.calls, 0),
-    totalAttemptedCalls: entries.reduce((sum, e) => sum + e.attemptedCalls, 0),
-    totalSuccessfulCalls: entries.reduce(
-      (sum, e) => sum + e.successfulCalls,
-      0,
-    ),
-    totalFailedCalls: entries.reduce((sum, e) => sum + e.failedCalls, 0),
-    totalBillableCalls: entries.reduce((sum, e) => sum + e.billableCalls, 0),
-    totalExactCacheHits: 0,
-    byStage: entries,
-    source: "adjudicate_artifacts",
-  };
+  // Canonical Adjudicate records per-request provenance but deliberately has
+  // no aggregate run telemetry. The pipeline cost artifact is authoritative.
+  return undefined;
 }
