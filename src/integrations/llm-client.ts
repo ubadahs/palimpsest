@@ -60,6 +60,19 @@ export type LLMCallContext = {
 // Per-call telemetry returned from every invocation.
 // ---------------------------------------------------------------------------
 
+export type ThinkingEffort = "low" | "medium" | "high" | "max";
+
+/**
+ * Extended thinking configuration.
+ *
+ * - `adaptive` + `effort`: preferred for Sonnet/Opus 4.6+ (and newer).
+ * - `enabled` + `budgetTokens`: legacy fixed-budget mode for older models
+ *   that do not support adaptive thinking (e.g. Haiku 4.5, Sonnet 4.5).
+ */
+export type ThinkingConfig =
+  | { type: "adaptive"; effort: ThinkingEffort }
+  | { type: "enabled"; budgetTokens: number };
+
 export type LLMCallRecord = {
   purpose: LLMPurpose;
   model: string;
@@ -70,6 +83,8 @@ export type LLMCallRecord = {
   failed: boolean;
   billable: boolean;
   thinkingEnabled: boolean;
+  thinkingType?: ThinkingConfig["type"];
+  thinkingEffort?: ThinkingEffort;
   thinkingBudgetTokens?: number;
   inputTokens: number;
   outputTokens: number;
@@ -137,11 +152,6 @@ export type LLMClient = {
 
   /** Snapshot of all calls made through this client so far. */
   getLedger: () => LLMRunLedger;
-};
-
-export type ThinkingConfig = {
-  type: "enabled";
-  budgetTokens: number;
 };
 
 export type PromptCacheControl = {
@@ -414,6 +424,171 @@ export function resolvePromptCacheControl(params: {
   return policy.cacheControl;
 }
 
+/** True when the model prefers adaptive thinking (Sonnet/Opus 4.6+). */
+export function modelSupportsAdaptiveThinking(modelId: string): boolean {
+  const match = /claude-(?:sonnet|opus)(?:-(\d+))?(?:[.-](\d+))?/i.exec(
+    modelId,
+  );
+  if (!match) {
+    return false;
+  }
+  const major = Number(match[1] ?? "0");
+  const minor = Number(match[2] ?? "0");
+  if (!Number.isFinite(major) || major <= 0) {
+    return false;
+  }
+  return major > 4 || (major === 4 && minor >= 6);
+}
+
+/**
+ * Resolve thinking for a call site. Adaptive+effort for 4.6+ models;
+ * fixed budget for older models that still require it.
+ */
+export function resolveThinkingConfig(params: {
+  model: string;
+  enabled: boolean;
+  /** Soft guidance for adaptive mode. Defaults to `high`. */
+  effort?: ThinkingEffort;
+  /** Fixed budget for legacy models. Required when adaptive is unsupported. */
+  budgetTokens: number;
+}): ThinkingConfig | undefined {
+  if (!params.enabled) {
+    return undefined;
+  }
+  if (modelSupportsAdaptiveThinking(params.model)) {
+    return {
+      type: "adaptive",
+      effort: params.effort ?? "high",
+    };
+  }
+  return {
+    type: "enabled",
+    budgetTokens: params.budgetTokens,
+  };
+}
+
+/** Stable cache-key / provenance encoding of thinking settings. */
+export function thinkingConfigKey(thinking?: ThinkingConfig): string {
+  if (!thinking) {
+    return "";
+  }
+  if (thinking.type === "adaptive") {
+    return `adaptive:${thinking.effort}`;
+  }
+  return `enabled:${String(thinking.budgetTokens)}`;
+}
+
+export function promptCachePolicyKey(
+  cacheControl?: PromptCacheControl,
+): string {
+  if (!cacheControl) {
+    return "";
+  }
+  return cacheControl.ttl
+    ? `${cacheControl.type}:${cacheControl.ttl}`
+    : cacheControl.type;
+}
+
+export type ExactCacheAccessPolicy = "allow" | "bypass";
+
+/**
+ * Anthropic providerOptions fragment for thinking (+ effort when adaptive).
+ * Effort is a sibling of `thinking` per AI SDK / Anthropic Messages API.
+ */
+export function buildAnthropicThinkingProviderOptions(
+  thinking?: ThinkingConfig,
+):
+  | {
+      thinking: { type: "adaptive" };
+      effort: ThinkingEffort;
+    }
+  | {
+      thinking: { type: "enabled"; budgetTokens: number };
+    }
+  | Record<string, never> {
+  if (!thinking) {
+    return {};
+  }
+  if (thinking.type === "adaptive") {
+    return {
+      thinking: { type: "adaptive" },
+      effort: thinking.effort,
+    };
+  }
+  return {
+    thinking: {
+      type: "enabled",
+      budgetTokens: thinking.budgetTokens,
+    },
+  };
+}
+
+export type NormalizedLLMCallProvenance = {
+  purpose: LLMPurpose;
+  model: string;
+  promptVersion: string;
+  thinking:
+    | { mode: "adaptive"; effort: ThinkingEffort }
+    | { mode: "enabled"; budgetTokens: number }
+    | { mode: "disabled" };
+  exactCacheKeyVersion: string;
+  cachePolicy: ExactCacheAccessPolicy;
+  promptCachePolicy: string;
+};
+
+/** Compact request provenance for adapter-normalized model executions. */
+export function buildNormalizedLLMCallProvenance(params: {
+  purpose: LLMPurpose;
+  model: string;
+  promptVersion: string;
+  thinking?: ThinkingConfig | undefined;
+  exactCacheKeyVersion: string;
+  forceRefresh?: boolean | undefined;
+  promptCacheControl?: PromptCacheControl | undefined;
+}): NormalizedLLMCallProvenance {
+  const thinking: NormalizedLLMCallProvenance["thinking"] = !params.thinking
+    ? { mode: "disabled" }
+    : params.thinking.type === "adaptive"
+      ? { mode: "adaptive", effort: params.thinking.effort }
+      : {
+          mode: "enabled",
+          budgetTokens: params.thinking.budgetTokens,
+        };
+
+  return {
+    purpose: params.purpose,
+    model: params.model,
+    promptVersion: params.promptVersion,
+    thinking,
+    exactCacheKeyVersion: params.exactCacheKeyVersion,
+    cachePolicy: params.forceRefresh === true ? "bypass" : "allow",
+    promptCachePolicy: promptCachePolicyKey(params.promptCacheControl),
+  };
+}
+
+function thinkingTelemetryFields(thinking?: ThinkingConfig): {
+  thinkingEnabled: boolean;
+  thinkingType?: ThinkingConfig["type"];
+  thinkingEffort?: ThinkingEffort;
+  thinkingBudgetTokens?: number;
+} {
+  if (!thinking) {
+    return { thinkingEnabled: false };
+  }
+  if (thinking.type === "adaptive") {
+    return {
+      thinkingEnabled: true,
+      thinkingType: "adaptive",
+      thinkingEffort: thinking.effort,
+    };
+  }
+  return {
+    thinkingEnabled: true,
+    thinkingType: "enabled",
+    thinkingBudgetTokens: thinking.budgetTokens,
+  };
+}
+
 type CachedPrefixTextPart = {
   type: "text";
   text: string;
@@ -615,10 +790,6 @@ function resolveFullPrompt(params: GenerateTextParams): string {
   return params.prompt;
 }
 
-function thinkingConfigString(thinking?: ThinkingConfig): string {
-  return thinking ? `${thinking.type}:${String(thinking.budgetTokens)}` : "";
-}
-
 export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   const anthropic = createAnthropic({ apiKey: options.apiKey });
   const defaultModel = options.defaultModel ?? "claude-sonnet-4-6";
@@ -660,6 +831,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     context: LLMCallContext,
     thinking?: ThinkingConfig,
   ): LLMCallRecord {
+    const thinkingFields = thinkingTelemetryFields(thinking);
     const record: LLMCallRecord = {
       purpose,
       model: modelId,
@@ -671,10 +843,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: true,
       failed: false,
       billable: false,
-      thinkingEnabled: thinking != null,
-      ...(thinking?.budgetTokens != null
-        ? { thinkingBudgetTokens: thinking.budgetTokens }
-        : {}),
+      ...thinkingFields,
       exactCacheHit: true,
       inputTokens: 0,
       outputTokens: 0,
@@ -718,6 +887,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
     const cacheCreation = extractCacheCreationFromRawUsage(usage.raw);
     const totalBillableTokens = inputTokens + outputTokens;
+    const thinkingFields = thinkingTelemetryFields(thinking);
     const record: LLMCallRecord = {
       purpose,
       model: modelId,
@@ -729,10 +899,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: true,
       failed: false,
       billable: totalBillableTokens > 0,
-      thinkingEnabled: thinking != null,
-      ...(thinking?.budgetTokens != null
-        ? { thinkingBudgetTokens: thinking.budgetTokens }
-        : {}),
+      ...thinkingFields,
       inputTokens,
       outputTokens,
       totalTokens: usage.totalTokens ?? totalBillableTokens,
@@ -772,6 +939,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     error: unknown;
   }): LLMCallRecord {
     const provider = classifyProviderError(params.error);
+    const thinkingFields = thinkingTelemetryFields(params.thinking);
     const record: LLMCallRecord = {
       purpose: params.purpose,
       model: params.modelId,
@@ -785,10 +953,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: false,
       failed: true,
       billable: false,
-      thinkingEnabled: params.thinking != null,
-      ...(params.thinking?.budgetTokens != null
-        ? { thinkingBudgetTokens: params.thinking.budgetTokens }
-        : {}),
+      ...thinkingFields,
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
@@ -808,14 +973,25 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const modelId = params.model ?? defaultModel;
       const context = { ...options.defaultContext, ...params.context };
 
+      const promptInput = buildGenerateTextCallInput({
+        request: params,
+        promptCaching: options.promptCaching,
+      });
+      const promptCachePolicy = promptCachePolicyKey(promptInput.cacheControl);
+      const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
+        ? "bypass"
+        : "allow";
+
       // --- Exact-result cache lookup ---
       if (db && params.exactCache && !forceRefresh) {
         const cacheKey = computeLLMCacheKey({
           purpose: params.purpose,
           model: modelId,
           prompt: resolveFullPrompt(params),
-          thinkingConfig: thinkingConfigString(params.thinking),
+          thinkingConfig: thinkingConfigKey(params.thinking),
           keyVersion: params.exactCache.keyVersion,
+          promptCachePolicy,
+          cachePolicy: cacheAccessPolicy,
         });
         const cached = getCachedLLMResult(db, cacheKey);
         if (cached) {
@@ -830,13 +1006,11 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       }
 
       const startMs = Date.now();
-      const promptInput = buildGenerateTextCallInput({
-        request: params,
-        promptCaching: options.promptCaching,
-      });
-
+      const thinkingProviderOptions = buildAnthropicThinkingProviderOptions(
+        params.thinking,
+      );
       const anthropicProviderOptions = {
-        ...(params.thinking ? { thinking: params.thinking } : {}),
+        ...thinkingProviderOptions,
         ...(promptInput.cacheControl
           ? { cacheControl: promptInput.cacheControl }
           : {}),
@@ -881,8 +1055,10 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               purpose: params.purpose,
               model: modelId,
               prompt: resolveFullPrompt(params),
-              thinkingConfig: thinkingConfigString(params.thinking),
+              thinkingConfig: thinkingConfigKey(params.thinking),
               keyVersion: params.exactCache.keyVersion,
+              promptCachePolicy,
+              cachePolicy: cacheAccessPolicy,
             }),
             purpose: params.purpose,
             model: modelId,
@@ -920,6 +1096,16 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
 
       // --- Exact-result cache lookup ---
       const sf = schemaFingerprint(params.schema);
+      const cacheControl = resolvePromptCacheControl({
+        purpose: params.purpose,
+        prompt: params.prompt,
+        options: options.promptCaching,
+      });
+      const promptCachePolicy = promptCachePolicyKey(cacheControl);
+      const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
+        ? "bypass"
+        : "allow";
+
       if (db && params.exactCache && !forceRefresh) {
         const cacheKey = computeLLMCacheKey({
           purpose: params.purpose,
@@ -928,6 +1114,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           thinkingConfig: "",
           keyVersion: params.exactCache.keyVersion,
           schemaFingerprint: sf,
+          promptCachePolicy,
+          cachePolicy: cacheAccessPolicy,
         });
         const cached = getCachedLLMResult(db, cacheKey);
         if (cached) {
@@ -938,11 +1126,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       }
 
       const startMs = Date.now();
-      const cacheControl = resolvePromptCacheControl({
-        purpose: params.purpose,
-        prompt: params.prompt,
-        options: options.promptCaching,
-      });
       const providerOptions = cacheControl
         ? { anthropic: { cacheControl } }
         : undefined;
@@ -987,6 +1170,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               thinkingConfig: "",
               keyVersion: params.exactCache.keyVersion,
               schemaFingerprint: sf,
+              promptCachePolicy,
+              cachePolicy: cacheAccessPolicy,
             }),
             purpose: params.purpose,
             model: modelId,

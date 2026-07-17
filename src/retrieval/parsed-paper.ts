@@ -873,41 +873,171 @@ export async function materializeLocalPdf(
   };
 }
 
+export type BibliographyMatchMethod =
+  | "doi"
+  | "author_year_exact_title"
+  | "author_year_title_overlap";
+
+export type BibliographyMatch = {
+  reference: ParsedPaperReference;
+  method: BibliographyMatchMethod;
+};
+
+const TITLE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "of",
+  "the",
+  "in",
+  "on",
+  "for",
+  "to",
+  "with",
+]);
+
+function normalizeBibliographyTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    normalizeBibliographyTitle(title)
+      .split(" ")
+      .filter((token) => token.length > 1 && !TITLE_STOPWORDS.has(token)),
+  );
+}
+
+function titleTokenOverlapRatio(
+  seedTitle: string,
+  referenceTitle: string,
+): number {
+  const seedTokens = titleTokens(seedTitle);
+  const referenceTokens = titleTokens(referenceTitle);
+  if (seedTokens.size === 0 || referenceTokens.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  for (const token of seedTokens) {
+    if (referenceTokens.has(token)) {
+      overlap += 1;
+    }
+  }
+  return overlap / seedTokens.size;
+}
+
+function normalizeSurname(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}]/gu, "");
+}
+
+const AUTHOR_SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv"]);
+
+/**
+ * Conservatively infer a surname from a provider display name.
+ *
+ * OpenAlex commonly returns "Given Family"; some providers return
+ * "Family, Given". Suffixes are ignored. Compound surnames remain a possible
+ * false-negative, which is safer than matching the wrong bibliography entry.
+ */
+export function inferFirstAuthorSurname(
+  displayName: string | undefined,
+): string | undefined {
+  const trimmed = displayName?.trim();
+  if (!trimmed) return undefined;
+
+  const commaSurname = trimmed.split(",", 1)[0]?.trim();
+  if (trimmed.includes(",") && commaSurname) {
+    return commaSurname;
+  }
+
+  const parts = trimmed.split(/\s+/);
+  while (
+    parts.length > 1 &&
+    AUTHOR_SUFFIXES.has(normalizeSurname(parts.at(-1)!))
+  ) {
+    parts.pop();
+  }
+  return parts.at(-1);
+}
+
+/**
+ * Match a seed paper against a citing bibliography.
+ *
+ * Order: DOI → exact normalized title → conservative author+year+title-token
+ * overlap. Ambiguous conservative matches are rejected.
+ */
+export function matchReferenceByMetadata(
+  references: ParsedPaperReference[],
+  locator: {
+    doi?: string;
+    title: string;
+    publicationYear?: number;
+    firstAuthorSurname?: string;
+  },
+): BibliographyMatch | undefined {
+  if (locator.doi) {
+    const normalizedDoi = locator.doi
+      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+      .toLowerCase();
+    const byDoi = references.find(
+      (reference) =>
+        reference.doi
+          ?.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
+          .toLowerCase() === normalizedDoi,
+    );
+    if (byDoi) {
+      return { reference: byDoi, method: "doi" };
+    }
+  }
+
+  const normalizedTitle = normalizeBibliographyTitle(locator.title);
+  const year = locator.publicationYear;
+  const firstAuthor = locator.firstAuthorSurname
+    ? normalizeSurname(locator.firstAuthorSurname)
+    : undefined;
+  if (year == null || !firstAuthor || normalizedTitle.length === 0) {
+    return undefined;
+  }
+
+  const conservativeMatches = references.filter((reference) => {
+    if (reference.year !== year) return false;
+    const refFirst = reference.authorSurnames[0];
+    if (!refFirst || normalizeSurname(refFirst) !== firstAuthor) return false;
+    if (!reference.title) return false;
+    return titleTokenOverlapRatio(locator.title, reference.title) >= 0.8;
+  });
+  if (conservativeMatches.length !== 1) {
+    return undefined;
+  }
+  const reference = conservativeMatches[0]!;
+  return {
+    reference,
+    method:
+      normalizeBibliographyTitle(reference.title!) === normalizedTitle
+        ? "author_year_exact_title"
+        : "author_year_title_overlap",
+  };
+}
+
+/** @deprecated Prefer matchReferenceByMetadata for match-method provenance. */
 export function findReferenceByMetadata(
   references: ParsedPaperReference[],
   locator: {
     doi?: string;
     title: string;
+    publicationYear?: number;
+    firstAuthorSurname?: string;
   },
 ): ParsedPaperReference | undefined {
-  if (locator.doi) {
-    const normalizedDoi = locator.doi
-      .replace(/^https?:\/\/doi\.org\//i, "")
-      .toLowerCase();
-    const byDoi = references.find(
-      (reference) =>
-        reference.doi?.replace(/^https?:\/\/doi\.org\//i, "").toLowerCase() ===
-        normalizedDoi,
-    );
-    if (byDoi) {
-      return byDoi;
-    }
-  }
-
-  const normalizedTitle = locator.title
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return references.find((reference) => {
-    const referenceTitle = reference.title
-      ?.toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    return referenceTitle === normalizedTitle;
-  });
+  return matchReferenceByMetadata(references, locator)?.reference;
 }
 
 export function toCitationMention(

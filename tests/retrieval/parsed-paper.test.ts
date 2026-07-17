@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   findReferenceByMetadata,
+  inferFirstAuthorSurname,
+  matchReferenceByMetadata,
   parseParsedPaperDocument,
 } from "../../src/retrieval/parsed-paper.js";
 
@@ -141,17 +143,110 @@ describe("parseParsedPaperDocument", () => {
     }
 
     expect(
-      findReferenceByMetadata(parsed.data.references, {
+      matchReferenceByMetadata(parsed.data.references, {
         doi: "10.1234/seed",
         title: "Wrong title",
-      })?.refId,
-    ).toBe("b1");
+      }),
+    ).toMatchObject({ reference: { refId: "b1" }, method: "doi" });
+
+    expect(
+      matchReferenceByMetadata(parsed.data.references, {
+        title: "Seed Paper Title",
+        publicationYear: 2021,
+        firstAuthorSurname: "Harlow",
+      }),
+    ).toMatchObject({
+      reference: { refId: "b1" },
+      method: "author_year_exact_title",
+    });
 
     expect(
       findReferenceByMetadata(parsed.data.references, {
         title: "Seed Paper Title",
+        publicationYear: 2021,
+        firstAuthorSurname: "Harlow",
       })?.refId,
     ).toBe("b1");
+
+    expect(
+      matchReferenceByMetadata(parsed.data.references, {
+        title: "Seed Paper Title",
+        publicationYear: 1999,
+        firstAuthorSurname: "SomeoneElse",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("uses conservative author-year-title overlap and rejects ambiguous matches", () => {
+    const references = [
+      {
+        refId: "r1",
+        title: "Sample efficiency under shifting light: a study",
+        authorSurnames: ["Adeyemi", "Okonkwo"],
+        year: 2009,
+      },
+      {
+        refId: "r2",
+        title: "Unrelated marine ecology observations",
+        authorSurnames: ["Smith"],
+        year: 2009,
+      },
+    ];
+
+    expect(
+      matchReferenceByMetadata(references, {
+        title: "Sample efficiency under shifting light",
+        publicationYear: 2009,
+        firstAuthorSurname: "Adeyemi",
+      }),
+    ).toMatchObject({
+      reference: { refId: "r1" },
+      method: "author_year_title_overlap",
+    });
+
+    // Punctuation-only differences collapse to exact normalized title, but
+    // still require compatible author and year.
+    expect(
+      matchReferenceByMetadata(references, {
+        title: "Sample efficiency under shifting light — a study!",
+        publicationYear: 2009,
+        firstAuthorSurname: "Adeyemi",
+      })?.method,
+    ).toBe("author_year_exact_title");
+
+    // Unrelated title rejected.
+    expect(
+      matchReferenceByMetadata(references, {
+        title: "Completely different topic about whales",
+        publicationYear: 2009,
+        firstAuthorSurname: "Adeyemi",
+      }),
+    ).toBeUndefined();
+
+    // Duplicate conservative candidates rejected as ambiguous.
+    expect(
+      matchReferenceByMetadata(
+        [
+          references[0]!,
+          {
+            ...references[0]!,
+            refId: "r1-dup",
+          },
+        ],
+        {
+          title: "Sample efficiency under shifting light",
+          publicationYear: 2009,
+          firstAuthorSurname: "Adeyemi",
+        },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("infers common provider author-name forms conservatively", () => {
+    expect(inferFirstAuthorSurname("Kamal Adeyemi")).toBe("Adeyemi");
+    expect(inferFirstAuthorSurname("Adeyemi, Kamal")).toBe("Adeyemi");
+    expect(inferFirstAuthorSurname("Kamal Adeyemi Jr.")).toBe("Adeyemi");
+    expect(inferFirstAuthorSurname(undefined)).toBeUndefined();
   });
 
   it("preserves the JATS structured happy path", () => {
