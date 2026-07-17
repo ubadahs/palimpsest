@@ -123,9 +123,9 @@ Default model behavior:
 - seed grounding in `screen` still defaults to `claude-sonnet-4-6` with thinking enabled
 - adjudication remains `claude-opus-4-6` with thinking enabled by default
 
-Additional flags for `discover` and `pipeline --input`: `--probe-budget` (max probe papers, default **20**), `--shortlist-cap` (max shortlisted families per seed after diversity selection, default **5**).
+Additional flags for `discover` and `pipeline --input`: `--probe-budget` (max probe papers, default **20** for standalone `discover`, **100** for `pipeline`), `--shortlist-cap` (max shortlisted families per seed after diversity selection, default **5**).
 
-For the full **`pipeline`** command, `--target-size` is the per-family audit sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **3**).
+For the full **`pipeline`** command, `--target-size` is the per-family audit sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **5**).
 
 Important behavior:
 

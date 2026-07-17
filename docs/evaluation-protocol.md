@@ -29,7 +29,7 @@ The system is evaluated at four layers:
 1. **Auditability and access**
    - Was the cited object resolved?
    - Was usable full text available?
-   - Was the edge correctly labeled `auditable`, `partially_auditable`, or `not_auditable`?
+   - Was the edge correctly labeled `auditable_structured`, `auditable_pdf`, `partially_auditable`, or `not_auditable`?
 2. **Eligibility and extraction**
    - Did it identify a real empirical-attribution citation?
    - Did it capture the correct citing span and attributed claim?
@@ -61,7 +61,7 @@ After the first claim family, the review load can be reduced, but `E` cases shou
 
 For each reviewed citation instance, the reviewer should answer:
 
-1. Is this edge truly `auditable`, `partially_auditable`, or `not_auditable`?
+1. Is this edge truly `auditable_structured`, `auditable_pdf`, `partially_auditable`, or `not_auditable`?
 2. Is this citation in scope for the POC?
 3. Is the extracted citing span the real claim-bearing span?
 4. Is the cited span real and relevant?
@@ -96,7 +96,7 @@ Track the following metrics separately.
 ### Layer 1: auditability
 
 - auditable-edge coverage by claim family
-- distribution of `auditable`, `partially_auditable`, and `not_auditable` edges
+- distribution of `auditable_structured`, `auditable_pdf`, `partially_auditable`, and `not_auditable` edges
 - reviewer agreement on auditability status
 
 ### Layer 2: extraction quality

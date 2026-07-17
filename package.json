@@ -34,9 +34,15 @@
     "type": "git",
     "url": "git+https://github.com/ubadahs/palimpsest.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "citations",
+    "scientific-literature",
+    "citation-fidelity",
+    "llm",
+    "cli"
+  ],
+  "author": "Ubadah Sabbagh",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"

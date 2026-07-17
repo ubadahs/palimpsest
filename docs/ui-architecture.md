@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`apps/ui` is a local-only Next.js App Router workspace that sits on top of the canonical CLI and artifact workflow.
+`apps/ui` is a local-only Next.js workspace (App Router pages with Pages API route handlers) that sits on top of the canonical CLI and artifact workflow.
 
 The UI does not reimplement pipeline logic. It:
 
@@ -30,6 +30,7 @@ Route handlers are local-only and back the client polling model:
 - `GET /api/runs/[runId]`
 - `POST /api/runs/[runId]/start`
 - `POST /api/runs/[runId]/cancel`
+- `GET /api/runs/[runId]/cost` — per-run cost ledger
 - `GET /api/runs/[runId]/stages/[stageKey]` — returns a **stage group** (`RunStageGroupDetail`: `aggregateStatus`, `members[]` each a full `RunStageDetail`)
 - `POST /api/runs/[runId]/stages/[stageKey]/rerun`
 - `GET /api/runs/[runId]/stages/[stageKey]/log` — optional query `familyIndex` when logs differ per family row
