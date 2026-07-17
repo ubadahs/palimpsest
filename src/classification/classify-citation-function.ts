@@ -61,7 +61,24 @@ function extractLocalWindow(
 
 type Signal = { role: CitationRole; source: string };
 
-function collectSignals(mention: CitationMention): Signal[] {
+export type CitationFunctionInput = Pick<
+  CitationMention,
+  | "rawContext"
+  | "citationMarker"
+  | "sectionTitle"
+  | "contextLength"
+  | "confidence"
+  | "isBundledCitation"
+  | "bundleSize"
+>;
+
+export type CitationFunctionClassification = {
+  citationRole: CitationRole;
+  modifiers: TransmissionModifiers;
+  classificationSignals: string[];
+};
+
+function collectSignals(mention: CitationFunctionInput): Signal[] {
   const hits: Signal[] = [];
   const section = mention.sectionTitle ?? "";
   const window = extractLocalWindow(
@@ -100,7 +117,7 @@ function collectSignals(mention: CitationMention): Signal[] {
 }
 
 function resolveRole(
-  mention: CitationMention,
+  mention: CitationFunctionInput,
   signals: Signal[],
 ): CitationRole {
   if (signals.length === 0) {
@@ -159,6 +176,16 @@ export function classifyMention(
   mention: CitationMention,
   isReviewPaper: boolean,
 ): ClassifiedMention {
+  return {
+    ...mention,
+    ...classifyCitationFunction(mention, isReviewPaper),
+  };
+}
+
+export function classifyCitationFunction(
+  mention: CitationFunctionInput,
+  isReviewPaper: boolean,
+): CitationFunctionClassification {
   const signals = collectSignals(mention);
   const citationRole = resolveRole(mention, signals);
 
@@ -169,7 +196,6 @@ export function classifyMention(
   };
 
   return {
-    ...mention,
     citationRole,
     modifiers,
     classificationSignals: signals.map((s) => `${s.role}:${s.source}`),

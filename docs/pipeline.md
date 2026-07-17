@@ -13,7 +13,7 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist. Canonical Discover and Scope now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover, Scope, and Prepare now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
 ### Canonical Discover (implemented, not executor-wired)
 
@@ -45,7 +45,24 @@ Scope freezes the selected scientific population:
 - `not_found` always has zero accepted evidence and non-applicable quote verification; a model response that combines `not_found` with proposed spans is invalid
 - model-proposed evidence for grounded or ambiguous outcomes is accepted only when it is an exact substring of its referenced immutable seed-text block
 
-`buildCanonicalScopeArtifact` binds the exact Discover artifact ID/hash, candidate accounting, seed-text records, grounding request/response references, quote verification, and append-only decisions into the lean envelope. `writeCanonicalScopeArtifact` and `loadCanonicalScopeArtifact` accept only the current Scope shape. Prepare, production CLI adapters, and canonical executor wiring remain future work.
+`buildCanonicalScopeArtifact` binds the exact Discover artifact ID/hash, candidate accounting, seed-text records, grounding request/response references, quote verification, and append-only decisions into the lean envelope. `writeCanonicalScopeArtifact` and `loadCanonicalScopeArtifact` accept only the current Scope shape.
+
+### Canonical Prepare (implemented, not executor-wired)
+
+`runCanonicalPrepare` consumes only a current, identity-verified Scope envelope and the exact current Discover ancestor named by Scope. It rejects tampered, cross-run, cross-artifact, or membership-inconsistent inputs before classification adapters execute.
+
+Prepare materializes the complete scoped evaluation population:
+
+- one stable record is emitted for every frozen family × citation-occurrence pair; two occurrences in one paper remain two records, and one occurrence in two families becomes two records
+- record identity depends only on the explicit identity version, `familyId`, and `citationOccurrenceId`; parser/model changes, timestamps, derived context, and classification do not affect it
+- each record preserves the exact Scope family, the complete family-level Discover source-candidate/source-claim ledger, and exact occurrence-local candidate/claim subsets so downstream work cannot borrow attributed wording from another occurrence
+- grounding annotation/evidence, Discover seed and citing-paper records, the full citation occurrence, source locator/offsets, parser provenance, and bundle metadata remain unchanged
+- the immutable verbatim context is the exact Discover `rawContext`; derived or annotated context is kept separately
+- deterministic, model, and external classification outcomes carry role, evaluation mode, modifiers, signals, rationale/confidence, and exact execution provenance
+- genuinely ambiguous roles and nonfatal classifier failures remain typed records; fatal authentication, authorization, billing, and quota failures fail the stage
+- every scoped pair receives an append-only classification outcome decision; there is no ranking, target size, sampling, representative selection, or curation
+
+`buildCanonicalPrepareArtifact` references both exact inputs and marks external/model execution non-replayable. `writeCanonicalPrepareArtifact` and `loadCanonicalPrepareArtifact` accept only the current Prepare shape and verify pair accounting, lineage, stable identities, provenance, and tamper hashes. Production adapters, Evidence, CLI wiring, and canonical executor wiring remain future work.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 

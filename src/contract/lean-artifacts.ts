@@ -2,14 +2,12 @@ import { z } from "zod";
 
 import {
   adjudicationVerdictSchema,
-  citationMentionSchema,
-  citationRoleSchema,
   confidenceSchema,
   evaluationModeSchema,
   evidenceSpanSchema,
   retrievalQualitySchema,
   taskEvidenceRetrievalStatusSchema,
-  transmissionModifiersSchema,
+  type CitationRole,
 } from "../domain/types.js";
 import { parsedBlockKindSchema } from "../domain/parsing.js";
 import type { Result } from "../domain/types.js";
@@ -1364,114 +1362,258 @@ export const scopeArtifactPayloadSchema = z
   .superRefine(validateScopePayload);
 export type ScopeArtifactPayload = z.infer<typeof scopeArtifactPayloadSchema>;
 
-const preparedPaperIdentitySchema = z
-  .object({
-    paperId: z.string().min(1),
-    title: z.string().min(1),
-    doi: z.string().min(1).optional(),
-  })
-  .strict();
-
-export type CitationInstanceIdentityInputs = Omit<
-  CitationOccurrenceIdentityInputs,
-  "seedId"
-> & {
-  seedDoi: string;
+export type CitationInstanceIdentityInputs = {
+  familyId: string;
+  citationOccurrenceId: string;
 };
 
 /**
- * Prepared-record identity is derived from the Discover occurrence, remaining
- * independent of classification and observation implementation metadata.
+ * A prepared record is one scoped family × citation occurrence pair. Identity
+ * excludes parser, model, timestamp, context formatting, and classification.
  */
 export function buildCitationInstanceRecordId(
   input: CitationInstanceIdentityInputs,
 ): string {
-  const citationOccurrenceId = buildCitationOccurrenceId({
-    ...input,
-    seedId: buildSeedId({ doi: input.seedDoi }),
-  });
   return buildStableId("record", {
-    identityKind: "prepared-citation-instance-v1",
-    citationOccurrenceId,
+    identityKind: "prepared-family-citation-occurrence-v2",
+    familyId: input.familyId,
+    citationOccurrenceId: input.citationOccurrenceId,
   });
 }
 
-const preparedSeedIdentitySchema = z
+export const prepareFatalFailureCodeSchema = z.enum([
+  "authentication",
+  "authorization",
+  "billing",
+  "quota",
+]);
+export type PrepareFatalFailureCode = z.infer<
+  typeof prepareFatalFailureCodeSchema
+>;
+
+export const prepareNonfatalFailureCodeSchema = z.enum([
+  "timeout",
+  "rate_limited",
+  "transport",
+  "invalid_response",
+  "provider_failure",
+]);
+export type PrepareNonfatalFailureCode = z.infer<
+  typeof prepareNonfatalFailureCodeSchema
+>;
+
+export const prepareClassificationFailureCodeSchema = z.union([
+  prepareFatalFailureCodeSchema,
+  prepareNonfatalFailureCodeSchema,
+]);
+export type PrepareClassificationFailureCode = z.infer<
+  typeof prepareClassificationFailureCodeSchema
+>;
+
+export const prepareClassificationModifiersSchema = z
   .object({
-    seedId: stableIdentifierSchema,
-    doi: z.string().min(1),
-    trackedClaim: z.string().min(1),
+    isBundled: z.boolean(),
+    isReviewMediated: z.boolean(),
+    bundleSize: z.number().int().positive(),
   })
-  .strict()
-  .superRefine((seed, context) => {
-    if (seed.seedId !== buildSeedId(seed)) {
+  .strict();
+
+const prepareDeterministicClassificationExecutionSchema = z
+  .object({
+    kind: z.literal("deterministic"),
+    implementation: z.string().min(1),
+  })
+  .strict();
+
+const prepareExternalClassificationExecutionSchema = z
+  .object({
+    kind: z.literal("external"),
+    provider: z.string().min(1),
+    requestHash: sha256DigestSchema,
+    requestArtifact: artifactReferenceSchema,
+    responseArtifact: artifactReferenceSchema,
+  })
+  .strict();
+
+export const prepareModelClassificationExecutionSchema = z
+  .object({
+    kind: z.literal("model"),
+    provider: z.string().min(1),
+    model: z.string().min(1),
+    promptId: z.string().min(1),
+    promptVersion: z.string().min(1),
+    promptContentHash: sha256DigestSchema,
+    requestHash: sha256DigestSchema,
+    requestArtifact: artifactReferenceSchema,
+    responseArtifact: artifactReferenceSchema,
+  })
+  .strict();
+
+export const prepareClassificationFailureExecutionSchema = z.union([
+  prepareExternalClassificationExecutionSchema,
+  prepareModelClassificationExecutionSchema,
+]);
+export type PrepareClassificationFailureExecution = z.infer<
+  typeof prepareClassificationFailureExecutionSchema
+>;
+
+export const prepareClassificationExecutionSchema = z.union([
+  prepareDeterministicClassificationExecutionSchema,
+  prepareClassificationFailureExecutionSchema,
+]);
+export type PrepareClassificationExecution = z.infer<
+  typeof prepareClassificationExecutionSchema
+>;
+
+const prepareClassificationContentShape = {
+  modifiers: prepareClassificationModifiersSchema,
+  signals: z.array(z.string().min(1)),
+  rationale: z.string().min(1),
+  confidence: confidenceSchema,
+  execution: prepareClassificationExecutionSchema,
+};
+
+export const prepareClassificationSchema = z
+  .discriminatedUnion("status", [
+    z
+      .object({
+        status: z.literal("classified"),
+        citationRole: z.enum([
+          "substantive_attribution",
+          "background_context",
+          "methods_materials",
+          "acknowledgment_or_low_information",
+        ]),
+        evaluationMode: evaluationModeSchema,
+        ...prepareClassificationContentShape,
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal("ambiguous"),
+        citationRole: z.literal("unclear"),
+        evaluationMode: z.enum([
+          "review_transmission",
+          "manual_review_role_ambiguous",
+          "manual_review_extraction_limited",
+        ]),
+        ...prepareClassificationContentShape,
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal("failed"),
+        reasonCode: prepareNonfatalFailureCodeSchema,
+        reason: z.string().min(1),
+        execution: prepareClassificationFailureExecutionSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((classification, context) => {
+    if (classification.status === "failed") return;
+    const expectedMode = expectedPrepareEvaluationMode(
+      classification.citationRole,
+      classification.modifiers,
+      classification.evaluationMode,
+    );
+    if (classification.evaluationMode !== expectedMode) {
       context.addIssue({
         code: "custom",
-        path: ["seedId"],
-        message: "seedId does not match the normalized seed DOI",
+        path: ["evaluationMode"],
+        message: `Evaluation mode must be ${expectedMode} for this role and modifiers`,
       });
     }
   });
+export type PrepareClassification = z.infer<typeof prepareClassificationSchema>;
+
+const prepareScopeArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-scope-input"),
+    canonicalStage: z.literal("scope"),
+  })
+  .strict();
+
+const prepareDiscoverArtifactReferenceSchema = artifactReferenceSchema
+  .extend({
+    role: z.literal("canonical-discover-input"),
+    canonicalStage: z.literal("discover"),
+  })
+  .strict();
+
+const prepareLineageSchema = z
+  .object({
+    runId: z.string().min(1),
+    scopeArtifact: prepareScopeArtifactReferenceSchema,
+    discoverArtifact: prepareDiscoverArtifactReferenceSchema,
+  })
+  .strict();
+
+export const preparedContextSchema = z
+  .object({
+    verbatim: z
+      .object({
+        text: z.string(),
+        sourceOccurrenceId: stableIdentifierSchema,
+        sourceArtifacts: z.array(artifactReferenceSchema).min(1),
+      })
+      .strict(),
+    derived: z.array(
+      z
+        .object({
+          kind: z.enum(["expanded", "annotated"]),
+          text: z.string(),
+          implementation: z.string().min(1),
+          provenanceArtifacts: z.array(artifactReferenceSchema),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
 
 export const preparedCitationInstanceSchema = z
   .object({
     recordId: stableIdentifierSchema,
+    familyId: stableIdentifierSchema,
     citationOccurrenceId: stableIdentifierSchema,
-    seed: preparedSeedIdentitySchema,
-    citingPaper: preparedPaperIdentitySchema,
-    citedPaper: preparedPaperIdentitySchema,
-    mention: citationMentionSchema.extend({
-      mentionIndex: z.number().int().nonnegative(),
-      rawContext: z.string(),
-      refId: z.string().optional(),
-      charOffsetStart: z.number().int().nonnegative().optional(),
-      charOffsetEnd: z.number().int().nonnegative().optional(),
-      sourceType: z.enum(["jats_xml", "grobid_tei", "pdf_text"]),
-      parser: z.string().min(1),
-    }),
-    classification: z
-      .object({
-        citationRole: citationRoleSchema,
-        evaluationMode: evaluationModeSchema,
-        modifiers: transmissionModifiersSchema,
-        signals: z.array(z.string()),
-      })
-      .strict(),
+    family: scopedFamilySchema,
+    sourceCandidates: z.array(discoverClaimCandidateSchema).min(1),
+    sourceClaimRecords: z.array(discoverAttributedClaimRecordSchema).min(1),
+    occurrenceSourceCandidates: z.array(discoverClaimCandidateSchema).min(1),
+    occurrenceSourceClaimRecords: z
+      .array(discoverAttributedClaimRecordSchema)
+      .min(1),
+    seed: discoverSeedSchema,
+    citingPaper: discoverCitingPaperRecordSchema,
+    citationOccurrence: discoverCitationOccurrenceSchema,
+    context: preparedContextSchema,
+    classification: prepareClassificationSchema,
+    lineage: prepareLineageSchema,
   })
   .strict()
   .superRefine((record, context) => {
-    const identityInputs: CitationInstanceIdentityInputs = {
-      seedDoi: record.seed.doi,
-      citingPaperId: record.citingPaper.paperId,
-      citedPaperId: record.citedPaper.paperId,
-      mentionIndex: record.mention.mentionIndex,
-      refId: record.mention.refId,
-      charOffsetStart: record.mention.charOffsetStart,
-      charOffsetEnd: record.mention.charOffsetEnd,
-      citationMarker: record.mention.citationMarker,
-      rawContext: record.mention.rawContext,
-    };
-    const expectedOccurrenceId = buildCitationOccurrenceId({
-      ...identityInputs,
-      seedId: record.seed.seedId,
-    });
-    if (record.citationOccurrenceId !== expectedOccurrenceId) {
+    if (record.familyId !== record.family.familyId) {
+      context.addIssue({
+        code: "custom",
+        path: ["familyId"],
+        message: "familyId does not match the preserved Scope family",
+      });
+    }
+    if (record.citationOccurrenceId !== record.citationOccurrence.mentionId) {
       context.addIssue({
         code: "custom",
         path: ["citationOccurrenceId"],
-        message:
-          "citationOccurrenceId does not match the source citation occurrence",
+        message: "citationOccurrenceId does not match the Discover occurrence",
       });
     }
-    const expectedId = buildCitationInstanceRecordId(identityInputs);
+    const expectedId = buildCitationInstanceRecordId(record);
     if (record.recordId !== expectedId) {
       context.addIssue({
         code: "custom",
         path: ["recordId"],
-        message:
-          "recordId does not match the citation-instance identity inputs",
+        message: "recordId does not match family × citation occurrence",
       });
     }
+    validatePreparedRecordReferences(record, context);
   });
 export type PreparedCitationInstance = z.infer<
   typeof preparedCitationInstanceSchema
@@ -1479,9 +1621,12 @@ export type PreparedCitationInstance = z.infer<
 
 export const prepareArtifactPayloadSchema = z
   .object({
+    lineage: prepareLineageSchema,
+    scopedFamilies: z.array(scopedFamilySchema),
     records: z.array(preparedCitationInstanceSchema),
   })
-  .strict();
+  .strict()
+  .superRefine(validatePreparePayload);
 export type PrepareArtifactPayload = z.infer<
   typeof prepareArtifactPayloadSchema
 >;
@@ -1582,7 +1727,11 @@ export const prepareArtifactSchema = commonLeanArtifactEnvelopeSchema
     payload: prepareArtifactPayloadSchema,
   })
   .strict()
-  .superRefine(validateLeanArtifactIdentity);
+  .superRefine((artifact, context) => {
+    validateLeanArtifactIdentity(artifact, context);
+    validatePrepareArtifactLineage(artifact, context);
+  });
+export type PrepareArtifact = z.infer<typeof prepareArtifactSchema>;
 export const evidenceArtifactSchema = commonLeanArtifactEnvelopeSchema
   .extend({
     canonicalStage: z.literal("evidence"),
@@ -2391,6 +2540,470 @@ function validateScopePayload(
       );
     }
   }
+}
+
+function expectedPrepareEvaluationMode(
+  role: CitationRole,
+  modifiers: z.infer<typeof prepareClassificationModifiersSchema>,
+  ambiguousMode: z.infer<typeof evaluationModeSchema>,
+): z.infer<typeof evaluationModeSchema> {
+  if (modifiers.isReviewMediated) return "review_transmission";
+  if (
+    modifiers.isBundled &&
+    (role === "substantive_attribution" || role === "background_context")
+  ) {
+    return "fidelity_bundled_use";
+  }
+  switch (role) {
+    case "substantive_attribution":
+      return "fidelity_specific_claim";
+    case "background_context":
+      return "fidelity_background_framing";
+    case "methods_materials":
+      return "fidelity_methods_use";
+    case "acknowledgment_or_low_information":
+      return "skip_low_information";
+    case "unclear":
+      return ambiguousMode === "manual_review_extraction_limited"
+        ? "manual_review_extraction_limited"
+        : "manual_review_role_ambiguous";
+  }
+}
+
+function validatePreparedRecordReferences(
+  record: PreparedCitationInstance,
+  context: z.RefinementCtx,
+): void {
+  const occurrence = record.citationOccurrence;
+  const sourceCandidateIds = record.sourceCandidates.map(
+    (candidate) => candidate.candidateId,
+  );
+  const sourceClaimRecordIds = record.sourceClaimRecords.map(
+    (sourceClaim) => sourceClaim.claimRecordId,
+  );
+  if (
+    !sameIdentifierSequence(sourceCandidateIds, record.family.candidateIds) ||
+    record.sourceCandidates.some(
+      (candidate) => candidate.seedId !== record.family.seedId,
+    )
+  ) {
+    addPrepareIssue(
+      context,
+      ["sourceCandidates"],
+      "Prepared source candidates must exactly preserve the Scope family candidate references",
+    );
+  }
+  if (
+    !sameIdentifierSequence(
+      sourceClaimRecordIds,
+      record.family.sourceClaimRecordIds,
+    ) ||
+    record.sourceClaimRecords.some(
+      (sourceClaim) => sourceClaim.seedId !== record.family.seedId,
+    )
+  ) {
+    addPrepareIssue(
+      context,
+      ["sourceClaimRecords"],
+      "Prepared source claims must exactly preserve the Scope family claim provenance",
+    );
+  }
+  const expectedOccurrenceSourceCandidates = record.sourceCandidates.filter(
+    (candidate) => candidate.memberMentionIds.includes(occurrence.mentionId),
+  );
+  const expectedOccurrenceSourceClaimRecords = record.sourceClaimRecords.filter(
+    (sourceClaim) => sourceClaim.mentionId === occurrence.mentionId,
+  );
+  if (
+    canonicalSerialize(record.occurrenceSourceCandidates) !==
+    canonicalSerialize(expectedOccurrenceSourceCandidates)
+  ) {
+    addPrepareIssue(
+      context,
+      ["occurrenceSourceCandidates"],
+      "Occurrence-local candidates must be the exact ordered family subset containing this occurrence",
+    );
+  }
+  if (
+    canonicalSerialize(record.occurrenceSourceClaimRecords) !==
+    canonicalSerialize(expectedOccurrenceSourceClaimRecords)
+  ) {
+    addPrepareIssue(
+      context,
+      ["occurrenceSourceClaimRecords"],
+      "Occurrence-local claims must be the exact ordered family subset attributed at this occurrence",
+    );
+  }
+  const localCandidateClaimIds = new Set(
+    record.occurrenceSourceCandidates.flatMap(
+      (candidate) => candidate.sourceClaimRecordIds,
+    ),
+  );
+  if (
+    record.occurrenceSourceClaimRecords.some(
+      (sourceClaim) => !localCandidateClaimIds.has(sourceClaim.claimRecordId),
+    ) ||
+    record.occurrenceSourceCandidates.some(
+      (candidate) =>
+        !record.occurrenceSourceClaimRecords.some((sourceClaim) =>
+          candidate.sourceClaimRecordIds.includes(sourceClaim.claimRecordId),
+        ),
+    )
+  ) {
+    addPrepareIssue(
+      context,
+      ["occurrenceSourceClaimRecords"],
+      "Occurrence-local candidates and claims must reference each other within this family",
+    );
+  }
+  if (
+    !record.family.includedCitationOccurrenceIds.includes(occurrence.mentionId)
+  ) {
+    addPrepareIssue(
+      context,
+      ["family", "includedCitationOccurrenceIds"],
+      "Prepared occurrence is not a member of its Scope family",
+    );
+  }
+  if (
+    record.family.seedId !== record.seed.seedId ||
+    occurrence.seedId !== record.seed.seedId
+  ) {
+    addPrepareIssue(
+      context,
+      ["seed", "seedId"],
+      "Prepared family, occurrence, and seed must share one seed identity",
+    );
+  }
+  if (
+    occurrence.citingPaperRecordId !== record.citingPaper.citingPaperRecordId ||
+    occurrence.citingPaperId !== record.citingPaper.paper.paperId ||
+    occurrence.seedId !== record.citingPaper.seedId
+  ) {
+    addPrepareIssue(
+      context,
+      ["citingPaper"],
+      "Prepared occurrence does not match its Discover citing-paper record",
+    );
+  }
+  if (record.seed.resolution.status !== "resolved") {
+    addPrepareIssue(
+      context,
+      ["seed", "resolution"],
+      "A prepared citation occurrence requires a resolved Discover seed paper",
+    );
+  } else if (occurrence.citedPaperId !== record.seed.resolution.paper.paperId) {
+    addPrepareIssue(
+      context,
+      ["citationOccurrence", "citedPaperId"],
+      "Prepared occurrence does not cite its resolved Discover seed paper",
+    );
+  }
+  if (
+    record.context.verbatim.sourceOccurrenceId !== occurrence.mentionId ||
+    record.context.verbatim.text !== occurrence.rawContext ||
+    canonicalSerialize(record.context.verbatim.sourceArtifacts) !==
+      canonicalSerialize(occurrence.observationProvenance.artifacts)
+  ) {
+    addPrepareIssue(
+      context,
+      ["context", "verbatim"],
+      "Verbatim context must exactly preserve the Discover occurrence",
+    );
+  }
+  if (record.classification.status !== "failed") {
+    if (
+      record.classification.modifiers.isBundled !==
+        occurrence.isBundledCitation ||
+      record.classification.modifiers.bundleSize !== occurrence.bundleSize
+    ) {
+      addPrepareIssue(
+        context,
+        ["classification", "modifiers"],
+        "Classification bundle modifiers must preserve the Discover occurrence",
+      );
+    }
+  }
+}
+
+function validatePreparePayload(
+  payload: PrepareArtifactPayload,
+  context: z.RefinementCtx,
+): void {
+  addSortedUniqueIdentifierIssue(
+    payload.scopedFamilies.map((family) => family.familyId),
+    ["scopedFamilies"],
+    context,
+  );
+  addSortedUniqueIdentifierIssue(
+    payload.records.map((record) => record.recordId),
+    ["records"],
+    context,
+  );
+
+  const pairKeys = payload.records.map((record) =>
+    canonicalSerialize({
+      familyId: record.familyId,
+      citationOccurrenceId: record.citationOccurrenceId,
+    }),
+  );
+  const duplicatePair = findDuplicate(pairKeys);
+  if (duplicatePair) {
+    addPrepareIssue(
+      context,
+      ["records"],
+      `Duplicate prepared family × occurrence pair: ${duplicatePair}`,
+    );
+  }
+
+  const familiesById = new Map(
+    payload.scopedFamilies.map((family) => [family.familyId, family]),
+  );
+  const expectedPairKeys = new Set(
+    payload.scopedFamilies.flatMap((family) =>
+      family.includedCitationOccurrenceIds.map((citationOccurrenceId) =>
+        canonicalSerialize({
+          familyId: family.familyId,
+          citationOccurrenceId,
+        }),
+      ),
+    ),
+  );
+  const actualPairKeys = new Set(pairKeys);
+  for (const pairKey of expectedPairKeys) {
+    if (!actualPairKeys.has(pairKey)) {
+      addPrepareIssue(
+        context,
+        ["records"],
+        `Missing Prepare outcome for scoped pair: ${pairKey}`,
+      );
+    }
+  }
+  for (const pairKey of actualPairKeys) {
+    if (!expectedPairKeys.has(pairKey)) {
+      addPrepareIssue(
+        context,
+        ["records"],
+        `Prepare record is outside frozen Scope membership: ${pairKey}`,
+      );
+    }
+  }
+
+  for (const [index, record] of payload.records.entries()) {
+    const family = familiesById.get(record.familyId);
+    if (!family) {
+      addPrepareIssue(
+        context,
+        ["records", index, "familyId"],
+        "Prepare record references an unknown Scope family",
+      );
+    } else if (
+      canonicalSerialize(record.family) !== canonicalSerialize(family)
+    ) {
+      addPrepareIssue(
+        context,
+        ["records", index, "family"],
+        "Prepare record does not preserve its exact Scope family",
+      );
+    }
+    if (
+      !sameArtifactReference(
+        record.lineage.scopeArtifact,
+        payload.lineage.scopeArtifact,
+      ) ||
+      !sameArtifactReference(
+        record.lineage.discoverArtifact,
+        payload.lineage.discoverArtifact,
+      ) ||
+      record.lineage.runId !== payload.lineage.runId
+    ) {
+      addPrepareIssue(
+        context,
+        ["records", index, "lineage"],
+        "Prepare record lineage differs from the payload lineage",
+      );
+    }
+  }
+}
+
+function validatePrepareArtifactLineage(
+  artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
+    canonicalStage: "prepare";
+    payload: PrepareArtifactPayload;
+  },
+  context: z.RefinementCtx,
+): void {
+  const { lineage } = artifact.payload;
+  if (artifact.runId !== lineage.runId) {
+    addPrepareIssue(
+      context,
+      ["payload", "lineage", "runId"],
+      "Prepare run ID must match its verified Scope and Discover lineage",
+    );
+  }
+  if (
+    artifact.inputArtifacts.length !== 2 ||
+    !sameArtifactReference(artifact.inputArtifacts[0], lineage.scopeArtifact) ||
+    !sameArtifactReference(artifact.inputArtifacts[1], lineage.discoverArtifact)
+  ) {
+    addPrepareIssue(
+      context,
+      ["inputArtifacts"],
+      "Prepare must reference exact canonical Scope and Discover inputs",
+    );
+  }
+
+  if (artifact.decisions.length !== artifact.payload.records.length) {
+    addPrepareIssue(
+      context,
+      ["decisions"],
+      "Prepare must account for every record with exactly one classification outcome decision",
+    );
+  }
+  for (const record of artifact.payload.records) {
+    const expectedReason = prepareClassificationReason(record.classification);
+    const matching = artifact.decisions.filter(
+      (decision) =>
+        decision.recordId === record.recordId &&
+        decision.decisionType === "prepare_classification_outcome" &&
+        decision.outcome === record.classification.status &&
+        decision.reason === expectedReason,
+    );
+    if (matching.length !== 1) {
+      addPrepareIssue(
+        context,
+        ["decisions"],
+        `Prepare classification is not accounted for exactly once: ${record.recordId}`,
+      );
+    }
+    for (const decision of matching) {
+      if (
+        !hasArtifactReference(
+          decision.evidenceArtifacts,
+          lineage.scopeArtifact,
+        ) ||
+        !hasArtifactReference(
+          decision.evidenceArtifacts,
+          lineage.discoverArtifact,
+        )
+      ) {
+        addPrepareIssue(
+          context,
+          ["decisions"],
+          `Prepare decision is missing exact input lineage: ${record.recordId}`,
+        );
+      }
+    }
+  }
+
+  const classifications = artifact.payload.records.map(
+    (record) => record.classification,
+  );
+  const modelExecutions = classifications
+    .map((classification) => classification.execution)
+    .filter(
+      (
+        execution,
+      ): execution is z.infer<
+        typeof prepareModelClassificationExecutionSchema
+      > => execution.kind === "model",
+    );
+  const externalExecutions = classifications
+    .map((classification) => classification.execution)
+    .filter((execution) => execution.kind === "external");
+  const expectedPrompts = uniqueCanonicalValues(
+    modelExecutions.map((execution) => ({
+      promptId: execution.promptId,
+      version: execution.promptVersion,
+      contentHash: execution.promptContentHash,
+    })),
+  );
+  const expectedModels = uniqueCanonicalValues(
+    modelExecutions.map((execution) => ({
+      provider: execution.provider,
+      model: execution.model,
+      requestHash: execution.requestHash,
+      requestArtifact: execution.requestArtifact,
+      responseArtifact: execution.responseArtifact,
+    })),
+  );
+  if (
+    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.prompts)) !==
+    canonicalSerialize(expectedPrompts)
+  ) {
+    addPrepareIssue(
+      context,
+      ["provenance", "prompts"],
+      "Prepare prompt provenance does not exactly cover model classification",
+    );
+  }
+  if (
+    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.models)) !==
+    canonicalSerialize(expectedModels)
+  ) {
+    addPrepareIssue(
+      context,
+      ["provenance", "models"],
+      "Prepare model provenance does not exactly cover model classification",
+    );
+  }
+
+  const expectedResponses = uniqueCanonicalValues([
+    ...modelExecutions.map((execution) => execution.responseArtifact),
+    ...externalExecutions.map((execution) => execution.responseArtifact),
+  ]);
+  const expectedExecutionKind =
+    modelExecutions.length > 0 && externalExecutions.length > 0
+      ? "hybrid"
+      : modelExecutions.length > 0
+        ? "model"
+        : externalExecutions.length > 0
+          ? "external"
+          : "deterministic";
+  if (artifact.execution.kind !== expectedExecutionKind) {
+    addPrepareIssue(
+      context,
+      ["execution", "kind"],
+      `Prepare execution kind must be ${expectedExecutionKind}`,
+    );
+  } else if (
+    artifact.execution.kind !== "deterministic" &&
+    canonicalSerialize(
+      uniqueCanonicalValues(artifact.execution.responseArtifacts),
+    ) !== canonicalSerialize(expectedResponses)
+  ) {
+    addPrepareIssue(
+      context,
+      ["execution", "responseArtifacts"],
+      "Prepare execution must reference every exact classifier response",
+    );
+  }
+}
+
+function prepareClassificationReason(
+  classification: PrepareClassification,
+): string {
+  return classification.status === "failed"
+    ? classification.reason
+    : classification.rationale;
+}
+
+function uniqueCanonicalValues<T>(values: readonly T[]): T[] {
+  const byCanonicalValue = new Map<string, T>();
+  for (const value of values) {
+    byCanonicalValue.set(canonicalSerialize(value), value);
+  }
+  return [...byCanonicalValue.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([, value]) => value);
+}
+
+function addPrepareIssue(
+  context: z.RefinementCtx,
+  path: (string | number)[],
+  message: string,
+): void {
+  context.addIssue({ code: "custom", path, message });
 }
 
 function validateFamilyGroundingAgainstSeedText(
