@@ -71,7 +71,7 @@ See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layo
 
 ## Pipeline
 
-The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, and Evidence have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Until executor migration lands, the CLI and UI run these temporary stages:
+The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, Evidence, and Adjudicate have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Canonical Adjudicate is isolated/not CLI-wired and explicitly uncalibrated: it consumes Evidence plus exact Prepare lineage, applies deterministic epistemic gates, runs one categorical model request per eligible record, and persists PRD `F`/`D`/`E`/`U` (or typed non-verdict outcomes) with no advisor/vector confidence routing. Until executor migration lands, the CLI and UI run these temporary stages:
 
 | Current executor stage | Purpose |
 |------|---------|

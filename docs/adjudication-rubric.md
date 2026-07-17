@@ -1,10 +1,30 @@
 # Adjudication Rubric
 
-## What Is Operational Today (Current Executor)
+## Canonical Adjudicate (Isolated, Uncalibrated)
 
-The implemented current-executor adjudication layer uses a **support-style rubric** rather than persisting the PRD taxonomy directly. It does not describe the not-yet-implemented canonical `adjudicate` stage.
+Canonical Adjudicate (`runCanonicalAdjudicate`) is the lean-pipeline stage for record-level fidelity decisions. It is **implemented as an isolated service**, not CLI/executor-wired, and is explicitly **uncalibrated** until tested against blinded human labels.
 
-Current verdicts are:
+Canonical verdicts follow the PRD taxonomy:
+
+- `F` faithful: the attribution preserves the cited source’s substantive meaning; reasonable compression is allowed
+- `D` distortion: a real source kernel exists, but scope, strength, certainty, causality, population, conditions, or generality is materially altered
+- `E` error: the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel
+- `U` uncertain: exact cited evidence exists, but genuine scientific/attribution ambiguity prevents a defensible F/D/E judgment
+
+Critical policy:
+
+- `U` is **not** an operational failure bucket
+- retrieval/provider/classification/gate failures are `not_adjudicated`, `adjudication_failed`, or `invalid_output` — never F/D/E/U
+- `no_lexical_matches` never becomes `E` or `U`
+- confidence may be recorded but never chooses another model or alters the verdict path
+- there is no advisor, vector-first, challenger, or confidence-only escalation path in canonical Adjudicate
+- blinded human calibration is still required before advisor/vector routing or trust claims
+
+## What Is Operational Today (Temporary Current Executor)
+
+The temporary current-executor adjudication layer still uses a **support-style rubric** for sampled audit records. That workflow is separate from canonical Adjudicate and has no lean-pipeline standing.
+
+Current-executor verdicts are:
 
 - `supported`
 - `partially_supported`
@@ -12,57 +32,29 @@ Current verdicts are:
 - `not_supported`
 - `cannot_determine`
 
-These verdicts are the authoritative machine outputs for the current executor's:
+These verdicts remain the authoritative machine outputs for the temporary executor's:
 
 - audit sample worksheets
 - LLM adjudication runs
 - agreement reports
 - benchmark blind/diff/summary/apply workflows
 
-In the default **categorical adjudicator** mode, optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the current-executor support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
+In the temporary executor's default **categorical adjudicator** mode, optional `fidelityVectorTrace` output is diagnostic only. The opt-in **vector-first adjudicator** (`adjudicationMode: "vector_first"`) and default **advisor** confidence escalation are temporary current-executor behaviors only. Do not treat them as the canonical Adjudicate contract.
 
-The opt-in **vector-first adjudicator** (`adjudicationMode: "vector_first"`) uses the same current-executor verdict labels but changes the verdict source for clear cases: it samples vector axes first, may adaptively add samples, and can accept `axisDerivedVerdict` as the final support-style verdict. Risky vector traces escalate to the existing current-executor categorical adjudicator, which still runs on the original unmodified audit record. Vector-first is a routing/source mode, not a new verdict taxonomy.
+## Approximate Mapping (Documentation Only)
 
-The trace is conditioned on the same compact adjudication packet as the current-executor categorical adjudicator: marked citing context plus retrieved cited-paper evidence snippets. It does not send full cited-paper text to vector sample calls, and vector scores are uncalibrated until benchmarked against human labels.
+Conceptual alignment between temporary-executor labels and PRD labels is approximate:
 
-## Relationship To The PRD Taxonomy
+- `supported` ≈ `F`
+- `partially_supported` sits between `F` and `D`
+- `overstated_or_generalized` ≈ `D`
+- `not_supported` ≈ `E`
+- `cannot_determine` is sometimes closest to `U`, but in the temporary executor it also absorbs retrieval/operational failures that canonical Adjudicate keeps as non-verdict outcomes
 
-The PRD’s conceptual taxonomy remains important, but it is **not** the primary persisted output shape in the current implementation.
+This mapping is intentionally not lossless and must not be used as a compatibility bridge.
 
-Conceptual alignment is:
+## Non-Goals
 
-- `supported` is usually closest to PRD `F`
-- `partially_supported` often captures compression, indirect sourcing, or narrower forms of scope drift; it sits between PRD `F` and `D`
-- `overstated_or_generalized` is usually closest to PRD `D`
-- `not_supported` is usually closest to PRD `E`
-- `cannot_determine` is closest to PRD `U`
-
-Operationally, `cannot_determine` also covers retrieval failures that are informative but not adjudicable, especially:
-
-- abstract-only retrieval downgrades
-- unresolved cited-paper metadata
-- missing cited full text
-- other ungrounded retrieval paths where no non-abstract evidence span can be surfaced
-
-This mapping is intentionally approximate, not lossless. In particular:
-
-- `partially_supported` is broader than any single PRD bucket
-- the current executor does not persist PRD distortion/error subtypes
-- adjudication reports should be read as operational review outputs, not as a one-to-one encoding of the full PRD taxonomy
-
-## Why This Is Deliberate
-
-The current executor is optimized for reviewable adjudication packets:
-
-- exact citing context
-- retrieved cited spans
-- retrieval quality
-- concise rationale
-
-That current-executor workflow benefits from support-style verdicts during audit sampling and benchmark comparison. Converting those outputs into PRD-style `F/D/E/U` labels remains a documentation and interpretation layer, not a persisted product contract in this pass.
-
-## Non-Goal Of This Cleanup
-
-This cleanup does **not** refactor the current executor so `F/D/E/U` becomes the primary output schema.
-
-If that is needed later, it should be implemented as an explicit downstream mapping or a separate adjudication mode, not as an implicit reinterpretation of existing benchmark artifacts.
+- Do not silently convert temporary-executor support-style artifacts into canonical F/D/E/U envelopes
+- Do not restore advisor/vector routing in canonical Adjudicate until blinded calibration exists
+- Do not treat operational failure as `U` / `cannot_determine` in the lean pipeline
