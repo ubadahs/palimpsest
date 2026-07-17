@@ -13,7 +13,21 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist, but its executor and artifact writers have not landed yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover now has an isolated application service and versioned artifact writer/loader, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+
+### Canonical Discover (implemented, not executor-wired)
+
+`runCanonicalDiscover` is the canonical scientific implementation seam. It accepts explicit resolution, neighborhood, citation-harvest, and attributed-claim extraction adapters, validates every adapter result with Zod, and produces one lossless `DiscoverArtifactPayload`.
+
+The ledger preserves:
+
+- the configured provider/query limit and year range, provider-reported totals and coverage, and exact request/response artifact references
+- every returned citing paper, including unprobed, unavailable, and failed papers, with probe/materialization/harvest dispositions and reasons
+- every source citation occurrence, including repeated occurrences in one paper, source offsets or locators, reference labels, raw context, parser provenance, and exact bundle membership
+- one extraction observation per occurrence, including zero-claim and failed outcomes, plus every claim record when an occurrence yields multiple attributed claims
+- non-destructive, seed-isolated candidate grouping and deterministic Scope-selection dispositions; caps never delete candidates or source records
+
+Discover does not materialize or ground the seed manuscript, filter `not_found` claims, or freeze family membership. Those decisions belong to canonical Scope. `buildCanonicalDiscoverArtifact` creates the non-replayable lean envelope with exact model request/response references; `writeCanonicalDiscoverArtifact` and `loadCanonicalDiscoverArtifact` handle only the current versioned shape. This implementation is not routed through the temporary seven-stage executor or its shortlist/sidecar formats.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
@@ -84,7 +98,7 @@ Artifact readers accept only the currently declared suffixes; superseded names a
 
 ## Stage Details
 
-### Discover
+### Discover (temporary executor)
 
 Purpose: turn one or more seed DOIs into concrete, screenable claim candidates by observing how the literature actually cites the seed paper.
 

@@ -6,8 +6,11 @@ import {
   appendOnlyExclusionSchema,
   buildAttributedClaimRecordId,
   buildClaimCandidateId,
+  buildClaimExtractionObservationId,
   buildCitationOccurrenceId,
   buildCitationInstanceRecordId,
+  buildCitingPaperRecordId,
+  buildNeighborhoodQueryId,
   buildScopedFamilyId,
   buildSeedId,
   createAppendOnlyDecision,
@@ -87,9 +90,32 @@ function buildAllStageArtifacts() {
     contentHash: canonicalSha256({ doi: "10.1234/seed" }),
     role: "discovery-input",
   };
+  const requestReference: ArtifactReference = {
+    artifactId: buildStableId("request", { doi: "10.1234/seed" }),
+    contentHash: canonicalSha256({ request: "10.1234/seed" }),
+    role: "provider-request",
+  };
+  const responseReference: ArtifactReference = {
+    artifactId: buildStableId("response", { doi: "10.1234/seed" }),
+    contentHash: canonicalSha256({ response: "seed and neighborhood fixture" }),
+    role: "provider-response",
+  };
   const seedId = buildSeedId({ doi: "10.1234/seed" });
+  const neighborhoodIdentity = {
+    seedId,
+    provider: "fixture-provider",
+    query: "cites:seed-paper",
+    limit: 10,
+  };
+  const neighborhoodId = buildNeighborhoodQueryId(neighborhoodIdentity);
+  const citingPaperRecordId = buildCitingPaperRecordId({
+    seedId,
+    provider: neighborhoodIdentity.provider,
+    providerRecordId: "provider-citing-paper",
+  });
   const mentionIdentity = {
     seedId,
+    citingPaperRecordId,
     citingPaperId: "citing-paper",
     citedPaperId: "seed-paper",
     mentionIndex: 0,
@@ -103,20 +129,26 @@ function buildAllStageArtifacts() {
   const sourceClaimRecordIdentity = {
     seedId,
     mentionId,
+    duplicateOrdinal: 0,
     extractedClaimText: "The intervention changed the measured outcome.",
   };
   const sourceClaimRecordId = buildAttributedClaimRecordId(
     sourceClaimRecordIdentity,
   );
+  const extractionId = buildClaimExtractionObservationId({
+    seedId,
+    mentionId,
+  });
+  const canonicalClaim = "The intervention changed the measured outcome.";
   const candidateIdentity = {
     seedId,
-    canonicalClaim: "The intervention changed the measured outcome.",
-    memberMentionIds: [mentionId],
+    normalizedClaim: "the intervention changed the measured outcome.",
+    sourceClaimRecordIds: [sourceClaimRecordId],
   };
   const candidateId = buildClaimCandidateId(candidateIdentity);
   const familyId = buildScopedFamilyId({
     seedId,
-    normalizedClaim: candidateIdentity.canonicalClaim,
+    normalizedClaim: canonicalClaim,
   });
   const discover = createLeanStageArtifact({
     ...baseEnvelope(),
@@ -127,33 +159,132 @@ function buildAllStageArtifacts() {
         {
           seedId,
           doi: "10.1234/seed",
-          provenanceArtifacts: [rawInputReference],
+          provenanceArtifacts: [
+            rawInputReference,
+            requestReference,
+            responseReference,
+          ],
+          resolution: {
+            status: "resolved",
+            provider: "fixture-provider",
+            requestHash: canonicalSha256({ doi: "10.1234/seed" }),
+            requestArtifact: requestReference,
+            responseArtifact: responseReference,
+            paper: {
+              paperId: "seed-paper",
+              providerRecordId: "provider-seed-paper",
+              title: "Seed paper",
+              doi: "10.1234/seed",
+              authors: ["Seed Author"],
+              publicationYear: 2020,
+            },
+          },
+        },
+      ],
+      neighborhoodQueries: [
+        {
+          neighborhoodId,
+          seedId,
+          provider: neighborhoodIdentity.provider,
+          query: neighborhoodIdentity.query,
+          configuredLimit: neighborhoodIdentity.limit,
+          status: "completed",
+          statusReason: "Fixture provider query completed",
+          returnedCount: 1,
+          providerReportedTotal: 1,
+          coverage: "complete",
+          requestHash: canonicalSha256({ query: "cites:seed-paper" }),
+          requestArtifact: requestReference,
+          responseArtifact: responseReference,
+          provenanceArtifacts: [requestReference, responseReference],
+        },
+      ],
+      citingPapers: [
+        {
+          citingPaperRecordId,
+          seedId,
+          neighborhoodId,
+          provider: neighborhoodIdentity.provider,
+          providerRecordId: "provider-citing-paper",
+          providerPosition: 0,
+          paper: {
+            paperId: "citing-paper",
+            title: "Citing paper",
+            doi: "10.1234/citing",
+            authors: ["Citing Author"],
+            publicationYear: 2024,
+            fullTextAvailability: "available",
+          },
+          provenanceArtifacts: [responseReference],
+          probe: {
+            status: "selected",
+            reason: "Within fixture probe budget",
+            provenanceArtifacts: [responseReference],
+          },
+          materialization: {
+            status: "succeeded",
+            reason: "Fixture full text materialized",
+            provenanceArtifacts: [responseReference],
+          },
+          harvest: {
+            status: "succeeded",
+            reason: "Fixture occurrence harvested",
+            provenanceArtifacts: [responseReference],
+            observedMentionCount: 1,
+          },
         },
       ],
       citationMentions: [
         {
           mentionId,
           ...mentionIdentity,
+          identityStrength: "strong_source_offsets",
+          sectionTitle: "Discussion",
+          seedRefLabel: "Seed Author, 2020",
+          isBundledCitation: false,
+          bundleSize: 1,
+          bundleRefIds: ["ref-7"],
+          bundlePattern: "single",
           observationProvenance: {
             sourceType: "jats_xml",
             parser: "jats-v1",
-            artifacts: [rawInputReference],
+            artifacts: [responseReference],
+          },
+        },
+      ],
+      claimExtractionObservations: [
+        {
+          extractionId,
+          seedId,
+          mentionId,
+          status: "claims_extracted",
+          reason: "Fixture attributed claim extracted",
+          claimRecordIds: [sourceClaimRecordId],
+          provenanceArtifacts: [responseReference],
+          execution: {
+            kind: "deterministic",
+            implementation: "fixture-extractor-v1",
           },
         },
       ],
       attributedClaimRecords: [
         {
           claimRecordId: sourceClaimRecordId,
+          extractionId,
           ...sourceClaimRecordIdentity,
-          provenanceArtifacts: [rawInputReference],
+          sourceClaimIndex: 0,
+          provenanceArtifacts: [responseReference],
         },
       ],
       claimCandidates: [
         {
           candidateId,
-          ...candidateIdentity,
-          sourceClaimRecordIds: [sourceClaimRecordId],
-          provenanceArtifacts: [rawInputReference],
+          seedId,
+          canonicalClaim,
+          normalizedClaim: candidateIdentity.normalizedClaim,
+          memberMentionIds: [mentionId],
+          sourceClaimRecordIds: candidateIdentity.sourceClaimRecordIds,
+          provenanceArtifacts: [responseReference],
         },
       ],
       candidateDispositions: [
@@ -176,8 +307,8 @@ function buildAllStageArtifacts() {
           familyId,
           seedId,
           candidateIds: [candidateId],
-          trackedClaim: candidateIdentity.canonicalClaim,
-          normalizedClaim: candidateIdentity.canonicalClaim,
+          trackedClaim: canonicalClaim,
+          normalizedClaim: canonicalClaim,
           grounding: {
             status: "grounded",
             evidenceSpans: [
@@ -297,60 +428,37 @@ describe("lean stage artifact contracts", () => {
     }
 
     const secondSeedId = buildSeedId({ doi: "10.1234/second-seed" });
-    const secondMentionIdentity = {
-      seedId: secondSeedId,
-      citingPaperId: "second-citing-paper",
-      citedPaperId: "second-seed-paper",
-      mentionIndex: 0,
-      refId: "ref-2",
-      charOffsetStart: 200,
-      charOffsetEnd: 240,
-      citationMarker: "[2]",
-      rawContext: "A second citing occurrence [2].",
-    };
-    const secondMentionId = buildCitationOccurrenceId(secondMentionIdentity);
-    const secondClaimIdentity = {
-      seedId: secondSeedId,
-      mentionId: secondMentionId,
-      extractedClaimText: "A claim attributed to the second seed.",
-    };
-    const secondClaimRecordId =
-      buildAttributedClaimRecordId(secondClaimIdentity);
-    const provenanceArtifact =
-      discover.payload.seeds[0]!.provenanceArtifacts[0]!;
+    const originalSeed = discover.payload.seeds[0]!;
     const crossSeed = discoverArtifactPayloadSchema.safeParse({
       ...discover.payload,
       seeds: [
         ...discover.payload.seeds,
         {
+          ...originalSeed,
           seedId: secondSeedId,
           doi: "10.1234/second-seed",
-          provenanceArtifacts: [provenanceArtifact],
-        },
-      ],
-      citationMentions: [
-        ...discover.payload.citationMentions,
-        {
-          mentionId: secondMentionId,
-          ...secondMentionIdentity,
-          observationProvenance: {
-            sourceType: "jats_xml",
-            parser: "jats-v1",
-            artifacts: [provenanceArtifact],
+          resolution: {
+            ...originalSeed.resolution,
+            paper:
+              originalSeed.resolution.status === "resolved"
+                ? {
+                    ...originalSeed.resolution.paper,
+                    paperId: "second-seed-paper",
+                    providerRecordId: "provider-second-seed",
+                    doi: "10.1234/second-seed",
+                  }
+                : undefined,
           },
-        },
-      ],
-      attributedClaimRecords: [
-        ...discover.payload.attributedClaimRecords,
-        {
-          claimRecordId: secondClaimRecordId,
-          ...secondClaimIdentity,
-          provenanceArtifacts: [provenanceArtifact],
         },
       ],
       claimCandidates: discover.payload.claimCandidates.map((candidate) => ({
         ...candidate,
-        sourceClaimRecordIds: [secondClaimRecordId],
+        candidateId: buildClaimCandidateId({
+          seedId: secondSeedId,
+          normalizedClaim: candidate.normalizedClaim,
+          sourceClaimRecordIds: candidate.sourceClaimRecordIds,
+        }),
+        seedId: secondSeedId,
       })),
     });
     expect(crossSeed.success).toBe(false);
@@ -403,6 +511,14 @@ describe("lean stage artifact contracts", () => {
   });
 
   it("captures model response artifacts as immutable execution provenance", () => {
+    const requestArtifact: ArtifactReference = {
+      artifactId: buildStableId("request", {
+        provider: "anthropic",
+        request: "request-1",
+      }),
+      contentHash: canonicalSha256({ prompt: "prompt text" }),
+      role: "model-request",
+    };
     const responseArtifact: ArtifactReference = {
       artifactId: buildStableId("response", {
         provider: "anthropic",
@@ -428,6 +544,7 @@ describe("lean stage artifact contracts", () => {
             provider: "anthropic",
             model: "test-model",
             requestHash: canonicalSha256({ prompt: "prompt text" }),
+            requestArtifact,
             responseArtifact,
           },
         ],
@@ -473,12 +590,14 @@ describe("canonical scientific identities", () => {
     const claimRecordId = buildAttributedClaimRecordId({
       seedId,
       mentionId: firstMentionId,
+      duplicateOrdinal: 0,
       extractedClaimText: "The measured effect changed.",
     });
     expect(claimRecordId).toBe(
       buildAttributedClaimRecordId({
         seedId,
         mentionId: firstMentionId,
+        duplicateOrdinal: 0,
         extractedClaimText: " The measured effect changed. ",
       }),
     );
@@ -486,6 +605,7 @@ describe("canonical scientific identities", () => {
       buildAttributedClaimRecordId({
         seedId,
         mentionId: secondMentionId,
+        duplicateOrdinal: 0,
         extractedClaimText: "The measured effect changed.",
       }),
     );
@@ -493,27 +613,28 @@ describe("canonical scientific identities", () => {
       buildAttributedClaimRecordId({
         seedId,
         mentionId: firstMentionId,
+        duplicateOrdinal: 0,
         extractedClaimText: "A different attributed claim.",
       }),
     );
 
     const candidateId = buildClaimCandidateId({
       seedId,
-      canonicalClaim: "The measured effect changed.",
-      memberMentionIds: [secondMentionId, firstMentionId],
+      normalizedClaim: "The measured effect changed.",
+      sourceClaimRecordIds: [secondMentionId, firstMentionId],
     });
     expect(candidateId).toBe(
       buildClaimCandidateId({
         seedId,
-        canonicalClaim: "  The measured effect changed. ",
-        memberMentionIds: [firstMentionId, secondMentionId],
+        normalizedClaim: "  The measured effect changed. ",
+        sourceClaimRecordIds: [firstMentionId, secondMentionId],
       }),
     );
     expect(candidateId).not.toBe(
       buildClaimCandidateId({
         seedId,
-        canonicalClaim: "A different measured effect changed.",
-        memberMentionIds: [firstMentionId, secondMentionId],
+        normalizedClaim: "A different measured effect changed.",
+        sourceClaimRecordIds: [firstMentionId, secondMentionId],
       }),
     );
 

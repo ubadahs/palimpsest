@@ -1,17 +1,30 @@
 # Artifact Workflow
 
-This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover persistence now exists in isolation, but no CLI/executor path selects its output location yet.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
 ## Core Principles
 
-- current-executor primary JSON artifacts are its authoritative machine outputs until lean stage writers replace them
+- current-executor primary JSON artifacts remain authoritative only for the temporary executor
 - primary JSON artifacts get adjacent manifest files
 - Markdown companions are for inspection, not for machine integration
 - diagnostic sidecars preserve provenance and debugging context, but most are not consumed by downstream stages
 - artifact loading is schema-validated
 - reruns are append-only; the newest successful artifact becomes the current pointer
+
+## Canonical Discover Artifact
+
+Canonical Discover writes one authoritative versioned JSON envelope validated by `discoverArtifactSchema`. Its payload contains the complete neighborhood, citing-paper disposition, citation-occurrence, extraction-outcome, attributed-claim, candidate-membership, and candidate-disposition ledgers. Scientific observations are not split into optional shortlist or diagnostic sidecars.
+
+The application and persistence seams are:
+
+- `runCanonicalDiscover` — builds the lossless payload, append-only decisions, and provenance inputs from dependency-injected adapters
+- `buildCanonicalDiscoverArtifact` — binds the payload to stable content/artifact hashes and non-replayable external/model execution metadata
+- `writeCanonicalDiscoverArtifact` — validates and writes only the current Discover envelope
+- `loadCanonicalDiscoverArtifact` — validates the current envelope, including stable IDs and tamper hashes
+
+Raw provider, full-text/parser, model-request, and model-response data remain separate immutable artifacts referenced from the envelope. Exact request/response content is referenceable; the envelope does not claim that external or model execution can be replayed. This writer does not emit current-executor result, shortlist, grounding-trace, handoff, or sidecar formats, and the loader does not read them.
 
 ## Artifact Roles
 
