@@ -1,523 +1,61 @@
 # Pipeline Guide
 
-This document describes the current operational workflow: what each stage is for, what it reads, what it writes, and what can block or downgrade it. For a shorter glossary of the objects that move through the stages, see [pipeline-concepts.md](./pipeline-concepts.md). For research intent and scope, see [concept-memo.md](./concept-memo.md) and [prd.md](./conception/prd.md).
+The runnable operational workflow is the canonical six-stage pipeline:
 
-## At A Glance
+```text
+discover → scope → prepare → evidence → adjudicate → report
+```
 
-The canonical target pipeline is:
+These six keys are the entire public CLI and UI vocabulary. The pipeline is DOI-first only; manual shortlist/tracked-claim starts are removed. There is no `curate` stage and no sampling.
 
-1. `discover`
-2. `scope`
-3. `prepare`
-4. `evidence`
-5. `adjudicate`
-6. `report`
+## Start and resume
 
-The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, Evidence, Adjudicate, and Report now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. Canonical Adjudicate is explicitly uncalibrated pending blinded human labels. Canonical Report is deterministic (JSON authoritative; Markdown is a pure rendering) and also not CLI-wired. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+```bash
+npm run dev -- pipeline --input path/to/dois.json
+npm run dev -- pipeline --input path/to/dois.json --seed-pdf path/to/seed.pdf
+npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
+npm run dev -- pipeline --run-id <uuid>
+npm run dev -- pipeline --run-id <uuid> --rerun-from scope
+```
 
-### Canonical Discover (implemented, not executor-wired)
+The input is a JSON object with a nonempty DOI array:
 
-`runCanonicalDiscover` is the canonical scientific implementation seam. It accepts explicit resolution, neighborhood, citation-harvest, and attributed-claim extraction adapters, validates every adapter result with Zod, and produces one lossless `DiscoverArtifactPayload`.
+```json
+{ "dois": ["10.0000/example"] }
+```
 
-The ledger preserves:
+`--shortlist`, legacy strategy, target-size/advisor/vector flags, and legacy stage names are rejected. A resumed run loads and validates the saved canonical artifact chain before continuing.
 
-- the configured provider/query limit and year range, provider-reported totals and coverage, and exact request/response artifact references
-- every returned citing paper, including unprobed, unavailable, and failed papers, with probe/materialization/harvest dispositions and reasons
-- every source citation occurrence, including repeated occurrences in one paper, source offsets or locators, reference labels, raw context, parser provenance, and exact bundle membership
-- one extraction observation per occurrence, including zero-claim and failed outcomes, plus every claim record when an occurrence yields multiple attributed claims
-- non-destructive, seed-isolated candidate grouping and deterministic Scope-selection dispositions; caps never delete candidates or source records
+## Stages
 
-Discover does not materialize or ground the seed manuscript, filter `not_found` claims, or freeze family membership. Those responsibilities belong to canonical Scope. `buildCanonicalDiscoverArtifact` creates the non-replayable lean envelope with exact model request/response references; `writeCanonicalDiscoverArtifact` and `loadCanonicalDiscoverArtifact` handle only the current versioned shape. This implementation is not routed through the temporary seven-stage executor or its shortlist/sidecar formats.
+### Discover
 
-### Canonical Scope (implemented, not executor-wired)
+Discover establishes a lossless, declared citing-neighborhood observation boundary. It preserves every returned citing-paper disposition, citation occurrence, extraction outcome, attributed claim, candidate membership, and cap disposition. It does not ground a claim or filter membership.
 
-`runCanonicalScope` consumes only a current, identity-verified `discoverArtifactSchema` envelope. It never reads shortlist, handoff, pre-screen, screen, or other current-executor artifacts.
+### Scope
 
-Scope freezes the selected scientific population:
+Scope consumes verified Discover output, explicitly accounts for every candidate, freezes each selected family’s exact source-claim and citation-occurrence membership, and materializes immutable seed text once per seed. Grounding is an annotation: `not_found`, unavailable text, or a provider failure does not silently remove a frozen family.
 
-- every Discover candidate receives an explicit `scoped` or `deferred_upstream` decision
-- selected candidates map to exactly one same-seed family; exact-normalized candidates may share a family only when every source candidate ID, source claim ID, and occurrence ID remains attributable
-- family membership is the sorted union of each selected candidate's complete `memberMentionIds`; it is never reconstructed from DOI, citing-paper metadata, title/abstract retrieval, or later full-text retrieval
-- multiple occurrences in one citing paper and bundled occurrences remain distinct immutable Discover references
-- seed text is materialized once per selected seed and retained as immutable parsed blocks with source-artifact provenance
-- `grounded`, `ambiguous`, `not_found`, `seed_text_unavailable`, `acquisition_failed`, `grounding_failed`, and `invalid_grounding_output` all preserve the frozen family; scientific `not_found` is distinct from operational inability to inspect the seed or a typed provider failure
-- nonfatal grounding provider failures become `grounding_failed` with their code/reason and model execution provenance; `invalid_grounding_output` is reserved for malformed structured output or failed exact-quote verification
-- `not_found` always has zero accepted evidence and non-applicable quote verification; a model response that combines `not_found` with proposed spans is invalid
-- model-proposed evidence for grounded or ambiguous outcomes is accepted only when it is an exact substring of its referenced immutable seed-text block
+### Prepare
 
-`buildCanonicalScopeArtifact` binds the exact Discover artifact ID/hash, candidate accounting, seed-text records, grounding request/response references, quote verification, and append-only decisions into the lean envelope. `writeCanonicalScopeArtifact` and `loadCanonicalScopeArtifact` accept only the current Scope shape.
+Prepare consumes Scope and its exact Discover ancestor. It emits exactly one stable record for every family × citation-occurrence pair, preserving both the complete family ledger and the occurrence-local claim set. Classification failures and ambiguous roles remain typed records; they are not sampled away.
 
-### Canonical Prepare (implemented, not executor-wired)
+### Evidence
 
-`runCanonicalPrepare` consumes only a current, identity-verified Scope envelope and the exact current Discover ancestor named by Scope. It rejects tampered, cross-run, cross-artifact, or membership-inconsistent inputs before classification adapters execute.
+Evidence consumes Prepare and Scope. It retrieves only from immutable Scope seed text, emits one outcome per Prepare record, and can share family-level query/corpus/ranking work without collapsing records. BM25 uses only the declared Scope family claim. Optional relevance reranking is a separate immutable ranking, not a mutation of BM25.
 
-Prepare materializes the complete scoped evaluation population:
+### Adjudicate
 
-- one stable record is emitted for every frozen family × citation-occurrence pair; two occurrences in one paper remain two records, and one occurrence in two families becomes two records
-- record identity depends only on the explicit identity version, `familyId`, and `citationOccurrenceId`; parser/model changes, timestamps, derived context, and classification do not affect it
-- each record preserves the exact Scope family, the complete family-level Discover source-candidate/source-claim ledger, and exact occurrence-local candidate/claim subsets so downstream work cannot borrow attributed wording from another occurrence
-- grounding annotation/evidence, Discover seed and citing-paper records, the full citation occurrence, source locator/offsets, parser provenance, and bundle metadata remain unchanged
-- the immutable verbatim context is the exact Discover `rawContext`; derived or annotated context is kept separately
-- deterministic, model, and external classification outcomes carry role, evaluation mode, modifiers, signals, rationale/confidence, and exact execution provenance
-- genuinely ambiguous roles and nonfatal classifier failures remain typed records; fatal authentication, authorization, billing, and quota failures fail the stage
-- every scoped pair receives an append-only classification outcome decision; there is no ranking, target size, sampling, representative selection, or curation
+Adjudicate consumes Evidence and Prepare. Deterministic gates produce typed `not_adjudicated` outcomes for unavailable evidence, retrieval failure, invalid context, unsuitable roles, and comparable operational conditions. Eligible records receive one categorical model request and yield `F`, `D`, `E`, or `U`; confidence never routes to another model or method.
 
-`buildCanonicalPrepareArtifact` references both exact inputs and marks external/model execution non-replayable. `writeCanonicalPrepareArtifact` and `loadCanonicalPrepareArtifact` accept only the current Prepare shape and verify pair accounting, lineage, stable identities, provenance, and tamper hashes. Production adapters, CLI wiring, and canonical executor wiring remain future work.
+This method is **uncalibrated**. A completed run is not a validated scientific result and must not be used for trust claims before blinded human calibration.
 
-### Canonical Evidence (implemented, not executor-wired)
+### Report
 
-`runCanonicalEvidence` consumes only a current, identity-verified Prepare envelope and the exact current Scope ancestor named by Prepare. It rejects tampered, cross-run, cross-artifact, or family-inconsistent inputs before any optional reranker executes. It does not reacquire or substitute cited text: all retrieval runs against the immutable Scope seed-text blocks.
+Report consumes and tamper-verifies the full five-artifact chain. It writes authoritative JSON funnel counts, rates, and per-record traces, then renders Markdown from that validated JSON. `F`/`D`/`E`/`U` rates use adjudicated records as their denominator; operational non-verdicts are not verdicts.
 
-Evidence preserves complete record accounting and separate retrieval versions:
+## Run behavior
 
-- every Prepare record gets exactly one outcome; classification failures, grounding failures, repeated occurrences, and bundled occurrences are never sampled, capped, or collapsed
-- computation may be reused for records in one family, but every record explicitly references the shared query, corpus, BM25 run, optional rerank run, and final selection
-- deterministic chunks use source-block character windows with declared size/overlap/order; IDs depend on seed identity, semantic source location, exact text hash, and chunk config—not parser/model/timestamp/rank/classification
-- chunk text is exact and untruncated, with source block, section, absolute offsets, seed-text artifact, and raw source-artifact provenance
-- the only lexical query is the declared Scope family claim; occurrence context, occurrence-local claims, citation classification, adjudication labels, and Scope grounding spans never boost or expand BM25
-- query provenance labels `grounded`, `ambiguous`, and unverified attributed claims honestly without changing query or BM25 identity
-- BM25 persists tokenizer/config, exact corpus and query terms, raw positive scores, deterministic ranks/ties, and the complete selected candidate ID set
-- optional relevance-only model reranking references one immutable BM25 candidate set and writes a separate score/rank/rationale version; it cannot mutate BM25 or chunk text
-- disabled reranking makes no adapter call and selects deterministically from BM25; nonfatal rerank failure remains explicit while selecting unchanged BM25, and authentication/authorization/billing/quota failure stops Evidence
-- a nonempty final selection explicitly names `bm25` or `reranked`; zero lexical matches, unavailable/acquisition failure, and deterministic retrieval failure have no selection, while nonfatal rerank failure explicitly selects unchanged BM25
+Fresh and resumed runs create or use `data/runs/<runId>/`. Every succeeded stage is reloaded through its current-version schema and checked for content-hash and lineage consistency before a later stage runs. A failed stage blocks downstream stages.
 
-`buildCanonicalEvidenceArtifact` references both direct inputs and marks any model reranking non-replayable. Each record receives append-only retrieval, rerank, and final-selection decisions. `writeCanonicalEvidenceArtifact` and `loadCanonicalEvidenceArtifact` accept only the current Evidence shape and verify lineage, complete accounting, all shared-run references, ranking consistency, exact provenance, and tamper hashes. Production reranker adapters, CLI wiring, and canonical executor wiring remain future work.
-
-### Canonical Adjudicate (implemented, not executor-wired, uncalibrated)
-
-`runCanonicalAdjudicate` consumes only a current, identity-verified Evidence envelope and the exact current Prepare ancestor named by Evidence. It rejects tampered, cross-run, or ledger-inconsistent inputs before any model adapter executes.
-
-Adjudicate preserves complete record accounting and explicit epistemic gates:
-
-- every Evidence record gets exactly one outcome; occurrences are never sampled, capped, collapsed, or overwritten
-- model adjudication runs only when the record is deterministically adjudicable
-- operational gates (`seed_text_unavailable`, `seed_acquisition_failed`, `retrieval_failed`, `no_lexical_matches`, classification failure, invalid context, skip/low-information, ambiguous/manual-review roles) yield `not_adjudicated` — never `U` and never F/D/E
-- fully gated runs need no model adapter and remain deterministic/replayable with zero prompt/model/response provenance; an adapter is required only when the first eligible record is reached
-- Evidence selection/chunk invariant violations are validated-artifact corruption, not scientific outcomes, and throw a boundary error rather than producing `not_adjudicated`
-- Scope scientific `not_found` is not a gate when exact selected cited evidence exists; prior grounding status is excluded from the model packet
-- Scope operational `grounding_failed` does not automatically block when Evidence independently carries exact selected text; grounding status remains absent from the model packet and gating follows Evidence/Prepare adjudicability
-- one categorical method only (`canonical-categorical-adjudicate-v1`): one model request per eligible record; confidence is recorded but never chooses another model or path; no advisor, challenger, vector-first, or self-consistency routing
-- adapter completion/failure provenance is accepted only when prompt ID/version/content hash and the canonical hash of the complete adapter request exactly match what the stage sent
-- every occurrence-local Prepare claim record must be evaluated exactly once; accepted claim references are stored in Prepare order, and model-cited chunk subsets are stored in Evidence-selection order
-- validated model outputs use PRD `F` / `D` / `E` / `U`; `U` requires exact cited evidence and cannot encode provider/retrieval failure
-- nonfatal model failure and malformed/unknown/duplicate references remain typed `adjudication_failed` / `invalid_output`; fatal authentication/authorization/billing/quota failures stop the stage
-- non-verdict result identities exclude descriptive reason wording and artifact URI/role while binding gate/failure codes and semantic request/response identities
-- the method is explicitly marked `uncalibrated` until tested against blinded human labels
-
-`buildCanonicalAdjudicateArtifact` references both exact inputs and marks model execution non-replayable. Each record receives append-only gate, model, and final-outcome decisions. Modeled outcomes must have exact prompt, model, request, response, stage-execution, and decision provenance; fully gated artifacts carry none of that model provenance. `writeCanonicalAdjudicateArtifact` and `loadCanonicalAdjudicateArtifact` accept only the current Adjudicate shape. Production adapters, CLI wiring, and canonical executor wiring remain future work.
-
-### Canonical Report (implemented, not executor-wired, deterministic)
-
-`runCanonicalReport` consumes the complete current Discover → Scope → Prepare → Evidence → Adjudicate chain. It rejects cross-run, mismatched, missing, duplicate, or tampered ancestors before emitting output. Report binds all five artifacts as direct inputs in that fixed order.
-
-Report semantics:
-
-- JSON is the authoritative machine-readable audit report; Markdown is a pure deterministic human rendering of validated JSON fields only
-- every funnel count states its unit and population; seed-specific citing-paper observations (not globally unique papers), occurrences, candidates, families, and family×occurrence records stay distinct
-- funnel partitions and ordered unique status summaries are schema-checked against their parent populations and per-record traces
-- every rate stores metric ID, numerator, denominator, recomputed value (or null for zero denominator), and explicit numerator/denominator definitions; required rate numerators and denominators are bound to their exact funnel populations and numerators cannot exceed denominators
-- adjudication coverage denominator is all Prepare/Evidence/Adjudicate records; F/D/E/U rates use adjudicated records only
-- operational non-verdicts (`not_adjudicated`, `adjudication_failed`, `invalid_output`) never enter F/D/E/U counts or rates; U remains scientific ambiguity with evidence
-- every trace identity/reference uses the canonical stable-ID schema; Evidence trace retrieval/rerank/reference combinations and adjudication trace variants are exact, with nonfatal-only per-record failure codes
-- BM25 and reranked final-selection sources are counted separately both as unique selection objects and as family×occurrence record uses; one family-shared selection can serve multiple records, and ranking score is never treated as truth strength
-- Report itself has exactly two deterministic lineage-bound decisions (interpretation and publication status) and no Report-stage exclusions
-- Prepare low-information/manual-review populations may overlap classification-status counts and are not a partition
-- no headline quality score, paper/family synthesis score, `partially_supported` fidelity rate, accuracy/agreement/benchmark/calibration statistics, adapters, or LLM calls
-- interpretation status is `uncalibrated_research_output` until blinded human labels exist; separate evaluation reports remain outside this stage
-
-`buildCanonicalReportArtifact` is always deterministic and replayable with empty prompt/model/response provenance. `renderCanonicalReportMarkdown` formats already-validated JSON only. `writeCanonicalReportArtifacts` rejects JSON/Markdown paths that resolve to the same file before writing, then validates/writes JSON first and renders Markdown from that exact parsed object. `loadCanonicalReportArtifact` accepts only the current Report JSON shape. CLI wiring and executor cutover remain deferred.
-
-The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
-
-| Stage | Command | Reads | Writes | Main decision |
-|------|---------|-------|--------|---------------|
-| Discover | `discover` | DOI input JSON | candidate families, report, shortlist | Which candidate families are promising enough to qualify |
-| Screen | `screen` | shortlist JSON | qualified-family results, report, grounding trace | Whether a candidate family is qualified for downstream analysis |
-| Extract | `extract` | screen results + seed DOI | citation-context results, report, inspection notes | Which citing contexts are usable for downstream grounding |
-| Classify | `classify` | extraction results + screen results | evaluation-task results, report | Which citation contexts become evaluation tasks |
-| Evidence | `evidence` | classification results | evidence-backed task results, report | Whether usable cited-paper evidence can be attached to each task |
-| Curate | `curate` | evidence results | audit records, worksheet | Which evidence-backed tasks become audit records |
-| Adjudicate (temporary executor) | `adjudicate` | audit sample | adjudicated records, summary, optional agreement report | Final support-style verdicts and rationales for sampled audit records (not canonical F/D/E/U) |
-
-## Operator Vocabulary
-
-The current executor uses seven temporary stage keys. Its main objects are:
-
-| Object | Produced by | Meaning |
-|--------|-------------|---------|
-| candidate family | `discover` | A tracked claim candidate plus the citing papers and mentions that make it worth qualifying |
-| qualified family | `screen` | A candidate family that has been grounded, filtered, and marked viable or blocked/deprioritized |
-| citation context | `extract` | A claim-bearing citation passage and normalized mention context from a citing paper |
-| evaluation task | `classify` | A citation context converted into a task with role and evaluation-mode metadata |
-| evidence-backed task | `evidence` | An evaluation task with cited-paper resolution and retrieved evidence spans |
-| audit record | `curate` | A sampled, review-ready record selected from evidence-backed tasks |
-| adjudicated record | `adjudicate` | An audit record with support-style verdict, rationale, confidence, and retrieval-quality judgment |
-
-## Two Ways To Start A Run
-
-### DOI-first run
-
-Use this when discovery should run from a seed DOI list. The default strategy is **attribution-first**: citing-side mentions and grounded families. The temporary executor also exposes a seed-side strategy named **legacy**.
-
-- Entry command: `discover` or `pipeline --input path/to/dois.json`
-- Input shape: a JSON object with a `dois` array
-- Typical use: exploratory runs where the tracked claim is not fixed yet
-
-This is the normal CLI-first path.
-
-### Shortlist or manual-claim run
-
-Use this when the tracked claim is already known and you want to start from screening.
-
-- Entry command: `screen --input path/to/shortlist.json`
-- Pipeline variant: `pipeline --shortlist path/to/shortlist.json`
-- UI variant: if a manual tracked claim is provided when creating a run, the UI writes `inputs/shortlist.json` directly and marks `discover` as already satisfied
-
-This is the shortest path when claim discovery is not the question.
-
-## Current Executor Stage And Artifact Names
-
-The not-yet-replaced executor exposes these temporary stage keys in the CLI, UI, and SQLite state:
-
-- `discover`
-- `screen`
-- `extract`
-- `classify`
-- `evidence`
-- `curate`
-- `adjudicate`
-
-The not-yet-replaced executor still writes descriptive prefixes:
-
-- `screen` writes `_pre-screen-*`
-- `extract` writes `_extraction-*`
-
-Artifact readers accept only the currently declared suffixes; superseded names are rejected.
-
-## Stage Details
-
-### Discover (temporary executor)
-
-Purpose: turn one or more seed DOIs into concrete, screenable claim candidates by observing how the literature actually cites the seed paper.
-
-Command: `discover`
-
-Reads:
-
-- DOI input JSON
-
-Writes:
-
-- `*_discovery-results.json`
-- `*_discovery-report.md`
-- `*_discovery-shortlist.json`
-- sidecars: `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json`
-
-What happens (attribution-first strategy, `--strategy attribution_first`):
-
-- resolve the seed paper by DOI
-- gather the citing neighborhood from OpenAlex
-- select a bounded probe set of citing papers with accessible full text
-- harvest in-text mentions from probe papers and extract attributed claims via LLM (**bounded parallel** across papers)
-- construct singleton family candidates (one per in-scope attributed claim)
-- **collapse** families that share the same normalized `canonicalTrackedClaim` for the seed DOI **before** grounding, so the seed is not grounded twice for the same attributable sentence
-- ground each remaining family candidate back to quoted seed-paper spans (**bounded parallel**)
-- conservatively dedupe exact and near-duplicate grounded families before shortlist emission (exact matching includes identical normalized tracked-claim text even when grounded paraphrases differ)
-- rank families by observable viability (mention count, auditable edges, grounding status)
-- emit a shortlist ready for `screen` using a **greedy diversity pass**: walk the ranked list and skip a candidate if its citing-paper id set is almost the same as an already chosen family (Jaccard similarity ≥ 0.85 on `memberCitingPaperIds`)
-
-The temporary executor's `--strategy legacy` option follows the seed-side claim extraction and ranking path. It is not part of the lean Discover contract.
-
-Default model behavior:
-
-- discover (legacy extraction, attribution-first extraction, and seed-family grounding during discover) defaults to `claude-haiku-4-5` with thinking **disabled** (`--thinking` / `--discover-thinking` to enable)
-- seed grounding in `screen` still defaults to `claude-sonnet-4-6` with thinking enabled
-- adjudication remains `claude-opus-4-6` with thinking enabled by default
-
-Additional flags for `discover` and `pipeline --input`: `--probe-budget` (max probe papers, default **20** for standalone `discover`, **100** for `pipeline`), `--shortlist-cap` (max shortlisted families per seed after diversity selection, default **5**).
-
-For the full **`pipeline`** command, `--target-size` is the per-family audit sample size passed through to `curate` (default **20**). `--family-concurrency` bounds how many greenlit families run extract→adjudicate work at once (default **5**).
-
-Important behavior:
-
-- attribution-first dedupe is deterministic and conservative, not LLM-based
-- dedupe metadata is written into discovery family candidates and shortlist entries so this heuristic remains visible and reversible
-- families excluded only because of citing-paper overlap with a higher-ranked pick carry an explicit shortlist reason (vs. cap-only exclusions)
-
-What can block it:
-
-- unresolved DOI
-- no usable full text for the seed paper
-- missing `ANTHROPIC_API_KEY`
-- no auditable citing papers in the probe set (attribution-first)
-
-What the next stage consumes:
-
-- the shortlist artifact
-
-### Screen
-
-Purpose: ground the tracked claim in the seed paper, gather the local citation family, and decide whether the family is worth pushing into the heavier stages.
-
-Command: `screen`
-
-Reads:
-
-- shortlist JSON
-
-Writes:
-
-- `*_pre-screen-results.json`
-- `*_pre-screen-report.md`
-- `*_pre-screen-grounding-trace.json`
-
-What happens:
-
-- resolve the seed paper
-- fetch and parse seed full text
-- ground the tracked claim with the LLM and verify quoted spans
-- gather citing papers around the seed
-- deduplicate and filter the family to claim-relevant papers
-- assess auditability and produce a greenlight or deprioritize decision
-
-What can block or downgrade it:
-
-- missing `ANTHROPIC_API_KEY`
-- missing or unusable seed full text
-- claim grounding that fails or blocks downstream analysis
-- a family that is too thin or too unauditable to justify later stages
-
-Important behavior:
-
-- the grounding trace now stores an ordered `records[]` collection so same-DOI tracked claims do not overwrite one another
-- `manual_review_role_ambiguous` remains visible as its own label downstream, but those tasks are still adjudication-eligible because they represent real citation edges
-- fatal Anthropic billing, quota, authentication, or authorization failures fail the run and mark later family stages as `blocked` with the provider reason
-- retryable errors such as rate limits are not treated as fatal-provider breakers by default
-- `screen` can succeed and still block later stages
-- the temporary executor's title/abstract filter can exclude papers from its downstream analysis; this heuristic has no standing in canonical Scope, whose membership is frozen only from Discover occurrence IDs
-
-What the next stage consumes:
-
-- the screen results artifact, for one seed family at a time
-
-### Extract
-
-Purpose: find the claim-bearing citation contexts in the citing papers that survived screening.
-
-Command: `extract`
-
-Reads:
-
-- screen results
-- seed DOI selector
-
-Writes:
-
-- `*_extraction-results.json`
-- `*_extraction-report.md`
-- `*_extraction-inspection.md`
-
-What happens:
-
-- select auditable citing papers
-- fetch and parse citing-paper full text
-- locate the in-text mentions that point back to the seed paper
-- deduplicate redundant mentions
-- keep only contexts that can support later evidence grounding
-
-Important behavior:
-
-- the temporary pipeline caches extraction outputs by citing-paper neighborhood within a run, so equivalent families do not re-fetch and re-parse the same citing papers; this reuse does not define canonical Scope membership
-
-What can block or downgrade it:
-
-- screen already marked the family as blocked downstream
-- citing papers have no usable full text
-- citations resolve but do not yield usable claim-bearing contexts
-
-What the next stage consumes:
-
-- the extraction results artifact
-
-### Classify
-
-Purpose: turn extracted citation contexts into evaluation packets that downstream retrieval and adjudication can use.
-
-Command: `classify`
-
-Reads:
-
-- extraction results
-- screen results
-
-Writes:
-
-- `*_classification-results.json`
-- `*_classification-report.md`
-
-What happens:
-
-- classify citation roles from the extracted mentions
-- derive the evaluation mode for each mention or edge
-- build `EdgeEvaluationPacket` structures for downstream retrieval
-- summarize the task load and any manual-review-heavy cases
-
-Important behavior:
-
-- `manual_review_role_ambiguous` remains a first-class evaluation mode
-- those tasks are still adjudication-eligible because the citation edge is real even when citation role inference is unresolved
-- the pipeline caches classification outputs by citing-paper neighborhood within a run
-
-What can block or downgrade it:
-
-- no usable extracted mentions
-- extracted contexts exist but do not yield any in-scope evaluation tasks
-
-What the next stage consumes:
-
-- the classification results artifact
-
-### Evidence (temporary executor)
-
-Purpose: resolve the cited paper, retrieve candidate evidence from it, and attach grounded spans to each evaluation task.
-
-Command: `evidence`
-
-Reads:
-
-- classification results
-
-Writes:
-
-- `*_evidence-results.json`
-- `*_evidence-report.md`
-
-What happens:
-
-- resolve the cited paper
-- fetch and parse cited-paper full text
-- retrieve candidate evidence blocks with BM25 using only the declared family claim
-- optionally rerank those blocks with the LLM or a local reranker
-- attach the best evidence spans to each task
-
-What can block or downgrade it:
-
-- unresolved cited paper
-- cited full text unavailable
-- no evidence matches
-- abstract-only matches, which are treated as downgraded rather than ordinary retrieval success
-
-Important behavior:
-
-- BM25 always provides the baseline retrieval pass and no longer receives citing-context, marker, title, or grounded-span score boosts
-- if Anthropic is configured and LLM reranking is enabled, the stage uses an LLM reranker by default
-- if no Anthropic key is available, the stage can still run with a local reranker or plain BM25
-- `--no-llm-rerank` forces the non-LLM path
-- this temporary artifact still collapses display spans and reranker output into its task shape; it is not the canonical Evidence contract, which preserves immutable BM25 and rerank versions side by side
-
-What the next stage consumes:
-
-- the evidence results artifact
-
-### Curate
-
-Purpose: build a balanced audit sample from the evidence-backed task pool.
-
-Command: `curate`
-
-Reads:
-
-- evidence results
-
-Writes:
-
-- `*_audit-sample.json`
-- `*_audit-sample-worksheet.md`
-
-What happens:
-
-- collect eligible tasks
-- surface edge cases
-- allocate a mode-balanced sample up to the requested target size (default **20** in run config / UI and when the standalone `curate` command omits `--target-size`)
-- build adjudication-ready audit records
-- write the worksheet and sampling summary
-
-Important behavior:
-
-- `manual_review_role_ambiguous` tasks remain adjudication-eligible, but the sampler **caps** how many are included: at most **25%** of the audit sample target (rounded down), including any fill from the “remaining tasks” pass
-
-What can block or downgrade it:
-
-- no eligible evidence-backed tasks
-- too little variety to build the requested sample cleanly
-
-What the next stage consumes:
-
-- the audit sample artifact
-
-### Adjudicate (temporary current executor)
-
-Purpose: run the sampled audit records through the temporary executor's configured adjudication path and write support-style verdicts and rationales. This is not the isolated canonical Adjudicate stage (`F`/`D`/`E`/`U`, uncalibrated, not CLI-wired).
-
-Command: `adjudicate`
-
-Reads:
-
-- audit sample
-
-Writes:
-
-- `*_llm-audit-sample.json`
-- `*_llm-summary.md`
-- optional `*_agreement-report.md`
-
-What happens:
-
-- load active audit records
-- call Anthropic through the centralized LLM client (**default adjudication model** `claude-opus-4-6`; thinking **on** unless `--no-thinking` / run config disables it)
-- **Advisor adjudication (default)** mirrors managed `pipeline` runs: the cheap first pass runs on **`adjudicateFirstPassModel`** (**Sonnet** by default); records with `judgeConfidence === "low"`, verdict **`cannot_determine`**, or bundled citations at **`medium`** confidence are re-run on the main adjudication model (**Opus** + thinking governed by adjudication config). Disable with **`--no-advisor`** or `adjudicateAdvisor: false` in persisted run config
-- persist support-style verdicts plus rationale, retrieval-quality judgments, telemetry; advisor-mode artifacts also expose `firstPassTelemetry`, `escalationTelemetry`, and `escalationCount` beside `runTelemetry`
-- optionally attach `fidelityVectorTrace` with **`--fidelity-vector-trace`** / `adjudicateFidelityVectorTrace: true`; this is disabled by default, uses separate `"fidelity-vector"` LLM purpose telemetry, defaults to **`claude-sonnet-4-6`**, samples final active records only, and does not alter the temporary executor's support-style verdicts or advisor escalation. This is not part of isolated canonical Adjudicate.
-- optionally use the **vector-first adjudicator** with **`--adjudication-mode vector_first`** / `adjudicationMode: "vector_first"`; this samples vector axes first, adaptively adds samples for simple borderline cases, accepts clear `axisDerivedVerdict` outputs as final axis-derived verdicts, and escalates risky records to the existing categorical adjudicator using the original unmodified audit records. Vector-first mode writes `vectorRoutingDecision` provenance and does not run the post-hoc diagnostic trace path after its own vector trace
-- optionally compare LLM adjudication outputs with a labeled human adjudication file via **`--human ...`** agreement report helpers
-
-Vector-first tuning flags for `pipeline` and standalone `adjudicate`:
-
-- `--vector-first-initial-samples` (default **1**)
-- `--vector-first-max-samples` (default **3**)
-- `--vector-first-model` (default **`claude-sonnet-4-6`**)
-- `--vector-first-temperature` (default **0.7**)
-- `--vector-first-concurrency` (default **2**)
-
-What can block it:
-
-- missing `ANTHROPIC_API_KEY`
-- no active audit records
-
-What follows it:
-
-- benchmark commands such as `benchmark:blind`, `benchmark:diff`, `benchmark:summary`, and `benchmark:apply`
-
-## How The Pieces Fit Together
-
-Some stages are batch-oriented and some are family-oriented.
-
-- `discover` can start from multiple seed DOIs
-- `screen` evaluates one or more shortlisted seed claims
-- `extract`, `classify`, `evidence`, `curate`, and `adjudicate` operate per screened claim family; the full `pipeline` runs those stages for **all greenlit families**, with concurrency bounded by stored config `familyConcurrency` (CLI: `--family-concurrency`)
-
-The `pipeline` command handles that handoff for you. The local UI spawns `pipeline --run-id …`, reuses the same artifact layout, and records **one SQLite stage row per `(stageKey, familyIndex)`** so parallel families do not overwrite each other’s status or paths.
-
-When `pipeline` writes current-executor artifacts, it mirrors that executor's stage layout under the chosen output root (`00-discover/`, `01-screen/`, `02-extract/`, and so on) and preserves the same stage-specific filename suffixes used by the standalone commands.
-
-## What To Update When The Workflow Changes
-
-Update this document when any of the following change:
-
-- stage order
-- stage names
-- stage inputs or outputs
-- what a stage is responsible for deciding
-- block, fallback, or downgrade behavior that matters to an operator
-
-If only a model default or implementation detail changes, prefer updating [status.md](./status.md) instead.
+Old SQLite rows and run directories from the former seven-stage executor are unsupported and may need deletion/recreation. Do not attempt to convert old shortlist, screening, extraction, classification, curation, or support-style adjudication artifacts into this pipeline. Temporary old modules may remain unreachable until deletion work completes.
