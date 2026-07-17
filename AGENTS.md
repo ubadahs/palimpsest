@@ -2,7 +2,7 @@
 
 Keep this file in sync with [CLAUDE.md](./CLAUDE.md).
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (e.g. Codex) when working with code in this repository.
 
 ## What This Project Is
 
@@ -42,6 +42,9 @@ npx knip --reporter compact               # optional dead-code / deps (see repo 
 ```
 apps/ui/      Local-only Next.js (App Router pages + Pages API); depends on root via workspace
 src/
+  adjudication/ Fidelity-vector scoring/calibration, LLM adjudicator, vector-first routing
+  benchmark/    Blind benchmark harness (types + workflow)
+  classification/ Citation-function and evaluation-mode classification into eval packets
   cli/          Command entrypoints (index.ts dispatches to commands/)
   config/       Env loading (Zod-validated) and AppConfig construction
   domain/       Core taxonomy types and decision logic (pure)
@@ -59,7 +62,7 @@ tests/          Mirrors src/ structure
 ### Key Patterns
 
 - **Boundary validation**: All external data (API responses, env vars, LLM outputs, XML) is Zod-validated before entering the domain layer. Types are inferred from Zod schemas (`z.infer<typeof schema>`).
-- **Domain taxonomy**: Core enums (CitationFunction, AuditabilityStatus, FidelityTopLabel, DistortionSubtype, ErrorSubtype, EvidenceVsInterpretation, ConfidenceLevel) live in `src/domain/taxonomy.ts`. Each has a `values` const array, a Zod schema, and an inferred type.
+- **Domain taxonomy**: Core enums (CitationFunction, AuditabilityStatus, FidelityTopLabel) live in `src/domain/taxonomy.ts`. Each has a `values` const array, a Zod schema, and an inferred type.
 - **Typed error handling**: Expected failures (unresolved citation, no open-access text, invalid LLM JSON) use `Result<T>` return values (`{ ok: true; data: T } | { ok: false; error: string }`), not thrown exceptions. Throw only for programmer errors.
 - **Centralized LLM client**: All Anthropic API calls (claim-discovery, seed-grounding, claim-family-filter, evidence-reranking, adjudication, family-consolidation) go through `src/integrations/llm-client.ts`. Every call is tagged with a `purpose` and returns `LLMCallRecord` telemetry; `getLedger()` aggregates per-run cost by purpose. Call sites can opt into persistent exact-result caching via `exactCache: { keyVersion }` — identical requests return cached responses without hitting the provider.
 - **Discovery handoff bundle** (`attribution_first` only): `runDiscoveryStage` produces a `DiscoveryHandoffMap` (`src/domain/discovery-handoff.ts`) that carries resolved papers, citing-paper lists, pre-harvested mentions, and per-family grounding traces from discover → screen → extract — eliminating redundant resolution, OpenAlex fetches, LLM grounding, and full-text fetches. Fresh pipeline runs pass it in memory; the pipeline also persists it under `inputs/discovery-handoffs.json` so `--run-id` resume can restore the thin path when present. If unavailable or unreadable, stages fall back to full paths. Key entry points: `runPreScreenFromHandoff` (`pre-screen.ts`), `extractEdgeContextFromMentions` (`citation-context.ts`).
@@ -78,7 +81,7 @@ tests/          Mirrors src/ structure
 
 ### Domain Model
 
-Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability gates (`auditable`, `partially_auditable`, `not_auditable`) must pass before fidelity scoring. The current implementation focuses on `empirical_attribution` but the taxonomy is designed to extend to other citation functions.
+Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability gates (`auditable_structured`, `auditable_pdf`, `partially_auditable`, `not_auditable`) must pass before fidelity scoring. The current implementation focuses on `empirical_attribution` but the taxonomy is designed to extend to other citation functions.
 
 ## TypeScript Strictness
 
