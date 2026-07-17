@@ -13,7 +13,7 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist. Canonical Discover, Scope, and Prepare now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, and Evidence now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
 ### Canonical Discover (implemented, not executor-wired)
 
@@ -62,7 +62,26 @@ Prepare materializes the complete scoped evaluation population:
 - genuinely ambiguous roles and nonfatal classifier failures remain typed records; fatal authentication, authorization, billing, and quota failures fail the stage
 - every scoped pair receives an append-only classification outcome decision; there is no ranking, target size, sampling, representative selection, or curation
 
-`buildCanonicalPrepareArtifact` references both exact inputs and marks external/model execution non-replayable. `writeCanonicalPrepareArtifact` and `loadCanonicalPrepareArtifact` accept only the current Prepare shape and verify pair accounting, lineage, stable identities, provenance, and tamper hashes. Production adapters, Evidence, CLI wiring, and canonical executor wiring remain future work.
+`buildCanonicalPrepareArtifact` references both exact inputs and marks external/model execution non-replayable. `writeCanonicalPrepareArtifact` and `loadCanonicalPrepareArtifact` accept only the current Prepare shape and verify pair accounting, lineage, stable identities, provenance, and tamper hashes. Production adapters, CLI wiring, and canonical executor wiring remain future work.
+
+### Canonical Evidence (implemented, not executor-wired)
+
+`runCanonicalEvidence` consumes only a current, identity-verified Prepare envelope and the exact current Scope ancestor named by Prepare. It rejects tampered, cross-run, cross-artifact, or family-inconsistent inputs before any optional reranker executes. It does not reacquire or substitute cited text: all retrieval runs against the immutable Scope seed-text blocks.
+
+Evidence preserves complete record accounting and separate retrieval versions:
+
+- every Prepare record gets exactly one outcome; classification failures, grounding failures, repeated occurrences, and bundled occurrences are never sampled, capped, or collapsed
+- computation may be reused for records in one family, but every record explicitly references the shared query, corpus, BM25 run, optional rerank run, and final selection
+- deterministic chunks use source-block character windows with declared size/overlap/order; IDs depend on seed identity, semantic source location, exact text hash, and chunk config—not parser/model/timestamp/rank/classification
+- chunk text is exact and untruncated, with source block, section, absolute offsets, seed-text artifact, and raw source-artifact provenance
+- the only lexical query is the declared Scope family claim; occurrence context, occurrence-local claims, citation classification, adjudication labels, and Scope grounding spans never boost or expand BM25
+- query provenance labels `grounded`, `ambiguous`, and unverified attributed claims honestly without changing query or BM25 identity
+- BM25 persists tokenizer/config, exact corpus and query terms, raw positive scores, deterministic ranks/ties, and the complete selected candidate ID set
+- optional relevance-only model reranking references one immutable BM25 candidate set and writes a separate score/rank/rationale version; it cannot mutate BM25 or chunk text
+- disabled reranking makes no adapter call and selects deterministically from BM25; nonfatal rerank failure remains explicit while selecting unchanged BM25, and authentication/authorization/billing/quota failure stops Evidence
+- a nonempty final selection explicitly names `bm25` or `reranked`; zero lexical matches, unavailable/acquisition failure, and deterministic retrieval failure have no selection, while nonfatal rerank failure explicitly selects unchanged BM25
+
+`buildCanonicalEvidenceArtifact` references both direct inputs and marks any model reranking non-replayable. Each record receives append-only retrieval, rerank, and final-selection decisions. `writeCanonicalEvidenceArtifact` and `loadCanonicalEvidenceArtifact` accept only the current Evidence shape and verify lineage, complete accounting, all shared-run references, ranking consistency, exact provenance, and tamper hashes. Production reranker adapters, Adjudicate, CLI wiring, and canonical executor wiring remain future work.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
@@ -314,7 +333,7 @@ What the next stage consumes:
 
 - the classification results artifact
 
-### Evidence
+### Evidence (temporary executor)
 
 Purpose: resolve the cited paper, retrieve candidate evidence from it, and attach grounded spans to each evaluation task.
 
@@ -333,7 +352,7 @@ What happens:
 
 - resolve the cited paper
 - fetch and parse cited-paper full text
-- retrieve candidate evidence blocks with BM25
+- retrieve candidate evidence blocks with BM25 using only the declared family claim
 - optionally rerank those blocks with the LLM or a local reranker
 - attach the best evidence spans to each task
 
@@ -346,10 +365,11 @@ What can block or downgrade it:
 
 Important behavior:
 
-- BM25 always provides the baseline retrieval pass
+- BM25 always provides the baseline retrieval pass and no longer receives citing-context, marker, title, or grounded-span score boosts
 - if Anthropic is configured and LLM reranking is enabled, the stage uses an LLM reranker by default
 - if no Anthropic key is available, the stage can still run with a local reranker or plain BM25
 - `--no-llm-rerank` forces the non-LLM path
+- this temporary artifact still collapses display spans and reranker output into its task shape; it is not the canonical Evidence contract, which preserves immutable BM25 and rerank versions side by side
 
 What the next stage consumes:
 

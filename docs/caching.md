@@ -1,5 +1,7 @@
 # Caching
 
+The `evidence-rerank` entries below describe the temporary executor's centralized LLM client. Canonical Evidence is not executor-wired and currently depends on an injected reranker that must return explicit request/response artifact provenance; its artifact never claims replayability for a model rerank.
+
 There are three independent caching layers. They serve different purposes and work together.
 
 ## 0. Discovery handoff bundle (attribution-first only)

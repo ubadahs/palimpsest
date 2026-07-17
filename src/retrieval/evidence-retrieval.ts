@@ -45,27 +45,8 @@ type RankedBlock = {
   relevanceScore: number;
 };
 
-function buildTaskQuery(
-  task: EvaluationTask,
-  citedPaperSource: CitedPaperSource,
-  seedClaimBoost: string | undefined,
-): string {
-  const queryParts = [
-    ...task.mentions.map((mention) => mention.rawContext),
-    ...task.mentions.map((mention) => mention.citationMarker),
-  ];
-
-  const resolvedPaper = citedPaperSource.resolvedPaper;
-  if (resolvedPaper?.title) {
-    queryParts.push(resolvedPaper.title);
-  }
-
-  const boost = seedClaimBoost?.trim() || undefined;
-  if (boost) {
-    queryParts.push(boost);
-  }
-
-  return buildRetrievalQuery(queryParts);
+function buildTaskQuery(familyQuery: string): string {
+  return buildRetrievalQuery([familyQuery]);
 }
 
 async function rerankBlocksLocal(
@@ -125,8 +106,8 @@ async function rerankBlocksLocal(
 /**
  * LLM-based semantic reranking with sentence extraction.
  *
- * - Sends a focused citing-context window (sentences around the marker)
- *   instead of the full rawContext, so the seed claim doesn't dominate.
+ * - BM25 is already frozen from the declared family query alone; citing-side
+ *   context is available only to this separate current-executor rerank pass.
  * - Passes the evaluationMode so the LLM knows whether to look for methods,
  *   findings, background, etc.
  * - Preserves the BM25 #1 span as a floor: if the LLM drops a high-scoring
@@ -139,7 +120,7 @@ async function rerankBlocksLLM(
   rankedBlocks: RankedBlock[],
   llmClient: LLMClient,
   llmOptions: LLMRerankerOptions | undefined,
-  seedClaimBoost: string | undefined,
+  familyQuery: string,
   localReranker: LocalReranker | undefined,
   query: string,
 ): Promise<RankedBlock[]> {
@@ -153,8 +134,7 @@ async function rerankBlocksLLM(
 
   // Tight window around the citation marker — not the full paragraph.
   const citingContext = extractCitingWindow(rawContext, marker);
-  const claimSummary =
-    seedClaimBoost ?? rawContext ?? "citation fidelity check";
+  const claimSummary = familyQuery || "citation fidelity check";
 
   const result = await llmRerankBlocks(
     llmClient,
@@ -278,10 +258,9 @@ function isNotAttemptedMode(task: EvaluationTask): boolean {
 
 async function retrieveForTask(
   task: EvaluationTask,
-  citedPaperSource: CitedPaperSource,
   blocks: ParsedPaperBlock[],
   adapters: EvidenceRetrievalAdapters,
-  seedClaimBoost: string | undefined,
+  familyQuery: string,
 ): Promise<TaskWithEvidence> {
   const rubric = getRubric(task.evaluationMode);
 
@@ -294,7 +273,7 @@ async function retrieveForTask(
     };
   }
 
-  const query = buildTaskQuery(task, citedPaperSource, seedClaimBoost);
+  const query = buildTaskQuery(familyQuery);
   const bm25Ranked = rankDocumentsByBm25(
     query,
     blocks,
@@ -339,7 +318,7 @@ async function retrieveForTask(
         bm25Ranked,
         adapters.llmClient!,
         adapters.llmRerankerOptions,
-        seedClaimBoost,
+        familyQuery,
         adapters.reranker,
         query,
       )
@@ -363,9 +342,7 @@ export async function retrieveEvidence(
   parsedDocument: ParsedPaperDocument | undefined,
   adapters: EvidenceRetrievalAdapters = {},
 ): Promise<FamilyEvidenceResult> {
-  const seedClaimBoost =
-    classification.groundedSeedClaimText?.trim() ||
-    classification.seed.trackedClaim.trim();
+  const familyQuery = classification.seed.trackedClaim.trim();
 
   const blocks = parsedDocument?.blocks ?? [];
   const hasFullText = blocks.length > 0;
@@ -387,13 +364,7 @@ export async function retrieveEvidence(
     flatTasks,
     async ({ task }) => {
       if (isNotAttemptedMode(task)) {
-        return retrieveForTask(
-          task,
-          citedPaperSource,
-          blocks,
-          adapters,
-          seedClaimBoost,
-        );
+        return retrieveForTask(task, blocks, adapters, familyQuery);
       }
 
       let status: TaskEvidenceRetrievalStatus | undefined;
@@ -412,13 +383,7 @@ export async function retrieveEvidence(
         } satisfies TaskWithEvidence;
       }
 
-      return retrieveForTask(
-        task,
-        citedPaperSource,
-        blocks,
-        adapters,
-        seedClaimBoost,
-      );
+      return retrieveForTask(task, blocks, adapters, familyQuery);
     },
     { concurrency },
   );
