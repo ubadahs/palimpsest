@@ -52,10 +52,13 @@ describe("llm-result-cache", () => {
       computeLLMCacheKey({ ...base, model: "claude-haiku-4-5" }),
       computeLLMCacheKey({ ...base, prompt: "different" }),
       computeLLMCacheKey({ ...base, thinkingConfig: "enabled:8000" }),
+      computeLLMCacheKey({ ...base, thinkingConfig: "adaptive:high" }),
       computeLLMCacheKey({ ...base, keyVersion: "v2" }),
+      computeLLMCacheKey({ ...base, promptCachePolicy: "ephemeral:5m" }),
+      computeLLMCacheKey({ ...base, cachePolicy: "bypass" }),
     ]);
 
-    expect(keys.size).toBe(6);
+    expect(keys.size).toBe(9);
   });
 
   // -----------------------------------------------------------------------

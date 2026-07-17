@@ -37,7 +37,7 @@ function makeSeedPaper(): ResolvedPaper {
     id: "seed-1",
     title: "The Seed Paper",
     doi: undefined,
-    authors: ["Seed Author"],
+    authors: ["Test Seed"],
     abstract: undefined,
     source: "openalex",
     fullTextHints: {

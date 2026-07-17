@@ -15,6 +15,10 @@ export const paperSourceValues = [
 export const paperSourceSchema = z.enum(paperSourceValues);
 export type PaperSource = z.infer<typeof paperSourceSchema>;
 
+/** Provider-normalized publication type (for example `review` or `article`). */
+export const paperTypeSchema = z.string().min(1);
+export type PaperType = z.infer<typeof paperTypeSchema>;
+
 export const paperResolutionProvenanceSchema = z
   .object({
     method: z.enum(["doi", "pmcid", "pmid", "title_author_year"]),
@@ -151,7 +155,7 @@ export const resolvedPaperSchema = z
     abstract: undefinedable(z.string()),
     source: paperSourceSchema,
     fullTextHints: fullTextHintsSchema,
-    paperType: undefinedable(z.string().min(1)),
+    paperType: undefinedable(paperTypeSchema),
     referencedWorksCount: undefinedable(z.number().int()),
     publicationYear: undefinedable(z.number().int()),
     resolutionProvenance: undefinedable(paperResolutionProvenanceSchema),

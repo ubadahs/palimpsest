@@ -33,10 +33,14 @@ function matchesCommentaryTitle(title: string): boolean {
   return COMMENTARY_TITLE_PATTERNS.some((p) => p.test(title));
 }
 
+export function isReviewPaperType(paperType: string | undefined): boolean {
+  return REVIEW_TYPES.has(paperType?.toLowerCase() ?? "");
+}
+
 export function classifyEdge(paper: ResolvedPaper): EdgeClassification {
   const ptype = paper.paperType?.toLowerCase() ?? "";
 
-  const isReview = REVIEW_TYPES.has(ptype);
+  const isReview = isReviewPaperType(ptype);
   const isBookChapter = BOOK_CHAPTER_TYPES.has(ptype);
   const isLetter = LETTER_TYPES.has(ptype);
   const isCommentary =

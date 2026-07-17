@@ -21,6 +21,7 @@ import type { FullTextFetchAdapters } from "./fulltext-fetch.js";
 import type { ParsedPaperReference } from "../domain/types.js";
 import {
   findReferenceByMetadata,
+  inferFirstAuthorSurname,
   materializeParsedPaper,
 } from "./parsed-paper.js";
 
@@ -153,9 +154,14 @@ export async function harvestSeedMentions(
     );
   }
 
+  const firstAuthorSurname = inferFirstAuthorSurname(seedPaper.authors[0]);
   const seedRef = findReferenceByMetadata(refs, {
     title: seedPaper.title,
     ...(seedPaper.doi ? { doi: seedPaper.doi } : {}),
+    ...(seedPaper.publicationYear != null
+      ? { publicationYear: seedPaper.publicationYear }
+      : {}),
+    ...(firstAuthorSurname ? { firstAuthorSurname } : {}),
   });
 
   if (!seedRef) {
