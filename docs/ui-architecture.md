@@ -2,70 +2,44 @@
 
 ## Purpose
 
-`apps/ui` is a local-only Next.js workspace (App Router pages with Pages API route handlers) that sits on top of the current CLI and artifact workflow. It still reflects the temporary seven-stage executor; the canonical six-stage contracts are not wired into the UI yet.
+`apps/ui` is a local-only Next.js workspace for launching and inspecting the canonical pipeline:
 
-The UI does not reimplement pipeline logic. It:
+```text
+discover → scope → prepare → evidence → adjudicate → report
+```
 
-- creates run-scoped shortlist input
-- launches CLI subprocesses stage by stage
-- records run/stage state in SQLite
-- streams logs into run-scoped log files
-- loads and inspects current-executor JSON / Markdown / manifest artifacts
-- derives a natural-language workflow checklist from structured stage telemetry embedded in those logs
+It does not implement scientific pipeline logic. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, stores run/stage state in SQLite, streams logs, and renders typed canonical inspector payloads. It is not a hosted product.
+
+Old seven-stage UI/run state is unsupported. Existing local database rows or run directories may need deletion/recreation; the UI does not bridge shortlist, screen, extract, classify, curate, advisor, or vector-first artifacts into canonical runs.
 
 ## Routes
 
-- `/` dashboard with stats ribbon, grouped runs (active / completed / failed), and expandable system health
-- `/runs/new` run creation
-- `/runs/[runId]` run overview, stage rail, live log, and quick artifact access
-- `/runs/[runId]/stages/[stageKey]` deep stage inspection
+- `/` — dashboard and local health
+- `/runs/new` — DOI-first run creation
+- `/runs/[runId]` — run overview, six-stage rail, live logs, and artifacts
+- `/runs/[runId]/stages/[stageKey]` — canonical stage inspection
 
 ## API
 
-Route handlers are local-only and back the client polling model:
-
 - `GET /api/health`
-- `GET /api/runs` — returns `{ health, stats, runs }` (`DashboardPollPayload`: aggregate counts, `RunSummary[]` including optional per-run `verdictSummary` for succeeded runs)
-- `POST /api/runs`
+- `GET` / `POST /api/runs`
 - `GET /api/runs/[runId]`
 - `POST /api/runs/[runId]/start`
 - `POST /api/runs/[runId]/cancel`
-- `GET /api/runs/[runId]/cost` — per-run cost ledger
-- `GET /api/runs/[runId]/stages/[stageKey]` — returns a **stage group** (`RunStageGroupDetail`: `aggregateStatus`, `members[]` each a full `RunStageDetail`)
+- `GET /api/runs/[runId]/cost`
+- `GET /api/runs/[runId]/stages/[stageKey]`
 - `POST /api/runs/[runId]/stages/[stageKey]/rerun`
-- `GET /api/runs/[runId]/stages/[stageKey]/log` — optional query `familyIndex` when logs differ per family row
-- `GET /api/runs/[runId]/stages/[stageKey]/artifacts/[kind]` — optional query `familyIndex` (defaults to `0`) so parallel families do not collide on artifact paths
+- `GET /api/runs/[runId]/stages/[stageKey]/log`
+- `GET /api/runs/[runId]/stages/[stageKey]/artifacts/[kind]`
 
-The UI supervisor still launches `pipeline --run-id <uuid>`; the CLI pipeline reads the run’s stored config from SQLite (see [status.md](./status.md) pipeline row).
+`stageKey` accepts only `discover`, `scope`, `prepare`, `evidence`, `adjudicate`, or `report`.
 
-## Job Model
+## Execution model
 
-- one active run at a time in v1
-- subprocess execution through `npm run cli -- <command> ...`
-- module-global supervisor state in the UI server process
-- persisted `process_id` and startup reconciliation for interrupted runs
-- per-stage log file append in `data/runs/<runId>/logs/`
+- One active local subprocess pipeline at a time.
+- Run state and stage pointers persist in SQLite.
+- Logs are written under `data/runs/<runId>/logs/`.
+- Resume reuses the canonical CLI validation path; succeeded artifacts are checked for lineage and tampering before continuation.
+- Cancellation terminates the active subprocess only.
 
-## Workflow Progress
-
-- stages emit one-line `CF_PROGRESS {...}` telemetry markers to the existing per-stage logs
-- the UI parses those markers server-side into ordered workflow snapshots with step labels, descriptions, and optional counters
-- `RunDetail` exposes the active stage workflow for the run overview page
-- `RunStageDetail` exposes the stage workflow for the deep inspection page
-- the temporary UI can infer coarse states for existing executor rows without telemetry; this is not a compatibility promise for lean runs
-- raw logs remain authoritative; the workflow checklist is an explanatory layer on top of them
-
-## Shared Contract
-
-The root package exposes a narrow shared contract for the UI:
-
-- current-executor stage keys and ordering
-- run schemas: dashboard/run detail use `stages: LogicalStageGroup[]` (one entry per `stageKey`, each with `aggregateStatus`, `members: AnalysisRunStage[]`, optional merged `summary`)
-- `RunStageGroupDetail` / `RunStageDetail` for stage pages and polling
-- `buildLogicalStageGroups`, `computeAggregateStageStatus` (`src/contract/stage-groups.ts`)
-- environment health checks
-- artifact discovery and stage-summary selectors (including stem-aware resolution for per-family artifacts)
-- stage-specific inspector payload builders
-- workflow snapshot types derived from `CF_PROGRESS` telemetry
-
-Client components import only the client-safe `palimpsest/contract` entrypoint. Server code uses `palimpsest/contract/server`.
+The UI must present canonical Adjudicate as **uncalibrated**. A completed run is executable output, not validated fidelity evidence.

@@ -1,6 +1,6 @@
 # UI Setup
 
-For environment variables and service requirements, see [runtime-setup.md](./runtime-setup.md).
+For service and environment requirements, see [runtime-setup.md](./runtime-setup.md).
 
 ## Start the UI
 
@@ -10,32 +10,29 @@ From the repository root:
 npm run ui:dev
 ```
 
-This passes `PALIMPSEST_ROOT` into the UI workspace so the app can resolve:
+`PALIMPSEST_ROOT` lets the workspace resolve the root SQLite database, `.env.local` / `.env`, and `data/runs/`.
 
-- the root SQLite database
-- `.env.local` / `.env`
-- `data/runs/`
-- existing CLI artifacts and cache directories
-
-## Build and Start
+## Build and start
 
 ```bash
 npm run ui:build
 npm run ui:start
 ```
 
-## Environment Notes
+## Runtime behavior
 
-The UI reads the same environment used by the CLI (including `.env.local` / `.env` at the repo root when resolved via `PALIMPSEST_ROOT`).
+The UI creates DOI-first canonical runs and starts the six-stage CLI pipeline:
 
-- **Database** — required for the app to function.
-- **GROBID** — used only after the acquisition layer has validated that a fetched payload is a real PDF. It still powers PDF -> structured text and seed full-text materialization when XML is unavailable. When it is down or unreachable, stages that need validated PDF parsing (including **screen** seed parsing and **extract/evidence** PDF paths) fail or degrade according to each command’s behavior. The **GROBID Docker image is JVM-heavy**; reserving on the order of **3–4 GiB** RAM for the container is normal.
-- **`ANTHROPIC_API_KEY`** — required whenever the UI invokes LLM-backed stages: **`discover`**, **`screen`**, **`pipeline`**, **`adjudicate`**, and **`evidence`** when LLM reranking stays enabled (`evidenceLlmRerank: true`). Without it, matching CLI exits early when those stages run.
-- **Local reranker** (`LOCAL_RERANKER_BASE_URL`) — optional; health treats it as non-blocking when unset.
+```text
+discover → scope → prepare → evidence → adjudicate → report
+```
 
-## Execution Model
+It uses the same environment as the CLI:
 
-- the UI launches the CLI as subprocesses from the repo root
-- logs are streamed into `data/runs/<runId>/logs/`
-- current-executor stage artifacts remain the UI's operational source of truth until the lean artifact writers replace them
-- cancelling a run terminates the active subprocess only
+- **Database** — required for local run state.
+- **GROBID** — required for validated PDF parsing when structured text is unavailable.
+- **`ANTHROPIC_API_KEY`** — required for model-backed canonical operations, including discovery extraction, Scope grounding, optional Evidence reranking, and eligible-record Adjudicate calls.
+
+The UI does not support manual shortlist or tracked-claim starts, sampling/curation, advisor/vector routing, or any other old stage vocabulary. Old local SQLite rows and run directories from the former seven-stage executor may need deletion/recreation.
+
+Canonical Adjudicate is runnable but **uncalibrated**; the UI must not present a completed run as validated fidelity measurement.

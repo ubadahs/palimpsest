@@ -1,152 +1,56 @@
 # Runtime Setup
 
-This guide describes CLI/current-executor runtime dependencies. Canonical Evidence is currently an isolated service: it reads existing Prepare/Scope envelopes, never reacquires cited text, and receives any optional relevance reranker through dependency injection rather than environment-driven CLI wiring.
+This guide covers dependencies for the runnable canonical pipeline:
 
-This document covers the local runtime boundary: environment variables, external services, and what is required versus optional for different stages.
+```text
+discover → scope → prepare → evidence → adjudicate → report
+```
 
-## What You Need
+Fresh runs are DOI-first. The public CLI does not accept a shortlist/manual-claim entry point or legacy stage vocabulary.
+
+## What you need
 
 | Item | Required? | Notes |
-|------|-----------|-------|
-| Node.js 22+ | Yes | See [`package.json`](../package.json) `engines` |
-| Local SQLite path | Yes | `PALIMPSEST_DB_PATH` defaults to `data/palimpsest.sqlite` |
-| `GROBID_BASE_URL` | Yes | Required by environment loading and by validated PDF-backed parsing paths |
-| `ANTHROPIC_API_KEY` | Stage-dependent | Required for `discover`, `screen`, `adjudicate`, `pipeline`, and `evidence` when LLM reranking is enabled |
-| `LOCAL_RERANKER_BASE_URL` | No | Optional fallback reranker for `evidence` |
-| `OPENALEX_EMAIL` | No | Optional, but useful for OpenAlex requests |
-| `SEMANTIC_SCHOLAR_API_KEY` | No | Optional metadata and fallback-resolution support |
-
-## Typical `.env.local`
+|---|---|---|
+| Node.js 22+ | Yes | See `package.json`. |
+| Local SQLite path | Yes | `PALIMPSEST_DB_PATH` defaults to `data/palimpsest.sqlite`. |
+| `GROBID_BASE_URL` | Yes | Required by environment validation and PDF-backed parsing. |
+| `ANTHROPIC_API_KEY` | Stage-dependent | Needed for model-backed extraction, grounding, optional reranking, and eligible-record adjudication. |
+| `OPENALEX_EMAIL` | No | Useful for OpenAlex requests. |
+| `SEMANTIC_SCHOLAR_API_KEY` | No | Optional metadata/fallback resolution. |
 
 ```bash
 PALIMPSEST_DB_PATH=data/palimpsest.sqlite
 GROBID_BASE_URL=http://localhost:8070
-
-# Optional
 ANTHROPIC_API_KEY=...
-LOCAL_RERANKER_BASE_URL=http://localhost:8080
 OPENALEX_EMAIL=you@example.com
 SEMANTIC_SCHOLAR_API_KEY=...
 ```
 
-Base URLs for OpenAlex, Semantic Scholar, and bioRxiv also have defaults and usually do not need to be set explicitly.
+## GROBID
 
-## Required Service: GROBID
-
-### Why it matters
-
-The PDF fallback path no longer uses raw PDF text extraction in production. When a paper is only available as PDF, the pipeline validates that the fetched payload is actually a PDF before sending it to GROBID, then stores the resulting TEI as `grobid_tei_xml`.
-
-The temporary executor still recognizes stored `pdf_text`, but that compatibility reader is outside the lean contracts and should be removed with the old parsing path. New PDF-backed runs go through GROBID.
-
-### Recommended local deployment
+PDF payloads are validated before being sent to GROBID. New PDF-backed work stores GROBID TEI, not raw PDF-text extraction.
 
 ```bash
 docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
 ```
 
-Any equivalent deployment is fine as long as `GROBID_BASE_URL` exposes:
+`doctor` fails when GROBID is unreachable. JATS-backed inputs do not need GROBID once structured text is available.
 
-- `GET /api/isalive`
-- `POST /api/processFulltextDocument`
+## Model access
 
-### Failure behavior
+Anthropic is required only when a run reaches a model-backed operation. Discover can extract attributed claims, Scope can ground claims, Evidence can optionally rerank, and Adjudicate calls the model only for eligible records. Fully gated Adjudicate runs can complete without model calls.
 
-- `doctor` fails if GROBID is unreachable
-- PDF-backed `discover`, `screen`, `extract`, and `evidence` paths fail or degrade when parsing cannot proceed
-- JATS-backed paths do not need GROBID at runtime once structured full text is already available
-- Landing pages, HTML interstitials, and challenge pages are not sent to GROBID; they are classified as acquisition failures or used only to discover better XML/PDF links
+Run:
 
-## Stage-dependent LLM Access
-
-Anthropic is not an all-or-nothing repo requirement. It is required for the stages that currently depend on model calls.
-
-Requires `ANTHROPIC_API_KEY`:
-
-- `discover`
-- `screen`
-- `adjudicate`
-- `pipeline`
-- `evidence` when LLM reranking is enabled
-
-Does not strictly require Anthropic:
-
-- `doctor`
-- `db:migrate`
-- `extract`
-- `classify`
-- `curate`
-- `evidence` when run with `--no-llm-rerank`, or when it falls back to a local reranker or plain BM25
-
-## Optional Local Reranker
-
-For the temporary executor, BM25 is the baseline retrieval method and the required fallback. The local reranker is optional.
-
-If `LOCAL_RERANKER_BASE_URL` is configured and healthy, `evidence` can use it as a fallback reranker when LLM reranking is unavailable or disabled.
-
-### Expected HTTP contract
-
-Health check:
-
-```http
-GET /health
+```bash
+npm run dev -- doctor
+npm run dev -- db:migrate
+npm run dev -- pipeline --input path/to/dois.json
 ```
 
-Expected success response: any `2xx`
+Canonical Adjudicate is **uncalibrated**. Runtime availability does not establish scientific validity or support trust claims.
 
-Rerank endpoint:
+## Cutover data
 
-```http
-POST /rerank
-Content-Type: application/json
-```
-
-Request body:
-
-```json
-{
-  "query": "string",
-  "documents": [
-    { "id": "doc-1", "text": "..." }
-  ],
-  "topN": 5
-}
-```
-
-Response body:
-
-```json
-{
-  "results": [
-    { "id": "doc-1", "score": 12.34, "rank": 1 }
-  ]
-}
-```
-
-### Failure behavior
-
-- `doctor` reports reranker health as optional and non-fatal
-- current-executor `evidence` falls back to BM25 if reranking errors or times out
-
-Canonical Evidence records a nonfatal rerank failure explicitly beside the unchanged BM25 version; it never disguises that outcome as ordinary BM25-only execution. Fatal authentication, authorization, billing, or quota failure stops the canonical stage.
-
-## What `doctor` Actually Means
-
-`npm run dev -- doctor` checks two things:
-
-- environment health
-- taxonomy sanity counts
-
-Operationally:
-
-- a bad GROBID check makes `doctor` fail
-- missing Anthropic is reported, but it only blocks the stages that actually need it
-
-## Cache Behavior
-
-`extract` and `evidence` reuse:
-
-- raw full-text cache entries
-- parsed-paper cache entries keyed by paper id and content hash
-
-Use `--force-refresh` on `extract` or `evidence` to bypass both raw and parsed cache reuse.
+Old local SQLite rows and run directories from the former seven-stage executor are unsupported and may need deletion/recreation. Do not attempt to resume or bridge old shortlist, curation, advisor, or vector-first state into a canonical run.
