@@ -1,277 +1,311 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
+import { compareStageKeys, stageKeyValues } from "../../contract/stages.js";
+import type { StageKey } from "../../contract/run-types.js";
+import type { CanonicalPipelineCliOverrides } from "../../pipeline/canonical-executor.js";
 import { openDatabase } from "../../storage/database.js";
-import type { DiscoveryStrategy } from "../../pipeline/discovery-stage.js";
-import {
-  orchestratePipelineRun,
-  type PipelineCliOverrides,
-} from "../../pipeline/run-orchestrator.js";
-import type { CitingYearRange } from "../paper-adapters.js";
 
-// ---------------------------------------------------------------------------
-// Args
-// ---------------------------------------------------------------------------
+const canonicalStages = new Set<string>(stageKeyValues);
+const removedStageNames = new Set([
+  "screen",
+  "extract",
+  "classify",
+  "curate",
+  "pre-screen",
+]);
 
-function parseArgs(argv: string[]): PipelineCliOverrides {
-  let input: string | undefined;
-  let shortlist: string | undefined;
-  let runId: string | undefined;
-  let forceRefresh: boolean | undefined;
-  let topN: number | undefined;
-  let noRank: boolean | undefined;
-  let targetSize: number | undefined;
-  let strategy: DiscoveryStrategy | undefined;
-  let discoverThinking: boolean | undefined;
-  let probeBudget: number | undefined;
-  let shortlistCap: number | undefined;
-  let fromYear: number | undefined;
-  let toYear: number | undefined;
-  let screenGroundingModel: string | undefined;
-  let screenGroundingThinking: boolean | undefined;
-  let screenFilterModel: string | undefined;
-  let screenFilterConcurrency: number | undefined;
-  let seedPdfPath: string | undefined;
-  let rerankModel: string | undefined;
-  let rerankTopN: number | undefined;
-  let familyConcurrency: number | undefined;
-  let adjudicateAdvisor: boolean | undefined;
-  let adjudicateFirstPassModel: string | undefined;
-  let adjudicateFidelityVectorTrace: boolean | undefined;
-  let fidelityVectorSamples: number | undefined;
-  let fidelityVectorModel: string | undefined;
-  let fidelityVectorTemperature: number | undefined;
-  let adjudicationMode: PipelineCliOverrides["adjudicationMode"];
-  let vectorFirstInitialSamples: number | undefined;
-  let vectorFirstMaxSamples: number | undefined;
-  let vectorFirstModel: string | undefined;
-  let vectorFirstTemperature: number | undefined;
-  let vectorFirstConcurrency: number | undefined;
+function fail(message: string): never {
+  console.error(message);
+  process.exitCode = 1;
+  throw new Error(message);
+}
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-
-    // I/O & run identity
-    if (arg === "--run-id" && i + 1 < argv.length) {
-      runId = argv[i + 1];
-      i++;
-    } else if (arg === "--input" && i + 1 < argv.length) {
-      input = argv[i + 1];
-      i++;
-    } else if (arg === "--shortlist" && i + 1 < argv.length) {
-      shortlist = argv[i + 1];
-      i++;
-    }
-    // Discovery
-    else if (arg === "--strategy" && i + 1 < argv.length) {
-      const val = argv[i + 1]!;
-      if (val === "attribution_first" || val === "legacy") {
-        strategy = val;
-      } else {
-        console.error(
-          `Invalid --strategy value "${val}". Use "legacy" or "attribution_first".`,
-        );
-        process.exitCode = 1;
-        throw new Error("Invalid --strategy");
-      }
-      i++;
-    } else if (arg === "--discover-thinking") {
-      discoverThinking = true;
-    } else if (arg === "--no-discover-thinking") {
-      discoverThinking = false;
-    } else if (arg === "--top" && i + 1 < argv.length) {
-      topN = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    } else if (arg === "--no-rank") {
-      noRank = true;
-    } else if (arg === "--probe-budget" && i + 1 < argv.length) {
-      probeBudget = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    } else if (arg === "--shortlist-cap" && i + 1 < argv.length) {
-      shortlistCap = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    } else if (arg === "--from-year" && i + 1 < argv.length) {
-      fromYear = parseInt(argv[i + 1]!, 10);
-      i++;
-    } else if (arg === "--to-year" && i + 1 < argv.length) {
-      toYear = parseInt(argv[i + 1]!, 10);
-      i++;
-    }
-    // Screen
-    else if (arg === "--screen-grounding-model" && i + 1 < argv.length) {
-      screenGroundingModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--screen-grounding-thinking") {
-      screenGroundingThinking = true;
-    } else if (arg === "--no-screen-grounding-thinking") {
-      screenGroundingThinking = false;
-    } else if (arg === "--screen-filter-model" && i + 1 < argv.length) {
-      screenFilterModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--screen-filter-concurrency" && i + 1 < argv.length) {
-      screenFilterConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    }
-    // Evidence
-    else if (arg === "--seed-pdf" && i + 1 < argv.length) {
-      seedPdfPath = argv[i + 1]!;
-      i++;
-    } else if (arg === "--rerank-model" && i + 1 < argv.length) {
-      rerankModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--rerank-top-n" && i + 1 < argv.length) {
-      rerankTopN = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    }
-    // Curate
-    else if (arg === "--target-size" && i + 1 < argv.length) {
-      targetSize = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    }
-    // Adjudicate
-    else if (arg === "--advisor") {
-      adjudicateAdvisor = true;
-    } else if (arg === "--no-advisor") {
-      adjudicateAdvisor = false;
-    } else if (arg === "--advisor-first-pass-model" && i + 1 < argv.length) {
-      adjudicateFirstPassModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--fidelity-vector-trace") {
-      adjudicateFidelityVectorTrace = true;
-    } else if (arg === "--no-fidelity-vector-trace") {
-      adjudicateFidelityVectorTrace = false;
-    } else if (arg === "--fidelity-vector-samples" && i + 1 < argv.length) {
-      fidelityVectorSamples = Math.min(
-        10,
-        Math.max(1, parseInt(argv[i + 1]!, 10)),
-      );
-      i++;
-    } else if (arg === "--fidelity-vector-model" && i + 1 < argv.length) {
-      fidelityVectorModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--fidelity-vector-temperature" && i + 1 < argv.length) {
-      fidelityVectorTemperature = Math.min(
-        2,
-        Math.max(0, Number(argv[i + 1]!)),
-      );
-      i++;
-    } else if (arg === "--adjudication-mode" && i + 1 < argv.length) {
-      const val = argv[i + 1]!;
-      if (val === "categorical" || val === "vector_first") {
-        adjudicationMode = val;
-      } else {
-        console.error(
-          `Invalid --adjudication-mode value "${val}". Use "categorical" or "vector_first".`,
-        );
-        process.exitCode = 1;
-        throw new Error("Invalid --adjudication-mode");
-      }
-      i++;
-    } else if (
-      arg === "--vector-first-initial-samples" &&
-      i + 1 < argv.length
-    ) {
-      vectorFirstInitialSamples = Math.min(
-        10,
-        Math.max(1, parseInt(argv[i + 1]!, 10)),
-      );
-      i++;
-    } else if (arg === "--vector-first-max-samples" && i + 1 < argv.length) {
-      vectorFirstMaxSamples = Math.min(
-        10,
-        Math.max(1, parseInt(argv[i + 1]!, 10)),
-      );
-      i++;
-    } else if (arg === "--vector-first-model" && i + 1 < argv.length) {
-      vectorFirstModel = argv[i + 1]!;
-      i++;
-    } else if (arg === "--vector-first-temperature" && i + 1 < argv.length) {
-      vectorFirstTemperature = Math.min(2, Math.max(0, Number(argv[i + 1]!)));
-      i++;
-    } else if (arg === "--vector-first-concurrency" && i + 1 < argv.length) {
-      vectorFirstConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    }
-    // Run settings
-    else if (arg === "--force-refresh") {
-      forceRefresh = true;
-    } else if (arg === "--family-concurrency" && i + 1 < argv.length) {
-      familyConcurrency = Math.max(1, parseInt(argv[i + 1]!, 10));
-      i++;
-    }
+function readValue(argv: string[], index: number, flag: string): string {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    fail(`Missing value for ${flag}.`);
   }
+  return value;
+}
 
-  if (!input && !shortlist && !runId) {
-    console.error(
-      "Usage: pipeline --input <dois.json> | --shortlist <shortlist.json> | --run-id <uuid>",
+function readPositiveInteger(
+  argv: string[],
+  index: number,
+  flag: string,
+): number {
+  const value = readValue(argv, index, flag);
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    fail(`${flag} must be a positive integer; received "${value}".`);
+  }
+  return parsed;
+}
+
+function readYear(argv: string[], index: number, flag: string): number {
+  const value = readValue(argv, index, flag);
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    fail(`${flag} must be an integer year; received "${value}".`);
+  }
+  return parsed;
+}
+
+function readCanonicalStage(
+  argv: string[],
+  index: number,
+  flag: string,
+): StageKey {
+  const value = readValue(argv, index, flag);
+  if (removedStageNames.has(value) || value.includes("_m")) {
+    fail(
+      `${flag} rejects legacy stage "${value}". Canonical stages: ${stageKeyValues.join(", ")}.`,
     );
-    process.exitCode = 1;
-    throw new Error("Missing --input, --shortlist, or --run-id");
+  }
+  if (!canonicalStages.has(value)) {
+    fail(
+      `Invalid ${flag} stage "${value}". Canonical stages: ${stageKeyValues.join(", ")}.`,
+    );
+  }
+  return value as StageKey;
+}
+
+function rejectLegacyFlag(flag: string): never {
+  return fail(
+    `${flag} is unsupported by the canonical pipeline. Use only canonical pipeline flags.`,
+  );
+}
+
+export function parseCanonicalPipelineArgs(
+  argv: string[],
+): CanonicalPipelineCliOverrides {
+  let input: string | undefined;
+  let runId: string | undefined;
+  let seedPdfPath: string | undefined;
+  let forceRefresh: boolean | undefined;
+  let stopAfterStage: StageKey | undefined;
+  let discoverProbeBudget: number | undefined;
+  let discoverScopeCandidateCap: number | undefined;
+  let discoverFromYear: number | undefined;
+  let discoverToYear: number | undefined;
+  let discoverExtractionModel: string | undefined;
+  let discoverExtractionThinking: boolean | undefined;
+  let scopeGroundingModel: string | undefined;
+  let scopeGroundingThinking: boolean | undefined;
+  let evidenceRerankEnabled: boolean | undefined;
+  let evidenceRerankModel: string | undefined;
+  let evidenceRerankTopN: number | undefined;
+  let adjudicateModel: string | undefined;
+  let adjudicateThinking: boolean | undefined;
+  let rerunFromStage: StageKey | undefined;
+
+  for (let index = 0; index < argv.length; index++) {
+    const flag = argv[index]!;
+
+    if (
+      flag === "--shortlist" ||
+      flag === "--strategy" ||
+      flag === "--target-size" ||
+      flag === "--advisor" ||
+      flag === "--no-advisor" ||
+      flag === "--adjudication-mode" ||
+      flag === "--adjudicationMode" ||
+      flag === "adjudicationMode" ||
+      flag.startsWith("--screen-") ||
+      flag.startsWith("--fidelity-vector") ||
+      flag.startsWith("--vector-first")
+    ) {
+      rejectLegacyFlag(flag);
+    }
+
+    switch (flag) {
+      case "--input":
+        input = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--run-id":
+        runId = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--seed-pdf":
+        seedPdfPath = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--force-refresh":
+        forceRefresh = true;
+        break;
+      case "--stop-after":
+        stopAfterStage = readCanonicalStage(argv, index, flag);
+        index++;
+        break;
+      case "--probe-budget":
+        discoverProbeBudget = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--scope-candidate-cap":
+        discoverScopeCandidateCap = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--from-year":
+        discoverFromYear = readYear(argv, index, flag);
+        index++;
+        break;
+      case "--to-year":
+        discoverToYear = readYear(argv, index, flag);
+        index++;
+        break;
+      case "--extraction-model":
+        discoverExtractionModel = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--extraction-thinking":
+        discoverExtractionThinking = true;
+        break;
+      case "--no-extraction-thinking":
+        discoverExtractionThinking = false;
+        break;
+      case "--grounding-model":
+        scopeGroundingModel = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--grounding-thinking":
+        scopeGroundingThinking = true;
+        break;
+      case "--no-grounding-thinking":
+        scopeGroundingThinking = false;
+        break;
+      case "--rerank":
+        evidenceRerankEnabled = true;
+        break;
+      case "--no-rerank":
+        evidenceRerankEnabled = false;
+        break;
+      case "--rerank-model":
+        evidenceRerankModel = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--rerank-top-n":
+        evidenceRerankTopN = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--adjudicate-model":
+        adjudicateModel = readValue(argv, index, flag);
+        index++;
+        break;
+      case "--adjudicate-thinking":
+        adjudicateThinking = true;
+        break;
+      case "--no-adjudicate-thinking":
+        adjudicateThinking = false;
+        break;
+      case "--rerun-from":
+        rerunFromStage = readCanonicalStage(argv, index, flag);
+        index++;
+        break;
+      default:
+        fail(
+          `Unknown pipeline flag: ${flag}. Run "pipeline --help" for canonical options.`,
+        );
+    }
   }
 
-  const citingYearRange: CitingYearRange | undefined =
-    fromYear != null || toYear != null
-      ? {
-          ...(fromYear != null ? { fromYear } : {}),
-          ...(toYear != null ? { toYear } : {}),
-        }
-      : undefined;
+  if (input && runId) {
+    fail(
+      "Pass either --input (fresh DOI-first run) or --run-id (resume), not both.",
+    );
+  }
+  if (!input && !runId) {
+    fail(
+      "A fresh canonical pipeline run requires --input <dois.json> (DOI-first); use --run-id <uuid> to resume.",
+    );
+  }
+  if (input && rerunFromStage) {
+    fail("--rerun-from is only valid with --run-id.");
+  }
+  if (
+    rerunFromStage &&
+    stopAfterStage &&
+    compareStageKeys(rerunFromStage, stopAfterStage) > 0
+  ) {
+    fail(
+      `--rerun-from ${rerunFromStage} cannot be later than --stop-after ${stopAfterStage}.`,
+    );
+  }
 
   return {
     input,
-    shortlist,
     runId,
-    strategy,
-    discoverThinking,
-    topN,
-    noRank,
-    probeBudget,
-    shortlistCap,
-    citingYearRange,
-    screenGroundingModel,
-    screenGroundingThinking,
-    screenFilterModel,
-    screenFilterConcurrency,
     seedPdfPath,
-    rerankModel,
-    rerankTopN,
-    targetSize,
-    adjudicateAdvisor,
-    adjudicateFirstPassModel,
-    adjudicateFidelityVectorTrace,
-    fidelityVectorSamples,
-    fidelityVectorModel,
-    fidelityVectorTemperature,
-    adjudicationMode,
-    vectorFirstInitialSamples,
-    vectorFirstMaxSamples,
-    vectorFirstModel,
-    vectorFirstTemperature,
-    vectorFirstConcurrency,
     forceRefresh,
-    familyConcurrency,
+    stopAfterStage,
+    discoverProbeBudget,
+    discoverScopeCandidateCap,
+    discoverFromYear,
+    discoverToYear,
+    discoverExtractionModel,
+    discoverExtractionThinking,
+    scopeGroundingModel,
+    scopeGroundingThinking,
+    evidenceRerankEnabled,
+    evidenceRerankModel,
+    evidenceRerankTopN,
+    adjudicateModel,
+    adjudicateThinking,
+    rerunFromStage,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline command
-// ---------------------------------------------------------------------------
+export function printCanonicalPipelineHelp(): void {
+  console.info(`Usage: pipeline --input <dois.json> [options]
+       pipeline --run-id <uuid> [options]
+
+Run the canonical six-stage pipeline:
+  discover → scope → prepare → evidence → adjudicate → report
+
+Fresh runs require DOI-first input: { "dois": ["10.xxxx/example"] }.
+
+Options:
+  --input <path>                    DOI input JSON for a fresh run
+  --run-id <uuid>                   Resume an existing canonical run
+  --seed-pdf <path>                 Local seed PDF (single-DOI runs only)
+  --force-refresh                   Refresh provider-derived inputs
+  --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
+  --probe-budget <n>                Discover citing-paper probe budget
+  --scope-candidate-cap <n>         Discover candidate cap for Scope
+  --from-year <year>                Earliest citing-paper year
+  --to-year <year>                  Latest citing-paper year
+  --extraction-model <model>        Discover attributed-claim extraction model
+  --extraction-thinking             Enable extraction thinking
+  --no-extraction-thinking          Disable extraction thinking
+  --grounding-model <model>         Scope grounding model
+  --grounding-thinking              Enable grounding thinking
+  --no-grounding-thinking           Disable grounding thinking
+  --rerank / --no-rerank            Enable or disable Evidence reranking
+  --rerank-model <model>            Evidence reranking model
+  --rerank-top-n <n>                Evidence reranking candidate count
+  --adjudicate-model <model>        Adjudication model
+  --adjudicate-thinking             Enable adjudication thinking
+  --no-adjudicate-thinking          Disable adjudication thinking
+  --rerun-from <stage>              Rerun a canonical stage and downstream stages`);
+}
 
 export async function runPipelineCommand(argv: string[]): Promise<void> {
-  const args = parseArgs(argv);
-  const environment = loadEnvironment();
-  const config = createAppConfig(environment);
-
-  if (!config.anthropicApiKey?.trim()) {
-    console.error("pipeline requires ANTHROPIC_API_KEY.");
-    process.exitCode = 1;
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    printCanonicalPipelineHelp();
     return;
   }
 
+  const args = parseCanonicalPipelineArgs(argv);
+  const environment = loadEnvironment();
+  const config = createAppConfig(environment);
+
   const database = openDatabase(config.databasePath);
-  await orchestratePipelineRun({
+  const { orchestrateCanonicalPipelineRun } =
+    await import("../../pipeline/canonical-executor.js");
+  await orchestrateCanonicalPipelineRun({
     args,
     config,
     apiKey: config.anthropicApiKey,
     database,
+    ownsDatabase: true,
   });
 }

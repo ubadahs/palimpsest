@@ -19,7 +19,10 @@ describe("stage-output helpers", () => {
       "/tmp/palimpsest-run/00-discover",
     );
     expect(resolveStageOutputDir(root, "adjudicate")).toBe(
-      "/tmp/palimpsest-run/06-adjudicate",
+      "/tmp/palimpsest-run/04-adjudicate",
+    );
+    expect(resolveStageOutputDir(root, "report")).toBe(
+      "/tmp/palimpsest-run/05-report",
     );
   });
 
@@ -27,9 +30,9 @@ describe("stage-output helpers", () => {
     const dir = mkdtempSync(join(tmpdir(), "stage-output-"));
 
     try {
-      const extractPaths = resolveStageArtifactPaths(
+      const preparePaths = resolveStageArtifactPaths(
         dir,
-        "extract",
+        "prepare",
         "2026-04-07_003",
         1,
       );
@@ -38,23 +41,18 @@ describe("stage-output helpers", () => {
       expect(buildStageArtifactStem("2026-04-07_003", 1)).toBe(
         "2026-04-07_003_family-2",
       );
-      expect(extractPaths.primaryPath).toBe(
-        `${dir}/02-extract/2026-04-07_003_family-2_extraction-results.json`,
-      );
-      expect(extractPaths.reportPath).toBe(
-        `${dir}/02-extract/2026-04-07_003_family-2_extraction-report.md`,
+      expect(preparePaths.primaryPath).toBe(
+        `${dir}/02-prepare/2026-04-07_003_family-2_canonical-prepare.json`,
       );
       expect(
         resolveStageExtraArtifactPath(
           dir,
-          "extract",
+          "prepare",
           "2026-04-07_003",
-          "_extraction-inspection.md",
+          "_inspection.md",
           1,
         ),
-      ).toBe(
-        `${dir}/02-extract/2026-04-07_003_family-2_extraction-inspection.md`,
-      );
+      ).toBe(`${dir}/02-prepare/2026-04-07_003_family-2_inspection.md`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

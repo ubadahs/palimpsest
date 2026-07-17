@@ -1,13 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type Database from "better-sqlite3";
 
-import {
-  claimFamilyBlocksDownstream,
-  preScreenResultsSchema,
-  shortlistInputSchema,
-} from "../domain/pre-screen.js";
 import {
   analysisRunConfigSchema,
   analysisRunSchema,
@@ -59,7 +54,9 @@ type StageRow = {
 export type CreateAnalysisRunInput = {
   id: string;
   seedDoi: string;
-  /** If provided, discover is skipped and this claim is used directly. If absent, discover runs first. */
+  /** Exact DOI input order persisted for canonical Discover and resume. */
+  seedDois: [string, ...string[]];
+  /** Manual claim ingestion is not supported by canonical DOI-first runs. */
   trackedClaim?: string;
   targetStage: StageKey;
   runRoot: string;
@@ -116,30 +113,38 @@ export function createAnalysisRun(
   database: Database.Database,
   input: CreateAnalysisRunInput,
 ): AnalysisRun {
-  const isManualClaim = Boolean(input.trackedClaim?.trim());
+  if (input.trackedClaim?.trim()) {
+    throw new Error(
+      "Manual shortlist/tracked-claim ingestion is not supported; canonical runs must start from a DOI.",
+    );
+  }
   const config = analysisRunConfigSchema.parse(input.config);
+  if (input.seedDois[0] !== input.seedDoi) {
+    throw new Error(
+      "seedDois must be nonempty and its first DOI must equal seedDoi.",
+    );
+  }
+  const normalizedDois = input.seedDois.map((doi) =>
+    doi
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, ""),
+  );
+  if (normalizedDois.some((doi) => doi.length === 0)) {
+    throw new Error("seedDois must not contain blank DOI values.");
+  }
+  if (new Set(normalizedDois).size !== normalizedDois.length) {
+    throw new Error("seedDois must not contain duplicate normalized DOIs.");
+  }
   const runRoot = resolve(input.runRoot);
   const inputDirectory = resolve(runRoot, "inputs");
   mkdirSync(inputDirectory, { recursive: true });
 
-  if (isManualClaim) {
-    // Manual claim: write shortlist directly, discover will be pre-marked succeeded.
-    const shortlist = shortlistInputSchema.parse({
-      seeds: [{ doi: input.seedDoi, trackedClaim: input.trackedClaim }],
-    });
-    writeFileSync(
-      resolve(inputDirectory, "shortlist.json"),
-      JSON.stringify(shortlist, null, 2),
-      "utf8",
-    );
-  } else {
-    // Auto-discover: write dois.json; shortlist will be written by discover stage.
-    writeFileSync(
-      resolve(inputDirectory, "dois.json"),
-      JSON.stringify({ dois: [input.seedDoi] }, null, 2),
-      "utf8",
-    );
-  }
+  writeFileSync(
+    resolve(inputDirectory, "dois.json"),
+    `${JSON.stringify({ dois: input.seedDois }, null, 2)}\n`,
+    { encoding: "utf8", flag: "wx" },
+  );
 
   const insertRun = database.prepare(`
     INSERT INTO analysis_runs (
@@ -153,17 +158,11 @@ export function createAnalysisRun(
     ) VALUES (?, ?, ?, 0, ?, ?)
   `);
 
-  const skippedDiscoverSummary: AnalysisStageSummary = {
-    headline: "Skipped — manual claim provided",
-    metrics: [],
-    artifacts: [],
-  };
-
   database.transaction(() => {
     insertRun.run(
       input.id,
       input.seedDoi,
-      input.trackedClaim ?? null,
+      null,
       input.targetStage,
       "queued",
       null,
@@ -172,34 +171,54 @@ export function createAnalysisRun(
     );
 
     for (const stage of stageDefinitions) {
-      // If a manual claim was given, pre-mark discover as succeeded so
-      // resolveStartStage skips it and canRunFromStage permits screen.
-      const stageStatus =
-        isManualClaim && stage.key === "discover" ? "succeeded" : "not_started";
-      const summaryJson =
-        isManualClaim && stage.key === "discover"
-          ? JSON.stringify(skippedDiscoverSummary)
-          : null;
-
       insertStage.run(
         input.id,
         stage.key,
         stage.order,
-        stageStatus,
+        "not_started",
         resolve(runRoot, "logs", `${stage.slug}.log`),
       );
-
-      if (summaryJson) {
-        database
-          .prepare(
-            "UPDATE analysis_run_stages SET summary_json = ? WHERE run_id = ? AND stage_key = ? AND family_index = 0",
-          )
-          .run(summaryJson, input.id, stage.key);
-      }
     }
   })();
 
   return getAnalysisRun(database, input.id)!;
+}
+
+/**
+ * Persist canonical resume overrides before execution so later resumes and the
+ * local UI observe the same target and configuration.
+ */
+export function updateAnalysisRunConfig(
+  database: Database.Database,
+  runId: string,
+  input: {
+    config: AnalysisRunConfig;
+    targetStage: StageKey;
+  },
+): AnalysisRun {
+  const config = analysisRunConfigSchema.parse(input.config);
+  if (config.stopAfterStage !== input.targetStage) {
+    throw new Error(
+      "Canonical run targetStage must equal config.stopAfterStage.",
+    );
+  }
+
+  database.transaction(() => {
+    const result = database
+      .prepare(
+        `
+        UPDATE analysis_runs
+        SET config_json = ?, target_stage = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      )
+      .run(JSON.stringify(config), input.targetStage, runId);
+    if (result.changes !== 1) {
+      throw new Error(`Run not found: ${runId}`);
+    }
+  })();
+
+  return getAnalysisRun(database, runId)!;
 }
 
 export function listAnalysisRuns(database: Database.Database): AnalysisRun[] {
@@ -290,6 +309,8 @@ export function updateStageStatus(
   analysisRunStageStatusSchema.parse(status);
   const familyIndex = options.familyIndex ?? 0;
 
+  // Artifact pointers and summaries are preserved unless explicitly provided.
+  // Only markDownstreamStagesStale() intentionally clears them for reruns.
   database
     .prepare(
       `
@@ -297,10 +318,10 @@ export function updateStageStatus(
       SET
         status = ?,
         input_artifact_path = COALESCE(?, input_artifact_path),
-        primary_artifact_path = ?,
-        report_artifact_path = ?,
-        manifest_path = ?,
-        summary_json = ?,
+        primary_artifact_path = COALESCE(?, primary_artifact_path),
+        report_artifact_path = COALESCE(?, report_artifact_path),
+        manifest_path = COALESCE(?, manifest_path),
+        summary_json = COALESCE(?, summary_json),
         error_message = ?,
         exit_code = ?,
         started_at = COALESCE(?, started_at),
@@ -366,6 +387,11 @@ export function setStageInputArtifact(
   updateRunTimestamp(database, runId);
 }
 
+/**
+ * Invalidate `stageKey` and every later canonical stage for an explicit rerun.
+ * Succeeded rows become stale; others reset to not_started. Artifact files on
+ * disk are preserved (append-only); DB pointers are cleared.
+ */
 export function markDownstreamStagesStale(
   database: Database.Database,
   runId: string,
@@ -377,32 +403,25 @@ export function markDownstreamStagesStale(
       `
       UPDATE analysis_run_stages
       SET
-        status = CASE WHEN status = 'succeeded' THEN 'stale' ELSE status END,
-        input_artifact_path = CASE WHEN stage_order > ? THEN NULL ELSE input_artifact_path END,
-        primary_artifact_path = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE primary_artifact_path END,
-        report_artifact_path = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE report_artifact_path END,
-        manifest_path = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE manifest_path END,
-        summary_json = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE summary_json END,
-        error_message = CASE WHEN stage_order > ? THEN NULL ELSE error_message END,
-        finished_at = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE finished_at END,
-        exit_code = CASE WHEN stage_order > ? AND status = 'succeeded' THEN NULL ELSE exit_code END,
-        process_id = CASE WHEN stage_order > ? THEN NULL ELSE process_id END
-      WHERE run_id = ? AND stage_order > ?
+        status = CASE
+          WHEN stage_order = ? THEN 'not_started'
+          WHEN status = 'succeeded' THEN 'stale'
+          ELSE 'not_started'
+        END,
+        input_artifact_path = NULL,
+        primary_artifact_path = NULL,
+        report_artifact_path = NULL,
+        manifest_path = NULL,
+        summary_json = NULL,
+        error_message = NULL,
+        started_at = NULL,
+        finished_at = NULL,
+        exit_code = NULL,
+        process_id = NULL
+      WHERE run_id = ? AND stage_order >= ?
     `,
     )
-    .run(
-      order,
-      order,
-      order,
-      order,
-      order,
-      order,
-      order,
-      order,
-      order,
-      runId,
-      order,
-    );
+    .run(order, runId, order);
   updateRunTimestamp(database, runId);
 }
 
@@ -476,34 +495,6 @@ export function canRunFromStage(
   }
 
   return { ok: true };
-}
-
-/**
- * When pre-screen succeeded but claim grounding blocks downstream stages, return a human-readable reason.
- */
-export function getClaimGateBlockReasonForRun(
-  preScreenPrimaryArtifactPath: string | undefined,
-  seedDoi: string,
-): string | undefined {
-  if (
-    !preScreenPrimaryArtifactPath ||
-    !existsSync(preScreenPrimaryArtifactPath)
-  ) {
-    return undefined;
-  }
-
-  const raw: unknown = JSON.parse(
-    readFileSync(preScreenPrimaryArtifactPath, "utf8"),
-  );
-  const families = preScreenResultsSchema.parse(raw);
-  const family = families.find(
-    (entry) => entry.seed.doi.toLowerCase() === seedDoi.trim().toLowerCase(),
-  );
-  if (!family || !claimFamilyBlocksDownstream(family)) {
-    return undefined;
-  }
-  const grounding = family.claimGrounding;
-  return `Claim grounding blocks downstream stages (${grounding?.status ?? "unknown"}): ${grounding?.detailReason ?? "see pre-screen report"}`;
 }
 
 export function parseStoredConfig(raw: string): AnalysisRunConfig {

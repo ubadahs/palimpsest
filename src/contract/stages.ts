@@ -1,14 +1,16 @@
-export const stageKeyValues = [
-  "discover",
-  "screen",
-  "extract",
-  "classify",
-  "evidence",
-  "curate",
-  "adjudicate",
-] as const;
+import {
+  canonicalStageDefinitionByKey,
+  canonicalStageDefinitions,
+  canonicalStageKeySchema,
+  canonicalStageKeyValues,
+  type CanonicalStageKey,
+} from "./lean-stages.js";
 
-type StageKey = (typeof stageKeyValues)[number];
+export { canonicalStageKeySchema as stageKeySchema };
+
+/** Public runtime stage vocabulary — canonical six-stage pipeline only. */
+export const stageKeyValues = canonicalStageKeyValues;
+export type StageKey = CanonicalStageKey;
 
 export type StageArtifactRole = "primary" | "report" | "diagnostic";
 
@@ -19,135 +21,61 @@ export type StageDefinition = {
   title: string;
   directoryName: string;
   command: string;
+  responsibility: string;
   artifactGlobs: {
     primarySuffix: string;
-    reportSuffix: string;
+    reportSuffix?: string;
     extraSuffixes: string[];
-    /**
-     * Role metadata for extra suffixes, in the same order as `extraSuffixes`.
-     * This does not affect artifact discovery; it documents whether a companion
-     * file is part of the machine handoff or only diagnostic/reporting material.
-     */
     extraRoles: StageArtifactRole[];
   };
 };
 
-export const stageDefinitions: readonly StageDefinition[] = [
-  {
-    key: "discover",
-    order: 0,
-    slug: "00-discover",
-    title: "Discover",
-    directoryName: "00-discover",
-    command: "discover",
-    artifactGlobs: {
-      primarySuffix: "_discovery-results.json",
-      reportSuffix: "_discovery-report.md",
-      extraSuffixes: [
-        "_discovery-shortlist.json",
-        "_discovery-neighborhood.json",
-        "_discovery-probe.json",
-        "_discovery-mentions.json",
-        "_discovery-attributed-claims.json",
-        "_discovery-family-candidates.json",
-        "_discovery-grounding-trace.json",
-      ],
-      extraRoles: [
-        "primary",
-        "diagnostic",
-        "diagnostic",
-        "diagnostic",
-        "diagnostic",
-        "diagnostic",
-        "diagnostic",
-      ],
-    },
-  },
-  {
-    key: "screen",
-    order: 1,
-    slug: "01-screen",
-    title: "Screen",
-    directoryName: "01-screen",
-    command: "screen",
-    artifactGlobs: {
-      primarySuffix: "_pre-screen-results.json",
-      reportSuffix: "_pre-screen-report.md",
-      extraSuffixes: ["_pre-screen-grounding-trace.json"],
-      extraRoles: ["diagnostic"],
-    },
-  },
-  {
-    key: "extract",
-    order: 2,
-    slug: "02-extract",
-    title: "Extract",
-    directoryName: "02-extract",
-    command: "extract",
-    artifactGlobs: {
-      primarySuffix: "_extraction-results.json",
-      reportSuffix: "_extraction-report.md",
-      extraSuffixes: ["_extraction-inspection.md"],
-      extraRoles: ["diagnostic"],
-    },
-  },
-  {
-    key: "classify",
-    order: 3,
-    slug: "03-classify",
-    title: "Classify",
-    directoryName: "03-classify",
-    command: "classify",
-    artifactGlobs: {
-      primarySuffix: "_classification-results.json",
-      reportSuffix: "_classification-report.md",
-      extraSuffixes: [],
-      extraRoles: [],
-    },
-  },
-  {
-    key: "evidence",
-    order: 4,
-    slug: "04-evidence",
-    title: "Evidence",
-    directoryName: "04-evidence",
-    command: "evidence",
-    artifactGlobs: {
-      primarySuffix: "_evidence-results.json",
-      reportSuffix: "_evidence-report.md",
-      extraSuffixes: [],
-      extraRoles: [],
-    },
-  },
-  {
-    key: "curate",
-    order: 5,
-    slug: "05-curate",
-    title: "Curate",
-    directoryName: "05-curate",
-    command: "curate",
-    artifactGlobs: {
-      primarySuffix: "_audit-sample.json",
-      reportSuffix: "_audit-sample-worksheet.md",
-      extraSuffixes: [],
-      extraRoles: [],
-    },
-  },
-  {
-    key: "adjudicate",
-    order: 6,
-    slug: "06-adjudicate",
-    title: "Adjudicate",
-    directoryName: "06-adjudicate",
-    command: "adjudicate",
-    artifactGlobs: {
-      primarySuffix: "_llm-audit-sample.json",
-      reportSuffix: "_llm-summary.md",
-      extraSuffixes: ["_agreement-report.md"],
-      extraRoles: ["report"],
-    },
-  },
-] as const;
+const titles: Record<StageKey, string> = {
+  discover: "Discover",
+  scope: "Scope",
+  prepare: "Prepare",
+  evidence: "Evidence",
+  adjudicate: "Adjudicate",
+  report: "Report",
+};
+
+const directoryNames: Record<StageKey, string> = {
+  discover: "00-discover",
+  scope: "01-scope",
+  prepare: "02-prepare",
+  evidence: "03-evidence",
+  adjudicate: "04-adjudicate",
+  report: "05-report",
+};
+
+const primarySuffixes: Record<StageKey, string> = {
+  discover: "_canonical-discover.json",
+  scope: "_canonical-scope.json",
+  prepare: "_canonical-prepare.json",
+  evidence: "_canonical-evidence.json",
+  adjudicate: "_canonical-adjudicate.json",
+  report: "_canonical-report.json",
+};
+
+export const stageDefinitions: readonly StageDefinition[] =
+  canonicalStageDefinitions.map((stage) => {
+    const key = stage.key;
+    return {
+      key,
+      order: stage.order,
+      slug: directoryNames[key],
+      title: titles[key],
+      directoryName: directoryNames[key],
+      command: key,
+      responsibility: stage.responsibility,
+      artifactGlobs: {
+        primarySuffix: primarySuffixes[key],
+        extraSuffixes: [],
+        extraRoles: [],
+        ...(key === "report" ? { reportSuffix: "_canonical-report.md" } : {}),
+      },
+    };
+  });
 
 export const stageDefinitionByKey: Record<StageKey, StageDefinition> =
   Object.fromEntries(
@@ -159,7 +87,10 @@ export function getStageDefinition(stageKey: StageKey): StageDefinition {
 }
 
 export function compareStageKeys(left: StageKey, right: StageKey): number {
-  return getStageDefinition(left).order - getStageDefinition(right).order;
+  return (
+    canonicalStageDefinitionByKey[left].order -
+    canonicalStageDefinitionByKey[right].order
+  );
 }
 
 export function getPreviousStageKey(stageKey: StageKey): StageKey | undefined {
@@ -170,3 +101,22 @@ export function getPreviousStageKey(stageKey: StageKey): StageKey | undefined {
 
   return previous?.key;
 }
+
+export function getNextStageKey(stageKey: StageKey): StageKey | undefined {
+  const next = stageDefinitions
+    .filter((stage) => compareStageKeys(stage.key, stageKey) > 0)
+    .sort((left, right) => left.order - right.order)
+    .at(0);
+
+  return next?.key;
+}
+
+/** Rejected legacy stage names — never accepted as aliases. */
+export const rejectedLegacyStageNames = [
+  "screen",
+  "extract",
+  "classify",
+  "curate",
+  "pre-screen",
+  "pre_screen",
+] as const;
