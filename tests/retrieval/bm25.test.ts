@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRetrievalQuery,
   rankDocumentsByBm25,
+  rankDocumentsByBm25Detailed,
 } from "../../src/retrieval/bm25.js";
 
 type TestDocument = {
@@ -161,5 +162,26 @@ describe("rankDocumentsByBm25", () => {
 
     expect(legacyTop?.id).toBe("legacy-top");
     expect(bm25Top?.document.id).toBe("bm25-top");
+  });
+
+  it("retains raw scores and breaks exact ties by semantic document ID", () => {
+    const documents: TestDocument[] = [
+      { id: "chunk-z", text: "shared lexical evidence passage" },
+      { id: "chunk-a", text: "shared lexical evidence passage" },
+    ];
+    const ranked = rankDocumentsByBm25Detailed(
+      "shared lexical evidence",
+      documents,
+      (document) => document.text,
+      (document) => document.id,
+      10,
+    );
+
+    expect(ranked.map(({ document, rank }) => [document.id, rank])).toEqual([
+      ["chunk-a", 1],
+      ["chunk-z", 2],
+    ]);
+    expect(ranked[0]!.score).toBeGreaterThan(0);
+    expect(ranked[1]!.score).toBe(ranked[0]!.score);
   });
 });

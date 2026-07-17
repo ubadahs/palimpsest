@@ -3,9 +3,13 @@ export type RankedDocument<TDocument> = {
   score: number;
 };
 
-const TOKEN_RE = /\b[\p{L}\p{N}][\p{L}\p{N}-]{1,}\b/gu;
+export type DetailedRankedDocument<TDocument> = RankedDocument<TDocument> & {
+  rank: number;
+};
 
-const STOP_WORDS = new Set([
+export const BM25_TOKEN_PATTERN = String.raw`\b[\p{L}\p{N}][\p{L}\p{N}-]{1,}\b`;
+
+export const BM25_STOP_WORDS = [
   "the",
   "a",
   "an",
@@ -59,11 +63,42 @@ const STOP_WORDS = new Set([
   "figure",
   "fig",
   "table",
-]);
+] as const;
 
-function tokenize(text: string): string[] {
-  const matches = text.toLowerCase().match(TOKEN_RE) ?? [];
-  return matches.filter((token) => !STOP_WORDS.has(token));
+export type Bm25ScoringConfiguration = {
+  version: "canonical-bm25-v1";
+  k1: number;
+  b: number;
+  tokenizer: {
+    version: "unicode-alphanumeric-hyphen-stopwords-v1";
+    tokenPattern: string;
+    lowercase: true;
+    stopWords: readonly string[];
+  };
+  tieBreaker: "document-id-code-unit-ascending";
+};
+
+export const BM25_DEFAULT_SCORING_CONFIGURATION: Bm25ScoringConfiguration = {
+  version: "canonical-bm25-v1",
+  k1: 1.2,
+  b: 0.75,
+  tokenizer: {
+    version: "unicode-alphanumeric-hyphen-stopwords-v1",
+    tokenPattern: BM25_TOKEN_PATTERN,
+    lowercase: true,
+    stopWords: BM25_STOP_WORDS,
+  },
+  tieBreaker: "document-id-code-unit-ascending",
+};
+
+export function tokenizeBm25Text(
+  text: string,
+  configuration: Bm25ScoringConfiguration = BM25_DEFAULT_SCORING_CONFIGURATION,
+): string[] {
+  const tokenPattern = new RegExp(configuration.tokenizer.tokenPattern, "gu");
+  const stopWords = new Set(configuration.tokenizer.stopWords);
+  const matches = text.toLowerCase().match(tokenPattern) ?? [];
+  return matches.filter((token) => !stopWords.has(token));
 }
 
 type IndexedDocument<TDocument> = {
@@ -73,8 +108,9 @@ type IndexedDocument<TDocument> = {
 };
 
 function buildIndex<TDocument>(
-  documents: TDocument[],
+  documents: readonly TDocument[],
   getText: (document: TDocument) => string,
+  configuration: Bm25ScoringConfiguration,
 ): {
   indexedDocuments: IndexedDocument<TDocument>[];
   documentFrequencies: Map<string, number>;
@@ -85,7 +121,7 @@ function buildIndex<TDocument>(
   let totalLength = 0;
 
   for (const document of documents) {
-    const tokens = tokenize(getText(document));
+    const tokens = tokenizeBm25Text(getText(document), configuration);
     const termFrequencies = new Map<string, number>();
     for (const token of tokens) {
       termFrequencies.set(token, (termFrequencies.get(token) ?? 0) + 1);
@@ -117,6 +153,27 @@ export function rankDocumentsByBm25<TDocument>(
   getText: (document: TDocument) => string,
   limit: number,
 ): RankedDocument<TDocument>[] {
+  const idsByDocument = new Map<TDocument, string>();
+  documents.forEach((document, index) => {
+    idsByDocument.set(document, String(index).padStart(12, "0"));
+  });
+  return rankDocumentsByBm25Detailed(
+    query,
+    documents,
+    getText,
+    (document) => idsByDocument.get(document)!,
+    limit,
+  ).map(({ document, score }) => ({ document, score }));
+}
+
+export function rankDocumentsByBm25Detailed<TDocument>(
+  query: string,
+  documents: readonly TDocument[],
+  getText: (document: TDocument) => string,
+  getDocumentId: (document: TDocument) => string,
+  limit: number,
+  configuration: Bm25ScoringConfiguration = BM25_DEFAULT_SCORING_CONFIGURATION,
+): DetailedRankedDocument<TDocument>[] {
   if (documents.length === 0) {
     return [];
   }
@@ -124,15 +181,15 @@ export function rankDocumentsByBm25<TDocument>(
   const { indexedDocuments, documentFrequencies, averageLength } = buildIndex(
     documents,
     getText,
+    configuration,
   );
-  const queryTerms = tokenize(query);
+  const queryTerms = tokenizeBm25Text(query, configuration);
   if (queryTerms.length === 0) {
     return [];
   }
 
   const documentCount = indexedDocuments.length;
-  const k1 = 1.2;
-  const b = 0.75;
+  const { k1, b } = configuration;
 
   const ranked = indexedDocuments
     .map((indexed) => {
@@ -156,8 +213,19 @@ export function rankDocumentsByBm25<TDocument>(
       };
     })
     .filter((rankedDocument) => rankedDocument.score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit);
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        compareCodeUnits(
+          getDocumentId(left.document),
+          getDocumentId(right.document),
+        ),
+    )
+    .slice(0, limit)
+    .map((rankedDocument, index) => ({
+      ...rankedDocument,
+      rank: index + 1,
+    }));
 
   return ranked;
 }
@@ -167,4 +235,8 @@ export function buildRetrievalQuery(parts: string[]): string {
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .join(" ");
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

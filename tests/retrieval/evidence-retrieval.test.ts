@@ -101,7 +101,11 @@ function makeClassification(
   packets: EdgeEvaluationPacket[],
 ): FamilyClassificationResult {
   return {
-    seed: { doi: "10.1234/seed", trackedClaim: "Test claim" },
+    seed: {
+      doi: "10.1234/seed",
+      trackedClaim:
+        "Silencing Rab35 results in loss of apical bulkheads and cyst formation in hepatocytes.",
+    },
     resolvedSeedPaperTitle: "Seed Paper",
     studyMode: "all_functions_census",
     packets,
@@ -302,6 +306,42 @@ describe("retrieveEvidence", () => {
     expect(
       result.edges[0]!.tasks[0]!.citedPaperEvidenceSpans[0]!.sectionTitle,
     ).toBe("Results");
+  });
+
+  it("does not boost BM25 with occurrence-local citing context", async () => {
+    const direct = makeTask({ taskId: "task-direct" });
+    const unrelatedContext = makeTask({
+      taskId: "task-unrelated-context",
+      evaluationMode: "fidelity_background_framing",
+      citationRole: "background_context",
+      mentions: [
+        makeMention({
+          rawContext:
+            "An unrelated local sentence discusses circadian markers and retinal projections.",
+        }),
+      ],
+    });
+    const classification = makeClassification([
+      makePacket([direct, unrelatedContext]),
+    ]);
+    const result = await retrieveEvidence(
+      classification,
+      makeSource({ fullTextFormat: "jats_xml" }),
+      parseDocumentOrThrow(CITED_PAPER_XML, "jats_xml"),
+    );
+    const [first, second] = result.edges[0]!.tasks;
+
+    expect(
+      first!.citedPaperEvidenceSpans.map((span) => ({
+        text: span.text,
+        bm25Score: span.bm25Score,
+      })),
+    ).toEqual(
+      second!.citedPaperEvidenceSpans.map((span) => ({
+        text: span.text,
+        bm25Score: span.bm25Score,
+      })),
+    );
   });
 
   it("downgrades abstract-only matches instead of emitting evidence spans", async () => {

@@ -1,5 +1,7 @@
 # Runtime Setup
 
+This guide describes CLI/current-executor runtime dependencies. Canonical Evidence is currently an isolated service: it reads existing Prepare/Scope envelopes, never reacquires cited text, and receives any optional relevance reranker through dependency injection rather than environment-driven CLI wiring.
+
 This document covers the local runtime boundary: environment variables, external services, and what is required versus optional for different stages.
 
 ## What You Need
@@ -78,7 +80,7 @@ Does not strictly require Anthropic:
 
 ## Optional Local Reranker
 
-BM25 is the baseline retrieval method and the required fallback. The local reranker is optional.
+For the temporary executor, BM25 is the baseline retrieval method and the required fallback. The local reranker is optional.
 
 If `LOCAL_RERANKER_BASE_URL` is configured and healthy, `evidence` can use it as a fallback reranker when LLM reranking is unavailable or disabled.
 
@@ -124,7 +126,9 @@ Response body:
 ### Failure behavior
 
 - `doctor` reports reranker health as optional and non-fatal
-- `evidence` falls back to BM25 if reranking errors or times out
+- current-executor `evidence` falls back to BM25 if reranking errors or times out
+
+Canonical Evidence records a nonfatal rerank failure explicitly beside the unchanged BM25 version; it never disguises that outcome as ordinary BM25-only execution. Fatal authentication, authorization, billing, or quota failure stops the canonical stage.
 
 ## What `doctor` Actually Means
 
