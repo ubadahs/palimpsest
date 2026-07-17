@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
@@ -13,8 +13,7 @@ import {
 } from "../domain/types.js";
 import { discoveryInputSchema } from "../domain/discovery.js";
 import {
-  deserializeHandoffMap,
-  serializeHandoffMap,
+  validateDiscoveryHandoffBoundary,
   type DiscoveryHandoffMap,
 } from "../domain/discovery-handoff.js";
 import {
@@ -45,6 +44,10 @@ import {
   type FamilyRunCaches,
   type FamilyRunFatalProviderState,
 } from "./family-runner.js";
+import {
+  loadPersistedDiscoveryHandoffs,
+  validateDiscoveryHandoffCoverage,
+} from "./discovery-handoff-loader.js";
 import {
   createAnalysisRun,
   ensureFamilyStageRow,
@@ -311,21 +314,22 @@ async function runDiscoverOrLoadShortlist(params: {
     );
     seeds = loaded.seeds;
     const handoffPath = resolve(outputDir, "inputs", "discovery-handoffs.json");
-    if (existsSync(handoffPath)) {
-      try {
-        discoveryHandoffs = deserializeHandoffMap(
-          readFileSync(handoffPath, "utf8"),
-        );
-        log(
-          "discover",
-          `Restored discovery handoffs (${String(discoveryHandoffs.size)} seed(s))`,
-        );
-      } catch {
-        log(
-          "discover",
-          "Could not restore discovery handoffs — screen will use full path",
-        );
+    if (
+      runConfig.discoverStrategy === "attribution_first" &&
+      !hasTrackedClaim
+    ) {
+      const restored = loadPersistedDiscoveryHandoffs(
+        handoffPath,
+        seeds.map((seed) => seed.doi),
+      );
+      if (!restored.ok) {
+        throw new Error(restored.error);
       }
+      discoveryHandoffs = restored.data;
+      log(
+        "discover",
+        `Restored discovery handoffs (${String(discoveryHandoffs.size)} seed(s))`,
+      );
     }
     log(
       "discover",
@@ -449,18 +453,32 @@ async function runDiscoverOrLoadShortlist(params: {
     );
     seeds = discoveryStage.seeds;
     discoveryHandoffs = discoveryStage.handoffs;
-    if (discoveryHandoffs && discoveryHandoffs.size > 0) {
+    if (strategy === "attribution_first" && seeds.length > 0) {
+      if (!discoveryHandoffs || discoveryHandoffs.size === 0) {
+        throw new Error(
+          "Invalid fresh discovery handoff: attribution-first discovery produced seeds without a handoff map.",
+        );
+      }
+      const boundary = validateDiscoveryHandoffBoundary(discoveryHandoffs);
+      if (!boundary.ok) {
+        throw new Error(boundary.error);
+      }
+      const coverage = validateDiscoveryHandoffCoverage(
+        boundary.data.handoffs,
+        seeds.map((seed) => seed.doi),
+      );
+      if (!coverage.ok) {
+        throw new Error(`Invalid fresh discovery handoff: ${coverage.error}`);
+      }
+      // Consume the same schema-validated reconstruction used on resume.
+      discoveryHandoffs = boundary.data.handoffs;
       const handoffPath = resolve(
         outputDir,
         "inputs",
         "discovery-handoffs.json",
       );
       mkdirSync(resolve(outputDir, "inputs"), { recursive: true });
-      writeFileSync(
-        handoffPath,
-        serializeHandoffMap(discoveryHandoffs),
-        "utf8",
-      );
+      writeFileSync(handoffPath, boundary.data.serialized, "utf8");
     }
 
     let shortlistPath: string;
@@ -571,7 +589,8 @@ async function runScreenOrLoadExisting(params: {
         screenReporter.onProgress,
       ));
   } else {
-    // Legacy strategy or missing/unreadable handoff: full screen path.
+    // Seed-side discovery and manual shortlists do not produce attribution-first
+    // handoffs, so they use the full screen path.
     const fullTextAdapters = createFullTextAdapters(config);
     const preScreenAdapters: PreScreenAdapters = {
       resolveByDoi: (doi) =>

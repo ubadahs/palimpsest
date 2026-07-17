@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`apps/ui` is a local-only Next.js workspace (App Router pages with Pages API route handlers) that sits on top of the canonical CLI and artifact workflow.
+`apps/ui` is a local-only Next.js workspace (App Router pages with Pages API route handlers) that sits on top of the current CLI and artifact workflow. It still reflects the temporary seven-stage executor; the canonical six-stage contracts are not wired into the UI yet.
 
 The UI does not reimplement pipeline logic. It:
 
@@ -10,7 +10,7 @@ The UI does not reimplement pipeline logic. It:
 - launches CLI subprocesses stage by stage
 - records run/stage state in SQLite
 - streams logs into run-scoped log files
-- loads and inspects canonical JSON / Markdown / manifest artifacts
+- loads and inspects current-executor JSON / Markdown / manifest artifacts
 - derives a natural-language workflow checklist from structured stage telemetry embedded in those logs
 
 ## Routes
@@ -52,14 +52,14 @@ The UI supervisor still launches `pipeline --run-id <uuid>`; the CLI pipeline re
 - the UI parses those markers server-side into ordered workflow snapshots with step labels, descriptions, and optional counters
 - `RunDetail` exposes the active stage workflow for the run overview page
 - `RunStageDetail` exposes the stage workflow for the deep inspection page
-- historical runs without telemetry fall back to honest inferred states from stage status rather than synthetic fine-grained replay
-- raw logs remain canonical; the workflow checklist is an explanatory layer on top of them
+- the temporary UI can infer coarse states for existing executor rows without telemetry; this is not a compatibility promise for lean runs
+- raw logs remain authoritative; the workflow checklist is an explanatory layer on top of them
 
 ## Shared Contract
 
 The root package exposes a narrow shared contract for the UI:
 
-- stage keys and ordering
+- current-executor stage keys and ordering
 - run schemas: dashboard/run detail use `stages: LogicalStageGroup[]` (one entry per `stageKey`, each with `aggregateStatus`, `members: AnalysisRunStage[]`, optional merged `summary`)
 - `RunStageGroupDetail` / `RunStageDetail` for stage pages and polling
 - `buildLogicalStageGroups`, `computeAggregateStageStatus` (`src/contract/stage-groups.ts`)

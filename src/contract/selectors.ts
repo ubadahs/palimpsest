@@ -184,24 +184,10 @@ export function listStageArtifacts(
       .at(-1);
   }
 
-  function findLatestBySuffixWithAliases(
-    suffix: string,
-    aliases: string[] = [],
-  ): string | undefined {
-    return (
-      findLatestBySuffix(suffix) ??
-      aliases.map(findLatestBySuffix).find(Boolean)
-    );
-  }
-
-  const primaryName = findLatestBySuffixWithAliases(
+  const primaryName = findLatestBySuffix(
     definition.artifactGlobs.primarySuffix,
-    definition.artifactGlobs.legacyPrimarySuffixes,
   );
-  const reportName = findLatestBySuffixWithAliases(
-    definition.artifactGlobs.reportSuffix,
-    definition.artifactGlobs.legacyReportSuffixes,
-  );
+  const reportName = findLatestBySuffix(definition.artifactGlobs.reportSuffix);
   const primaryArtifactPath = primaryName
     ? resolve(stageDirectory, primaryName)
     : undefined;
@@ -214,11 +200,8 @@ export function listStageArtifacts(
       ? manifestPathForArtifact(primaryArtifactPath)
       : undefined;
   const extraArtifacts = definition.artifactGlobs.extraSuffixes
-    .map((suffix, index) => {
-      const match = findLatestBySuffixWithAliases(
-        suffix,
-        definition.artifactGlobs.legacyExtraSuffixes?.[index],
-      );
+    .map((suffix) => {
+      const match = findLatestBySuffix(suffix);
       return match
         ? {
             kind: suffix.replace(/^_/, "").replace(/\.[^.]+$/, ""),
@@ -262,20 +245,11 @@ export function listStageArtifactsForStem(
     return entries.includes(name) ? resolve(stageDirectory, name) : undefined;
   }
 
-  function pathForSuffixWithAliases(
-    suffix: string,
-    aliases: string[] = [],
-  ): string | undefined {
-    return pathForSuffix(suffix) ?? aliases.map(pathForSuffix).find(Boolean);
-  }
-
-  const primaryArtifactPath = pathForSuffixWithAliases(
+  const primaryArtifactPath = pathForSuffix(
     definition.artifactGlobs.primarySuffix,
-    definition.artifactGlobs.legacyPrimarySuffixes,
   );
-  const reportArtifactPath = pathForSuffixWithAliases(
+  const reportArtifactPath = pathForSuffix(
     definition.artifactGlobs.reportSuffix,
-    definition.artifactGlobs.legacyReportSuffixes,
   );
   const manifestPath =
     primaryArtifactPath &&
@@ -284,11 +258,8 @@ export function listStageArtifactsForStem(
       : undefined;
 
   const extraArtifacts = definition.artifactGlobs.extraSuffixes
-    .map((suffix, index) => {
-      const match = pathForSuffixWithAliases(
-        suffix,
-        definition.artifactGlobs.legacyExtraSuffixes?.[index],
-      );
+    .map((suffix) => {
+      const match = pathForSuffix(suffix);
       return match
         ? {
             kind: suffix.replace(/^_/, "").replace(/\.[^.]+$/, ""),
@@ -319,15 +290,11 @@ export function artifactStemFromPrimaryPath(
 ): string {
   const definition = getStageDefinition(stageKey);
   const base = basename(primaryPath);
-  const suffixes = [
-    definition.artifactGlobs.primarySuffix,
-    ...(definition.artifactGlobs.legacyPrimarySuffixes ?? []),
-  ];
-  const suf = suffixes.find((suffix) => base.endsWith(suffix));
-  if (!suf) {
+  const suffix = definition.artifactGlobs.primarySuffix;
+  if (!base.endsWith(suffix)) {
     return base.replace(/\.[^.]+$/, "");
   }
-  return base.slice(0, base.length - suf.length);
+  return base.slice(0, base.length - suffix.length);
 }
 
 function summarizeAuditSample(

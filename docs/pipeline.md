@@ -4,19 +4,18 @@ This document describes the current operational workflow: what each stage is for
 
 ## At A Glance
 
-Palimpsest has one canonical seven-stage pipeline:
+The canonical target pipeline is:
 
 1. `discover`
-2. `screen`
-3. `extract`
-4. `classify`
-5. `evidence`
-6. `curate`
-7. `adjudicate`
+2. `scope`
+3. `prepare`
+4. `evidence`
+5. `adjudicate`
+6. `report`
 
-You can run that workflow end to end with `pipeline`, or run the stages individually against upstream artifacts.
+The versioned contracts for that workflow exist, but its executor and artifact writers have not landed yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
-The table below shows the main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
+The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
 | Stage | Command | Reads | Writes | Main decision |
 |------|---------|-------|--------|---------------|
@@ -30,7 +29,7 @@ The table below shows the main operator-facing outputs. Additional trace and pro
 
 ## Operator Vocabulary
 
-The pipeline keeps seven stable stage keys, but the main objects flowing through those stages are:
+The current executor uses seven temporary stage keys. Its main objects are:
 
 | Object | Produced by | Meaning |
 |--------|-------------|---------|
@@ -46,7 +45,7 @@ The pipeline keeps seven stable stage keys, but the main objects flowing through
 
 ### DOI-first run
 
-Use this when discovery should run from a seed DOI list (default strategy is **attribution-first**: citing-side mentions and grounded families; **legacy** still extracts seed-side claim units and can rank by engagement).
+Use this when discovery should run from a seed DOI list. The default strategy is **attribution-first**: citing-side mentions and grounded families. The temporary executor also exposes a seed-side strategy named **legacy**.
 
 - Entry command: `discover` or `pipeline --input path/to/dois.json`
 - Input shape: a JSON object with a `dois` array
@@ -64,9 +63,9 @@ Use this when the tracked claim is already known and you want to start from scre
 
 This is the shortest path when claim discovery is not the question.
 
-## Stage Names And Artifact Names
+## Current Executor Stage And Artifact Names
 
-Canonical stage names are the stage keys exposed in the CLI, UI, and SQLite state:
+The not-yet-replaced executor exposes these temporary stage keys in the CLI, UI, and SQLite state:
 
 - `discover`
 - `screen`
@@ -76,12 +75,12 @@ Canonical stage names are the stage keys exposed in the CLI, UI, and SQLite stat
 - `curate`
 - `adjudicate`
 
-Some artifact filenames still preserve older descriptive prefixes:
+The not-yet-replaced executor still writes descriptive prefixes:
 
 - `screen` writes `_pre-screen-*`
-- older `extract` artifacts may use `_m2-*`; current runs write `_extraction-*`
+- `extract` writes `_extraction-*`
 
-Those filenames are intentional compatibility details. Treat the stage key as the canonical name and the artifact suffix as the storage contract.
+Artifact readers accept only the currently declared suffixes; superseded names are rejected.
 
 ## Stage Details
 
@@ -115,7 +114,7 @@ What happens (attribution-first strategy, `--strategy attribution_first`):
 - rank families by observable viability (mention count, auditable edges, grounding status)
 - emit a shortlist ready for `screen` using a **greedy diversity pass**: walk the ranked list and skip a candidate if its citing-paper id set is almost the same as an already chosen family (Jaccard similarity ≥ 0.85 on `memberCitingPaperIds`)
 
-The legacy strategy (`--strategy legacy`) is still available and follows the older seed-side claim extraction and ranking path.
+The temporary executor's `--strategy legacy` option follows the seed-side claim extraction and ranking path. It is not part of the lean Discover contract.
 
 Default model behavior:
 
@@ -205,8 +204,6 @@ Writes:
 - `*_extraction-results.json`
 - `*_extraction-report.md`
 - `*_extraction-inspection.md`
-
-Legacy `_m2-*` extraction artifacts remain readable by artifact selectors for old runs.
 
 What happens:
 
@@ -398,7 +395,7 @@ Some stages are batch-oriented and some are family-oriented.
 
 The `pipeline` command handles that handoff for you. The local UI spawns `pipeline --run-id …`, reuses the same artifact layout, and records **one SQLite stage row per `(stageKey, familyIndex)`** so parallel families do not overwrite each other’s status or paths.
 
-When `pipeline` writes artifacts, it mirrors the canonical stage layout under the chosen output root (`00-discover/`, `01-screen/`, `02-extract/`, and so on) and preserves the same stage-specific filename suffixes used by the standalone commands.
+When `pipeline` writes current-executor artifacts, it mirrors that executor's stage layout under the chosen output root (`00-discover/`, `01-screen/`, `02-extract/`, and so on) and preserves the same stage-specific filename suffixes used by the standalone commands.
 
 ## What To Update When The Workflow Changes
 

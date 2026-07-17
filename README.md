@@ -45,7 +45,7 @@ Use an existing shortlist when the tracked claim is already known:
 npm run dev -- pipeline --shortlist path/to/shortlist.json
 ```
 
-Run stages directly when you want to inspect or rerun a specific handoff:
+The current executor also exposes direct stage commands for inspecting or rerunning a specific handoff:
 
 ```bash
 npm run dev -- discover --input path/to/dois.json
@@ -62,7 +62,7 @@ Pipeline and UI artifacts are written locally under `data/runs/` when using mana
 
 ## Output
 
-Each adjudicated claim family produces two artifacts under `data/runs/<run>/06-adjudicate/`:
+In the current executor, each adjudicated claim family produces two artifacts under `data/runs/<run>/06-adjudicate/`:
 
 - A **Markdown summary** (`_llm-summary.md`) — verdict distribution, verdict-by-mode and retrieval-quality breakdowns, and per-record notes on where a citing paper's attribution diverges from the cited text.
 - A **JSON audit sample** (`_llm-audit-sample.json`) — the same verdicts with per-record evidence spans, confidence, retrieval-quality judgments, and full LLM-call provenance, so each conclusion is traceable to the cited source.
@@ -71,9 +71,11 @@ See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layo
 
 ## Pipeline
 
-| Stage | Purpose |
+The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Its contracts are defined, but the runnable executor has not yet been replaced. Until that migration lands, the CLI and UI run these temporary stages:
+
+| Current executor stage | Purpose |
 |------|---------|
-| `discover` | Harvest citing-side mentions by default (**`attribution_first`** matches `pipeline`); use `--strategy legacy` for older seed-side claim extraction and optional ranking. |
+| `discover` | Harvest citing-side mentions by default (**`attribution_first`** matches `pipeline`); the temporary executor also exposes `--strategy legacy` for seed-side claim extraction and optional ranking. |
 | `screen` | Qualify claim families for downstream analysis with seed grounding, family filtering, and auditability checks. |
 | `extract` | Locate and normalize claim-bearing citation contexts in citing papers. |
 | `classify` | Convert citation contexts into evaluation tasks with role and mode metadata. |
