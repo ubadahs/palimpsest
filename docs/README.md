@@ -13,7 +13,7 @@ If design documents disagree on scope, follow this order:
 
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
 - [runtime-setup.md](./runtime-setup.md) — environment variables, external services, required versus optional dependencies
-- [pipeline.md](./pipeline.md) — current executor guide plus canonical six-stage target
+- [pipeline.md](./pipeline.md) — runnable canonical six-stage workflow
 - [pipeline-concepts.md](./pipeline-concepts.md) — short object-flow glossary for the pipeline
 
 ## If You Want To Run Or Inspect The Tool
@@ -41,7 +41,7 @@ Snapshots that can mislead if read without context:
 
 ## Focused Reference Docs
 
-- [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric, canonical Report denominator rules, and temporary-executor support-style notes
+- [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric and Report denominator rules
 - [eval-reranker-model-selection.md](./eval-reranker-model-selection.md) — reranker evaluation note and current retrieval-model rationale
 
 ## Lint And Tests

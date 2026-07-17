@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ubadahs/palimpsest/actions/workflows/ci.yml/badge.svg)](https://github.com/ubadahs/palimpsest/actions/workflows/ci.yml)
 
-Palimpsest is local, CLI-first tooling for auditing citation fidelity in scientific literature. Starting from seed DOIs or a known claim shortlist, it follows claim families through the citing literature, checks auditability, retrieves cited-paper evidence, and writes reviewable JSON and Markdown artifacts.
+Palimpsest is local, CLI-first tooling for auditing citation fidelity in scientific literature. Starting from seed DOIs, it follows claim families through the citing literature, retrieves cited-paper evidence, and writes reviewable JSON and Markdown artifacts.
 
 The CLI and artifacts are the source of truth. SQLite stores local run state. The Next.js app in `apps/ui` is only a local orchestration and inspection surface; it is not a hosted product.
 
@@ -10,7 +10,7 @@ The CLI and artifacts are the source of truth. SQLite stores local run state. Th
 
 - Node.js 22+
 - `GROBID_BASE_URL` for validated PDF parsing
-- `ANTHROPIC_API_KEY` for current-executor LLM-backed commands: `discover`, `screen`, `pipeline`, `adjudicate`, and `evidence` when reranking is enabled. Canonical Evidence is not CLI-wired and takes an optional dependency-injected reranker.
+- `ANTHROPIC_API_KEY` for model-backed canonical pipeline work, including attributed-claim extraction, grounding, optional reranking, and eligible-record adjudication.
 
 See [docs/runtime-setup.md](docs/runtime-setup.md) for environment variables, GROBID setup, and optional providers.
 
@@ -39,17 +39,11 @@ Use a DOI-first run when Palimpsest should discover claim families from citing b
 npm run dev -- pipeline --input path/to/dois.json
 ```
 
-Use an existing shortlist when the tracked claim is already known:
+Stop after a canonical stage or resume a managed run:
 
 ```bash
-npm run dev -- pipeline --shortlist path/to/shortlist.json
-```
-
-The current executor also exposes direct stage commands for inspecting or rerunning a specific handoff:
-
-```bash
-npm run dev -- discover --input path/to/dois.json
-npm run dev -- screen --input path/to/shortlist.json
+npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
+npm run dev -- pipeline --run-id <uuid>
 ```
 
 Run the local UI for orchestration, logs, and artifact inspection:
@@ -58,30 +52,15 @@ Run the local UI for orchestration, logs, and artifact inspection:
 npm run ui:dev
 ```
 
-Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. See [docs/pipeline.md](docs/pipeline.md) for each stage's inputs, outputs, and blocking behavior.
+Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. Old local database rows and run directories from the superseded seven-stage executor are unsupported; delete/recreate them rather than attempting to resume or bridge them.
 
 ## Output
 
-In the temporary current executor, each adjudicated claim family produces two artifacts under `data/runs/<run>/06-adjudicate/`:
-
-- A **Markdown summary** (`_llm-summary.md`) — support-style verdict distribution and per-record notes. This is not the canonical Report and must not be read as a calibrated faithfulness rate.
-- A **JSON audit sample** (`_llm-audit-sample.json`) — the same support-style verdicts with per-record evidence spans, confidence, retrieval-quality judgments, and full LLM-call provenance.
-
-Canonical Report (isolated, not CLI-wired) instead emits authoritative JSON funnel/rate/trace accounting from the Discover→…→Adjudicate chain, plus a deterministic Markdown rendering of that JSON. See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layout and schemas.
+The final `report` stage writes authoritative JSON funnel/rate/trace accounting and a deterministic Markdown rendering under `data/runs/<run>/05-report/`. Canonical Adjudicate's `F`/`D`/`E`/`U` outcomes are **uncalibrated**; a runnable pipeline is not a validated method or a basis for trust claims.
 
 ## Pipeline
 
-The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, Evidence, Adjudicate, and Report have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Canonical Adjudicate is isolated/not CLI-wired and explicitly uncalibrated: it consumes Evidence plus exact Prepare lineage, applies deterministic epistemic gates, runs one categorical model request per eligible record, and persists PRD `F`/`D`/`E`/`U` (or typed non-verdict outcomes) with no advisor/vector confidence routing. Canonical Report is isolated/not CLI-wired and deterministic: it tamper-verifies the full five-artifact chain, emits authoritative JSON funnel/rate/trace accounting (F/D/E/U rates use the adjudicated denominator only), and renders Markdown only from that validated JSON—no adapters, LLM calls, or evaluation/benchmark statistics. Until executor migration lands, the CLI and UI run these temporary stages:
-
-| Current executor stage | Purpose |
-|------|---------|
-| `discover` | Harvest citing-side mentions by default (**`attribution_first`** matches `pipeline`); the temporary executor also exposes `--strategy legacy` for seed-side claim extraction and optional ranking. |
-| `screen` | Qualify claim families for downstream analysis with seed grounding, family filtering, and auditability checks. |
-| `extract` | Locate and normalize claim-bearing citation contexts in citing papers. |
-| `classify` | Convert citation contexts into evaluation tasks with role and mode metadata. |
-| `evidence` | Resolve cited papers and attach retrieved evidence spans. |
-| `curate` | Sample evidence-backed tasks into review-ready audit records. |
-| `adjudicate` | Produce verdicts, rationales, confidence, and retrieval-quality judgments. |
+The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. There is no sampling or `curate` stage. Temporary old-executor modules may remain in the source tree while scheduled for deletion, but they are unreachable and unsupported.
 
 ## Where To Read
 
