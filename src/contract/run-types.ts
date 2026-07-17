@@ -5,7 +5,7 @@ import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeyValues } from "./stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
 
-export const stageKeySchema = z.enum(stageKeyValues);
+const stageKeySchema = z.enum(stageKeyValues);
 export type StageKey = z.infer<typeof stageKeySchema>;
 
 export const analysisRunStatusValues = [
@@ -36,59 +36,110 @@ export type AnalysisRunStageStatus = z.infer<
   typeof analysisRunStageStatusSchema
 >;
 
+/**
+ * Minimal canonical run config. Grouped by stage where practical.
+ * Old seven-stage fields (screen/curate/advisor/vector/shortlist) are rejected.
+ */
 export const analysisRunConfigObjectSchema = z
   .object({
-    stopAfterStage: stageKeySchema.default("adjudicate"),
+    stopAfterStage: stageKeySchema.default("report"),
     forceRefresh: z.boolean().default(false),
-    curateTargetSize: z.number().int().positive().default(20),
-    adjudicateModel: z.string().min(1).default("claude-opus-4-6"),
-    adjudicateThinking: z.boolean().default(true),
-    /**
-     * When true, run a cheap Sonnet first pass and escalate only
-     * low-confidence / cannot_determine records to the main (Opus) model.
-     * Typically cuts adjudication cost by 50-70% on well-grounded families.
-     */
-    adjudicateAdvisor: z.boolean().default(true),
-    /** First-pass model used when adjudicateAdvisor is true. */
-    adjudicateFirstPassModel: z.string().min(1).default("claude-sonnet-4-6"),
-    /** Optional diagnostic vector trace sampled after final adjudication. */
-    adjudicateFidelityVectorTrace: z.boolean().default(false),
-    fidelityVectorSamples: z.number().int().min(1).max(10).default(3),
-    fidelityVectorModel: z.string().min(1).default("claude-sonnet-4-6"),
-    fidelityVectorTemperature: z.number().min(0).max(2).default(0.7),
-    adjudicationMode: z
-      .enum(["categorical", "vector_first"])
-      .default("categorical"),
-    vectorFirstInitialSamples: z.number().int().min(1).max(10).default(1),
-    vectorFirstMaxSamples: z.number().int().min(1).max(10).default(3),
-    vectorFirstModel: z.string().min(1).default("claude-sonnet-4-6"),
-    vectorFirstTemperature: z.number().min(0).max(2).default(0.7),
-    vectorFirstConcurrency: z.number().int().positive().default(2),
-    evidenceLlmRerank: z.boolean().default(true),
-    discoverStrategy: z
-      .enum(["legacy", "attribution_first"])
-      .default("attribution_first"),
-    discoverTopN: z.number().int().positive().default(5),
-    discoverRank: z.boolean().default(true),
-    discoverModel: z.string().min(1).default("claude-haiku-4-5"),
-    discoverThinking: z.boolean().default(false),
-    discoverProbeBudget: z.number().int().positive().default(100),
-    discoverShortlistCap: z.number().int().positive().default(5),
-    /** Only fetch citing papers published in or after this year. */
-    discoverFromYear: z.number().int().positive().optional(),
-    /** Only fetch citing papers published in or before this year. */
-    discoverToYear: z.number().int().positive().optional(),
-    screenGroundingModel: z.string().min(1).default("claude-sonnet-4-6"),
-    screenGroundingThinking: z.boolean().default(true),
-    screenFilterModel: z.string().min(1).default("claude-haiku-4-5"),
-    screenFilterConcurrency: z.number().int().positive().default(10),
-    evidenceRerankModel: z.string().min(1).default("claude-haiku-4-5"),
-    evidenceRerankTopN: z.number().int().positive().default(5),
-    familyConcurrency: z.number().int().positive().default(5),
-    /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
-    seedPdfPath: z.string().min(1).optional(),
+
+    discover: z
+      .object({
+        neighborhoodProvider: z.string().min(1).default("openalex"),
+        neighborhoodQuery: z.string().min(1).default("works-citing-seed"),
+        neighborhoodLimit: z.number().int().positive().default(200),
+        probeBudget: z.number().int().nonnegative().default(100),
+        scopeCandidateCap: z.number().int().nonnegative().default(5),
+        fromYear: z.number().int().positive().optional(),
+        toYear: z.number().int().positive().optional(),
+        extractionModel: z.string().min(1).default("claude-haiku-4-5"),
+        extractionThinking: z.boolean().default(false),
+      })
+      .strict()
+      .default(() => ({
+        neighborhoodProvider: "openalex",
+        neighborhoodQuery: "works-citing-seed",
+        neighborhoodLimit: 200,
+        probeBudget: 100,
+        scopeCandidateCap: 5,
+        extractionModel: "claude-haiku-4-5",
+        extractionThinking: false,
+      })),
+
+    scope: z
+      .object({
+        groundingModel: z.string().min(1).default("claude-sonnet-4-6"),
+        groundingThinking: z.boolean().default(true),
+        /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
+        seedPdfPath: z.string().min(1).optional(),
+      })
+      .strict()
+      .default(() => ({
+        groundingModel: "claude-sonnet-4-6",
+        groundingThinking: true,
+      })),
+
+    prepare: z
+      .object({
+        classifier: z.literal("deterministic").default("deterministic"),
+      })
+      .strict()
+      .default(() => ({
+        classifier: "deterministic" as const,
+      })),
+
+    evidence: z
+      .object({
+        /** Relevance-only LLM rerank; disabled by default. */
+        rerankEnabled: z.boolean().default(false),
+        rerankModel: z.string().min(1).default("claude-haiku-4-5"),
+        rerankTopN: z.number().int().positive().default(5),
+        bm25CandidateLimit: z.number().int().positive().default(20),
+        selectionLimit: z.number().int().positive().default(5),
+      })
+      .strict()
+      .default(() => ({
+        rerankEnabled: false,
+        rerankModel: "claude-haiku-4-5",
+        rerankTopN: 5,
+        bm25CandidateLimit: 20,
+        selectionLimit: 5,
+      })),
+
+    adjudicate: z
+      .object({
+        model: z.string().min(1).default("claude-opus-4-6"),
+        thinking: z.boolean().default(true),
+      })
+      .strict()
+      .default(() => ({
+        model: "claude-opus-4-6",
+        thinking: true,
+      })),
   })
-  .strict();
+  .strict()
+  .superRefine((config, context) => {
+    if (
+      config.discover.fromYear != null &&
+      config.discover.toYear != null &&
+      config.discover.fromYear > config.discover.toYear
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["discover", "fromYear"],
+        message: "discover.fromYear must be ≤ discover.toYear",
+      });
+    }
+    if (config.evidence.selectionLimit > config.evidence.bm25CandidateLimit) {
+      context.addIssue({
+        code: "custom",
+        path: ["evidence", "selectionLimit"],
+        message: "selectionLimit cannot exceed bm25CandidateLimit",
+      });
+    }
+  });
 
 export const analysisRunConfigSchema = analysisRunConfigObjectSchema;
 export type AnalysisRunConfig = z.infer<typeof analysisRunConfigSchema>;
@@ -122,6 +173,7 @@ export const analysisRunStageSchema = z
     runId: z.string().min(1),
     stageKey: stageKeySchema,
     stageOrder: z.number().int().nonnegative(),
+    /** Internal row discriminator; canonical execution always writes zero. */
     familyIndex: z.number().int().nonnegative().default(0),
     status: analysisRunStageStatusSchema,
     inputArtifactPath: undefinedable(z.string()),
@@ -152,6 +204,7 @@ export const analysisRunSchema = z
   .object({
     id: z.string().min(1),
     seedDoi: z.string().min(1),
+    /** Always absent for canonical DOI-first runs; column may be null in SQLite. */
     trackedClaim: undefinedable(z.string().min(1)),
     targetStage: stageKeySchema,
     status: analysisRunStatusSchema,
@@ -164,14 +217,17 @@ export const analysisRunSchema = z
   .passthrough();
 export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
-/** Verdict counts for non-excluded adjudicated records (dashboard / run cards). */
+/** Canonical F/D/E/U verdict counts (adjudicated records only). */
 export const runVerdictSummarySchema = z.object({
-  supported: z.number().int().nonnegative(),
-  partially_supported: z.number().int().nonnegative(),
-  overstated_or_generalized: z.number().int().nonnegative(),
-  not_supported: z.number().int().nonnegative(),
-  cannot_determine: z.number().int().nonnegative(),
+  F: z.number().int().nonnegative(),
+  D: z.number().int().nonnegative(),
+  E: z.number().int().nonnegative(),
+  U: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
+  /** Operational non-verdict coverage (gates/failures), distinct from U. */
+  notAdjudicated: z.number().int().nonnegative(),
+  adjudicationFailed: z.number().int().nonnegative(),
+  invalidOutput: z.number().int().nonnegative(),
 });
 export type RunVerdictSummary = z.infer<typeof runVerdictSummarySchema>;
 
@@ -194,6 +250,7 @@ export type RunSummary = z.infer<typeof runSummarySchema>;
 export const runDetailSchema = analysisRunSchema.extend({
   stages: z.array(logicalStageGroupSchema),
   activeWorkflow: stageWorkflowSnapshotSchema.optional(),
+  verdictSummary: runVerdictSummarySchema.optional(),
 });
 export type RunDetail = z.infer<typeof runDetailSchema>;
 

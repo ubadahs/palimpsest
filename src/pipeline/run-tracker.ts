@@ -1,78 +1,53 @@
 import type Database from "better-sqlite3";
 
 import {
-  ensureFamilyStageRow,
   getRunStage,
   markRunInterrupted,
   setRunStatus,
   updateStageStatus,
 } from "../storage/analysis-runs.js";
-import { deriveStageSummary } from "../contract/selectors.js";
 import type { StageKey } from "../contract/run-types.js";
 
 /**
- * Tracks pipeline stage lifecycle in the database.
+ * Tracks canonical pipeline stage lifecycle in the database.
  *
- * Wraps the low-level storage helpers with run-scoped state (active stages,
- * family count) so the orchestrator doesn't have to thread those through
- * every call.
+ * Canonical runs use exactly one row per stage. This tracker never closes the
+ * injected database — signal/process ownership stays with the caller.
  */
 export class RunTracker {
   readonly runId: string;
   private readonly db: Database.Database;
-  private readonly activeStages = new Set<string>();
-  private totalProcessableFamilies = 0;
+  private readonly activeStages = new Set<StageKey>();
 
   constructor(db: Database.Database, runId: string) {
     this.db = db;
     this.runId = runId;
   }
 
-  setTotalFamilies(n: number): void {
-    this.totalProcessableFamilies = n;
-  }
-
-  stageStart(stageKey: StageKey, familyIndex = 0, logPath?: string): void {
-    if (familyIndex > 0) {
-      ensureFamilyStageRow(this.db, this.runId, stageKey, familyIndex, logPath);
-    }
-    const key = `${stageKey}:${String(familyIndex)}`;
-    this.activeStages.add(key);
+  stageStart(stageKey: StageKey, logPath?: string): void {
+    this.activeStages.add(stageKey);
     updateStageStatus(this.db, this.runId, stageKey, "running", {
-      familyIndex,
       startedAt: new Date().toISOString(),
       processId: process.pid,
+      ...(logPath
+        ? {
+            // log path is set at create time; keep status update minimal
+          }
+        : {}),
     });
-    if (familyIndex === 0) {
-      setRunStatus(this.db, this.runId, "running", stageKey);
-    }
+    setRunStatus(this.db, this.runId, "running", stageKey);
   }
 
-  stageSuccess(
-    stageKey: StageKey,
-    familyIndex: number,
-    artifacts: {
-      primaryArtifactPath?: string;
-      reportArtifactPath?: string;
-      manifestPath?: string;
-      inputArtifactPath?: string;
-    },
-  ): void {
-    const key = `${stageKey}:${String(familyIndex)}`;
-    this.activeStages.delete(key);
-    const summary = deriveStageSummary(stageKey, artifacts.primaryArtifactPath);
-    updateStageStatus(this.db, this.runId, stageKey, "succeeded", {
-      familyIndex,
-      ...artifacts,
-      finishedAt: new Date().toISOString(),
-      exitCode: 0,
-      ...(summary ? { summary } : {}),
-    });
+  /**
+   * Mark an in-memory active stage as finished. Callers must already persist
+   * succeeded status + artifact pointers via updateStageStatus.
+   */
+  stageSuccess(stageKey: StageKey): void {
+    this.activeStages.delete(stageKey);
   }
 
-  stageBlocked(stageKey: StageKey, familyIndex: number, message: string): void {
+  stageBlocked(stageKey: StageKey, message: string): void {
     updateStageStatus(this.db, this.runId, stageKey, "blocked", {
-      familyIndex,
       errorMessage: message,
       finishedAt: new Date().toISOString(),
       exitCode: 1,
@@ -81,10 +56,8 @@ export class RunTracker {
 
   runFailed(error: unknown): void {
     const msg = error instanceof Error ? error.message : String(error);
-    for (const key of this.activeStages) {
-      const [stageKey, fi] = key.split(":") as [StageKey, string];
+    for (const stageKey of this.activeStages) {
       updateStageStatus(this.db, this.runId, stageKey, "failed", {
-        familyIndex: parseInt(fi, 10),
         errorMessage: msg,
         finishedAt: new Date().toISOString(),
         exitCode: 1,
@@ -93,48 +66,32 @@ export class RunTracker {
     setRunStatus(this.db, this.runId, "failed");
   }
 
-  blockPendingFamilyStages(message: string): void {
-    const stageKeys: StageKey[] = [
-      "extract",
-      "classify",
+  blockPendingStages(message: string): void {
+    const stages = [
+      "discover",
+      "scope",
+      "prepare",
       "evidence",
-      "curate",
       "adjudicate",
-    ];
-    for (const stageKey of stageKeys) {
-      for (
-        let familyIndex = 0;
-        familyIndex < this.totalProcessableFamilies;
-        familyIndex++
-      ) {
-        const stage = getRunStage(this.db, this.runId, stageKey, familyIndex);
-        if (stage?.status === "not_started") {
-          this.stageBlocked(stageKey, familyIndex, message);
-        }
+      "report",
+    ] as const satisfies readonly StageKey[];
+    for (const stageKey of stages) {
+      const stage = getRunStage(this.db, this.runId, stageKey);
+      if (stage?.status === "not_started") {
+        this.stageBlocked(stageKey, message);
       }
     }
   }
 
-  /** Handle SIGINT/SIGTERM: mark active stages interrupted, close DB. */
-  handleSignal(): void {
-    for (const key of this.activeStages) {
-      const [stageKey, fi] = key.split(":") as [StageKey, string];
-      markRunInterrupted(
-        this.db,
-        this.runId,
-        stageKey,
-        "Interrupted by signal.",
-      );
-      if (fi !== "0") {
-        updateStageStatus(this.db, this.runId, stageKey, "interrupted", {
-          familyIndex: parseInt(fi, 10),
-          errorMessage: "Interrupted by signal.",
-          finishedAt: new Date().toISOString(),
-        });
-      }
+  /**
+   * Mark active stages interrupted. Does not close the database or exit the
+   * process — callers that own the DB/process must do that themselves.
+   */
+  interruptForSignal(message = "Interrupted by signal."): void {
+    for (const stageKey of [...this.activeStages]) {
+      markRunInterrupted(this.db, this.runId, stageKey, message);
+      this.activeStages.delete(stageKey);
     }
-    this.db.close();
-    process.exit(130);
   }
 
   succeededArtifact(

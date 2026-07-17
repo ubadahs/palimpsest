@@ -27,11 +27,9 @@ export const stageWorkflowStepStatusSchema = z.enum(
 export type StageWorkflowStepStatus = z.infer<
   typeof stageWorkflowStepStatusSchema
 >;
-
 export const stageWorkflowSourceValues = ["telemetry", "fallback"] as const;
 export const stageWorkflowSourceSchema = z.enum(stageWorkflowSourceValues);
 export type StageWorkflowSource = z.infer<typeof stageWorkflowSourceSchema>;
-
 export const stageWorkflowCountSchema = z
   .object({
     current: z.number().int().nonnegative(),
@@ -40,7 +38,6 @@ export const stageWorkflowCountSchema = z
   })
   .passthrough();
 export type StageWorkflowCount = z.infer<typeof stageWorkflowCountSchema>;
-
 export const stageWorkflowStepSchema = z
   .object({
     id: z.string().min(1),
@@ -51,7 +48,6 @@ export const stageWorkflowStepSchema = z
   })
   .passthrough();
 export type StageWorkflowStep = z.infer<typeof stageWorkflowStepSchema>;
-
 export const stageWorkflowSnapshotSchema = z
   .object({
     stageKey: stageKeySchema,
@@ -63,7 +59,6 @@ export const stageWorkflowSnapshotSchema = z
   })
   .passthrough();
 export type StageWorkflowSnapshot = z.infer<typeof stageWorkflowSnapshotSchema>;
-
 export const stageProgressEventSchema = z
   .object({
     stage: stageKeySchema,
@@ -79,12 +74,9 @@ export const stageProgressEventSchema = z
     (event) =>
       (event.current == null && event.total == null) ||
       (event.current != null && event.total != null),
-    {
-      message: "current and total must be provided together",
-    },
+    { message: "current and total must be provided together" },
   );
 export type StageProgressEvent = z.infer<typeof stageProgressEventSchema>;
-
 export const progressLogPrefix = "CF_PROGRESS ";
 
 type WorkflowStepDefinition = {
@@ -92,7 +84,6 @@ type WorkflowStepDefinition = {
   label: string;
   description: string;
 };
-
 type StageWorkflowDefinition = {
   stageKey: StageKey;
   title: string;
@@ -105,368 +96,200 @@ type StageWorkflowDefinition = {
 const workflowDefinitions = [
   {
     stageKey: "discover",
-    title: "Current work",
-    pendingSummary: "Discovery has not started yet.",
-    completedSummary:
-      "Discovery is complete — candidate claim families are grounded and ready for screening.",
-    failedSummary:
-      "Discovery stopped before a usable shortlist could be written.",
+    title: "Discover",
+    pendingSummary: "Discover has not started.",
+    completedSummary: "Citing-neighborhood discovery is complete.",
+    failedSummary: "Discover stopped before its ledger was finalized.",
     steps: [
       {
-        id: "resolve_paper",
-        label: "Resolve paper metadata",
-        description:
-          "Find the paper record via DOI and establish a canonical identity.",
+        id: "resolve_seeds",
+        label: "Resolve seed metadata",
+        description: "Resolve DOI seed identities.",
       },
       {
-        id: "fetch_and_parse_full_text",
-        label: "Fetch and parse full text",
-        description:
-          "Retrieve the open-access full text and parse it into structured blocks with section labels.",
+        id: "enumerate_neighborhood",
+        label: "Enumerate citing neighborhood",
+        description: "Record all declared citing-paper observations.",
+      },
+      {
+        id: "harvest_occurrences",
+        label: "Harvest citation occurrences",
+        description: "Materialize and inspect selected citing papers.",
       },
       {
         id: "extract_claims",
-        label: "Surface candidate claims (LLM)",
-        description:
-          "Attribution-first: harvest in-text mentions from citing papers, extract attributed claims, and ground families to the seed. Legacy: extract discrete empirical assertions from the seed manuscript.",
+        label: "Extract attributed claims",
+        description: "Extract occurrence-local claims without grounding them.",
       },
       {
-        id: "rank_claims",
-        label: "Rank or cap families",
+        id: "select_candidates",
+        label: "Select scope candidates",
         description:
-          "Legacy: rank seed-side claims by citing-paper engagement. Attribution-first: apply probe budget and shortlist caps so downstream stages stay bounded.",
-      },
-      {
-        id: "emit_shortlist",
-        label: "Emit shortlist for screening",
-        description:
-          "Write the shortlist artifact (families with tracked claims) for the screen stage.",
+          "Record candidate dispositions without dropping the ledger.",
       },
     ],
   },
   {
-    stageKey: "screen",
-    title: "Current work",
-    pendingSummary: "Family viability has not been evaluated yet.",
-    completedSummary: "Family viability and auditability checks are complete.",
-    failedSummary:
-      "Screening stopped before family viability could be finalized.",
+    stageKey: "scope",
+    title: "Scope",
+    pendingSummary: "Scope has not started.",
+    completedSummary: "Families and seed-grounding annotations are frozen.",
+    failedSummary: "Scope stopped before family membership was finalized.",
     steps: [
       {
-        id: "resolve_seed_paper",
-        label: "Resolve the seed paper",
-        description:
-          "Find the seed paper metadata and establish the canonical paper record for the run.",
+        id: "account_candidates",
+        label: "Account for candidates",
+        description: "Preserve a disposition for every Discover candidate.",
       },
       {
-        id: "ground_tracked_claim",
-        label: "Ground the tracked claim (LLM)",
-        description:
-          "Fetch and parse seed full text, send the full manuscript to the LLM for structured grounding, verify quoted spans, and write claimGrounding plus a trace sidecar.",
+        id: "materialize_seed_text",
+        label: "Materialize seed text",
+        description: "Acquire and parse seed text once per seed.",
       },
       {
-        id: "gather_citing_papers",
-        label: "Gather citing papers",
+        id: "ground_families",
+        label: "Annotate grounding",
         description:
-          "Pull the local citation family around the seed so the run has a concrete neighborhood to inspect.",
+          "Ground selected claims without using grounding as an exclusion.",
       },
       {
-        id: "collapse_duplicates",
-        label: "Collapse duplicates",
+        id: "freeze_membership",
+        label: "Freeze family membership",
         description:
-          "Merge duplicate or overlapping paper records so downstream counts reflect unique citing papers.",
-      },
-      {
-        id: "filter_claim_family",
-        label: "Filter claim-scoped family",
-        description:
-          "Keep citing papers whose title and abstract align with the grounded seed claim; others stay in the report but are excluded from later stages.",
-      },
-      {
-        id: "assess_auditability",
-        label: "Assess auditability and paper types",
-        description:
-          "Check which citing papers are auditable, what formats they offer, and what kinds of papers they are.",
-      },
-      {
-        id: "summarize_family_viability",
-        label: "Summarize family viability",
-        description:
-          "Turn the family composition into a greenlight or deprioritize decision for the heavier stages.",
+          "Freeze source claims and citation occurrences for each family.",
       },
     ],
   },
   {
-    stageKey: "extract",
-    title: "Current work",
-    pendingSummary: "Citation extraction has not started yet.",
+    stageKey: "prepare",
+    title: "Prepare",
+    pendingSummary: "Prepare has not started.",
     completedSummary:
-      "Citation mentions and grounding contexts have been extracted.",
-    failedSummary:
-      "Citation extraction stopped before usable grounding contexts were finalized.",
+      "Complete occurrence-local records are ready for evidence.",
+    failedSummary: "Prepare stopped before records were finalized.",
     steps: [
       {
-        id: "select_auditable_papers",
-        label: "Select auditable citing papers",
-        description:
-          "Decide which citing papers have enough accessible full text to attempt citation-context extraction.",
+        id: "load_lineage",
+        label: "Verify Scope and Discover",
+        description: "Verify exact ancestor artifacts and lineage.",
       },
       {
-        id: "fetch_and_parse_full_text",
-        label: "Fetch and parse citing full text",
+        id: "build_records",
+        label: "Build occurrence records",
         description:
-          "Load each auditable citing paper and parse it into a structured representation suitable for citation matching.",
+          "Emit one record per scoped family and citation occurrence.",
       },
       {
-        id: "locate_citation_mentions",
-        label: "Locate citation mentions",
+        id: "classify_records",
+        label: "Classify records",
         description:
-          "Find the specific in-text references that point back to the seed paper.",
-      },
-      {
-        id: "deduplicate_and_filter_mentions",
-        label: "Deduplicate and filter mentions",
-        description:
-          "Collapse redundant mentions and keep only contexts that can support later evidence grounding.",
-      },
-      {
-        id: "summarize_grounding_contexts",
-        label: "Summarize usable grounding contexts",
-        description:
-          "Roll up extraction outcomes into the usable edges and mention counts shown in the run summary.",
-      },
-    ],
-  },
-  {
-    stageKey: "classify",
-    title: "Current work",
-    pendingSummary:
-      "Citation roles and evaluation tasks have not been assembled yet.",
-    completedSummary:
-      "Citation roles and evaluation tasks are ready for evidence retrieval.",
-    failedSummary: "Classification stopped before task packets were finalized.",
-    steps: [
-      {
-        id: "load_extracted_mentions",
-        label: "Load extracted mentions",
-        description:
-          "Read the extracted citation contexts and the pre-screen context needed for classification.",
-      },
-      {
-        id: "classify_citation_roles",
-        label: "Classify citation roles",
-        description:
-          "Assign each mention a role such as substantive attribution, background framing, or methods use.",
-      },
-      {
-        id: "derive_evaluation_modes",
-        label: "Derive evaluation modes",
-        description:
-          "Translate citation roles and modifiers into the fidelity questions the run needs to ask next.",
-      },
-      {
-        id: "assemble_task_packets",
-        label: "Assemble task packets",
-        description:
-          "Bundle classified mentions into per-edge evaluation packets with the right rubric metadata.",
-      },
-      {
-        id: "summarize_literature_structure",
-        label: "Summarize literature structure",
-        description:
-          "Produce the task, role, and manual-review totals that describe the run’s evaluation workload.",
+          "Attach deterministic classification outcomes without dropping failures.",
       },
     ],
   },
   {
     stageKey: "evidence",
-    title: "Current work",
-    pendingSummary: "Evidence retrieval has not started yet.",
+    title: "Evidence",
+    pendingSummary: "Evidence retrieval has not started.",
     completedSummary:
-      "Grounding evidence has been retrieved and attached to tasks.",
-    failedSummary:
-      "Evidence retrieval stopped before grounded coverage was finalized.",
+      "Evidence outcomes are recorded for every Prepare record.",
+    failedSummary: "Evidence retrieval stopped before outcomes were finalized.",
     steps: [
       {
-        id: "resolve_cited_paper",
-        label: "Resolve the cited paper",
-        description:
-          "Locate the cited paper record and confirm which canonical source should be used for evidence lookup.",
+        id: "verify_lineage",
+        label: "Verify Prepare and Scope",
+        description: "Verify exact input artifacts before retrieval.",
       },
       {
-        id: "fetch_and_parse_cited_full_text",
-        label: "Fetch and parse cited full text",
+        id: "chunk_seed_text",
+        label: "Build seed-text corpus",
         description:
-          "Retrieve the cited paper’s full text and materialize it into searchable blocks.",
+          "Create deterministic fixed-window chunks from Scope text.",
       },
       {
-        id: "retrieve_candidate_evidence",
-        label: "Retrieve candidate evidence blocks",
-        description:
-          "Search the cited paper for text blocks that could support or contradict the citing contexts.",
+        id: "run_bm25",
+        label: "Retrieve BM25 evidence",
+        description: "Retrieve using only the declared family claim.",
       },
       {
-        id: "rerank_and_attach_evidence",
-        label: "Rerank and attach evidence",
-        description:
-          "Refine candidate blocks when a reranker is available and attach the best evidence spans to each task.",
-      },
-      {
-        id: "summarize_grounded_coverage",
-        label: "Summarize grounded coverage",
-        description:
-          "Produce the coverage totals that show how much of the task set has evidence attached.",
-      },
-    ],
-  },
-  {
-    stageKey: "curate",
-    title: "Current work",
-    pendingSummary: "Audit sampling has not started yet.",
-    completedSummary:
-      "The audit sample and worksheet are ready for inspection.",
-    failedSummary: "Audit sampling stopped before the worksheet was finalized.",
-    steps: [
-      {
-        id: "collect_eligible_tasks",
-        label: "Collect eligible tasks",
-        description:
-          "Gather the task pool that has enough evidence to be considered for audit sampling.",
-      },
-      {
-        id: "prioritize_edge_cases",
-        label: "Prioritize edge cases",
-        description:
-          "Surface bundled, review-mediated, and ambiguous cases that deserve extra attention in the audit sample.",
-      },
-      {
-        id: "allocate_mode_balanced_sample",
-        label: "Allocate a mode-balanced sample",
-        description:
-          "Select a sample that covers the main evaluation modes instead of over-indexing on only one type of task.",
-      },
-      {
-        id: "build_audit_records",
-        label: "Build audit records",
-        description:
-          "Convert the sampled tasks into adjudication-ready records with the citing context and retrieved evidence.",
-      },
-      {
-        id: "write_sampling_outputs",
-        label: "Write worksheet and sampling summary",
-        description:
-          "Write the audit sample artifacts that the UI and CLI use for inspection.",
+        id: "rerank_if_enabled",
+        label: "Rerank evidence if enabled",
+        description: "Record a separate relevance-only reranking outcome.",
       },
     ],
   },
   {
     stageKey: "adjudicate",
-    title: "Current work",
-    pendingSummary: "LLM adjudication has not started yet.",
-    completedSummary: "Verdicts and rationales have been generated.",
-    failedSummary:
-      "LLM adjudication stopped before verdict outputs were finalized.",
+    title: "Adjudicate",
+    pendingSummary: "Adjudication has not started.",
+    completedSummary:
+      "Canonical F/D/E/U outcomes and operational gates are recorded.",
+    failedSummary: "Adjudication stopped before outcomes were finalized.",
     steps: [
       {
-        id: "load_active_records",
-        label: "Load active audit records",
-        description:
-          "Read the adjudication records that are in scope for model judging and exclude any records already filtered out.",
+        id: "verify_lineage",
+        label: "Verify Evidence and Prepare",
+        description: "Verify exact input artifacts before model execution.",
       },
       {
-        id: "adjudicate_records",
-        label: "Adjudicate records with the model",
-        description:
-          "Send each active record through the configured model to get a verdict, rationale, confidence, and retrieval-quality judgment.",
+        id: "apply_gates",
+        label: "Apply deterministic gates",
+        description: "Record ineligible records as operational non-verdicts.",
       },
       {
-        id: "capture_verdicts_and_rationales",
-        label: "Capture verdicts and rationales",
-        description:
-          "Persist the model’s outputs into the audit sample dataset so each record becomes inspectable in the UI.",
+        id: "adjudicate_eligible",
+        label: "Adjudicate eligible records",
+        description: "Run one categorical model request per eligible record.",
       },
       {
-        id: "summarize_verdict_distribution",
-        label: "Summarize the verdict distribution",
-        description:
-          "Roll up the judged records into supported, partially supported, and not supported slices.",
+        id: "record_outcomes",
+        label: "Record outcomes",
+        description: "Persist F/D/E/U verdicts and typed nonfatal failures.",
+      },
+    ],
+  },
+  {
+    stageKey: "report",
+    title: "Report",
+    pendingSummary: "Report has not started.",
+    completedSummary: "The deterministic canonical report is complete.",
+    failedSummary: "Report stopped before its canonical chain was summarized.",
+    steps: [
+      {
+        id: "verify_chain",
+        label: "Verify canonical chain",
+        description: "Tamper-verify all five direct ancestor artifacts.",
       },
       {
-        id: "write_final_outputs",
-        label: "Write final outputs",
-        description:
-          "Write the final JSON and markdown artifacts used for the run summary and detailed verdict inspection.",
+        id: "compute_funnel",
+        label: "Compute funnel and rates",
+        description: "Compute authoritative counts and rate objects.",
+      },
+      {
+        id: "write_report",
+        label: "Write JSON and Markdown",
+        description: "Write JSON first, then render Markdown from it.",
       },
     ],
   },
 ] as const satisfies readonly StageWorkflowDefinition[];
 
-/**
- * Alternative step list used when discover runs with `strategy: "attribution_first"`.
- * The UI can swap this in once it knows the run's strategy from the config.
- */
-export const attributionFirstDiscoverSteps: readonly WorkflowStepDefinition[] =
-  [
-    {
-      id: "resolve_paper",
-      label: "Resolve paper metadata",
-      description:
-        "Find the paper record via DOI and establish a canonical identity.",
-    },
-    {
-      id: "fetch_and_parse_full_text",
-      label: "Fetch and parse full text",
-      description:
-        "Retrieve the open-access full text and parse it into structured blocks with section labels.",
-    },
-    {
-      id: "gather_neighborhood",
-      label: "Gather citing neighborhood",
-      description:
-        "Pull all citing papers around the seed and select a probe set for full-text inspection.",
-    },
-    {
-      id: "harvest_and_extract",
-      label: "Harvest mentions and extract attributions (LLM)",
-      description:
-        "For each probe paper, find in-text mentions of the seed and ask the LLM what empirical claims are being attributed to it.",
-    },
-    {
-      id: "ground_families",
-      label: "Ground family candidates in seed text (LLM)",
-      description:
-        "Verify each candidate family claim against the seed paper's full text.",
-    },
-    {
-      id: "emit_shortlist",
-      label: "Emit shortlist for screening",
-      description:
-        "Select the top-ranked families and write a shortlist artifact ready to feed into the screen stage.",
-    },
-  ];
-
 const workflowDefinitionsByStage = Object.fromEntries(
   workflowDefinitions.map((definition) => [definition.stageKey, definition]),
 ) as unknown as Record<StageKey, StageWorkflowDefinition>;
-
 export function getStageWorkflowDefinition(
   stageKey: StageKey,
 ): StageWorkflowDefinition {
   return workflowDefinitionsByStage[stageKey];
 }
-
 export function serializeProgressEvent(event: StageProgressEvent): string {
   return `${progressLogPrefix}${JSON.stringify(event)}`;
 }
-
 export function parseProgressEventLine(
   line: string,
 ): StageProgressEvent | undefined {
   const trimmed = line.trim();
-  if (!trimmed.startsWith(progressLogPrefix)) {
-    return undefined;
-  }
-
+  if (!trimmed.startsWith(progressLogPrefix)) return undefined;
   try {
     return stageProgressEventSchema.parse(
       JSON.parse(trimmed.slice(progressLogPrefix.length)) as unknown,
@@ -475,151 +298,79 @@ export function parseProgressEventLine(
     return undefined;
   }
 }
-
 export function isGenericStageErrorMessage(
   message: string | undefined,
 ): boolean {
   return message != null && /^Command exited with code \d+\.$/.test(message);
 }
-
-function normalizedFailureDetailLines(detail: string): string[] {
-  return detail
+export function summarizeFailureDetail(detail: string): string {
+  const lines = detail
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+    .filter(Boolean);
+  if (lines.length === 0) return detail.trim();
+  return isGenericStageErrorMessage(lines[0]) && lines[1]
+    ? lines[1]
+    : lines[0]!;
 }
-
-export function summarizeFailureDetail(detail: string): string {
-  const lines = normalizedFailureDetailLines(detail);
-  if (lines.length === 0) {
-    return detail.trim();
-  }
-
-  const [first, ...rest] = lines;
-  if (
-    (first === "No seeds produced." || first === "No seeds produced") &&
-    rest.length > 0
-  ) {
-    return rest[0]!;
-  }
-
-  if (isGenericStageErrorMessage(first) && rest.length > 0) {
-    return rest[0]!;
-  }
-
-  return first!;
-}
-
 export function extractStageFailureDetailFromLog(input: {
   stageKey: StageKey;
   logContent?: string;
 }): string | undefined {
   const lines = (input.logContent ?? "").split("\n");
-
   for (let index = lines.length - 1; index >= 0; index--) {
     const event = parseProgressEventLine(lines[index]!);
     if (
       event?.stage === input.stageKey &&
       event.status === "failed" &&
       event.detail
-    ) {
+    )
       return event.detail;
-    }
   }
-
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const trimmed = lines[index]!.trim();
-    if (
-      trimmed.length === 0 ||
-      trimmed.startsWith(progressLogPrefix) ||
-      trimmed.startsWith("===") ||
-      trimmed.startsWith("> ")
-    ) {
-      continue;
-    }
-    return trimmed;
-  }
-
   return undefined;
 }
-
-function buildPendingSteps(stageKey: StageKey): StageWorkflowStep[] {
+function pendingSteps(stageKey: StageKey): StageWorkflowStep[] {
   return getStageWorkflowDefinition(stageKey).steps.map((step) => ({
     ...step,
     status: "pending",
   }));
 }
-
-function inferRunningStepIndex(steps: StageWorkflowStep[]): number {
-  const firstPending = steps.findIndex((step) => step.status === "pending");
-  if (firstPending >= 0) {
-    return firstPending;
-  }
-
-  return Math.max(steps.length - 1, 0);
-}
-
 function fallbackSummary(
   stageKey: StageKey,
-  stageStatus: StageStatusForWorkflow,
-  errorMessage: string | undefined,
+  status: StageStatusForWorkflow,
+  errorMessage?: string,
 ): string {
   const definition = getStageWorkflowDefinition(stageKey);
-  if (stageStatus === "succeeded") {
-    return definition.completedSummary;
-  }
-
-  if (
-    stageStatus === "failed" ||
-    stageStatus === "cancelled" ||
-    stageStatus === "interrupted"
-  ) {
+  if (status === "succeeded") return definition.completedSummary;
+  if (["failed", "cancelled", "interrupted"].includes(status))
     return errorMessage && !isGenericStageErrorMessage(errorMessage)
       ? summarizeFailureDetail(errorMessage)
       : definition.failedSummary;
-  }
-
-  if (stageStatus === "running") {
-    return (
-      definition.steps[inferRunningStepIndex(buildPendingSteps(stageKey))]
-        ?.label ?? definition.pendingSummary
-    );
-  }
-
-  return definition.pendingSummary;
+  return status === "running"
+    ? (definition.steps[0]?.label ?? definition.pendingSummary)
+    : definition.pendingSummary;
 }
-
 export function buildFallbackStageWorkflowSnapshot(input: {
   stageKey: StageKey;
   stageStatus: StageStatusForWorkflow;
   errorMessage?: string;
 }): StageWorkflowSnapshot {
   const definition = getStageWorkflowDefinition(input.stageKey);
-  const steps = buildPendingSteps(input.stageKey);
-
-  if (input.stageStatus === "running") {
-    const runningIndex = inferRunningStepIndex(steps);
-    steps[runningIndex] = {
-      ...steps[runningIndex]!,
+  const steps = pendingSteps(input.stageKey);
+  if (input.stageStatus === "running")
+    steps[0] = {
+      ...steps[0]!,
       status: "running",
       detail: "Waiting for structured telemetry from this stage.",
     };
-  } else if (input.stageStatus === "succeeded") {
-    for (const step of steps) {
-      step.status = "completed";
-    }
-  } else if (
-    input.stageStatus === "failed" ||
-    input.stageStatus === "cancelled" ||
-    input.stageStatus === "interrupted"
-  ) {
+  if (input.stageStatus === "succeeded")
+    for (const step of steps) step.status = "completed";
+  if (["failed", "cancelled", "interrupted"].includes(input.stageStatus))
     steps[0] = {
       ...steps[0]!,
       status: "failed",
       detail: input.errorMessage ?? definition.failedSummary,
     };
-  }
-
   return {
     stageKey: input.stageKey,
     title: definition.title,
@@ -632,17 +383,6 @@ export function buildFallbackStageWorkflowSnapshot(input: {
     steps,
   };
 }
-
-/** Check whether log events contain attribution-first discover step IDs. */
-function detectAttributionFirstDiscover(
-  stageKey: StageKey,
-  events: StageProgressEvent[],
-): boolean {
-  if (stageKey !== "discover") return false;
-  const attrStepIds = new Set(attributionFirstDiscoverSteps.map((s) => s.id));
-  return events.some((e) => attrStepIds.has(e.step));
-}
-
 export function buildStageWorkflowSnapshot(input: {
   stageKey: StageKey;
   stageStatus: StageStatusForWorkflow;
@@ -656,143 +396,48 @@ export function buildStageWorkflowSnapshot(input: {
       (event): event is StageProgressEvent =>
         event != null && event.stage === input.stageKey,
     );
-
-  if (events.length === 0) {
-    return buildFallbackStageWorkflowSnapshot(
-      input.errorMessage
-        ? {
-            stageKey: input.stageKey,
-            stageStatus: input.stageStatus,
-            errorMessage: input.errorMessage,
-          }
-        : {
-            stageKey: input.stageKey,
-            stageStatus: input.stageStatus,
-          },
-    );
-  }
-
-  // Use attribution-first step definitions when the log contains those step IDs.
-  const isAttrFirst = detectAttributionFirstDiscover(input.stageKey, events);
+  if (events.length === 0) return buildFallbackStageWorkflowSnapshot(input);
   const definition = getStageWorkflowDefinition(input.stageKey);
-  const stepDefs = isAttrFirst
-    ? attributionFirstDiscoverSteps
-    : definition.steps;
-  const steps: StageWorkflowStep[] = stepDefs.map((step) => ({
-    ...step,
-    status: "pending" as const,
-  }));
+  const steps = pendingSteps(input.stageKey);
   let summary: string | undefined;
   let counts: StageWorkflowCount | undefined;
-  let lastStepIndex = -1;
-
   for (const event of events) {
-    const stepIndex = stepDefs.findIndex((step) => step.id === event.step);
-    if (stepIndex < 0) {
-      continue;
-    }
-
-    for (let index = 0; index < stepIndex; index++) {
-      if (
-        steps[index]?.status === "pending" ||
-        steps[index]?.status === "running"
-      ) {
-        steps[index] = {
-          ...steps[index]!,
-          status: "completed",
-        };
-      }
-    }
-
-    if (event.status === "running") {
-      for (let index = stepIndex + 1; index < steps.length; index++) {
-        if (steps[index]?.status !== "failed") {
-          steps[index] = {
-            ...steps[index]!,
-            status: "pending",
-          };
-        }
-      }
-    }
-
-    const nextStep: StageWorkflowStep = {
-      ...steps[stepIndex]!,
+    const index = steps.findIndex((step) => step.id === event.step);
+    if (index < 0) continue;
+    for (let earlier = 0; earlier < index; earlier++)
+      if (steps[earlier]?.status === "pending")
+        steps[earlier] = { ...steps[earlier]!, status: "completed" };
+    steps[index] = {
+      ...steps[index]!,
       status: event.status,
+      ...(event.detail ? { detail: event.detail } : {}),
     };
-    if (event.detail) {
-      nextStep.detail = event.detail;
-    } else {
-      delete nextStep.detail;
-    }
-    steps[stepIndex] = nextStep;
-
-    if (event.summary) {
-      summary = event.summary;
-    }
-    if (event.current != null && event.total != null) {
+    if (event.summary) summary = event.summary;
+    if (event.current != null && event.total != null)
       counts = {
         current: event.current,
         total: event.total,
-        label:
-          input.stageKey === "adjudicate"
-            ? "records"
-            : input.stageKey === "extract"
-              ? "edges"
-              : "items",
+        label: input.stageKey === "adjudicate" ? "records" : "items",
       };
-    }
-    lastStepIndex = stepIndex;
   }
-
+  if (input.stageStatus === "succeeded")
+    for (const step of steps)
+      if (step.status !== "skipped") step.status = "completed";
   if (
-    input.stageStatus === "succeeded" &&
-    steps.some(
-      (step) => step.status !== "completed" && step.status !== "skipped",
-    )
-  ) {
-    for (const step of steps) {
-      if (step.status !== "skipped") {
-        step.status = "completed";
-      }
-    }
-  }
-
-  if (
-    (input.stageStatus === "failed" ||
-      input.stageStatus === "cancelled" ||
-      input.stageStatus === "interrupted") &&
+    ["failed", "cancelled", "interrupted"].includes(input.stageStatus) &&
     !steps.some((step) => step.status === "failed")
-  ) {
-    const failureIndex =
-      lastStepIndex >= 0 ? Math.min(lastStepIndex, steps.length - 1) : 0;
-    steps[failureIndex] = {
-      ...steps[failureIndex]!,
+  )
+    steps[0] = {
+      ...steps[0]!,
       status: "failed",
       detail: input.errorMessage ?? definition.failedSummary,
     };
-  }
-
-  const defaultSummary =
-    input.stageStatus === "succeeded"
-      ? definition.completedSummary
-      : input.stageStatus === "failed" ||
-          input.stageStatus === "cancelled" ||
-          input.stageStatus === "interrupted"
-        ? summarizeFailureDetail(
-            [...steps].reverse().find((step) => step.status === "failed")
-              ?.detail ??
-              (input.errorMessage &&
-              !isGenericStageErrorMessage(input.errorMessage)
-                ? input.errorMessage
-                : definition.failedSummary),
-          )
-        : (steps.find((step) => step.status === "running")?.label ??
-          definition.pendingSummary);
-
   return {
     stageKey: input.stageKey,
     title: definition.title,
-    summary: summary ?? defaultSummary,
+    summary:
+      summary ??
+      fallbackSummary(input.stageKey, input.stageStatus, input.errorMessage),
     source: "telemetry",
     ...(counts ? { counts } : {}),
     steps,
