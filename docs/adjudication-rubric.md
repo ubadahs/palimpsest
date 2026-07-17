@@ -53,8 +53,23 @@ Conceptual alignment between temporary-executor labels and PRD labels is approxi
 
 This mapping is intentionally not lossless and must not be used as a compatibility bridge.
 
+## Canonical Report (Isolated, Deterministic)
+
+Canonical Report (`runCanonicalReport`) is a pure deterministic audit accounting stage over the complete canonical artifact chain. It is **implemented as an isolated service**, not CLI/executor-wired.
+
+Reporting rules that follow from this rubric:
+
+- never report a faithfulness/F/D/E/U rate without the exact adjudicated-record denominator beside it
+- never include `not_adjudicated`, retrieval failures, or invalid model output in F/D/E/U denominators
+- never turn `no_lexical_matches` into `E` or `U`
+- keep `U` (scientific ambiguity with evidence) separate from all operational failures
+- do not call temporary-executor `partially_supported` a fidelity rate in canonical Report
+- do not include accuracy, agreement, benchmark, calibration, or human-vs-model statistics in the canonical audit report; those belong to a separate evaluation workflow
+- interpretation status remains `uncalibrated_research_output` until blinded human labels exist
+
 ## Non-Goals
 
 - Do not silently convert temporary-executor support-style artifacts into canonical F/D/E/U envelopes
 - Do not restore advisor/vector routing in canonical Adjudicate until blinded calibration exists
 - Do not treat operational failure as `U` / `cannot_determine` in the lean pipeline
+- Do not treat temporary-executor audit summaries or agreement reports as canonical Report

@@ -41,7 +41,7 @@ Snapshots that can mislead if read without context:
 
 ## Focused Reference Docs
 
-- [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric plus temporary-executor support-style notes
+- [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric, canonical Report denominator rules, and temporary-executor support-style notes
 - [eval-reranker-model-selection.md](./eval-reranker-model-selection.md) — reranker evaluation note and current retrieval-model rationale
 
 ## Lint And Tests

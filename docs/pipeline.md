@@ -13,7 +13,7 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, Evidence, and Adjudicate now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. Canonical Adjudicate is explicitly uncalibrated pending blinded human labels. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, Evidence, Adjudicate, and Report now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. Canonical Adjudicate is explicitly uncalibrated pending blinded human labels. Canonical Report is deterministic (JSON authoritative; Markdown is a pure rendering) and also not CLI-wired. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
 ### Canonical Discover (implemented, not executor-wired)
 
@@ -104,7 +104,28 @@ Adjudicate preserves complete record accounting and explicit epistemic gates:
 - non-verdict result identities exclude descriptive reason wording and artifact URI/role while binding gate/failure codes and semantic request/response identities
 - the method is explicitly marked `uncalibrated` until tested against blinded human labels
 
-`buildCanonicalAdjudicateArtifact` references both exact inputs and marks model execution non-replayable. Each record receives append-only gate, model, and final-outcome decisions. Modeled outcomes must have exact prompt, model, request, response, stage-execution, and decision provenance; fully gated artifacts carry none of that model provenance. `writeCanonicalAdjudicateArtifact` and `loadCanonicalAdjudicateArtifact` accept only the current Adjudicate shape. Production adapters, Report, CLI wiring, and canonical executor wiring remain future work.
+`buildCanonicalAdjudicateArtifact` references both exact inputs and marks model execution non-replayable. Each record receives append-only gate, model, and final-outcome decisions. Modeled outcomes must have exact prompt, model, request, response, stage-execution, and decision provenance; fully gated artifacts carry none of that model provenance. `writeCanonicalAdjudicateArtifact` and `loadCanonicalAdjudicateArtifact` accept only the current Adjudicate shape. Production adapters, CLI wiring, and canonical executor wiring remain future work.
+
+### Canonical Report (implemented, not executor-wired, deterministic)
+
+`runCanonicalReport` consumes the complete current Discover → Scope → Prepare → Evidence → Adjudicate chain. It rejects cross-run, mismatched, missing, duplicate, or tampered ancestors before emitting output. Report binds all five artifacts as direct inputs in that fixed order.
+
+Report semantics:
+
+- JSON is the authoritative machine-readable audit report; Markdown is a pure deterministic human rendering of validated JSON fields only
+- every funnel count states its unit and population; seed-specific citing-paper observations (not globally unique papers), occurrences, candidates, families, and family×occurrence records stay distinct
+- funnel partitions and ordered unique status summaries are schema-checked against their parent populations and per-record traces
+- every rate stores metric ID, numerator, denominator, recomputed value (or null for zero denominator), and explicit numerator/denominator definitions; required rate numerators and denominators are bound to their exact funnel populations and numerators cannot exceed denominators
+- adjudication coverage denominator is all Prepare/Evidence/Adjudicate records; F/D/E/U rates use adjudicated records only
+- operational non-verdicts (`not_adjudicated`, `adjudication_failed`, `invalid_output`) never enter F/D/E/U counts or rates; U remains scientific ambiguity with evidence
+- every trace identity/reference uses the canonical stable-ID schema; Evidence trace retrieval/rerank/reference combinations and adjudication trace variants are exact, with nonfatal-only per-record failure codes
+- BM25 and reranked final-selection sources are counted separately both as unique selection objects and as family×occurrence record uses; one family-shared selection can serve multiple records, and ranking score is never treated as truth strength
+- Report itself has exactly two deterministic lineage-bound decisions (interpretation and publication status) and no Report-stage exclusions
+- Prepare low-information/manual-review populations may overlap classification-status counts and are not a partition
+- no headline quality score, paper/family synthesis score, `partially_supported` fidelity rate, accuracy/agreement/benchmark/calibration statistics, adapters, or LLM calls
+- interpretation status is `uncalibrated_research_output` until blinded human labels exist; separate evaluation reports remain outside this stage
+
+`buildCanonicalReportArtifact` is always deterministic and replayable with empty prompt/model/response provenance. `renderCanonicalReportMarkdown` formats already-validated JSON only. `writeCanonicalReportArtifacts` rejects JSON/Markdown paths that resolve to the same file before writing, then validates/writes JSON first and renders Markdown from that exact parsed object. `loadCanonicalReportArtifact` accepts only the current Report JSON shape. CLI wiring and executor cutover remain deferred.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
