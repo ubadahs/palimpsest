@@ -1,8 +1,8 @@
 # Adjudication Rubric
 
-## What Is Operational Today
+## What Is Operational Today (Current Executor)
 
-The implemented adjudication layer uses a **support-style rubric** rather than persisting the PRD taxonomy directly.
+The implemented current-executor adjudication layer uses a **support-style rubric** rather than persisting the PRD taxonomy directly. It does not describe the not-yet-implemented canonical `adjudicate` stage.
 
 Current verdicts are:
 
@@ -12,18 +12,18 @@ Current verdicts are:
 - `not_supported`
 - `cannot_determine`
 
-These verdicts are the canonical machine outputs for:
+These verdicts are the authoritative machine outputs for the current executor's:
 
 - audit sample worksheets
 - LLM adjudication runs
 - agreement reports
 - benchmark blind/diff/summary/apply workflows
 
-In the default **categorical adjudicator** mode, optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the canonical support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
+In the default **categorical adjudicator** mode, optional `fidelityVectorTrace` output is diagnostic only. When enabled, it samples evidence-conditioned vector judgments multiple times and records aggregate axis means, variance, verdict distribution, and disagreement. It does not replace or modify the current-executor support-style verdict, rationale, retrieval-quality judgment, confidence, curation, or advisor escalation.
 
-The opt-in **vector-first adjudicator** (`adjudicationMode: "vector_first"`) uses the same canonical verdict labels but changes the verdict source for clear cases: it samples vector axes first, may adaptively add samples, and can accept `axisDerivedVerdict` as the final support-style verdict. Risky vector traces escalate to the existing categorical adjudicator, which still runs on the original unmodified audit record. Vector-first is a routing/source mode, not a new verdict taxonomy.
+The opt-in **vector-first adjudicator** (`adjudicationMode: "vector_first"`) uses the same current-executor verdict labels but changes the verdict source for clear cases: it samples vector axes first, may adaptively add samples, and can accept `axisDerivedVerdict` as the final support-style verdict. Risky vector traces escalate to the existing current-executor categorical adjudicator, which still runs on the original unmodified audit record. Vector-first is a routing/source mode, not a new verdict taxonomy.
 
-The trace is conditioned on the same compact adjudication packet as the canonical adjudicator: marked citing context plus retrieved cited-paper evidence snippets. It does not send full cited-paper text to vector sample calls, and vector scores are uncalibrated until benchmarked against human labels.
+The trace is conditioned on the same compact adjudication packet as the current-executor categorical adjudicator: marked citing context plus retrieved cited-paper evidence snippets. It does not send full cited-paper text to vector sample calls, and vector scores are uncalibrated until benchmarked against human labels.
 
 ## Relationship To The PRD Taxonomy
 
@@ -47,22 +47,22 @@ Operationally, `cannot_determine` also covers retrieval failures that are inform
 This mapping is intentionally approximate, not lossless. In particular:
 
 - `partially_supported` is broader than any single PRD bucket
-- the current pipeline does not persist PRD distortion/error subtypes
+- the current executor does not persist PRD distortion/error subtypes
 - adjudication reports should be read as operational review outputs, not as a one-to-one encoding of the full PRD taxonomy
 
 ## Why This Is Deliberate
 
-The current pipeline is optimized for reviewable adjudication packets:
+The current executor is optimized for reviewable adjudication packets:
 
 - exact citing context
 - retrieved cited spans
 - retrieval quality
 - concise rationale
 
-That workflow benefits from support-style verdicts during audit sampling and benchmark comparison. Converting those outputs into PRD-style `F/D/E/U` labels remains a documentation and interpretation layer, not a persisted product contract in this pass.
+That current-executor workflow benefits from support-style verdicts during audit sampling and benchmark comparison. Converting those outputs into PRD-style `F/D/E/U` labels remains a documentation and interpretation layer, not a persisted product contract in this pass.
 
 ## Non-Goal Of This Cleanup
 
-This cleanup does **not** refactor the pipeline so `F/D/E/U` becomes the primary output schema.
+This cleanup does **not** refactor the current executor so `F/D/E/U` becomes the primary output schema.
 
 If that is needed later, it should be implemented as an explicit downstream mapping or a separate adjudication mode, not as an implicit reinterpretation of existing benchmark artifacts.

@@ -71,7 +71,7 @@ See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layo
 
 ## Pipeline
 
-The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Its contracts are defined, but the runnable executor has not yet been replaced. Until that migration lands, the CLI and UI run these temporary stages:
+The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, and Prepare have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Until that migration lands, the CLI and UI run these temporary stages:
 
 | Current executor stage | Purpose |
 |------|---------|
