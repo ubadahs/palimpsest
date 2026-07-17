@@ -13,7 +13,7 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist. Canonical Discover now has an isolated application service and versioned artifact writer/loader, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover and Scope now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
 ### Canonical Discover (implemented, not executor-wired)
 
@@ -27,7 +27,25 @@ The ledger preserves:
 - one extraction observation per occurrence, including zero-claim and failed outcomes, plus every claim record when an occurrence yields multiple attributed claims
 - non-destructive, seed-isolated candidate grouping and deterministic Scope-selection dispositions; caps never delete candidates or source records
 
-Discover does not materialize or ground the seed manuscript, filter `not_found` claims, or freeze family membership. Those decisions belong to canonical Scope. `buildCanonicalDiscoverArtifact` creates the non-replayable lean envelope with exact model request/response references; `writeCanonicalDiscoverArtifact` and `loadCanonicalDiscoverArtifact` handle only the current versioned shape. This implementation is not routed through the temporary seven-stage executor or its shortlist/sidecar formats.
+Discover does not materialize or ground the seed manuscript, filter `not_found` claims, or freeze family membership. Those responsibilities belong to canonical Scope. `buildCanonicalDiscoverArtifact` creates the non-replayable lean envelope with exact model request/response references; `writeCanonicalDiscoverArtifact` and `loadCanonicalDiscoverArtifact` handle only the current versioned shape. This implementation is not routed through the temporary seven-stage executor or its shortlist/sidecar formats.
+
+### Canonical Scope (implemented, not executor-wired)
+
+`runCanonicalScope` consumes only a current, identity-verified `discoverArtifactSchema` envelope. It never reads shortlist, handoff, pre-screen, screen, or other current-executor artifacts.
+
+Scope freezes the selected scientific population:
+
+- every Discover candidate receives an explicit `scoped` or `deferred_upstream` decision
+- selected candidates map to exactly one same-seed family; exact-normalized candidates may share a family only when every source candidate ID, source claim ID, and occurrence ID remains attributable
+- family membership is the sorted union of each selected candidate's complete `memberMentionIds`; it is never reconstructed from DOI, citing-paper metadata, title/abstract retrieval, or later full-text retrieval
+- multiple occurrences in one citing paper and bundled occurrences remain distinct immutable Discover references
+- seed text is materialized once per selected seed and retained as immutable parsed blocks with source-artifact provenance
+- `grounded`, `ambiguous`, `not_found`, `seed_text_unavailable`, `acquisition_failed`, `grounding_failed`, and `invalid_grounding_output` all preserve the frozen family; scientific `not_found` is distinct from operational inability to inspect the seed or a typed provider failure
+- nonfatal grounding provider failures become `grounding_failed` with their code/reason and model execution provenance; `invalid_grounding_output` is reserved for malformed structured output or failed exact-quote verification
+- `not_found` always has zero accepted evidence and non-applicable quote verification; a model response that combines `not_found` with proposed spans is invalid
+- model-proposed evidence for grounded or ambiguous outcomes is accepted only when it is an exact substring of its referenced immutable seed-text block
+
+`buildCanonicalScopeArtifact` binds the exact Discover artifact ID/hash, candidate accounting, seed-text records, grounding request/response references, quote verification, and append-only decisions into the lean envelope. `writeCanonicalScopeArtifact` and `loadCanonicalScopeArtifact` accept only the current Scope shape. Prepare, production CLI adapters, and canonical executor wiring remain future work.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
@@ -196,7 +214,7 @@ Important behavior:
 - fatal Anthropic billing, quota, authentication, or authorization failures fail the run and mark later family stages as `blocked` with the provider reason
 - retryable errors such as rate limits are not treated as fatal-provider breakers by default
 - `screen` can succeed and still block later stages
-- papers outside the grounded claim family remain visible in reports but are excluded from downstream analysis
+- the temporary executor's title/abstract filter can exclude papers from its downstream analysis; this heuristic has no standing in canonical Scope, whose membership is frozen only from Discover occurrence IDs
 
 What the next stage consumes:
 
@@ -229,7 +247,7 @@ What happens:
 
 Important behavior:
 
-- the pipeline caches extraction outputs by citing-paper neighborhood within a run, so equivalent families do not re-fetch and re-parse the same citing papers
+- the temporary pipeline caches extraction outputs by citing-paper neighborhood within a run, so equivalent families do not re-fetch and re-parse the same citing papers; this reuse does not define canonical Scope membership
 
 What can block or downgrade it:
 

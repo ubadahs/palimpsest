@@ -297,31 +297,75 @@ function buildAllStageArtifacts() {
       ],
     },
   });
+  const discoverReference = {
+    ...asReference(discover, "canonical-discover-input"),
+    role: "canonical-discover-input" as const,
+    canonicalStage: "discover" as const,
+  };
+  const scopeDecision = createAppendOnlyDecision({
+    recordId: candidateId,
+    decisionType: "scope_candidate_disposition",
+    outcome: "scoped",
+    reason: "Highest-supported claim candidate.",
+    recordedAt: "2026-07-16T12:00:00.000Z",
+    actor: {
+      kind: "deterministic",
+      identifier: "canonical-scope-membership-freeze-v1",
+    },
+    evidenceArtifacts: [discoverReference],
+  });
   const scope = createLeanStageArtifact({
     ...baseEnvelope(),
     canonicalStage: "scope",
-    inputArtifacts: [asReference(discover, "discovery-ledger")],
+    inputArtifacts: [discoverReference],
+    decisions: [scopeDecision],
     payload: {
+      discoverArtifact: discoverReference,
+      candidateDecisions: [
+        {
+          candidateId,
+          seedId,
+          disposition: "scoped",
+          familyId,
+          discoverRank: 1,
+          discoverReason: "Highest-supported claim candidate.",
+          sourceClaimRecordIds: [sourceClaimRecordId],
+          memberMentionIds: [mentionId],
+        },
+      ],
+      seedMaterializations: [
+        {
+          seedId,
+          status: "seed_text_unavailable",
+          reasonCode: "unavailable",
+          reason: "Fixture intentionally omits seed full text.",
+          provenanceArtifacts: [responseReference],
+          execution: {
+            kind: "deterministic",
+            implementation: "fixture-materializer-v1",
+            sourceArtifacts: [responseReference],
+          },
+        },
+      ],
       families: [
         {
           familyId,
           seedId,
           candidateIds: [candidateId],
+          sourceClaimRecordIds: [sourceClaimRecordId],
           trackedClaim: canonicalClaim,
           normalizedClaim: canonicalClaim,
           grounding: {
-            status: "grounded",
-            evidenceSpans: [
-              {
-                text: "The intervention changed the measured outcome.",
-                sectionTitle: "Results",
-                blockKind: "body_paragraph",
-              },
-            ],
-            detailReason: "The claim is supported by a verbatim result span.",
+            status: "seed_text_unavailable",
+            evidenceSpans: [],
+            detailReason: "Fixture intentionally omits seed full text.",
+            quoteVerification: {
+              status: "not_applicable",
+              failures: [],
+            },
           },
           includedCitationOccurrenceIds: [mentionId],
-          provenanceArtifacts: [asReference(discover, "discovery-ledger")],
+          provenanceArtifacts: [discoverReference, responseReference],
         },
       ],
     },
@@ -655,12 +699,17 @@ describe("canonical scientific identities", () => {
       familyId,
       seedId,
       candidateIds: [candidateId],
+      sourceClaimRecordIds: [claimRecordId],
       trackedClaim: "The measured effect changed.",
       normalizedClaim: "The measured effect changed.",
       grounding: {
-        status: "grounded" as const,
+        status: "seed_text_unavailable" as const,
         evidenceSpans: [],
-        detailReason: "Grounded for identity testing.",
+        detailReason: "Unavailable for identity testing.",
+        quoteVerification: {
+          status: "not_applicable" as const,
+          failures: [],
+        },
       },
       includedCitationOccurrenceIds: [firstMentionId],
       provenanceArtifacts: [
