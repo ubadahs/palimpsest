@@ -202,10 +202,11 @@ export const preScreenResultsSchema = z.array(claimFamilyPreScreenSchema);
 
 /**
  * Whether this grounding outcome should block downstream stages and claim-scoped pre-screen metrics.
- * `ambiguous` never blocks: several strong matches still mean the claim is present in the seed text.
+ * `ambiguous` never blocks because several strong matches still establish
+ * presence. `not_found` never blocks because absence is a fidelity signal.
  */
 export function claimGroundingBlocksAnalysis(g: ClaimGrounding): boolean {
-  if (g.status === "ambiguous") {
+  if (g.status === "ambiguous" || g.status === "not_found") {
     return false;
   }
   return g.blocksDownstream;

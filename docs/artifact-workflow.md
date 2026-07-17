@@ -1,6 +1,6 @@
 # Artifact Workflow
 
-This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover persistence now exists in isolation, but no CLI/executor path selects its output location yet.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover and Scope persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
@@ -25,6 +25,25 @@ The application and persistence seams are:
 - `loadCanonicalDiscoverArtifact` — validates the current envelope, including stable IDs and tamper hashes
 
 Raw provider, full-text/parser, model-request, and model-response data remain separate immutable artifacts referenced from the envelope. Exact request/response content is referenceable; the envelope does not claim that external or model execution can be replayed. This writer does not emit current-executor result, shortlist, grounding-trace, handoff, or sidecar formats, and the loader does not read them.
+
+## Canonical Scope Artifact
+
+Canonical Scope reads exactly one current canonical Discover envelope and writes one authoritative versioned Scope envelope. The payload repeats the Discover artifact ID/content hash as immutable lineage and contains:
+
+- one explicit `scoped` or `deferred_upstream` accounting record for every Discover candidate
+- scoped families with all source candidate IDs, source claim-record IDs, and the exact sorted union of Discover citation-occurrence membership
+- one seed materialization outcome per selected seed, including immutable parsed seed-text blocks and source artifacts when available
+- grounding annotations that distinguish scientific `not_found` from `seed_text_unavailable`, `acquisition_failed`, typed `grounding_failed`, and malformed/quote-invalid `invalid_grounding_output`
+- exact verified evidence locators (block, section, offsets, text, and source artifact) plus rejected model-quote details
+
+The application and persistence seams are:
+
+- `runCanonicalScope` — validates the Discover envelope, freezes exact membership, materializes each selected seed once, validates model output, and verifies quotes
+- `buildCanonicalScopeArtifact` — binds Scope content to the exact Discover lineage and non-replayable external/model execution provenance
+- `writeCanonicalScopeArtifact` — validates and writes only the current Scope envelope
+- `loadCanonicalScopeArtifact` — validates the current envelope, including internal references, stable identities, and tamper hashes
+
+Scope does not emit or consume shortlist, handoff, pre-screen, screen, or other temporary executor artifacts. Grounding never acts as an exclusion gate: `grounded`, `ambiguous`, `not_found`, seed-text failure, provider `grounding_failed`, and `invalid_grounding_output` outcomes retain the frozen occurrence membership. `not_found` carries no accepted evidence; provider failures retain typed code/reason rather than masquerading as malformed output. Prepare and executor/CLI wiring are not implemented yet.
 
 ## Artifact Roles
 

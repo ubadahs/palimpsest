@@ -51,7 +51,7 @@ function minimalFamily(claimGrounding: ClaimGrounding): ClaimFamilyPreScreen {
 }
 
 describe("claimGroundingBlocksAnalysis", () => {
-  it("never blocks for ambiguous even when blocksDownstream was true in older artifacts", () => {
+  it("never blocks for ambiguous regardless of a conflicting flag", () => {
     const g: ClaimGrounding = {
       status: "ambiguous",
       analystClaim: "x",
@@ -64,7 +64,7 @@ describe("claimGroundingBlocksAnalysis", () => {
     expect(claimFamilyBlocksDownstream(minimalFamily(g))).toBe(false);
   });
 
-  it("blocks when not_found and blocksDownstream true", () => {
+  it("never blocks for not_found because absence is a fidelity signal", () => {
     const g: ClaimGrounding = {
       status: "not_found",
       analystClaim: "x",
@@ -73,7 +73,8 @@ describe("claimGroundingBlocksAnalysis", () => {
       blocksDownstream: true,
       detailReason: "no match",
     };
-    expect(claimGroundingBlocksAnalysis(g)).toBe(true);
+    expect(claimGroundingBlocksAnalysis(g)).toBe(false);
+    expect(claimFamilyBlocksDownstream(minimalFamily(g))).toBe(false);
   });
 
   it("rejects superseded m2Priority artifacts", () => {
