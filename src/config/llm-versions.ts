@@ -9,10 +9,10 @@
  * to find all affected call sites.
  */
 export const LLM_CACHE_VERSIONS = {
-  /** Seed-claim grounding via full-document LLM call. */
-  grounding: "grounding-2026-04-11-v1",
+  /** Seed-claim grounding via full-document LLM call (canonical Scope). */
+  grounding: "grounding-2026-07-17-v1",
   /** Attributed claim extraction from citing-paper mentions. */
-  extraction: "extraction-2026-04-11-v1",
+  extraction: "extraction-2026-07-17-v2",
   /** LLM-based evidence reranking. */
   rerank: "rerank-2026-04-11-v1",
   /** Citation fidelity adjudication. */
@@ -22,8 +22,8 @@ export const LLM_CACHE_VERSIONS = {
 export const LLM_PROMPT_VERSIONS = {
   /** Claim discovery from seed paper sections. */
   discovery: "2026-04-07-v1",
-  /** Seed-claim grounding prompt template. */
-  grounding: "2026-04-06-v1",
+  /** Seed-claim grounding prompt template (canonical Scope). */
+  grounding: "2026-07-17-v1",
   /** Attributed claim extraction prompt template. */
-  extraction: "2026-04-08-v1",
+  extraction: "2026-07-17-v2",
 } as const;

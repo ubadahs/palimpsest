@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { paperTypeSchema } from "../domain/types.js";
 import {
   artifactReferenceSchema,
   buildAttributedClaimRecordId,
@@ -114,6 +115,8 @@ const resolvedPaperInputSchema = z
     doi: z.string().min(1).optional(),
     authors: z.array(z.string()),
     publicationYear: z.number().int().optional(),
+    paperType: paperTypeSchema.optional(),
+    referencedWorksCount: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -149,6 +152,8 @@ const citingPaperInputSchema = z
     doi: z.string().min(1).optional(),
     authors: z.array(z.string()),
     publicationYear: z.number().int().optional(),
+    paperType: paperTypeSchema.optional(),
+    referencedWorksCount: z.number().int().nonnegative().optional(),
     fullTextAvailability: z.enum([
       "available",
       "abstract_only",
@@ -591,6 +596,14 @@ export async function runCanonicalDiscover(
           authors: observation.paper.authors,
           ...(observation.paper.publicationYear != null
             ? { publicationYear: observation.paper.publicationYear }
+            : {}),
+          ...(observation.paper.paperType
+            ? { paperType: observation.paper.paperType }
+            : {}),
+          ...(observation.paper.referencedWorksCount != null
+            ? {
+                referencedWorksCount: observation.paper.referencedWorksCount,
+              }
             : {}),
           fullTextAvailability: observation.paper.fullTextAvailability,
         },

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   confidenceSchema,
   evaluationModeSchema,
+  paperTypeSchema,
   type CitationRole,
 } from "../domain/types.js";
 import { parsedBlockKindSchema } from "../domain/parsing.js";
@@ -451,6 +452,8 @@ export const discoverSeedSchema = z
               doi: z.string().min(1).optional(),
               authors: z.array(z.string()),
               publicationYear: z.number().int().optional(),
+              paperType: paperTypeSchema.optional(),
+              referencedWorksCount: z.number().int().nonnegative().optional(),
             })
             .strict(),
         })
@@ -579,6 +582,8 @@ export const discoverCitingPaperRecordSchema = z
         doi: z.string().min(1).optional(),
         authors: z.array(z.string()),
         publicationYear: z.number().int().optional(),
+        paperType: paperTypeSchema.optional(),
+        referencedWorksCount: z.number().int().nonnegative().optional(),
         fullTextAvailability: z.enum([
           "available",
           "abstract_only",

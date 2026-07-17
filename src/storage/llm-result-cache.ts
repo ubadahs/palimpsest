@@ -24,11 +24,15 @@ export type LLMCacheKeyInput = {
   model: string;
   /** Full prompt text (or promptPrefix + promptSuffix concatenated). */
   prompt: string;
-  /** Stringified thinking config, or empty string if disabled. */
+  /**
+   * Stringified thinking config (`adaptive:<effort>`, `enabled:<budget>`,
+   * or empty when disabled).
+   */
   thinkingConfig: string;
   /**
-   * Purpose-specific version string. Bump when prompt template or
-   * output schema changes to auto-invalidate stale entries.
+   * Purpose-specific version string (prompt / schema lineage). Bump when
+   * the prompt template or output schema changes to auto-invalidate stale
+   * entries.
    */
   keyVersion: string;
   /**
@@ -37,6 +41,10 @@ export type LLMCacheKeyInput = {
    * schemas produces distinct cache keys.
    */
   schemaFingerprint?: string;
+  /** Prompt-cache control fingerprint (`ephemeral:5m`), or empty. */
+  promptCachePolicy?: string;
+  /** Exact-result cache access policy (`allow` | `bypass`). */
+  cachePolicy?: string;
 };
 
 export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
@@ -47,6 +55,8 @@ export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
     input.thinkingConfig,
     input.keyVersion,
     input.schemaFingerprint ?? "",
+    input.promptCachePolicy ?? "",
+    input.cachePolicy ?? "allow",
   ].join("\0");
 
   return createHash("sha256").update(payload).digest("hex");
