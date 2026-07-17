@@ -12,173 +12,112 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/utils";
 import { ModelSelect, ModelWithThinking } from "@/components/model-select";
 
-type DiscoverStrategy = "legacy" | "attribution_first";
-
-// ---------------------------------------------------------------------------
-// Form state — grouped by pipeline stage
-// ---------------------------------------------------------------------------
-
 type FormState = {
-  seedDoi: string;
-  trackedClaim: string;
+  /** One DOI per line; order is preserved for canonical Discover. */
+  seedDoisText: string;
   targetStage: StageKey;
-
   discover: {
-    strategy: DiscoverStrategy;
-    model: string;
-    thinking: boolean;
-    topN: number;
-    rank: boolean;
     probeBudget: number;
-    shortlistCap: number;
+    scopeCandidateCap: number;
     fromYear: string;
     toYear: string;
+    extractionModel: string;
+    extractionThinking: boolean;
   };
-
-  screen: {
+  scope: {
     groundingModel: string;
     groundingThinking: boolean;
-    filterModel: string;
-    filterConcurrency: number;
   };
-
   evidence: {
-    llmRerank: boolean;
+    rerankEnabled: boolean;
     rerankModel: string;
     rerankTopN: number;
   };
-
-  curate: {
-    targetSize: number;
-  };
-
   adjudicate: {
     model: string;
     thinking: boolean;
-    advisor: boolean;
-    firstPassModel: string;
   };
-
-  run: {
-    forceRefresh: boolean;
-    familyConcurrency: number;
-  };
+  forceRefresh: boolean;
 };
 
-const defaultState: FormState = {
-  seedDoi: "",
-  trackedClaim: "",
-  targetStage: "adjudicate",
+function parseSeedDois(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
 
+/** Stack-safe browser base64 encoding for large PDF uploads. */
+async function encodeFileAsBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+const defaultState: FormState = {
+  seedDoisText: "",
+  targetStage: "report",
   discover: {
-    strategy: "attribution_first",
-    model: "claude-haiku-4-5",
-    thinking: false,
-    topN: 5,
-    rank: true,
     probeBudget: 100,
-    shortlistCap: 5,
+    scopeCandidateCap: 5,
     fromYear: "",
     toYear: "",
+    extractionModel: "claude-haiku-4-5",
+    extractionThinking: false,
   },
-
-  screen: {
+  scope: {
     groundingModel: "claude-sonnet-4-6",
     groundingThinking: true,
-    filterModel: "claude-haiku-4-5",
-    filterConcurrency: 10,
   },
-
   evidence: {
-    llmRerank: true,
+    rerankEnabled: false,
     rerankModel: "claude-haiku-4-5",
     rerankTopN: 5,
   },
-
-  curate: {
-    targetSize: 20,
-  },
-
   adjudicate: {
     model: "claude-opus-4-6",
     thinking: true,
-    advisor: true,
-    firstPassModel: "claude-sonnet-4-6",
   },
-
-  run: {
-    forceRefresh: false,
-    familyConcurrency: 5,
-  },
+  forceRefresh: false,
 };
-
-// ---------------------------------------------------------------------------
-// Flatten nested state → flat API config
-// ---------------------------------------------------------------------------
 
 function flattenConfig(s: FormState) {
   return {
     stopAfterStage: s.targetStage,
-    forceRefresh: s.run.forceRefresh,
-    // Discovery
-    discoverStrategy: s.discover.strategy,
-    discoverModel: s.discover.model,
-    discoverThinking: s.discover.thinking,
-    discoverTopN: s.discover.topN,
-    discoverRank: s.discover.rank,
-    discoverProbeBudget: s.discover.probeBudget,
-    discoverShortlistCap: s.discover.shortlistCap,
-    ...(s.discover.fromYear
-      ? { discoverFromYear: Number(s.discover.fromYear) }
-      : {}),
-    ...(s.discover.toYear ? { discoverToYear: Number(s.discover.toYear) } : {}),
-    // Screen
-    screenGroundingModel: s.screen.groundingModel,
-    screenGroundingThinking: s.screen.groundingThinking,
-    screenFilterModel: s.screen.filterModel,
-    screenFilterConcurrency: s.screen.filterConcurrency,
-    // Evidence
-    evidenceLlmRerank: s.evidence.llmRerank,
-    evidenceRerankModel: s.evidence.rerankModel,
-    evidenceRerankTopN: s.evidence.rerankTopN,
-    // Curate
-    curateTargetSize: s.curate.targetSize,
-    // Adjudicate
-    adjudicateModel: s.adjudicate.model,
-    adjudicateThinking: s.adjudicate.thinking,
-    adjudicateAdvisor: s.adjudicate.advisor,
-    adjudicateFirstPassModel: s.adjudicate.firstPassModel,
-    // Run
-    familyConcurrency: s.run.familyConcurrency,
+    forceRefresh: s.forceRefresh,
+    discover: {
+      probeBudget: s.discover.probeBudget,
+      scopeCandidateCap: s.discover.scopeCandidateCap,
+      extractionModel: s.discover.extractionModel,
+      extractionThinking: s.discover.extractionThinking,
+      ...(s.discover.fromYear ? { fromYear: Number(s.discover.fromYear) } : {}),
+      ...(s.discover.toYear ? { toYear: Number(s.discover.toYear) } : {}),
+    },
+    scope: s.scope,
+    prepare: { classifier: "deterministic" as const },
+    evidence: s.evidence,
+    adjudicate: s.adjudicate,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-type StageGroup =
-  | "discover"
-  | "screen"
-  | "evidence"
-  | "curate"
-  | "adjudicate"
-  | "run";
 
 export function NewRunForm() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [launchImmediately, setLaunchImmediately] = useState(true);
-  const [showManualClaim, setShowManualClaim] = useState(false);
   const [seedPdfFile, setSeedPdfFile] = useState<File | null>(null);
   const [state, setState] = useState<FormState>(defaultState);
 
-  function update<K extends "seedDoi" | "trackedClaim" | "targetStage">(
+  function update<K extends "seedDoisText" | "targetStage" | "forceRefresh">(
     key: K,
     value: FormState[K],
   ): void {
@@ -186,7 +125,7 @@ export function NewRunForm() {
   }
 
   function updateStage<
-    G extends StageGroup,
+    G extends "discover" | "scope" | "evidence" | "adjudicate",
     K extends string & keyof FormState[G],
   >(group: G, key: K, value: FormState[G][K]): void {
     setState((prev) => ({
@@ -199,29 +138,27 @@ export function NewRunForm() {
     event.preventDefault();
     setError(null);
 
-    if (!state.seedDoi.trim()) {
-      setError("Seed DOI is required.");
+    const seedDois = parseSeedDois(state.seedDoisText);
+    if (seedDois.length === 0) {
+      setError("Enter at least one seed DOI (one per line).");
       return;
     }
-
-    const trackedClaim =
-      showManualClaim && state.trackedClaim.trim()
-        ? state.trackedClaim.trim()
-        : undefined;
+    if (seedPdfFile && seedDois.length > 1) {
+      setError("Seed PDF upload is only valid for a single-DOI run.");
+      return;
+    }
 
     startTransition(async () => {
       try {
         let seedPdfBase64: string | undefined;
         if (seedPdfFile) {
-          const buf = await seedPdfFile.arrayBuffer();
-          seedPdfBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+          seedPdfBase64 = await encodeFileAsBase64(seedPdfFile);
         }
         const run = await fetchJson<RunDetail>("/api/runs", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            seedDoi: state.seedDoi.trim(),
-            ...(trackedClaim ? { trackedClaim } : {}),
+            seedDois,
             targetStage: state.targetStage,
             config: flattenConfig(state),
             ...(seedPdfBase64 ? { seedPdfBase64 } : {}),
@@ -260,12 +197,8 @@ export function NewRunForm() {
           Start an analysis
         </h2>
         <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
-          Enter a seed DOI. By default, discovery is attribution-first: harvest
-          what citing papers attribute to the seed, ground families, and build a
-          shortlist. You can switch to legacy seed-side claim extraction in
-          advanced settings. Then the run screens families, retrieves
-          cited-paper evidence, and adjudicates citation fidelity (per family,
-          in parallel when there are several).
+          Enter one or more seed DOIs (one per line) to run the canonical
+          pipeline: discover, scope, prepare, evidence, adjudicate, and report.
         </p>
       </CardHeader>
       <CardContent>
@@ -273,13 +206,17 @@ export function NewRunForm() {
           <div className="grid gap-6">
             <label className="grid gap-2">
               <span className="text-sm font-semibold text-[var(--text)]">
-                Seed DOI
+                Seed DOIs
               </span>
-              <Input
+              <span className="text-xs text-[var(--text-muted)]">
+                One DOI per line. Order is preserved. Duplicates are rejected.
+              </span>
+              <textarea
                 autoComplete="off"
-                placeholder="10.1101/2024.01.01.123456"
-                value={state.seedDoi}
-                onChange={(event) => update("seedDoi", event.target.value)}
+                className="min-h-28 rounded-2xl border border-[var(--border)] bg-white/70 px-4 py-3 text-sm text-[var(--text)] outline-none focus:border-[var(--border-strong)]"
+                placeholder={"10.1101/2024.01.01.123456\n10.1234/another.seed"}
+                value={state.seedDoisText}
+                onChange={(event) => update("seedDoisText", event.target.value)}
               />
             </label>
 
@@ -287,12 +224,13 @@ export function NewRunForm() {
               <span className="text-sm font-semibold text-[var(--text)]">
                 Seed paper PDF
                 <span className="ml-2 font-normal text-[var(--text-muted)]">
-                  optional
+                  optional · single-DOI only
                 </span>
               </span>
               <span className="text-xs text-[var(--text-muted)]">
-                Upload a PDF if the seed paper is paywalled. Bypasses
-                open-access lookup and uses GROBID to parse the local copy.
+                Upload a PDF if the seed paper is paywalled. Valid only when
+                exactly one DOI is provided. Bypasses open-access lookup and
+                uses GROBID to parse the local copy.
               </span>
               <input
                 accept=".pdf,application/pdf"
@@ -308,38 +246,6 @@ export function NewRunForm() {
                 </span>
               ) : null}
             </label>
-
-            <div className="rounded-[28px] border border-[var(--border)] bg-white/40">
-              <button
-                className="flex w-full items-center justify-between px-5 py-4 text-left"
-                type="button"
-                onClick={() => setShowManualClaim((v) => !v)}
-              >
-                <span className="text-sm font-semibold text-[var(--text)]">
-                  Specify a claim manually
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {showManualClaim
-                    ? "Hide — use auto-discovery"
-                    : "Optional — overrides auto-discovery"}
-                </span>
-              </button>
-              {showManualClaim ? (
-                <div className="border-t border-[var(--border)] px-5 pb-5 pt-4">
-                  <p className="mb-3 text-xs text-[var(--text-muted)]">
-                    If provided, the discover stage is skipped and the pipeline
-                    starts directly at screen with this claim.
-                  </p>
-                  <Textarea
-                    placeholder="State the empirical claim you want to track. Screen will verify it appears in the seed paper's full text before later stages run."
-                    value={state.trackedClaim}
-                    onChange={(event) =>
-                      update("trackedClaim", event.target.value)
-                    }
-                  />
-                </div>
-              ) : null}
-            </div>
           </div>
 
           <label className="flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
@@ -360,139 +266,64 @@ export function NewRunForm() {
                   Discovery
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  how claims or attributions are found
+                  citing-side attribution discovery
                 </span>
               </summary>
               <div className={sectionBodyClass}>
-                <label className="grid gap-2 md:col-span-2">
+                <ModelWithThinking
+                  label="Extraction model"
+                  description="Model used to extract citing-paper claims attributed to the seed."
+                  model={state.discover.extractionModel}
+                  onModelChange={(v) =>
+                    updateStage("discover", "extractionModel", v)
+                  }
+                  thinking={state.discover.extractionThinking}
+                  onThinkingChange={(v) =>
+                    updateStage("discover", "extractionThinking", v)
+                  }
+                  thinkingDescription="Enable thinking for claim extraction."
+                  modelClassName="md:col-span-2"
+                />
+                <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
-                    Strategy
+                    Probe budget
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Legacy extracts claims from the seed paper.
-                    Attribution-first harvests what citing papers actually
-                    attribute to the seed.
+                    Maximum citing papers to inspect for in-text mentions.
                   </span>
-                  <select
-                    className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
-                    value={state.discover.strategy}
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discover.probeBudget}
                     onChange={(event) =>
                       updateStage(
                         "discover",
-                        "strategy",
-                        event.target.value as DiscoverStrategy,
+                        "probeBudget",
+                        Number(event.target.value),
                       )
                     }
-                  >
-                    <option value="legacy">
-                      Legacy (seed-side extraction)
-                    </option>
-                    <option value="attribution_first">
-                      Attribution-first (citing-side harvesting)
-                    </option>
-                  </select>
+                  />
                 </label>
-                <ModelWithThinking
-                  label="Model"
-                  description="Claude model used for discovery LLM steps (legacy extraction / ranking or attribution-first extraction and grounding)."
-                  model={state.discover.model}
-                  onModelChange={(v) => updateStage("discover", "model", v)}
-                  thinking={state.discover.thinking}
-                  onThinkingChange={(v) =>
-                    updateStage("discover", "thinking", v)
-                  }
-                  thinkingDescription="Enable Anthropic thinking for discovery extraction and grounding calls."
-                  modelClassName="md:col-span-2"
-                />
-                {state.discover.strategy === "legacy" ? (
-                  <>
-                    <label className="grid gap-2">
-                      <span className="text-sm font-semibold text-[var(--text)]">
-                        Max claims
-                      </span>
-                      <span className="text-xs text-[var(--text-muted)]">
-                        Upper limit on claims passed from discovery to screen.
-                      </span>
-                      <Input
-                        min={1}
-                        type="number"
-                        value={state.discover.topN}
-                        onChange={(event) =>
-                          updateStage(
-                            "discover",
-                            "topN",
-                            Number(event.target.value),
-                          )
-                        }
-                      />
-                    </label>
-                    <div className="grid gap-1 self-end pb-1">
-                      <label className="grid cursor-pointer gap-1">
-                        <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                          <input
-                            checked={state.discover.rank}
-                            className="size-4 accent-[var(--accent)]"
-                            type="checkbox"
-                            onChange={(event) =>
-                              updateStage(
-                                "discover",
-                                "rank",
-                                event.target.checked,
-                              )
-                            }
-                          />
-                          Rank claims
-                        </span>
-                        <span className="pl-7 text-xs text-[var(--text-muted)]">
-                          Score claims by citing-paper engagement.
-                        </span>
-                      </label>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <label className="grid gap-2">
-                      <span className="text-sm font-semibold text-[var(--text)]">
-                        Probe budget
-                      </span>
-                      <span className="text-xs text-[var(--text-muted)]">
-                        Maximum citing papers to inspect for in-text mentions.
-                      </span>
-                      <Input
-                        min={1}
-                        type="number"
-                        value={state.discover.probeBudget}
-                        onChange={(event) =>
-                          updateStage(
-                            "discover",
-                            "probeBudget",
-                            Number(event.target.value),
-                          )
-                        }
-                      />
-                    </label>
-                    <label className="grid gap-2">
-                      <span className="text-sm font-semibold text-[var(--text)]">
-                        Shortlist cap
-                      </span>
-                      <span className="text-xs text-[var(--text-muted)]">
-                        Maximum families passed from discovery to screen.
-                      </span>
-                      <Input
-                        min={1}
-                        type="number"
-                        value={state.discover.shortlistCap}
-                        onChange={(event) =>
-                          updateStage(
-                            "discover",
-                            "shortlistCap",
-                            Number(event.target.value),
-                          )
-                        }
-                      />
-                    </label>
-                  </>
-                )}
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Scope cap
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Maximum candidates passed from discovery to scope.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discover.scopeCandidateCap}
+                    onChange={(event) =>
+                      updateStage(
+                        "discover",
+                        "scopeCandidateCap",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
                     From year
@@ -528,56 +359,30 @@ export function NewRunForm() {
               </div>
             </details>
 
-            {/* Screen */}
+            {/* Scope */}
             <details className={sectionClass}>
               <summary className={summaryClass}>
                 <span className="text-sm font-semibold text-[var(--text)]">
-                  Screen
+                  Scope
                 </span>
                 <span className="text-xs text-[var(--text-muted)]">
-                  claim grounding and family filtering
+                  materialize seed text and ground scoped families
                 </span>
               </summary>
               <div className={sectionBodyClass}>
                 <ModelWithThinking
                   label="Grounding model"
                   description="Model that verifies each claim against the seed paper's full text."
-                  model={state.screen.groundingModel}
+                  model={state.scope.groundingModel}
                   onModelChange={(v) =>
-                    updateStage("screen", "groundingModel", v)
+                    updateStage("scope", "groundingModel", v)
                   }
-                  thinking={state.screen.groundingThinking}
+                  thinking={state.scope.groundingThinking}
                   onThinkingChange={(v) =>
-                    updateStage("screen", "groundingThinking", v)
+                    updateStage("scope", "groundingThinking", v)
                   }
                   thinkingDescription="Enable Anthropic thinking when grounding tracked claims against the seed paper."
                 />
-                <ModelSelect
-                  label="Filter model"
-                  description="Model used for LLM claim-family filtering after BM25 pre-filter."
-                  value={state.screen.filterModel}
-                  onChange={(v) => updateStage("screen", "filterModel", v)}
-                />
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-[var(--text)]">
-                    Filter concurrency
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    Max concurrent LLM calls during claim-family filtering.
-                  </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.screen.filterConcurrency}
-                    onChange={(event) =>
-                      updateStage(
-                        "screen",
-                        "filterConcurrency",
-                        Number(event.target.value),
-                      )
-                    }
-                  />
-                </label>
               </div>
             </details>
 
@@ -596,13 +401,13 @@ export function NewRunForm() {
                   <label className="grid cursor-pointer gap-1">
                     <span className="flex items-center gap-3 text-sm text-[var(--text)]">
                       <input
-                        checked={state.evidence.llmRerank}
+                        checked={state.evidence.rerankEnabled}
                         className="size-4 accent-[var(--accent)]"
                         type="checkbox"
                         onChange={(event) =>
                           updateStage(
                             "evidence",
-                            "llmRerank",
+                            "rerankEnabled",
                             event.target.checked,
                           )
                         }
@@ -611,11 +416,12 @@ export function NewRunForm() {
                     </span>
                     <span className="pl-7 text-xs text-[var(--text-muted)]">
                       After keyword retrieval, a model re-ranks passages by
-                      relevance. Better accuracy, higher cost.
+                      relevance. It may improve ranking, costs more, and remains
+                      separately auditable and uncalibrated.
                     </span>
                   </label>
                 </div>
-                {state.evidence.llmRerank ? (
+                {state.evidence.rerankEnabled ? (
                   <>
                     <ModelSelect
                       label="Rerank model"
@@ -650,40 +456,6 @@ export function NewRunForm() {
               </div>
             </details>
 
-            {/* Curate */}
-            <details className={sectionClass}>
-              <summary className={summaryClass}>
-                <span className="text-sm font-semibold text-[var(--text)]">
-                  Curate
-                </span>
-                <span className="text-xs text-[var(--text-muted)]">
-                  audit sample selection
-                </span>
-              </summary>
-              <div className={sectionBodyClass}>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-[var(--text)]">
-                    Sample size
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    How many citation-evidence pairs to curate for adjudication.
-                  </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.curate.targetSize}
-                    onChange={(event) =>
-                      updateStage(
-                        "curate",
-                        "targetSize",
-                        Number(event.target.value),
-                      )
-                    }
-                  />
-                </label>
-              </div>
-            </details>
-
             {/* Adjudicate */}
             <details className={sectionClass}>
               <summary className={summaryClass}>
@@ -697,11 +469,7 @@ export function NewRunForm() {
               <div className={sectionBodyClass}>
                 <ModelWithThinking
                   label="Judge model"
-                  description={
-                    state.adjudicate.advisor
-                      ? "Handles escalated records where the advisor is uncertain. Runs with extended thinking when enabled."
-                      : "Reads evidence and renders fidelity verdicts for all records."
-                  }
+                  description="Reads selected evidence and renders one categorical F/D/E/U verdict per eligible record."
                   model={state.adjudicate.model}
                   onModelChange={(v) => updateStage("adjudicate", "model", v)}
                   thinking={state.adjudicate.thinking}
@@ -711,50 +479,6 @@ export function NewRunForm() {
                   thinkingLabel="Extended thinking"
                   thinkingDescription="The judge model reasons step-by-step before each verdict."
                 />
-                <div className="grid gap-1 md:col-span-2">
-                  <label className="grid cursor-pointer gap-1">
-                    <span className="flex items-center gap-3 text-sm text-[var(--text)]">
-                      <input
-                        checked={state.adjudicate.advisor}
-                        className="size-4 accent-[var(--accent)]"
-                        type="checkbox"
-                        onChange={(event) =>
-                          updateStage(
-                            "adjudicate",
-                            "advisor",
-                            event.target.checked,
-                          )
-                        }
-                      />
-                      Advisor mode
-                    </span>
-                    <span className="pl-7 text-xs text-[var(--text-muted)]">
-                      A cheaper model makes a first pass on all records. Only
-                      records where the advisor reports low confidence or
-                      cannot_determine are escalated to the judge model above.
-                      Typically saves 50-70% cost.
-                    </span>
-                  </label>
-                </div>
-                {state.adjudicate.advisor ? (
-                  <div className="grid gap-4 rounded-2xl border border-[var(--border)] bg-white/30 p-4 md:col-span-2 md:grid-cols-2">
-                    {state.adjudicate.thinking ? (
-                      <p className="text-xs text-[var(--text-muted)] md:col-span-2">
-                        The advisor runs with extended thinking for better
-                        judgment quality. Escalated records are judged by the
-                        model above, also with thinking.
-                      </p>
-                    ) : null}
-                    <ModelSelect
-                      label="Advisor model (first pass)"
-                      description="Runs structured adjudication on all records before escalation."
-                      value={state.adjudicate.firstPassModel}
-                      onChange={(v) =>
-                        updateStage("adjudicate", "firstPassModel", v)
-                      }
-                    />
-                  </div>
-                ) : null}
               </div>
             </details>
 
@@ -774,8 +498,7 @@ export function NewRunForm() {
                     Stop after stage
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Pipeline halts after this stage. Adjudicate runs the full
-                    analysis.
+                    Pipeline halts after this canonical stage.
                   </span>
                   <select
                     className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
@@ -795,15 +518,11 @@ export function NewRunForm() {
                   <label className="grid cursor-pointer gap-1">
                     <span className="flex items-center gap-3 text-sm text-[var(--text)]">
                       <input
-                        checked={state.run.forceRefresh}
+                        checked={state.forceRefresh}
                         className="size-4 accent-[var(--accent)]"
                         type="checkbox"
                         onChange={(event) =>
-                          updateStage(
-                            "run",
-                            "forceRefresh",
-                            event.target.checked,
-                          )
+                          update("forceRefresh", event.target.checked)
                         }
                       />
                       Force-refresh cached data
@@ -813,27 +532,6 @@ export function NewRunForm() {
                     </span>
                   </label>
                 </div>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-[var(--text)]">
-                    Family parallelism
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    How many claim families run extract → adjudicate at once
-                    after screen.
-                  </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.run.familyConcurrency}
-                    onChange={(event) =>
-                      updateStage(
-                        "run",
-                        "familyConcurrency",
-                        Number(event.target.value),
-                      )
-                    }
-                  />
-                </label>
               </div>
             </details>
           </div>

@@ -10,9 +10,11 @@ import {
   markDownstreamStagesStale,
   markRunInterrupted,
   setRunStatus,
+  updateAnalysisRunConfig,
   updateStageStatus,
 } from "palimpsest/storage";
 import {
+  compareStageKeys,
   getPreviousStageKey,
   type AnalysisRun,
   type StageKey,
@@ -165,7 +167,36 @@ export function ensureRunSupervisorReady(): void {
   state.ready = true;
 }
 
-export async function startRun(runId: string): Promise<void> {
+export function buildRunTargetExtension(
+  run: AnalysisRun,
+  targetStage: StageKey | undefined,
+):
+  | {
+      targetStage: StageKey;
+      config: AnalysisRun["config"];
+    }
+  | undefined {
+  if (!targetStage || targetStage === run.targetStage) {
+    return undefined;
+  }
+  if (compareStageKeys(targetStage, run.targetStage) < 0) {
+    throw new Error(
+      `Cannot shrink run target from ${run.targetStage} to ${targetStage}.`,
+    );
+  }
+  return {
+    targetStage,
+    config: {
+      ...run.config,
+      stopAfterStage: targetStage,
+    },
+  };
+}
+
+export async function startRun(
+  runId: string,
+  targetStage?: StageKey,
+): Promise<void> {
   ensureRunSupervisorReady();
 
   if (getState().activeChildren.has(runId)) {
@@ -173,8 +204,8 @@ export async function startRun(runId: string): Promise<void> {
   }
 
   const database = getDatabase();
-  const run = getAnalysisRun(database, runId);
-  if (!run) {
+  const existing = getAnalysisRun(database, runId);
+  if (!existing) {
     throw new Error("Run not found.");
   }
 
@@ -186,6 +217,21 @@ export async function startRun(runId: string): Promise<void> {
     throw new Error(`Run ${active.id} is already active.`);
   }
 
+  const extension = buildRunTargetExtension(existing, targetStage);
+  const run = extension
+    ? updateAnalysisRunConfig(database, runId, extension)
+    : existing;
+
+  if (
+    run.status === "succeeded" &&
+    (!targetStage || targetStage === existing.targetStage)
+  ) {
+    throw new Error(
+      `Run already succeeded through ${existing.targetStage}; extend the target to continue.`,
+    );
+  }
+
+  setRunStatus(database, run.id, "queued");
   spawnPipeline(run);
 }
 

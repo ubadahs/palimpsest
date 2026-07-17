@@ -1,117 +1,24 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  writeFileSync,
-  rmSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { DatabaseConnection } from "palimpsest/storage";
-import { setRunStatus, updateStageStatus } from "palimpsest/storage";
 import {
-  analysisRunConfigSchema,
-  serializeProgressEvent,
-} from "palimpsest/contract";
+  setRunStatus,
+  updateStageStatus,
+  type DatabaseConnection,
+} from "palimpsest/storage";
+import { analysisRunConfigSchema, stageDefinitions } from "palimpsest/contract";
 
-import {
-  createRun,
-  getRunDetailOrThrow,
-  getStageDetailOrThrow,
-} from "../lib/run-queries";
+import { createRun, getRunDetailOrThrow } from "../lib/run-queries";
+import { getDoisInputPath, getStageLogPath } from "../lib/run-files";
 import { getDatabase } from "../lib/database";
-import {
-  getDoisInputPath,
-  getShortlistPath,
-  getStageDirectory,
-  getStageLogPath,
-} from "../lib/run-files";
 
 type UiGlobals = typeof globalThis & {
   __citationFidelityUiDatabase?: DatabaseConnection;
 };
 
-describe("run creation", () => {
-  let tempRoot = "";
-  let previousRoot: string | undefined;
-
-  beforeEach(() => {
-    tempRoot = mkdtempSync(join(tmpdir(), "palimpsest-ui-creation-"));
-    mkdirSync(join(tempRoot, "data"), { recursive: true });
-    previousRoot = process.env["PALIMPSEST_ROOT"];
-    process.env["PALIMPSEST_ROOT"] = tempRoot;
-  });
-
-  afterEach(() => {
-    const globals = globalThis as UiGlobals;
-    globals.__citationFidelityUiDatabase?.close();
-    delete globals.__citationFidelityUiDatabase;
-    if (previousRoot) {
-      process.env["PALIMPSEST_ROOT"] = previousRoot;
-    } else {
-      delete process.env["PALIMPSEST_ROOT"];
-    }
-    rmSync(tempRoot, { recursive: true, force: true });
-  });
-
-  it("auto-discover run: writes dois.json, discover is not_started, shortlist absent", () => {
-    const run = createRun({
-      id: "run-auto",
-      seedDoi: "10.1234/seed",
-      targetStage: "adjudicate",
-      config: analysisRunConfigSchema.parse({
-        stopAfterStage: "adjudicate",
-        forceRefresh: false,
-        curateTargetSize: 20,
-        adjudicateModel: "claude-opus-4-6",
-        adjudicateThinking: true,
-        discoverTopN: 5,
-        discoverRank: true,
-        discoverModel: "claude-opus-4-6",
-      }),
-    });
-
-    expect(run.trackedClaim).toBeUndefined();
-    expect(existsSync(getDoisInputPath(run.id))).toBe(true);
-    expect(existsSync(getShortlistPath(run.id))).toBe(false);
-
-    const detail = getRunDetailOrThrow(run.id);
-    const discover = detail.stages.find((s) => s.stageKey === "discover");
-    expect(discover?.aggregateStatus).toBe("not_started");
-    expect(detail.stages).toHaveLength(7);
-  });
-
-  it("manual-claim run: writes shortlist.json, discover is succeeded", () => {
-    const run = createRun({
-      id: "run-manual",
-      seedDoi: "10.1234/seed",
-      trackedClaim: "Neurons form sublaminae.",
-      targetStage: "adjudicate",
-      config: analysisRunConfigSchema.parse({
-        stopAfterStage: "adjudicate",
-        forceRefresh: false,
-        curateTargetSize: 20,
-        adjudicateModel: "claude-opus-4-6",
-        adjudicateThinking: true,
-        discoverTopN: 5,
-        discoverRank: true,
-        discoverModel: "claude-opus-4-6",
-      }),
-    });
-
-    expect(run.trackedClaim).toBe("Neurons form sublaminae.");
-    expect(existsSync(getShortlistPath(run.id))).toBe(true);
-
-    const detail = getRunDetailOrThrow(run.id);
-    const discover = detail.stages.find((s) => s.stageKey === "discover");
-    expect(discover?.aggregateStatus).toBe("succeeded");
-    expect(discover?.summary?.headline).toContain("Skipped");
-  });
-});
-
-describe("run queries workflow integration", () => {
+describe("canonical run creation", () => {
   let tempRoot = "";
   let previousRoot: string | undefined;
 
@@ -126,149 +33,125 @@ describe("run queries workflow integration", () => {
     const globals = globalThis as UiGlobals;
     globals.__citationFidelityUiDatabase?.close();
     delete globals.__citationFidelityUiDatabase;
-
-    if (previousRoot) {
-      process.env["PALIMPSEST_ROOT"] = previousRoot;
-    } else {
-      delete process.env["PALIMPSEST_ROOT"];
-    }
-
+    if (previousRoot) process.env["PALIMPSEST_ROOT"] = previousRoot;
+    else delete process.env["PALIMPSEST_ROOT"];
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it("attaches active workflow snapshots and workflow-based summary fallbacks", () => {
+  it("creates a DOI-first six-stage report run", () => {
     const run = createRun({
-      id: "run-workflow",
+      id: "run-canonical",
       seedDoi: "10.1234/seed",
-      trackedClaim: "Tracked claim",
-      targetStage: "adjudicate",
-      config: analysisRunConfigSchema.parse({
-        stopAfterStage: "adjudicate",
-        forceRefresh: false,
-        curateTargetSize: 20,
-        adjudicateModel: "claude-opus-4-6",
-        adjudicateThinking: false,
-      }),
+      seedDois: ["10.1234/seed"],
+      targetStage: "report",
+      config: analysisRunConfigSchema.parse({}),
     });
-    const database = getDatabase();
-    const logPath = getStageLogPath(run.id, "adjudicate");
 
-    updateStageStatus(database, run.id, "adjudicate", "running", {
-      startedAt: new Date().toISOString(),
-    });
-    setRunStatus(database, run.id, "running", "adjudicate");
-    writeFileSync(
-      logPath,
-      [
-        serializeProgressEvent({
-          stage: "adjudicate",
-          step: "load_active_records",
-          status: "completed",
-          detail: "31 active records ready",
-        }),
-        serializeProgressEvent({
-          stage: "adjudicate",
-          step: "adjudicate_records",
-          status: "running",
-          detail: "Adjudicating record 6 of 31",
-          current: 6,
-          total: 31,
-        }),
-      ].join("\n"),
-      "utf8",
-    );
+    expect(run.trackedClaim).toBeUndefined();
+    expect(run.config.stopAfterStage).toBe("report");
+    expect(run.config.evidence.rerankEnabled).toBe(false);
+    expect(getDoisInputPath(run.id)).toContain("dois.json");
 
     const detail = getRunDetailOrThrow(run.id);
-    const stageDetail = getStageDetailOrThrow(run.id, "adjudicate");
-
-    expect(detail.activeWorkflow?.source).toBe("telemetry");
-    expect(detail.activeWorkflow?.counts).toEqual({
-      current: 6,
-      total: 31,
-      label: "records",
-    });
-    expect(
-      detail.stages.find((stage) => stage.stageKey === "adjudicate")?.summary
-        ?.headline,
-    ).toBe(detail.activeWorkflow?.summary);
-    expect(stageDetail.workflow.steps[1]?.status).toBe("running");
-    expect(stageDetail.workflow.steps[1]?.detail).toContain("6 of 31");
+    expect(detail.stages.map((stage) => stage.stageKey)).toEqual(
+      stageDefinitions.map((stage) => stage.key),
+    );
+    expect(detail.stages).toHaveLength(6);
+    expect(getDatabase()).toBeTruthy();
   });
 
-  it("enriches failed discover runs with specific log-backed error detail", () => {
-    const run = createRun({
-      id: "run-discover-failure",
+  it("uses canonical progress logs for failure detail", () => {
+    createRun({
+      id: "run-failed",
       seedDoi: "10.1234/seed",
-      targetStage: "adjudicate",
-      config: analysisRunConfigSchema.parse({
-        stopAfterStage: "adjudicate",
-        forceRefresh: false,
-        curateTargetSize: 20,
-        adjudicateModel: "claude-opus-4-6",
-        adjudicateThinking: true,
-        discoverTopN: 5,
-        discoverRank: true,
-        discoverModel: "claude-opus-4-6",
-      }),
+      seedDois: ["10.1234/seed"],
+      targetStage: "report",
+      config: analysisRunConfigSchema.parse({}),
     });
     const database = getDatabase();
-    const logPath = getStageLogPath(run.id, "discover");
-    const artifactPath = join(
-      getStageDirectory(run.id, "discover"),
-      "2026-04-07_001_discovery-results.json",
-    );
-    const failureDetail =
-      "No seeds produced.\n  10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070";
-
-    updateStageStatus(database, run.id, "discover", "failed", {
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
+    updateStageStatus(database, "run-failed", "scope", "failed", {
       errorMessage: "Command exited with code 1.",
+      startedAt: "2026-07-17T12:00:00.000Z",
+      finishedAt: "2026-07-17T12:01:00.000Z",
+      exitCode: 1,
     });
-    setRunStatus(database, run.id, "failed", "discover");
+    setRunStatus(database, "run-failed", "failed", "scope");
     writeFileSync(
-      logPath,
-      serializeProgressEvent({
-        stage: "discover",
-        step: "emit_shortlist",
+      getStageLogPath("run-failed", "scope"),
+      `CF_PROGRESS ${JSON.stringify({
+        stage: "scope",
+        step: "materialize_seed_text",
         status: "failed",
-        detail: failureDetail,
-      }),
-      "utf8",
-    );
-    writeFileSync(
-      artifactPath,
-      JSON.stringify(
-        [
-          {
-            doi: "10.1234/seed",
-            status: "no_fulltext",
-            statusDetail:
-              "Full text unavailable: GROBID HTTP 500 from http://localhost:8070",
-            claims: [],
-            findingCount: 0,
-            totalClaimCount: 0,
-            generatedAt: "2026-04-07T00:00:00.000Z",
-          },
-        ],
-        null,
-        2,
-      ),
+        detail: "Seed acquisition returned no inspectable text.",
+      })}\n`,
       "utf8",
     );
 
-    const detail = getRunDetailOrThrow(run.id);
-    const discover = detail.stages.find(
-      (stage) => stage.stageKey === "discover",
+    const detail = getRunDetailOrThrow("run-failed");
+    expect(detail.activeWorkflow?.source).toBe("telemetry");
+    expect(detail.activeWorkflow?.summary).toBe(
+      "Seed acquisition returned no inspectable text.",
     );
-    const stageDetail = getStageDetailOrThrow(run.id, "discover");
+  });
 
-    expect(discover?.members[0]?.errorMessage).toContain(
-      "Full text unavailable",
+  it("does not surface superseded artifacts while a stage awaits rerun", () => {
+    createRun({
+      id: "run-stale-artifacts",
+      seedDoi: "10.1234/seed",
+      seedDois: ["10.1234/seed"],
+      targetStage: "report",
+      config: analysisRunConfigSchema.parse({}),
+    });
+    const database = getDatabase();
+    const stageDir = join(
+      tempRoot,
+      "data",
+      "runs",
+      "run-stale-artifacts",
+      "stages",
+      "discover",
     );
-    expect(discover?.summary?.headline).toContain("Full text unavailable");
-    expect(detail.activeWorkflow?.summary).toContain("Full text unavailable");
-    expect(stageDetail.errorMessage).toContain("Full text unavailable");
-    expect(stageDetail.workflow.summary).toContain("Full text unavailable");
+    mkdirSync(stageDir, { recursive: true });
+    const supersededPath = join(
+      stageDir,
+      "2026-07-17T12-00-00Z_old_discover.json",
+    );
+    writeFileSync(supersededPath, '{"stageKey":"discover"}\n', "utf8");
+
+    updateStageStatus(
+      database,
+      "run-stale-artifacts",
+      "discover",
+      "succeeded",
+      {
+        primaryArtifactPath: supersededPath,
+        finishedAt: "2026-07-17T12:00:00.000Z",
+        exitCode: 0,
+      },
+    );
+    updateStageStatus(database, "run-stale-artifacts", "discover", "stale", {
+      finishedAt: "2026-07-17T12:05:00.000Z",
+    });
+
+    // Clear pointers the way markDownstreamStagesStale does.
+    database
+      .prepare(
+        `
+        UPDATE analysis_run_stages
+        SET primary_artifact_path = NULL,
+            report_artifact_path = NULL,
+            manifest_path = NULL,
+            summary_json = NULL,
+            status = 'not_started'
+        WHERE run_id = 'run-stale-artifacts' AND stage_key = 'discover'
+      `,
+      )
+      .run();
+
+    const detail = getRunDetailOrThrow("run-stale-artifacts");
+    const discover = detail.stages.find((s) => s.stageKey === "discover");
+    expect(discover?.aggregateStatus).toBe("not_started");
+    expect(discover?.members[0]?.primaryArtifactPath).toBeUndefined();
+    expect(discover?.summary).toBeUndefined();
   });
 });

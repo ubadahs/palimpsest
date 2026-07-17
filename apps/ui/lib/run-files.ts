@@ -29,10 +29,6 @@ export function ensureRunDirectories(runId: string): string {
   return runRoot;
 }
 
-export function getShortlistPath(runId: string): string {
-  return resolve(getRunRoot(runId), "inputs", "shortlist.json");
-}
-
 export function getDoisInputPath(runId: string): string {
   return resolve(getRunRoot(runId), "inputs", "dois.json");
 }
