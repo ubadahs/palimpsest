@@ -1,6 +1,6 @@
 # Pipeline Concepts
 
-This is the compact object model for the pipeline. For exact stage inputs, outputs, and filenames, see [pipeline.md](./pipeline.md) and [artifact-workflow.md](./artifact-workflow.md).
+This is the compact object model for the not-yet-replaced executor. The lean six-stage target is tracked in [status.md](./status.md). For exact current executor inputs, outputs, and filenames, see [pipeline.md](./pipeline.md) and [artifact-workflow.md](./artifact-workflow.md).
 
 ## Object Flow
 
@@ -27,13 +27,13 @@ DOIs
 | audit record | `curate` | `adjudicate` | A sampled record prepared for model or human adjudication |
 | adjudicated record | `adjudicate` | benchmark/review workflows | An audit record with a support-style verdict, rationale, confidence, and retrieval-quality judgment; may include optional `fidelityVectorTrace` diagnostics when explicitly enabled |
 
-## Compatibility Names
+## Current Executor Names
 
-Some filenames preserve older labels:
+The not-yet-replaced executor currently writes:
 
 - `screen` writes `_pre-screen-*`
-- older `extract` artifacts may use `_m2-*`; current runs write `_extraction-*`
+- `extract` writes `_extraction-*`
 - current adjudication artifacts use support-style verdicts
 - optional `fidelityVectorTrace` diagnostics live inside adjudication records and are not a separate stage or artifact family
 
-Those names are compatibility details. The stage keys above remain the stable CLI, UI, and SQLite contract.
+Superseded stage names and artifact suffixes are not accepted.

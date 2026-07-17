@@ -74,15 +74,7 @@ export const claimGroundingStatusValues = [
 export const claimGroundingStatusSchema = z.enum(claimGroundingStatusValues);
 export type ClaimGroundingStatus = z.infer<typeof claimGroundingStatusSchema>;
 
-/**
- * Extended shortlist entry emitted by the redesigned attribution-first discover
- * stage. All fields beyond `doi` and `trackedClaim` are optional so that legacy
- * shortlist files (which only contain those two plus an optional `notes`) remain
- * valid without any migration.
- *
- * `ShortlistInput` uses this schema so that both old and new shortlist files
- * load through the same parser.
- */
+/** Current executor shortlist entry shared by its discovery strategies. */
 export const discoveryShortlistEntrySchema = z
   .object({
     doi: z.string().min(1),
@@ -110,11 +102,7 @@ export type DiscoveryShortlistEntry = z.infer<
   typeof discoveryShortlistEntrySchema
 >;
 
-/**
- * The shortlist file fed from `discover` to `screen`. Both legacy entries
- * (doi + trackedClaim + optional notes) and redesigned entries (which add
- * familyId and other optional fields) parse correctly through this schema.
- */
+/** The current executor shortlist file fed from `discover` to `screen`. */
 export const shortlistInputSchema = z
   .object({
     seeds: z.array(discoveryShortlistEntrySchema).min(1),
@@ -188,18 +176,7 @@ export const duplicateGroupSchema = z
   .passthrough();
 export type DuplicateGroup = z.infer<typeof duplicateGroupSchema>;
 
-function migrateClaimFamilyPreScreenFields(val: unknown): unknown {
-  if (typeof val !== "object" || val === null) return val;
-  const obj = val as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...obj };
-  if ("m2Priority" in obj && !("downstreamPriority" in obj)) {
-    out["downstreamPriority"] = obj["m2Priority"];
-    delete out["m2Priority"];
-  }
-  return out;
-}
-
-const claimFamilyPreScreenObjectSchema = z
+export const claimFamilyPreScreenSchema = z
   .object({
     seed: seedPaperInputSchema,
     resolvedSeedPaper: undefinedable(resolvedPaperSchema),
@@ -219,10 +196,6 @@ const claimFamilyPreScreenObjectSchema = z
   })
   .passthrough();
 
-export const claimFamilyPreScreenSchema = z.preprocess(
-  migrateClaimFamilyPreScreenFields,
-  claimFamilyPreScreenObjectSchema,
-);
 export type ClaimFamilyPreScreen = z.infer<typeof claimFamilyPreScreenSchema>;
 
 export const preScreenResultsSchema = z.array(claimFamilyPreScreenSchema);

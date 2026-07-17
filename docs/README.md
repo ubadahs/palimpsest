@@ -13,7 +13,7 @@ If design documents disagree on scope, follow this order:
 
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
 - [runtime-setup.md](./runtime-setup.md) — environment variables, external services, required versus optional dependencies
-- [pipeline.md](./pipeline.md) — canonical stage-by-stage workflow guide
+- [pipeline.md](./pipeline.md) — current executor guide plus canonical six-stage target
 - [pipeline-concepts.md](./pipeline-concepts.md) — short object-flow glossary for the pipeline
 
 ## If You Want To Run Or Inspect The Tool

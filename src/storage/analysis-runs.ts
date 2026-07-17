@@ -116,12 +116,11 @@ export function createAnalysisRun(
   database: Database.Database,
   input: CreateAnalysisRunInput,
 ): AnalysisRun {
+  const isManualClaim = Boolean(input.trackedClaim?.trim());
   const config = analysisRunConfigSchema.parse(input.config);
   const runRoot = resolve(input.runRoot);
   const inputDirectory = resolve(runRoot, "inputs");
   mkdirSync(inputDirectory, { recursive: true });
-
-  const isManualClaim = Boolean(input.trackedClaim?.trim());
 
   if (isManualClaim) {
     // Manual claim: write shortlist directly, discover will be pre-marked succeeded.
@@ -481,7 +480,6 @@ export function canRunFromStage(
 
 /**
  * When pre-screen succeeded but claim grounding blocks downstream stages, return a human-readable reason.
- * Legacy artifacts without `claimGrounding` do not block.
  */
 export function getClaimGateBlockReasonForRun(
   preScreenPrimaryArtifactPath: string | undefined,
@@ -494,22 +492,18 @@ export function getClaimGateBlockReasonForRun(
     return undefined;
   }
 
-  try {
-    const raw: unknown = JSON.parse(
-      readFileSync(preScreenPrimaryArtifactPath, "utf8"),
-    );
-    const families = preScreenResultsSchema.parse(raw);
-    const family = families.find(
-      (f) => f.seed.doi.toLowerCase() === seedDoi.trim().toLowerCase(),
-    );
-    if (!family || !claimFamilyBlocksDownstream(family)) {
-      return undefined;
-    }
-    const cg = family.claimGrounding;
-    return `Claim grounding blocks downstream stages (${cg?.status ?? "unknown"}): ${cg?.detailReason ?? "see pre-screen report"}`;
-  } catch {
+  const raw: unknown = JSON.parse(
+    readFileSync(preScreenPrimaryArtifactPath, "utf8"),
+  );
+  const families = preScreenResultsSchema.parse(raw);
+  const family = families.find(
+    (entry) => entry.seed.doi.toLowerCase() === seedDoi.trim().toLowerCase(),
+  );
+  if (!family || !claimFamilyBlocksDownstream(family)) {
     return undefined;
   }
+  const grounding = family.claimGrounding;
+  return `Claim grounding blocks downstream stages (${grounding?.status ?? "unknown"}): ${grounding?.detailReason ?? "see pre-screen report"}`;
 }
 
 export function parseStoredConfig(raw: string): AnalysisRunConfig {

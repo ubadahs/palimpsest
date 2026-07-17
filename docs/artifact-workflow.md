@@ -1,12 +1,12 @@
 # Artifact Workflow
 
-This document defines the storage contract for Palimpsest artifacts: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
 ## Core Principles
 
-- JSON artifacts are the canonical machine outputs
+- current-executor primary JSON artifacts are its authoritative machine outputs until lean stage writers replace them
 - primary JSON artifacts get adjacent manifest files
 - Markdown companions are for inspection, not for machine integration
 - diagnostic sidecars preserve provenance and debugging context, but most are not consumed by downstream stages
@@ -19,7 +19,7 @@ Artifacts fall into four roles:
 
 | Role | Meaning |
 |------|---------|
-| `primary` | Canonical machine output for a stage, or a machine handoff consumed by a later stage |
+| `primary` | Authoritative machine output for a current-executor stage, or a machine handoff consumed by a later stage |
 | `report` | Human-readable Markdown inspection output |
 | `diagnostic` | Provenance, trace, debugging, or review-support output that is not the main downstream contract |
 | `manifest` | Reproducibility metadata written beside each primary JSON artifact |
@@ -38,15 +38,15 @@ adjudicate produces adjudicated records
 
 The additional sidecars make those transitions inspectable; they do not add extra pipeline stages.
 
-## Canonical Stage Outputs
+## Current Executor Outputs
 
-Use the stage key as the canonical name. Some artifact readers intentionally preserve older suffixes for compatibility.
+The current executor uses the stage keys below. Artifact readers accept only the declared current suffixes.
 
 | Order | Stage key | CLI command | UI run directory | Primary machine output | Report | Companion artifacts |
 |------|-----------|-------------|------------------|------------------------|--------|---------------------|
 | 0 | `discover` | `discover` | `00-discover/` | `*_discovery-results.json`; `*_discovery-shortlist.json` is the downstream shortlist handoff | `*_discovery-report.md` | Diagnostic: `*_discovery-neighborhood.json`, `*_discovery-probe.json`, `*_discovery-mentions.json`, `*_discovery-attributed-claims.json`, `*_discovery-family-candidates.json`, `*_discovery-grounding-trace.json` |
 | 1 | `screen` | `screen` | `01-screen/` | `*_pre-screen-results.json` | `*_pre-screen-report.md` | Diagnostic: `*_pre-screen-grounding-trace.json` |
-| 2 | `extract` | `extract` | `02-extract/` | `*_extraction-results.json` | `*_extraction-report.md` | Diagnostic: `*_extraction-inspection.md`; legacy `_m2-*` suffixes remain readable |
+| 2 | `extract` | `extract` | `02-extract/` | `*_extraction-results.json` | `*_extraction-report.md` | Diagnostic: `*_extraction-inspection.md` |
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
@@ -56,7 +56,7 @@ Every primary JSON artifact also gets:
 
 - `*_manifest.json`
 
-The canonical program definition for stage keys, ordering, suffixes, and companion-artifact roles lives in [src/contract/stages.ts](../src/contract/stages.ts).
+The temporary executor registry for stage keys, ordering, suffixes, and companion-artifact roles lives in [src/contract/stages.ts](../src/contract/stages.ts). The canonical six-stage vocabulary and target artifact envelopes live in [src/contract/lean-stages.ts](../src/contract/lean-stages.ts) and [src/contract/lean-artifacts.ts](../src/contract/lean-artifacts.ts).
 
 ## Where Artifacts Are Written
 
@@ -66,7 +66,7 @@ Each stage command writes timestamped files into its chosen output directory. Th
 
 ### `pipeline`
 
-The `pipeline` command writes into one chosen output root, but it now mirrors the canonical per-stage layout used by UI runs:
+The current `pipeline` command writes into one chosen output root and mirrors the temporary executor layout used by UI runs:
 
 - `00-discover/`
 - `01-screen/`
@@ -76,7 +76,7 @@ The `pipeline` command writes into one chosen output root, but it now mirrors th
 - `05-curate/`
 - `06-adjudicate/`
 
-Within each stage directory, pipeline uses the same canonical filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_extraction-results.json`.
+Within each stage directory, pipeline uses the same declared current-executor filename suffixes as the standalone stage commands. Family-oriented stages write one artifact set per family inside that stage directory, for example `*_family-1_extraction-results.json`.
 
 Pipeline runs also emit a top-level `*_run-cost.json` file. This is a centralized run-level telemetry summary for all Anthropic calls in the run, including discovery, screen grounding/filtering, evidence reranking, adjudication, and optional fidelity vector tracing. The summary includes attempted, successful, failed, and billable call counts plus per-stage rollups. It also includes `byPurpose` per-purpose breakdowns (token counts, cost, and `exactCacheHits`) and `totalExactCacheHits` at the top level. Fidelity vector calls appear under the separate `"fidelity-vector"` purpose.
 
@@ -99,7 +99,7 @@ The `inputs/` directory contains the run entry artifact:
 - `dois.json` for DOI-first runs
 - `shortlist.json` for manual-claim runs or runs that already have a shortlist
 
-The UI does not rename or reshape canonical artifact filenames. It points each stage row at the latest successful primary, report, and manifest artifact already emitted by the CLI.
+The UI does not rename or reshape current-executor artifact filenames. It points each stage row at the latest successful primary, report, and manifest artifact already emitted by the CLI.
 
 Per-stage log files live under `data/runs/<runId>/logs/` with the stage slug as the filename.
 
@@ -149,13 +149,7 @@ This validation applies to:
 - upstream JSON artifacts passed into `extract`, `classify`, `evidence`, `curate`, and `adjudicate`
 - benchmark delta and compare inputs
 
-Historical artifacts remain loadable as long as their payload shape is still compatible with the current schema.
-
-This includes:
-
-- legacy pre-screen grounding traces keyed by DOI
-- older discovery summaries without dedupe metadata
-- older run-cost files that only recorded total cost and call count
+Lean stage artifacts and discovery handoffs reject superseded shapes rather than converting them. Some temporary executor loaders still recognize their own prior formats; those readers are not part of the lean contracts and will be deleted with the corresponding executor stages. Scientific raw inputs and provenance are retained separately from software-contract compatibility.
 
 ## Parsing And Evidence Metadata
 
@@ -171,7 +165,7 @@ New runs normalize JATS XML and GROBID TEI into one internal parsed-document sha
 - `references`
 - `mentions`
 
-Historical artifacts that still reference legacy `pdf_text` remain loadable. New PDF-backed runs should emit `grobid_tei_xml`.
+The temporary executor still recognizes stored `pdf_text`; this reader is not part of the lean artifact contract. New PDF-backed runs emit `grobid_tei_xml`, and the old reader should be removed when parsing moves into the lean workflow.
 
 ### Full-text acquisition provenance
 
@@ -186,7 +180,7 @@ The shared provenance shape includes:
 - `fullTextFormat`
 - ordered `attempts[]` with probe classification, URL, HTTP status, and failure reason when relevant
 
-This provenance is the canonical answer to "how did we get this parsed paper?" and should be preferred over legacy cache fetch-status fields.
+This provenance is the authoritative answer to "how did we get this parsed paper?" and should be preferred over superseded cache fetch-status fields.
 
 ### Evidence spans
 
@@ -233,17 +227,17 @@ New pre-screen grounding traces use:
 - `records[]`
 - each entry carries `seedDoiKey` plus the full trace record
 
-This avoids the old lossy `recordsBySeedDoi` map, which could overwrite multiple tracked claims that shared the same DOI. Legacy DOI-keyed traces are still readable through the current loader.
+This avoids the lossy `recordsBySeedDoi` map, which could overwrite multiple tracked claims that shared the same DOI. The temporary executor still reads that prior shape; the lean contracts do not, and the reader should disappear with `screen`.
 
 ## Run-Scoped Reuse
 
 Pipeline execution can reuse expensive work across equivalent families within the same run:
 
-- attribution-first `discover` writes `inputs/discovery-handoffs.json` so `screen` and `extract` can reuse resolved seed metadata, citing-paper neighborhoods, harvested mentions, and family grounding traces on fresh runs and on resume when the bundle is available
+- attribution-first `discover` writes the required, versioned `inputs/discovery-handoffs.json` so `screen` and `extract` can reuse resolved seed metadata, citing-paper neighborhoods, harvested mentions, and family grounding traces on fresh runs and strict resume
 - `extract` reuses citation-context extraction for identical citing-paper neighborhoods
 - `classify` reuses packet construction for the same effective neighborhood inputs
 
-Artifacts remain canonical per family even when computation was reused. The discovery handoff bundle is a reusable provenance artifact, not a replacement for stage primary JSON outputs. The extract/classify cache is run-scoped only. A separate persistent exact-result LLM cache (`llm_result_cache` table) provides cross-run reuse for identical LLM requests — see [caching.md](./caching.md) for details.
+Current-executor primary artifacts remain authoritative per family even when computation was reused. The discovery handoff bundle is a reusable provenance artifact, not a replacement for stage primary JSON outputs. The extract/classify cache is run-scoped only. A separate persistent exact-result LLM cache (`llm_result_cache` table) provides cross-run reuse for identical LLM requests — see [caching.md](./caching.md) for details.
 
 ## Benchmark Workflow
 
