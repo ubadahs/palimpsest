@@ -29,16 +29,8 @@ export const fidelityTopLabelValues = ["F", "D", "E", "U"] as const;
 export const fidelityTopLabelSchema = z.enum(fidelityTopLabelValues);
 export type FidelityTopLabel = z.infer<typeof fidelityTopLabelSchema>;
 
-export const distortionSubtypeValues = ["D1", "D2", "D3", "D4", "D5"] as const;
-
-export const distortionSubtypeSchema = z.enum(distortionSubtypeValues);
-export type DistortionSubtype = z.infer<typeof distortionSubtypeSchema>;
-
-export const errorSubtypeValues = ["E1", "E2", "E3"] as const;
-
-export const errorSubtypeSchema = z.enum(errorSubtypeValues);
-export type ErrorSubtype = z.infer<typeof errorSubtypeSchema>;
-
-// Note: EvidenceVsInterpretation and ConfidenceLevel were removed as unused.
-// Confidence is defined in extraction.ts. Reintroduce here if needed for
-// future fidelity classification phases.
+// Note: DistortionSubtype (D1-D5), ErrorSubtype (E1-E3), EvidenceVsInterpretation,
+// and ConfidenceLevel were removed as unused. The subtype codes are defined in the
+// PRD (docs/conception/prd.md) and can be reintroduced with an explicit label mapping
+// if fidelity classification advances to subtype granularity. Confidence is defined
+// in extraction.ts.
