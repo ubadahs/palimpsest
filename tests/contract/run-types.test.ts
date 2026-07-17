@@ -3,66 +3,58 @@ import { describe, expect, it } from "vitest";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 
 describe("analysis run config", () => {
-  it("defaults fidelity vector tracing off with conservative settings", () => {
+  it("defaults the canonical nested stage configuration", () => {
     const config = analysisRunConfigSchema.parse({});
 
-    expect(config.adjudicateFidelityVectorTrace).toBe(false);
-    expect(config.fidelityVectorSamples).toBe(3);
-    expect(config.fidelityVectorModel).toBe("claude-sonnet-4-6");
-    expect(config.fidelityVectorTemperature).toBe(0.7);
-    expect(config.adjudicationMode).toBe("categorical");
-    expect(config.vectorFirstInitialSamples).toBe(1);
-    expect(config.vectorFirstMaxSamples).toBe(3);
-    expect(config.vectorFirstModel).toBe("claude-sonnet-4-6");
-    expect(config.vectorFirstTemperature).toBe(0.7);
-    expect(config.vectorFirstConcurrency).toBe(2);
+    expect(config.stopAfterStage).toBe("report");
+    expect(config.discover.neighborhoodProvider).toBe("openalex");
+    expect(config.scope.groundingModel).toBe("claude-sonnet-4-6");
+    expect(config.prepare.classifier).toBe("deterministic");
+    expect(config.evidence.rerankEnabled).toBe(false);
+    expect(config.adjudicate.model).toBe("claude-opus-4-6");
   });
 
-  it("accepts fidelity vector trace overrides", () => {
+  it("accepts nested canonical stage overrides", () => {
     const config = analysisRunConfigSchema.parse({
-      adjudicateFidelityVectorTrace: true,
-      fidelityVectorSamples: 5,
-      fidelityVectorModel: "custom-vector-model",
-      fidelityVectorTemperature: 0.2,
+      stopAfterStage: "evidence",
+      discover: { probeBudget: 12 },
+      evidence: {
+        rerankEnabled: true,
+        rerankModel: "fixture-reranker",
+        rerankTopN: 3,
+        bm25CandidateLimit: 8,
+        selectionLimit: 3,
+      },
+      adjudicate: { model: "fixture-adjudicator", thinking: false },
     });
 
     expect(config).toMatchObject({
-      adjudicateFidelityVectorTrace: true,
-      fidelityVectorSamples: 5,
-      fidelityVectorModel: "custom-vector-model",
-      fidelityVectorTemperature: 0.2,
-    });
-  });
-
-  it("accepts vector-first overrides", () => {
-    const config = analysisRunConfigSchema.parse({
-      adjudicationMode: "vector_first",
-      vectorFirstInitialSamples: 2,
-      vectorFirstMaxSamples: 4,
-      vectorFirstModel: "custom-vector-first-model",
-      vectorFirstTemperature: 0.4,
-      vectorFirstConcurrency: 3,
-    });
-
-    expect(config).toMatchObject({
-      adjudicationMode: "vector_first",
-      vectorFirstInitialSamples: 2,
-      vectorFirstMaxSamples: 4,
-      vectorFirstModel: "custom-vector-first-model",
-      vectorFirstTemperature: 0.4,
-      vectorFirstConcurrency: 3,
+      stopAfterStage: "evidence",
+      discover: { probeBudget: 12 },
+      evidence: { rerankEnabled: true, rerankTopN: 3 },
+      adjudicate: { model: "fixture-adjudicator", thinking: false },
     });
   });
 
   it("rejects superseded config fields and stage names", () => {
     expect(
       analysisRunConfigSchema.safeParse({
-        m5TargetSize: 10,
+        adjudicationMode: "vector_first",
       }).success,
     ).toBe(false);
     expect(
       analysisRunConfigSchema.safeParse({
-        stopAfterStage: "m2-extract",
+        screen: { groundingModel: "obsolete" },
+      }).success,
+    ).toBe(false);
+    expect(
+      analysisRunConfigSchema.safeParse({
+        stopAfterStage: "extract",
+      }).success,
+    ).toBe(false);
+    expect(
+      analysisRunConfigSchema.safeParse({
+        seedPdfPath: "/tmp/legacy-alias.pdf",
       }).success,
     ).toBe(false);
   });

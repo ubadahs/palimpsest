@@ -30,16 +30,11 @@ export type StageReporter = {
 export function createStageReporter(
   stageKey: StageKey,
   outputDir: string,
-  familyIndex = 0,
 ): StageReporter {
   const def = stageDefinitions.find((s) => s.key === stageKey)!;
-  const fileName =
-    familyIndex > 0
-      ? `${def.slug}.f${String(familyIndex)}.log`
-      : `${def.slug}.log`;
+  const fileName = `${def.slug}.log`;
   const logPath = resolve(outputDir, "logs", fileName);
-  const tag =
-    familyIndex > 0 ? `F${String(familyIndex + 1)}:${stageKey}` : stageKey;
+  const tag = stageKey;
 
   function writeToLog(line: string): void {
     appendFileSync(logPath, line + "\n", "utf8");

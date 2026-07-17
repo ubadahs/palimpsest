@@ -4,10 +4,15 @@ import { fileURLToPath } from "node:url";
 
 import type Database from "better-sqlite3";
 
+import { analysisRunConfigSchema } from "../contract/run-types.js";
+import { stageKeyValues } from "../contract/stages.js";
+
 const migrationsDirectoryPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "migrations",
 );
+
+const canonicalStageKeys = new Set<string>(stageKeyValues);
 
 type MigrationFile = {
   name: string;
@@ -54,6 +59,52 @@ function getAppliedMigrationNames(database: Database.Database): Set<string> {
   return new Set(rows.map((row) => row.name));
 }
 
+/**
+ * Delete run-registry rows whose stored config or stage vocabulary cannot be
+ * loaded by the canonical six-stage executor. Preserves paper/LLM caches.
+ */
+export function purgeUnsupportedAnalysisRuns(
+  database: Database.Database,
+): number {
+  const rows = database
+    .prepare("SELECT id, target_stage, config_json FROM analysis_runs")
+    .all() as Array<{ id: string; target_stage: string; config_json: string }>;
+
+  const obsoleteIds: string[] = [];
+  for (const row of rows) {
+    if (!canonicalStageKeys.has(row.target_stage)) {
+      obsoleteIds.push(row.id);
+      continue;
+    }
+    try {
+      const config = analysisRunConfigSchema.parse(
+        JSON.parse(row.config_json) as unknown,
+      );
+      if (config.stopAfterStage !== row.target_stage) {
+        obsoleteIds.push(row.id);
+      }
+    } catch {
+      obsoleteIds.push(row.id);
+    }
+  }
+
+  if (obsoleteIds.length === 0) {
+    return 0;
+  }
+
+  const deleteStages = database.prepare(
+    "DELETE FROM analysis_run_stages WHERE run_id = ?",
+  );
+  const deleteRun = database.prepare("DELETE FROM analysis_runs WHERE id = ?");
+  database.transaction(() => {
+    for (const id of obsoleteIds) {
+      deleteStages.run(id);
+      deleteRun.run(id);
+    }
+  })();
+  return obsoleteIds.length;
+}
+
 export function runMigrations(database: Database.Database): MigrationRunResult {
   ensureSchemaMigrationsTable(database);
 
@@ -73,6 +124,8 @@ export function runMigrations(database: Database.Database): MigrationRunResult {
 
     applyMigration();
   }
+
+  purgeUnsupportedAnalysisRuns(database);
 
   return {
     appliedMigrations: pendingMigrations.map(({ name }) => ({ name })),

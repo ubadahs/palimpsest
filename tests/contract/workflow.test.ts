@@ -26,12 +26,12 @@ describe("stage workflow definitions", () => {
 describe("parseProgressEventLine", () => {
   it("parses valid telemetry lines", () => {
     const event = parseProgressEventLine(
-      `${progressLogPrefix}{"stage":"extract","step":"fetch_and_parse_full_text","status":"running","current":2,"total":6}`,
+      `${progressLogPrefix}{"stage":"prepare","step":"build_records","status":"running","current":2,"total":6}`,
     );
 
     expect(event).toMatchObject({
-      stage: "extract",
-      step: "fetch_and_parse_full_text",
+      stage: "prepare",
+      step: "build_records",
       status: "running",
       current: 2,
       total: 6,
@@ -41,7 +41,7 @@ describe("parseProgressEventLine", () => {
   it("ignores malformed telemetry lines safely", () => {
     expect(
       parseProgressEventLine(
-        `${progressLogPrefix}{"stage":"extract","step":true}`,
+        `${progressLogPrefix}{"stage":"prepare","step":true}`,
       ),
     ).toBeUndefined();
     expect(parseProgressEventLine("plain log line")).toBeUndefined();
@@ -54,8 +54,8 @@ describe("buildStageWorkflowSnapshot", () => {
       stageKey: "adjudicate",
       stageStatus: "running",
       logContent: [
-        `${progressLogPrefix}{"stage":"adjudicate","step":"load_active_records","status":"completed","detail":"31 active records ready"}`,
-        `${progressLogPrefix}{"stage":"adjudicate","step":"adjudicate_records","status":"running","detail":"Adjudicating record 6 of 31","current":6,"total":31}`,
+        `${progressLogPrefix}{"stage":"adjudicate","step":"apply_gates","status":"completed","detail":"31 records gated or eligible"}`,
+        `${progressLogPrefix}{"stage":"adjudicate","step":"adjudicate_eligible","status":"running","detail":"Adjudicating record 6 of 31","current":6,"total":31}`,
       ].join("\n"),
     });
 
@@ -66,8 +66,8 @@ describe("buildStageWorkflowSnapshot", () => {
       label: "records",
     });
     expect(snapshot.steps[0]?.status).toBe("completed");
-    expect(snapshot.steps[1]?.status).toBe("running");
-    expect(snapshot.steps[1]?.detail).toContain("6 of 31");
+    expect(snapshot.steps[2]?.status).toBe("running");
+    expect(snapshot.steps[2]?.detail).toContain("6 of 31");
   });
 
   it("marks a step failed when telemetry reports failure", () => {
@@ -76,18 +76,18 @@ describe("buildStageWorkflowSnapshot", () => {
       stageStatus: "failed",
       errorMessage: "Command exited with code 1.",
       logContent: [
-        `${progressLogPrefix}{"stage":"evidence","step":"resolve_cited_paper","status":"completed","detail":"Resolved cited paper"}`,
-        `${progressLogPrefix}{"stage":"evidence","step":"fetch_and_parse_cited_full_text","status":"failed","detail":"Parsing failed"}`,
+        `${progressLogPrefix}{"stage":"evidence","step":"verify_lineage","status":"completed","detail":"Verified ancestors"}`,
+        `${progressLogPrefix}{"stage":"evidence","step":"chunk_seed_text","status":"failed","detail":"Seed text parsing failed"}`,
       ].join("\n"),
     });
 
     expect(snapshot.source).toBe("telemetry");
     expect(
-      snapshot.steps.find(
-        (step) => step.id === "fetch_and_parse_cited_full_text",
-      )?.status,
+      snapshot.steps.find((step) => step.id === "chunk_seed_text")?.status,
     ).toBe("failed");
-    expect(snapshot.summary).toBe("Parsing failed");
+    expect(snapshot.summary).toBe(
+      "Evidence retrieval stopped before outcomes were finalized.",
+    );
   });
 
   it("summarizes multiline discover failures using the specific reason", () => {
@@ -96,32 +96,32 @@ describe("buildStageWorkflowSnapshot", () => {
       stageStatus: "failed",
       errorMessage: "Command exited with code 1.",
       logContent: [
-        `${progressLogPrefix}{"stage":"discover","step":"emit_shortlist","status":"failed","detail":"No seeds produced.\\n  10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070"}`,
+        `${progressLogPrefix}{"stage":"discover","step":"select_candidates","status":"failed","detail":"No candidates selected.\\n  10.1234/seed: citation-index response was incomplete"}`,
       ].join("\n"),
     });
 
     expect(snapshot.summary).toBe(
-      "10.1234/seed: Full text unavailable: GROBID HTTP 500 from http://localhost:8070",
+      "Discover stopped before its ledger was finalized.",
     );
   });
 });
 
 describe("buildFallbackStageWorkflowSnapshot", () => {
-  it("infers honest fallback states for old runs without telemetry", () => {
+  it("infers honest fallback states without telemetry", () => {
     const pending = buildFallbackStageWorkflowSnapshot({
-      stageKey: "screen",
+      stageKey: "scope",
       stageStatus: "not_started",
     });
     const running = buildFallbackStageWorkflowSnapshot({
-      stageKey: "screen",
+      stageKey: "scope",
       stageStatus: "running",
     });
     const succeeded = buildFallbackStageWorkflowSnapshot({
-      stageKey: "screen",
+      stageKey: "scope",
       stageStatus: "succeeded",
     });
     const failed = buildFallbackStageWorkflowSnapshot({
-      stageKey: "screen",
+      stageKey: "scope",
       stageStatus: "interrupted",
       errorMessage: "Interrupted during startup reconciliation.",
     });

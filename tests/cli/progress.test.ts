@@ -14,12 +14,12 @@ describe("createTrackedCliProgressReporter", () => {
 
   it("emits a failed progress line for the running step on reportCliFailure", () => {
     const { progress, reportCliFailure } =
-      createTrackedCliProgressReporter("classify");
+      createTrackedCliProgressReporter("prepare");
 
-    progress.startStep("classify_citation_roles", {
+    progress.startStep("classify_records", {
       detail: "Working",
     });
-    reportCliFailure(new Error("classification crashed"));
+    reportCliFailure(new Error("preparation crashed"));
 
     expect(console.info).toHaveBeenCalled();
     const args = vi.mocked(console.info).mock.calls.at(-1);
@@ -30,12 +30,12 @@ describe("createTrackedCliProgressReporter", () => {
     }
     const event = parseProgressEventLine(message);
     expect(event?.status).toBe("failed");
-    expect(event?.step).toBe("classify_citation_roles");
-    expect(event?.detail).toContain("classification crashed");
+    expect(event?.step).toBe("classify_records");
+    expect(event?.detail).toContain("preparation crashed");
   });
 
   it("uses the first workflow step when failure happens before any telemetry", () => {
-    const { reportCliFailure } = createTrackedCliProgressReporter("screen");
+    const { reportCliFailure } = createTrackedCliProgressReporter("scope");
     reportCliFailure(new Error("early"));
 
     const args = vi.mocked(console.info).mock.calls.at(-1);
@@ -45,7 +45,7 @@ describe("createTrackedCliProgressReporter", () => {
       throw new Error("expected console.info string");
     }
     const event = parseProgressEventLine(message);
-    expect(event?.step).toBe("resolve_seed_paper");
+    expect(event?.step).toBe("account_candidates");
     expect(event?.detail).toContain("early");
   });
 });
