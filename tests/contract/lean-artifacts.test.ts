@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   adjudicateArtifactSchema,
+  artifactReferenceSchema,
   appendOnlyDecisionSchema,
   appendOnlyExclusionSchema,
   buildAttributedClaimRecordId,
@@ -20,14 +21,17 @@ import {
   discoverArtifactPayloadSchema,
   discoverArtifactSchema,
   evidenceArtifactSchema,
+  leanArtifactIdSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
   leanStageArtifactSchema,
   parseLeanStageArtifact,
   prepareArtifactSchema,
   reportArtifactSchema,
+  sha256DigestSchema,
   scopedFamilySchema,
   scopeArtifactSchema,
+  stableIdentifierSchema,
   type AppendOnlyDecision,
   type AppendOnlyExclusion,
   type ArtifactReference,
@@ -35,6 +39,12 @@ import {
   type LeanExecutionMetadata,
   type LeanStageArtifact,
 } from "../../src/contract/lean-artifacts.js";
+import {
+  artifactReferenceSchema as primitiveArtifactReferenceSchema,
+  leanArtifactIdSchema as primitiveLeanArtifactIdSchema,
+  sha256DigestSchema as primitiveSha256DigestSchema,
+  stableIdentifierSchema as primitiveStableIdentifierSchema,
+} from "../../src/contract/lean-artifact-primitives.js";
 import {
   buildStableId,
   canonicalSha256,
@@ -81,6 +91,27 @@ function asReference(
     contentHash: artifact.contentHash,
     role,
     canonicalStage: artifact.canonicalStage,
+  };
+}
+
+function lineageReference<
+  Role extends "canonical-evidence-input" | "canonical-prepare-input",
+  Stage extends "evidence" | "prepare",
+>(
+  artifact: LeanStageArtifact,
+  role: Role,
+  canonicalStage: Stage,
+): {
+  artifactId: string;
+  contentHash: string;
+  role: Role;
+  canonicalStage: Stage;
+} {
+  return {
+    artifactId: artifact.artifactId,
+    contentHash: artifact.contentHash,
+    role,
+    canonicalStage,
   };
 }
 
@@ -579,8 +610,32 @@ function buildAllStageArtifacts() {
   const adjudicate = createLeanStageArtifact({
     ...baseEnvelope(),
     canonicalStage: "adjudicate",
-    inputArtifacts: [asReference(evidence, "record-evidence")],
-    payload: { records: [] },
+    inputArtifacts: [
+      lineageReference(evidence, "canonical-evidence-input", "evidence"),
+      lineageReference(prepare, "canonical-prepare-input", "prepare"),
+    ],
+    payload: {
+      lineage: {
+        runId: "run-contract-test",
+        evidenceArtifact: lineageReference(
+          evidence,
+          "canonical-evidence-input",
+          "evidence",
+        ),
+        prepareArtifact: lineageReference(
+          prepare,
+          "canonical-prepare-input",
+          "prepare",
+        ),
+      },
+      method: {
+        methodId: "canonical-categorical-adjudicate-v1",
+        strategy: "single_categorical",
+        calibrationStatus: "uncalibrated",
+        routing: "none",
+      },
+      records: [],
+    },
   });
   const report = createLeanStageArtifact({
     ...baseEnvelope(),
@@ -599,6 +654,13 @@ function buildAllStageArtifacts() {
 }
 
 describe("lean stage artifact contracts", () => {
+  it("re-exports the single canonical artifact primitive definitions", () => {
+    expect(artifactReferenceSchema).toBe(primitiveArtifactReferenceSchema);
+    expect(leanArtifactIdSchema).toBe(primitiveLeanArtifactIdSchema);
+    expect(sha256DigestSchema).toBe(primitiveSha256DigestSchema);
+    expect(stableIdentifierSchema).toBe(primitiveStableIdentifierSchema);
+  });
+
   it("validates a versioned envelope for every canonical stage", () => {
     const artifacts = buildAllStageArtifacts();
 
@@ -748,7 +810,7 @@ describe("lean stage artifact contracts", () => {
     }
   });
 
-  it("captures model response artifacts as immutable execution provenance", () => {
+  it("rejects model provenance when Adjudicate has no modeled outcomes", () => {
     const requestArtifact: ArtifactReference = {
       artifactId: buildStableId("request", {
         provider: "anthropic",
@@ -765,39 +827,72 @@ describe("lean stage artifact contracts", () => {
       contentHash: canonicalSha256({ response: "raw immutable response" }),
       role: "model-response",
     };
-    const artifact = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "adjudicate",
-      provenance: {
-        ...provenance,
-        prompts: [
-          {
-            promptId: "adjudication",
-            version: "v1",
-            contentHash: canonicalSha256("prompt text"),
-          },
+    const artifacts = buildAllStageArtifacts();
+    expect(() =>
+      createLeanStageArtifact({
+        ...baseEnvelope(),
+        canonicalStage: "adjudicate",
+        inputArtifacts: [
+          lineageReference(
+            artifacts.evidence,
+            "canonical-evidence-input",
+            "evidence",
+          ),
+          lineageReference(
+            artifacts.prepare,
+            "canonical-prepare-input",
+            "prepare",
+          ),
         ],
-        models: [
-          {
-            provider: "anthropic",
-            model: "test-model",
-            requestHash: canonicalSha256({ prompt: "prompt text" }),
-            requestArtifact,
-            responseArtifact,
+        provenance: {
+          ...provenance,
+          prompts: [
+            {
+              promptId: "adjudication",
+              version: "v1",
+              contentHash: canonicalSha256("prompt text"),
+            },
+          ],
+          models: [
+            {
+              provider: "anthropic",
+              model: "test-model",
+              requestHash: canonicalSha256({ prompt: "prompt text" }),
+              requestArtifact,
+              responseArtifact,
+            },
+          ],
+        },
+        execution: {
+          kind: "model",
+          implementation: "adjudicator-v1",
+          replayableFromInputs: false,
+          responseArtifacts: [responseArtifact],
+        },
+        payload: {
+          lineage: {
+            runId: "run-contract-test",
+            evidenceArtifact: lineageReference(
+              artifacts.evidence,
+              "canonical-evidence-input",
+              "evidence",
+            ),
+            prepareArtifact: lineageReference(
+              artifacts.prepare,
+              "canonical-prepare-input",
+              "prepare",
+            ),
           },
-        ],
-      },
-      execution: {
-        kind: "model",
-        implementation: "adjudicator-v1",
-        replayableFromInputs: false,
-        responseArtifacts: [responseArtifact],
-      },
-      payload: { records: [] },
-    });
-
-    expect(adjudicateArtifactSchema.safeParse(artifact).success).toBe(true);
-    expect(artifact.execution.kind).toBe("model");
+          method: {
+            methodId: "canonical-categorical-adjudicate-v1",
+            strategy: "single_categorical",
+            calibrationStatus: "uncalibrated",
+            routing: "none",
+          },
+          records: [],
+        },
+      }),
+    ).toThrow(/Fully gated Adjudicate/);
   });
 });
 

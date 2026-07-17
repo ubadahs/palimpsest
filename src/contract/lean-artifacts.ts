@@ -4,7 +4,6 @@ import {
   adjudicationVerdictSchema,
   confidenceSchema,
   evaluationModeSchema,
-  retrievalQualitySchema,
   type CitationRole,
 } from "../domain/types.js";
 import { parsedBlockKindSchema } from "../domain/parsing.js";
@@ -15,36 +14,55 @@ import {
   canonicalSha256,
 } from "../shared/stable-identity.js";
 import {
-  canonicalStageKeySchema,
-  type CanonicalStageKey,
-} from "./lean-stages.js";
+  adjudicateArtifactPayloadSchema,
+  validateAdjudicateArtifactLineage,
+} from "./canonical-adjudicate.js";
+import {
+  artifactReferenceSchema,
+  leanArtifactIdSchema,
+  sha256DigestSchema,
+  stableIdentifierSchema,
+  type ArtifactReference,
+} from "./lean-artifact-primitives.js";
+import type { CanonicalStageKey } from "./lean-stages.js";
+
+export {
+  artifactReferenceSchema,
+  leanArtifactIdSchema,
+  sha256DigestSchema,
+  stableIdentifierSchema,
+  type ArtifactReference,
+} from "./lean-artifact-primitives.js";
+export {
+  adjudicateArtifactPayloadSchema,
+  adjudicateFailureCodeSchema,
+  adjudicateFatalFailureCodeSchema,
+  adjudicateGateCodeSchema,
+  adjudicateLineageSchema,
+  adjudicateModelExecutionSchema,
+  adjudicateNonfatalFailureCodeSchema,
+  adjudicateRecordOutcomeSchema,
+  buildAdjudicationResultId,
+  canonicalAdjudicateMethod,
+  canonicalAdjudicateMethodId,
+  canonicalAdjudicateMethodSchema,
+  canonicalAdjudicateModelOutputSchema,
+  hashCanonicalAdjudicatePrompt,
+  hashCanonicalAdjudicateRequest,
+  type AdjudicateArtifactPayload,
+  type AdjudicateFailureCode,
+  type AdjudicateFatalFailureCode,
+  type AdjudicateGateCode,
+  type AdjudicateLineage,
+  type AdjudicateModelExecution,
+  type AdjudicateNonfatalFailureCode,
+  type AdjudicateRecordOutcome,
+  type CanonicalAdjudicateMethod,
+  type CanonicalAdjudicateModelOutput,
+} from "./canonical-adjudicate.js";
 
 export const leanArtifactSchemaVersion = 1 as const;
 export const leanArtifactVersion = 1 as const;
-
-export const sha256DigestSchema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/, "Expected a lowercase SHA-256 digest");
-export const stableIdentifierSchema = z
-  .string()
-  .regex(
-    /^[a-z][a-z0-9-]*_[a-f0-9]{64}$/,
-    "Expected a namespaced stable identifier",
-  );
-export const leanArtifactIdSchema = z
-  .string()
-  .regex(/^artifact_[a-f0-9]{64}$/, "Expected a stable artifact identifier");
-
-export const artifactReferenceSchema = z
-  .object({
-    artifactId: stableIdentifierSchema,
-    contentHash: sha256DigestSchema,
-    role: z.string().min(1),
-    canonicalStage: canonicalStageKeySchema.optional(),
-    uri: z.string().min(1).optional(),
-  })
-  .strict();
-export type ArtifactReference = z.infer<typeof artifactReferenceSchema>;
 
 export const decisionActorSchema = z
   .object({
@@ -2496,26 +2514,6 @@ export type EvidenceArtifactPayload = z.infer<
   typeof evidenceArtifactPayloadSchema
 >;
 
-export const adjudicateArtifactPayloadSchema = z
-  .object({
-    records: z.array(
-      z
-        .object({
-          recordId: stableIdentifierSchema,
-          verdict: adjudicationVerdictSchema,
-          comparison: z.string().min(1),
-          rationale: z.string().min(1),
-          retrievalQuality: retrievalQualitySchema,
-          judgeConfidence: confidenceSchema,
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-export type AdjudicateArtifactPayload = z.infer<
-  typeof adjudicateArtifactPayloadSchema
->;
-
 export const reportArtifactPayloadSchema = z
   .object({
     title: z.string().min(1),
@@ -2597,7 +2595,11 @@ export const adjudicateArtifactSchema = commonLeanArtifactEnvelopeSchema
     payload: adjudicateArtifactPayloadSchema,
   })
   .strict()
-  .superRefine(validateLeanArtifactIdentity);
+  .superRefine((artifact, context) => {
+    validateLeanArtifactIdentity(artifact, context);
+    validateAdjudicateArtifactLineage(artifact, context);
+  });
+export type AdjudicateArtifact = z.infer<typeof adjudicateArtifactSchema>;
 export const reportArtifactSchema = commonLeanArtifactEnvelopeSchema
   .extend({
     canonicalStage: z.literal("report"),

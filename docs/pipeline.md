@@ -13,7 +13,7 @@ The canonical target pipeline is:
 5. `adjudicate`
 6. `report`
 
-The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, and Evidence now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
+The versioned contracts for that workflow exist. Canonical Discover, Scope, Prepare, Evidence, and Adjudicate now have isolated application services and versioned artifact writers/loaders, but no canonical executor or CLI entry point is wired yet. Canonical Adjudicate is explicitly uncalibrated pending blinded human labels. The current runnable executor remains `discover → screen → extract → classify → evidence → curate → adjudicate`; the rest of this guide documents that temporary operational workflow so its commands remain usable during replacement.
 
 ### Canonical Discover (implemented, not executor-wired)
 
@@ -81,7 +81,30 @@ Evidence preserves complete record accounting and separate retrieval versions:
 - disabled reranking makes no adapter call and selects deterministically from BM25; nonfatal rerank failure remains explicit while selecting unchanged BM25, and authentication/authorization/billing/quota failure stops Evidence
 - a nonempty final selection explicitly names `bm25` or `reranked`; zero lexical matches, unavailable/acquisition failure, and deterministic retrieval failure have no selection, while nonfatal rerank failure explicitly selects unchanged BM25
 
-`buildCanonicalEvidenceArtifact` references both direct inputs and marks any model reranking non-replayable. Each record receives append-only retrieval, rerank, and final-selection decisions. `writeCanonicalEvidenceArtifact` and `loadCanonicalEvidenceArtifact` accept only the current Evidence shape and verify lineage, complete accounting, all shared-run references, ranking consistency, exact provenance, and tamper hashes. Production reranker adapters, Adjudicate, CLI wiring, and canonical executor wiring remain future work.
+`buildCanonicalEvidenceArtifact` references both direct inputs and marks any model reranking non-replayable. Each record receives append-only retrieval, rerank, and final-selection decisions. `writeCanonicalEvidenceArtifact` and `loadCanonicalEvidenceArtifact` accept only the current Evidence shape and verify lineage, complete accounting, all shared-run references, ranking consistency, exact provenance, and tamper hashes. Production reranker adapters, CLI wiring, and canonical executor wiring remain future work.
+
+### Canonical Adjudicate (implemented, not executor-wired, uncalibrated)
+
+`runCanonicalAdjudicate` consumes only a current, identity-verified Evidence envelope and the exact current Prepare ancestor named by Evidence. It rejects tampered, cross-run, or ledger-inconsistent inputs before any model adapter executes.
+
+Adjudicate preserves complete record accounting and explicit epistemic gates:
+
+- every Evidence record gets exactly one outcome; occurrences are never sampled, capped, collapsed, or overwritten
+- model adjudication runs only when the record is deterministically adjudicable
+- operational gates (`seed_text_unavailable`, `seed_acquisition_failed`, `retrieval_failed`, `no_lexical_matches`, classification failure, invalid context, skip/low-information, ambiguous/manual-review roles) yield `not_adjudicated` — never `U` and never F/D/E
+- fully gated runs need no model adapter and remain deterministic/replayable with zero prompt/model/response provenance; an adapter is required only when the first eligible record is reached
+- Evidence selection/chunk invariant violations are validated-artifact corruption, not scientific outcomes, and throw a boundary error rather than producing `not_adjudicated`
+- Scope scientific `not_found` is not a gate when exact selected cited evidence exists; prior grounding status is excluded from the model packet
+- Scope operational `grounding_failed` does not automatically block when Evidence independently carries exact selected text; grounding status remains absent from the model packet and gating follows Evidence/Prepare adjudicability
+- one categorical method only (`canonical-categorical-adjudicate-v1`): one model request per eligible record; confidence is recorded but never chooses another model or path; no advisor, challenger, vector-first, or self-consistency routing
+- adapter completion/failure provenance is accepted only when prompt ID/version/content hash and the canonical hash of the complete adapter request exactly match what the stage sent
+- every occurrence-local Prepare claim record must be evaluated exactly once; accepted claim references are stored in Prepare order, and model-cited chunk subsets are stored in Evidence-selection order
+- validated model outputs use PRD `F` / `D` / `E` / `U`; `U` requires exact cited evidence and cannot encode provider/retrieval failure
+- nonfatal model failure and malformed/unknown/duplicate references remain typed `adjudication_failed` / `invalid_output`; fatal authentication/authorization/billing/quota failures stop the stage
+- non-verdict result identities exclude descriptive reason wording and artifact URI/role while binding gate/failure codes and semantic request/response identities
+- the method is explicitly marked `uncalibrated` until tested against blinded human labels
+
+`buildCanonicalAdjudicateArtifact` references both exact inputs and marks model execution non-replayable. Each record receives append-only gate, model, and final-outcome decisions. Modeled outcomes must have exact prompt, model, request, response, stage-execution, and decision provenance; fully gated artifacts carry none of that model provenance. `writeCanonicalAdjudicateArtifact` and `loadCanonicalAdjudicateArtifact` accept only the current Adjudicate shape. Production adapters, Report, CLI wiring, and canonical executor wiring remain future work.
 
 The table below shows the current executor's main operator-facing outputs. Additional trace and provenance sidecars are documented separately in [artifact-workflow.md](./artifact-workflow.md).
 
@@ -93,7 +116,7 @@ The table below shows the current executor's main operator-facing outputs. Addit
 | Classify | `classify` | extraction results + screen results | evaluation-task results, report | Which citation contexts become evaluation tasks |
 | Evidence | `evidence` | classification results | evidence-backed task results, report | Whether usable cited-paper evidence can be attached to each task |
 | Curate | `curate` | evidence results | audit records, worksheet | Which evidence-backed tasks become audit records |
-| Adjudicate | `adjudicate` | audit sample | adjudicated records, summary, optional agreement report | Final support-style verdicts and rationales for audit records |
+| Adjudicate (temporary executor) | `adjudicate` | audit sample | adjudicated records, summary, optional agreement report | Final support-style verdicts and rationales for sampled audit records (not canonical F/D/E/U) |
 
 ## Operator Vocabulary
 
@@ -411,9 +434,9 @@ What the next stage consumes:
 
 - the audit sample artifact
 
-### Adjudicate
+### Adjudicate (temporary current executor)
 
-Purpose: run the sampled audit records through the configured adjudication path and write final verdicts and rationales.
+Purpose: run the sampled audit records through the temporary executor's configured adjudication path and write support-style verdicts and rationales. This is not the isolated canonical Adjudicate stage (`F`/`D`/`E`/`U`, uncalibrated, not CLI-wired).
 
 Command: `adjudicate`
 
@@ -433,7 +456,7 @@ What happens:
 - call Anthropic through the centralized LLM client (**default adjudication model** `claude-opus-4-6`; thinking **on** unless `--no-thinking` / run config disables it)
 - **Advisor adjudication (default)** mirrors managed `pipeline` runs: the cheap first pass runs on **`adjudicateFirstPassModel`** (**Sonnet** by default); records with `judgeConfidence === "low"`, verdict **`cannot_determine`**, or bundled citations at **`medium`** confidence are re-run on the main adjudication model (**Opus** + thinking governed by adjudication config). Disable with **`--no-advisor`** or `adjudicateAdvisor: false` in persisted run config
 - persist support-style verdicts plus rationale, retrieval-quality judgments, telemetry; advisor-mode artifacts also expose `firstPassTelemetry`, `escalationTelemetry`, and `escalationCount` beside `runTelemetry`
-- optionally attach `fidelityVectorTrace` with **`--fidelity-vector-trace`** / `adjudicateFidelityVectorTrace: true`; this is disabled by default, uses separate `"fidelity-vector"` LLM purpose telemetry, defaults to **`claude-sonnet-4-6`**, samples final active records only, and does not affect canonical verdicts or advisor escalation
+- optionally attach `fidelityVectorTrace` with **`--fidelity-vector-trace`** / `adjudicateFidelityVectorTrace: true`; this is disabled by default, uses separate `"fidelity-vector"` LLM purpose telemetry, defaults to **`claude-sonnet-4-6`**, samples final active records only, and does not alter the temporary executor's support-style verdicts or advisor escalation. This is not part of isolated canonical Adjudicate.
 - optionally use the **vector-first adjudicator** with **`--adjudication-mode vector_first`** / `adjudicationMode: "vector_first"`; this samples vector axes first, adaptively adds samples for simple borderline cases, accepts clear `axisDerivedVerdict` outputs as final axis-derived verdicts, and escalates risky records to the existing categorical adjudicator using the original unmodified audit records. Vector-first mode writes `vectorRoutingDecision` provenance and does not run the post-hoc diagnostic trace path after its own vector trace
 - optionally compare LLM adjudication outputs with a labeled human adjudication file via **`--human ...`** agreement report helpers
 

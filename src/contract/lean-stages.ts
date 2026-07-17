@@ -48,7 +48,7 @@ export const canonicalStageDefinitions = [
     key: "adjudicate",
     order: 4,
     responsibility:
-      "Produce record-level fidelity decisions from prepared records and evidence.",
+      "Produce uncalibrated record-level F/D/E/U or gated non-verdict outcomes from Evidence and Prepare.",
   },
   {
     key: "report",
