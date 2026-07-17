@@ -42,24 +42,25 @@ Systems that retrieve and synthesize papers inherit the citation graph as part o
 
 The first version should be narrow because the point is not to build a platform. The point is to learn whether the signal exists clearly enough to justify more engineering.
 
-That is why the POC focuses on:
+That is why the first evaluation should stay narrow:
 
 - one domain
-- one citation function type
+- one citation function type (`empirical_attribution` focus)
 - full fidelity scoring only where usable open-access full text is available
-- measured pre-screening of candidate claim families before full analysis
-- a small number of claim families
+- complete family/occurrence accounting rather than sampling or shortlist triage
 - outputs designed for human review rather than automation
 
 ## What Would Make This Worth Continuing
 
-The POC is worth continuing only if it produces a reviewable artifact that teaches something real about how a claim changed as it propagated. If it cannot do that in a small, favorable setting, scaling it would be wasted effort.
+The work is worth continuing only if it produces a reviewable artifact that teaches something real about how a claim changed as it propagated. If it cannot do that in a small, favorable setting, scaling it would be wasted effort.
 
-## Canonical References
+## Current References
 
-- [PRD](./conception/prd.md): canonical source for scope, taxonomy, outputs, non-goals, and success criteria
-- [Build Spec](./conception/build-spec.md): implementation details for the POC pipeline
+- [Pipeline](./pipeline.md): runnable six-stage workflow
+- [Status](./status.md): what is implemented today
+- [Adjudication Rubric](./adjudication-rubric.md): F/D/E/U and Report denominator rules
 - [Evaluation Protocol](./evaluation-protocol.md): review procedure and stop-go logic
+- Historical POC conception docs: [archive/pre-canonical/](./archive/pre-canonical/)
 
 ## Beyond The POC: Multi-Hop Claim Drift
 

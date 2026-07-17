@@ -43,7 +43,7 @@ import {
 } from "../contract/lean-artifacts.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
-export const canonicalAdjudicateOptionsSchema = z
+const canonicalAdjudicateOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     evidenceArtifactUri: z.string().min(1).optional(),
@@ -54,30 +54,23 @@ export type CanonicalAdjudicateOptions = z.input<
   typeof canonicalAdjudicateOptionsSchema
 >;
 
-export const canonicalAdjudicateAdapterResultSchema = z.discriminatedUnion(
-  "status",
-  [
-    z
-      .object({
-        status: z.literal("completed"),
-        rawOutput: z.unknown(),
-        execution: adjudicateModelExecutionSchema,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: adjudicateFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: adjudicateModelExecutionSchema,
-      })
-      .strict(),
-  ],
-);
-export type CanonicalAdjudicateAdapterResult = z.infer<
-  typeof canonicalAdjudicateAdapterResultSchema
->;
-
+const canonicalAdjudicateAdapterResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("completed"),
+      rawOutput: z.unknown(),
+      execution: adjudicateModelExecutionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: adjudicateFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: adjudicateModelExecutionSchema,
+    })
+    .strict(),
+]);
 export type CanonicalAdjudicateAdapterInput = {
   purpose: "categorical_adjudication";
   recordId: string;
@@ -91,7 +84,7 @@ export type CanonicalAdjudicateAdapters = {
   adjudicate?: (input: CanonicalAdjudicateAdapterInput) => Promise<unknown>;
 };
 
-export type CanonicalAdjudicateProvenanceInputs = {
+type CanonicalAdjudicateProvenanceInputs = {
   prompts: LeanArtifactProvenance["prompts"];
   models: LeanArtifactProvenance["models"];
   responseArtifacts: ArtifactReference[];

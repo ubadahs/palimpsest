@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 
 import { loadEnvironmentLenient } from "../config/env.js";
-import { createLocalReranker } from "../retrieval/local-reranker.js";
 
 export type HealthState = "ok" | "error" | "not_configured";
 
@@ -19,14 +18,12 @@ export type EnvironmentHealthSummary = {
     bioRxiv: string;
     grobid: string;
   };
-  localRerankerBaseUrl: string | undefined;
   institutionalProxyUrl: string | undefined;
   anthropicConfigured: boolean;
   health: {
     database: HealthCheck;
     grobid: HealthCheck;
     anthropic: HealthCheck;
-    reranker: HealthCheck;
   };
 };
 
@@ -85,14 +82,11 @@ export async function getEnvironmentHealthSummary(
         detail: "GROBID_BASE_URL is not configured.",
       };
   const database = await checkDatabase(databasePath);
-  const reranker = createLocalReranker(environment.LOCAL_RERANKER_BASE_URL);
-  const rerankerHealth = reranker ? await reranker.healthCheck() : undefined;
 
   return {
     nodeEnv: environment.NODE_ENV,
     databasePath,
     providerBaseUrls,
-    localRerankerBaseUrl: environment.LOCAL_RERANKER_BASE_URL,
     institutionalProxyUrl: environment.INSTITUTIONAL_PROXY_URL,
     anthropicConfigured: Boolean(environment.ANTHROPIC_API_KEY),
     health: {
@@ -101,14 +95,6 @@ export async function getEnvironmentHealthSummary(
       anthropic: environment.ANTHROPIC_API_KEY
         ? { status: "ok" }
         : { status: "error", detail: "ANTHROPIC_API_KEY is not configured." },
-      reranker: reranker
-        ? rerankerHealth?.ok
-          ? { status: "ok" }
-          : {
-              status: "error",
-              detail: rerankerHealth?.error ?? "unknown error",
-            }
-        : { status: "not_configured" },
     },
   };
 }

@@ -153,7 +153,7 @@ export function StageInspector({
 }) {
   const markdownUrl =
     detail.stageKey === "report"
-      ? `/api/runs/${runId}/stages/report/artifacts/report?familyIndex=${String(detail.familyIndex)}`
+      ? `/api/runs/${runId}/stages/report/artifacts/report`
       : undefined;
   return (
     <div className="space-y-4">

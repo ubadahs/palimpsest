@@ -60,7 +60,7 @@ The final `report` stage writes authoritative JSON funnel/rate/trace accounting 
 
 ## Pipeline
 
-The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. There is no sampling or `curate` stage. Temporary old-executor modules may remain in the source tree while scheduled for deletion, but they are unreachable and unsupported.
+The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
 
 ## Where To Read
 

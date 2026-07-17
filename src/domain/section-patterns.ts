@@ -1,6 +1,6 @@
 /**
  * Shared regex patterns for classifying sections and context by type.
- * Used by both the mention-analysis layer and the triage classifier.
+ * Used by deterministic citation-function classification.
  */
 
 export const METHODS_SECTION_PATTERNS: RegExp[] = [
@@ -22,13 +22,6 @@ export const METHODS_SECTION_PATTERNS: RegExp[] = [
   /\banimal\b/i,
   /\bmicroscopy\b/i,
   /\bcloning\b/i,
-];
-
-export const BIBLIOGRAPHY_SIGNALS: RegExp[] = [
-  /\breferences\b/i,
-  /\bbibliography\b/i,
-  /^\s*\d+\.\s+[A-Z][a-z]+\s+[A-Z]/m,
-  /(?:Lancet|Nature|Science|Cell|PNAS|eLife|PLoS|J\s+Cell\s+Biol)\b.*\d{4}/,
 ];
 
 export const BACKGROUND_SECTION_RE =

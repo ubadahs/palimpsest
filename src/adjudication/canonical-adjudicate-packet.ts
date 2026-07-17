@@ -12,7 +12,7 @@ export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
 export const CANONICAL_ADJUDICATE_PROMPT_VERSION = "v1" as const;
 
-export type CanonicalAdjudicatePacketChunk = {
+type CanonicalAdjudicatePacketChunk = {
   chunkId: string;
   text: string;
   sourceBlockKind: EvidenceChunk["sourceBlockKind"];
@@ -21,7 +21,7 @@ export type CanonicalAdjudicatePacketChunk = {
   charOffsetEnd: number;
 };
 
-export type CanonicalAdjudicatePacketClaim = {
+type CanonicalAdjudicatePacketClaim = {
   claimRecordId: string;
   claimText: string;
 };
@@ -128,7 +128,7 @@ export function buildCanonicalAdjudicatePacket(
   };
 }
 
-export function renderCanonicalAdjudicatePacket(
+function renderCanonicalAdjudicatePacket(
   packet: CanonicalAdjudicatePacket,
 ): string {
   const bundleWarning = packet.isBundled

@@ -265,14 +265,8 @@ export async function rerunStage(
     }
   }
 
-  // Mark this stage and everything downstream as stale so the pipeline re-runs them
+  // This stage resets to not_started; every downstream stage is invalidated.
   markDownstreamStagesStale(database, runId, stageKey);
-  // Reset every row for this stage key (including per-family downstream stages)
-  for (const row of stages.filter((s) => s.stageKey === stageKey)) {
-    updateStageStatus(database, runId, stageKey, "not_started", {
-      familyIndex: row.familyIndex,
-    });
-  }
 
   spawnPipeline(run);
 }

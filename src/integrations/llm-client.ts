@@ -26,34 +26,22 @@ import {
 // Purpose tags — every call site declares why it is calling the LLM.
 // ---------------------------------------------------------------------------
 
-export const llmPurposeValues = [
-  "claim-discovery",
-  "seed-grounding",
-  "claim-family-filter",
-  "adjudication",
-  "fidelity-vector",
-  "evidence-rerank",
-  "attributed-claim-extraction",
-  "family-consolidation",
-] as const;
-
-export type LLMPurpose = (typeof llmPurposeValues)[number];
-
-export const llmProviderErrorClassValues = [
-  "billing_or_quota",
-  "authentication",
-  "authorization",
-  "rate_limit",
-  "network_or_transport",
-  "unknown",
-] as const;
+export type LLMPurpose =
+  | "attributed-claim-extraction"
+  | "seed-grounding"
+  | "evidence-rerank"
+  | "adjudication";
 
 export type LLMProviderErrorClass =
-  (typeof llmProviderErrorClassValues)[number];
+  | "billing_or_quota"
+  | "authentication"
+  | "authorization"
+  | "rate_limit"
+  | "network_or_transport"
+  | "unknown";
 
-export type LLMCallContext = {
+type LLMCallContext = {
   stageKey?: StageKey;
-  familyIndex?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -73,11 +61,10 @@ export type ThinkingConfig =
   | { type: "adaptive"; effort: ThinkingEffort }
   | { type: "enabled"; budgetTokens: number };
 
-export type LLMCallRecord = {
+type LLMCallRecord = {
   purpose: LLMPurpose;
   model: string;
   stageKey?: StageKey;
-  familyIndex?: number;
   attempted: true;
   successful: boolean;
   failed: boolean;
@@ -108,7 +95,7 @@ export type LLMCallRecord = {
 // Run-level ledger aggregated across all purposes.
 // ---------------------------------------------------------------------------
 
-export type LLMPurposeSummary = {
+type LLMPurposeSummary = {
   attempted: number;
   successful: number;
   failed: number;
@@ -159,7 +146,7 @@ export type PromptCacheControl = {
   ttl?: "5m" | "1h";
 };
 
-export type PromptCachePolicy = {
+type PromptCachePolicy = {
   minPromptChars: number;
   cacheControl: PromptCacheControl;
 };
@@ -173,7 +160,7 @@ export type PromptCachingOptions = {
  * Opt-in exact-result cache config.  Call sites declare a `keyVersion` that
  * must be bumped when the prompt template or output schema changes.
  */
-export type ExactCacheConfig = {
+type ExactCacheConfig = {
   keyVersion: string;
 };
 
@@ -206,12 +193,12 @@ export type GenerateTextParams =
       exactCache?: ExactCacheConfig;
     };
 
-export type GenerateTextResult = {
+type GenerateTextResult = {
   text: string;
   record: LLMCallRecord;
 };
 
-export type GenerateObjectParams<T extends z.ZodType> = {
+type GenerateObjectParams<T extends z.ZodType> = {
   purpose: LLMPurpose;
   model?: string;
   prompt: string;
@@ -222,7 +209,7 @@ export type GenerateObjectParams<T extends z.ZodType> = {
   exactCache?: ExactCacheConfig;
 };
 
-export type GenerateObjectResult<T> = {
+type GenerateObjectResult<T> = {
   object: T;
   record: LLMCallRecord;
 };
@@ -244,7 +231,7 @@ export type CreateLLMClientOptions = {
   forceRefresh?: boolean;
 };
 
-export class LLMProviderError extends Error {
+class LLMProviderError extends Error {
   readonly provider = "anthropic";
   readonly classification: LLMProviderErrorClass;
   readonly fatal: boolean;
@@ -350,12 +337,6 @@ export function classifyProviderError(error: unknown): {
   };
 }
 
-export function isFatalProviderError(
-  error: unknown,
-): error is LLMProviderError {
-  return error instanceof LLMProviderError && error.fatal;
-}
-
 export function createLLMTelemetryCollector(): LLMTelemetryCollector {
   const calls: LLMCallRecord[] = [];
 
@@ -380,15 +361,7 @@ const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
     minPromptChars: 2_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
-  "claim-family-filter": {
-    minPromptChars: 2_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
   adjudication: {
-    minPromptChars: 5_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
-  "fidelity-vector": {
     minPromptChars: 5_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
@@ -478,9 +451,7 @@ export function thinkingConfigKey(thinking?: ThinkingConfig): string {
   return `enabled:${String(thinking.budgetTokens)}`;
 }
 
-export function promptCachePolicyKey(
-  cacheControl?: PromptCacheControl,
-): string {
+function promptCachePolicyKey(cacheControl?: PromptCacheControl): string {
   if (!cacheControl) {
     return "";
   }
@@ -489,7 +460,7 @@ export function promptCachePolicyKey(
     : cacheControl.type;
 }
 
-export type ExactCacheAccessPolicy = "allow" | "bypass";
+type ExactCacheAccessPolicy = "allow" | "bypass";
 
 /**
  * Anthropic providerOptions fragment for thinking (+ effort when adaptive).
@@ -836,9 +807,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       purpose,
       model: modelId,
       ...(context.stageKey != null ? { stageKey: context.stageKey } : {}),
-      ...(context.familyIndex != null
-        ? { familyIndex: context.familyIndex }
-        : {}),
       attempted: true,
       successful: true,
       failed: false,
@@ -892,9 +860,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       purpose,
       model: modelId,
       ...(context.stageKey != null ? { stageKey: context.stageKey } : {}),
-      ...(context.familyIndex != null
-        ? { familyIndex: context.familyIndex }
-        : {}),
       attempted: true,
       successful: true,
       failed: false,
@@ -945,9 +910,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       model: params.modelId,
       ...(params.context.stageKey != null
         ? { stageKey: params.context.stageKey }
-        : {}),
-      ...(params.context.familyIndex != null
-        ? { familyIndex: params.context.familyIndex }
         : {}),
       attempted: true,
       successful: false,

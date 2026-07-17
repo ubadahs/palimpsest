@@ -399,7 +399,6 @@ function createTempWorkspace(
       bioRxiv: "https://example.test/biorxiv",
       grobid: "https://example.test/grobid",
     },
-    localRerankerBaseUrl: undefined,
     openAlexEmail: undefined,
     semanticScholarApiKey: undefined,
     anthropicApiKey: undefined,
@@ -490,7 +489,6 @@ describe("canonical executor cutover", () => {
     const stages = listRunStages(database, result.runId);
     expect(stages).toHaveLength(6);
     expect(stages.map((s) => s.stageKey)).toEqual([...stageKeyValues]);
-    expect(stages.every((s) => s.familyIndex === 0)).toBe(true);
     expect(stages.every((s) => s.status === "succeeded")).toBe(true);
 
     for (const definition of stageDefinitions) {
@@ -1123,7 +1121,6 @@ describe("canonical executor cutover", () => {
             bioRxiv: "https://example.test/biorxiv",
             grobid: "https://example.test/grobid",
           },
-          localRerankerBaseUrl: undefined,
           openAlexEmail: undefined,
           semanticScholarApiKey: undefined,
           anthropicApiKey: undefined,
@@ -1396,7 +1393,6 @@ describe("canonical executor cutover", () => {
           bioRxiv: "https://example.test/biorxiv",
           grobid: "https://example.test/grobid",
         },
-        localRerankerBaseUrl: undefined,
         openAlexEmail: undefined,
         semanticScholarApiKey: undefined,
         anthropicApiKey: undefined,

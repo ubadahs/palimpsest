@@ -19,7 +19,6 @@ const biorxivBaseUrlSchema = z
   .url()
   .default("https://api.biorxiv.org");
 const grobidBaseUrlSchema = z.string().url();
-const localRerankerBaseUrlSchema = z.string().url().optional();
 const openAlexEmailSchema = z.string().email().optional();
 const semanticScholarApiKeySchema = z.string().min(1).optional();
 const anthropicApiKeySchema = z.string().min(1).optional();
@@ -34,7 +33,6 @@ const environmentSchema = z.object({
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,
   GROBID_BASE_URL: grobidBaseUrlSchema,
-  LOCAL_RERANKER_BASE_URL: localRerankerBaseUrlSchema,
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,
@@ -48,7 +46,6 @@ const lenientEnvironmentSchema = z.object({
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,
   GROBID_BASE_URL: grobidBaseUrlSchema.optional(),
-  LOCAL_RERANKER_BASE_URL: localRerankerBaseUrlSchema,
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,

@@ -2,12 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { stageKeySchema } from "palimpsest/contract";
 
 import { getLogTail } from "@/lib/run-queries";
-import {
-  allowMethods,
-  handleApiError,
-  readOptionalFamilyIndex,
-  readQueryParam,
-} from "@/lib/api-route";
+import { allowMethods, handleApiError, readQueryParam } from "@/lib/api-route";
 
 export default async function handler(
   request: NextApiRequest,
@@ -20,9 +15,8 @@ export default async function handler(
   try {
     const runId = readQueryParam(request, "runId");
     const stageKey = stageKeySchema.parse(readQueryParam(request, "stageKey"));
-    const familyIndex = readOptionalFamilyIndex(request);
     response.status(200).json({
-      content: getLogTail(runId, stageKey, familyIndex),
+      content: getLogTail(runId, stageKey),
     });
   } catch (error) {
     handleApiError(response, error);

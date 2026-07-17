@@ -2,11 +2,38 @@ import { createHash } from "node:crypto";
 
 import type Database from "better-sqlite3";
 
-import type {
-  CachedPaper,
-  CachePolicy,
-  ParsedPaperData,
-} from "../domain/types.js";
+import type { CachePolicy } from "../domain/classification.js";
+import type { ParsedPaperParserKind } from "../domain/parsing.js";
+
+export type CachedPaper = {
+  paperId: string;
+  doi?: string | undefined;
+  openalexId?: string | undefined;
+  pmcid?: string | undefined;
+  title: string;
+  authorsJson?: string | undefined;
+  accessStatus: string;
+  rawFullText?: string | undefined;
+  fullTextFormat?: string | undefined;
+  fetchSourceUrl?: string | undefined;
+  fetchStatus: string;
+  contentHash?: string | undefined;
+  fetchedAt: string;
+  acquisitionProvenanceJson?: string | undefined;
+  metadataJson?: string | undefined;
+};
+
+export type ParsedPaperData = {
+  paperId: string;
+  parserVersion: string;
+  parserKind: ParsedPaperParserKind;
+  contentHash: string;
+  sectionsJson?: string | undefined;
+  refsJson?: string | undefined;
+  chunksJson?: string | undefined;
+  mentionsJson?: string | undefined;
+  parsedAt: string;
+};
 
 export function getCachedPaper(
   db: Database.Database,

@@ -13,7 +13,7 @@ import {
   leanArtifactSchemaVersion,
   leanArtifactVersion,
   prepareArtifactSchema,
-  REPORT_DECISION_ACTOR_ID,
+  canonicalReportMethodId,
   REPORT_INTERPRETATION_WARNING,
   REPORT_PUBLICATION_REASON,
   reportArtifactPayloadSchema,
@@ -40,7 +40,7 @@ import {
 } from "../contract/lean-artifacts.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
-export const canonicalReportOptionsSchema = z
+const canonicalReportOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     discoverArtifactUri: z.string().min(1).optional(),
@@ -176,7 +176,7 @@ export function runCanonicalReport(
       recordedAt: options.recordedAt,
       actor: {
         kind: "deterministic",
-        identifier: REPORT_DECISION_ACTOR_ID,
+        identifier: canonicalReportMethodId,
       },
       evidenceArtifacts: [
         lineage.discoverArtifact,
@@ -194,7 +194,7 @@ export function runCanonicalReport(
       recordedAt: options.recordedAt,
       actor: {
         kind: "deterministic",
-        identifier: REPORT_DECISION_ACTOR_ID,
+        identifier: canonicalReportMethodId,
       },
       evidenceArtifacts: [
         lineage.discoverArtifact,

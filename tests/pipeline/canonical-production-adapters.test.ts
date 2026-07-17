@@ -47,7 +47,6 @@ function appConfig(): AppConfig {
       bioRxiv: "https://example.test/biorxiv",
       grobid: "https://example.test/grobid",
     },
-    localRerankerBaseUrl: undefined,
     openAlexEmail: undefined,
     semanticScholarApiKey: undefined,
     anthropicApiKey: undefined,

@@ -6,173 +6,98 @@ export function undefinedable<T extends z.ZodTypeAny>(schema: T) {
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
-export const paperSourceValues = [
-  "openalex",
-  "semantic_scholar",
-  "manual",
-] as const;
-
-export const paperSourceSchema = z.enum(paperSourceValues);
-export type PaperSource = z.infer<typeof paperSourceSchema>;
-
 /** Provider-normalized publication type (for example `review` or `article`). */
 export const paperTypeSchema = z.string().min(1);
-export type PaperType = z.infer<typeof paperTypeSchema>;
 
-export const paperResolutionProvenanceSchema = z
-  .object({
-    method: z.enum(["doi", "pmcid", "pmid", "title_author_year"]),
-    confidence: z.enum(["exact", "high"]),
-    requestedIdentifierType: undefinedable(z.enum(["doi", "pmcid", "pmid"])),
-    requestedIdentifier: undefinedable(z.string().min(1)),
-  })
-  .passthrough();
-export type PaperResolutionProvenance = z.infer<
-  typeof paperResolutionProvenanceSchema
->;
+export type PaperResolutionProvenance = {
+  method: "doi" | "pmcid" | "pmid" | "title_author_year";
+  confidence: "exact" | "high";
+  requestedIdentifierType?: "doi" | "pmcid" | "pmid" | undefined;
+  requestedIdentifier?: string | undefined;
+  [key: string]: unknown;
+};
 
-export const providerFullTextAvailabilityValues = [
-  "available",
-  "abstract_only",
-  "unavailable",
-] as const;
-export const providerFullTextAvailabilitySchema = z.enum(
-  providerFullTextAvailabilityValues,
-);
-export type ProviderFullTextAvailability = z.infer<
-  typeof providerFullTextAvailabilitySchema
->;
+export type FullTextHints = {
+  providerAvailability: "available" | "abstract_only" | "unavailable";
+  providerReason?: string | undefined;
+  providerSourceHint?: string | undefined;
+  pdfUrl?: string | undefined;
+  landingPageUrl?: string | undefined;
+  repositoryUrl?: string | undefined;
+  sourceName?: string | undefined;
+  sourceType?: string | undefined;
+  [key: string]: unknown;
+};
 
-export const fullTextHintsSchema = z
-  .object({
-    providerAvailability: providerFullTextAvailabilitySchema,
-    providerReason: undefinedable(z.string().min(1)),
-    providerSourceHint: undefinedable(z.string().min(1)),
-    pdfUrl: undefinedable(z.string().min(1)),
-    landingPageUrl: undefinedable(z.string().min(1)),
-    repositoryUrl: undefinedable(z.string().min(1)),
-    sourceName: undefinedable(z.string().min(1)),
-    sourceType: undefinedable(z.string().min(1)),
-  })
-  .passthrough();
-export type FullTextHints = z.infer<typeof fullTextHintsSchema>;
+export type FullTextAcquisitionMethod =
+  | "biorxiv_xml"
+  | "pmc_xml"
+  | "landing_page_xml"
+  | "direct_pdf_grobid";
 
-export const fullTextAcquisitionMaterializationSourceValues = [
-  "network",
-  "raw_cache",
-  "parsed_cache",
-] as const;
-export const fullTextAcquisitionMaterializationSourceSchema = z.enum(
-  fullTextAcquisitionMaterializationSourceValues,
-);
-export type FullTextAcquisitionMaterializationSource = z.infer<
-  typeof fullTextAcquisitionMaterializationSourceSchema
->;
+export type FullTextAcquisitionSelectedLocatorKind =
+  | "pmcid_metadata"
+  | "pmcid_derived_url"
+  | "doi_input"
+  | "doi_resolved"
+  | "direct_pdf_url"
+  | "meta_pdf_url"
+  | "meta_xml_url";
 
-export const fullTextAcquisitionMethodValues = [
-  "biorxiv_xml",
-  "pmc_xml",
-  "landing_page_xml",
-  "direct_pdf_grobid",
-] as const;
-export const fullTextAcquisitionMethodSchema = z.enum(
-  fullTextAcquisitionMethodValues,
-);
-export type FullTextAcquisitionMethod = z.infer<
-  typeof fullTextAcquisitionMethodSchema
->;
+export type FullTextAcquisition = {
+  materializationSource: "network" | "raw_cache" | "parsed_cache";
+  attempts: Array<{
+    attemptIndex: number;
+    candidateKind: string;
+    method?: FullTextAcquisitionMethod | undefined;
+    locatorKind: string;
+    locatorValue: string;
+    url?: string | undefined;
+    probeClassification: string;
+    httpStatus?: number | undefined;
+    contentType?: string | undefined;
+    success: boolean;
+    failureReason?: string | undefined;
+    [key: string]: unknown;
+  }>;
+  selectedMethod?: FullTextAcquisitionMethod | undefined;
+  selectedLocatorKind?: FullTextAcquisitionSelectedLocatorKind | undefined;
+  selectedUrl?: string | undefined;
+  fullTextFormat?: "jats_xml" | "grobid_tei_xml" | "pdf_text" | undefined;
+  failureReason?: string | undefined;
+  accessChannel?:
+    | "open_access"
+    | "institutional_proxy"
+    | "local_pdf"
+    | undefined;
+  [key: string]: unknown;
+};
 
-export const fullTextAcquisitionSelectedLocatorKindValues = [
-  "pmcid_metadata",
-  "pmcid_derived_url",
-  "doi_input",
-  "doi_resolved",
-  "direct_pdf_url",
-  "meta_pdf_url",
-  "meta_xml_url",
-] as const;
-export const fullTextAcquisitionSelectedLocatorKindSchema = z.enum(
-  fullTextAcquisitionSelectedLocatorKindValues,
-);
-export type FullTextAcquisitionSelectedLocatorKind = z.infer<
-  typeof fullTextAcquisitionSelectedLocatorKindSchema
->;
+export type ResolvedPaper = {
+  id: string;
+  doi?: string | undefined;
+  pmcid?: string | undefined;
+  pmid?: string | undefined;
+  title: string;
+  authors: string[];
+  abstract?: string | undefined;
+  source: "openalex" | "semantic_scholar" | "manual";
+  fullTextHints: FullTextHints;
+  paperType?: string | undefined;
+  referencedWorksCount?: number | undefined;
+  publicationYear?: number | undefined;
+  resolutionProvenance?: PaperResolutionProvenance | undefined;
+  [key: string]: unknown;
+};
 
-export const fullTextAcquisitionAttemptSchema = z
-  .object({
-    attemptIndex: z.number().int().nonnegative(),
-    candidateKind: z.string().min(1),
-    method: undefinedable(fullTextAcquisitionMethodSchema),
-    locatorKind: z.string().min(1),
-    locatorValue: z.string().min(1),
-    url: undefinedable(z.string().min(1)),
-    probeClassification: z.string().min(1),
-    httpStatus: undefinedable(z.number().int().nonnegative()),
-    contentType: undefinedable(z.string().min(1)),
-    success: z.boolean(),
-    failureReason: undefinedable(z.string().min(1)),
-  })
-  .passthrough();
-export type FullTextAcquisitionAttempt = z.infer<
-  typeof fullTextAcquisitionAttemptSchema
->;
-
-export const accessChannelValues = [
-  "open_access",
-  "institutional_proxy",
-  "local_pdf",
-] as const;
-export const accessChannelSchema = z.enum(accessChannelValues);
-export type AccessChannel = z.infer<typeof accessChannelSchema>;
-
-export const fullTextAcquisitionSchema = z
-  .object({
-    materializationSource: fullTextAcquisitionMaterializationSourceSchema,
-    attempts: z.array(fullTextAcquisitionAttemptSchema),
-    selectedMethod: undefinedable(fullTextAcquisitionMethodSchema),
-    selectedLocatorKind: undefinedable(
-      fullTextAcquisitionSelectedLocatorKindSchema,
-    ),
-    selectedUrl: undefinedable(z.string().min(1)),
-    fullTextFormat: undefinedable(
-      z.enum(["jats_xml", "grobid_tei_xml", "pdf_text"]),
-    ),
-    failureReason: undefinedable(z.string().min(1)),
-    /** How the full text was accessed — open access, institutional proxy, or local file. */
-    accessChannel: undefinedable(accessChannelSchema),
-  })
-  .passthrough();
-export type FullTextAcquisition = z.infer<typeof fullTextAcquisitionSchema>;
-
-export const resolvedPaperSchema = z
-  .object({
-    id: z.string().min(1),
-    doi: undefinedable(z.string().min(1)),
-    pmcid: undefinedable(z.string().min(1)),
-    pmid: undefinedable(z.string().min(1)),
-    title: z.string().min(1),
-    authors: z.array(z.string()),
-    abstract: undefinedable(z.string()),
-    source: paperSourceSchema,
-    fullTextHints: fullTextHintsSchema,
-    paperType: undefinedable(paperTypeSchema),
-    referencedWorksCount: undefinedable(z.number().int()),
-    publicationYear: undefinedable(z.number().int()),
-    resolutionProvenance: undefinedable(paperResolutionProvenanceSchema),
-  })
-  .passthrough();
-export type ResolvedPaper = z.infer<typeof resolvedPaperSchema>;
-
-export const edgeClassificationSchema = z
-  .object({
-    isReview: z.boolean(),
-    isCommentary: z.boolean(),
-    isLetter: z.boolean(),
-    isBookChapter: z.boolean(),
-    isPreprint: z.boolean(),
-    isJournalArticle: z.boolean(),
-    isPrimaryLike: z.boolean(),
-    highReferenceCount: z.boolean(),
-  })
-  .passthrough();
-export type EdgeClassification = z.infer<typeof edgeClassificationSchema>;
+export type EdgeClassification = {
+  isReview: boolean;
+  isCommentary: boolean;
+  isLetter: boolean;
+  isBookChapter: boolean;
+  isPreprint: boolean;
+  isJournalArticle: boolean;
+  isPrimaryLike: boolean;
+  highReferenceCount: boolean;
+  [key: string]: unknown;
+};

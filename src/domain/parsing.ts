@@ -2,25 +2,25 @@ import { z } from "zod";
 
 import { undefinedable } from "./common.js";
 
-export const fullTextFormatValues = [
+const fullTextFormatValues = [
   "jats_xml",
   "grobid_tei_xml",
   "pdf_text",
 ] as const;
 
-export const fullTextFormatSchema = z.enum(fullTextFormatValues);
+const fullTextFormatSchema = z.enum(fullTextFormatValues);
 export type FullTextFormat = z.infer<typeof fullTextFormatSchema>;
 
-export const parsedPaperParserKindValues = [
+const parsedPaperParserKindValues = [
   "jats",
   "grobid_tei",
   "legacy_pdf_text",
 ] as const;
 
-export const parsedPaperParserKindSchema = z.enum(parsedPaperParserKindValues);
+const parsedPaperParserKindSchema = z.enum(parsedPaperParserKindValues);
 export type ParsedPaperParserKind = z.infer<typeof parsedPaperParserKindSchema>;
 
-export const parsedBlockKindValues = [
+const parsedBlockKindValues = [
   "abstract",
   "body_paragraph",
   "figure_caption",
@@ -30,7 +30,7 @@ export const parsedBlockKindValues = [
 export const parsedBlockKindSchema = z.enum(parsedBlockKindValues);
 export type ParsedBlockKind = z.infer<typeof parsedBlockKindSchema>;
 
-export const parsedPaperBlockSchema = z
+const parsedPaperBlockSchema = z
   .object({
     blockId: z.string().min(1),
     text: z.string().min(1),
@@ -42,7 +42,7 @@ export const parsedPaperBlockSchema = z
   .passthrough();
 export type ParsedPaperBlock = z.infer<typeof parsedPaperBlockSchema>;
 
-export const parsedPaperReferenceSchema = z
+const parsedPaperReferenceSchema = z
   .object({
     refId: z.string().min(1),
     doi: undefinedable(z.string()),
@@ -56,7 +56,7 @@ export const parsedPaperReferenceSchema = z
   .passthrough();
 export type ParsedPaperReference = z.infer<typeof parsedPaperReferenceSchema>;
 
-export const parsedCitationMentionSchema = z
+const parsedCitationMentionSchema = z
   .object({
     mentionIndex: z.number().int().nonnegative(),
     rawContext: z.string(),

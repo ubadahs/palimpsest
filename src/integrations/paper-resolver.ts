@@ -1,4 +1,4 @@
-import type { ResolvedPaper, Result } from "../domain/types.js";
+import type { ResolvedPaper, Result } from "../domain/common.js";
 import * as openalex from "./openalex.js";
 import * as semanticScholar from "./semantic-scholar.js";
 

@@ -3,18 +3,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { shortlistInputSchema } from "../../src/domain/types.js";
 import {
   artifactManifestSchema,
   loadJsonArtifact,
   writeArtifactManifest,
 } from "../../src/shared/artifact-io.js";
 
+const sampleSchema = z
+  .object({
+    seeds: z.array(
+      z.object({
+        doi: z.string().min(1),
+        trackedClaim: z.string().min(1),
+      }),
+    ),
+  })
+  .strict();
+
 describe("artifact-io", () => {
   it("loads validated JSON artifacts", () => {
     const dir = mkdtempSync(join(tmpdir(), "artifact-io-"));
-    const path = join(dir, "shortlist.json");
+    const path = join(dir, "sample.json");
     writeFileSync(
       path,
       JSON.stringify({
@@ -23,11 +34,7 @@ describe("artifact-io", () => {
       "utf8",
     );
 
-    const result = loadJsonArtifact(
-      path,
-      shortlistInputSchema,
-      "shortlist input",
-    );
+    const result = loadJsonArtifact(path, sampleSchema, "sample input");
     expect(result.seeds).toHaveLength(1);
 
     rmSync(dir, { recursive: true, force: true });
@@ -35,16 +42,16 @@ describe("artifact-io", () => {
 
   it("reports schema paths for invalid artifacts", () => {
     const dir = mkdtempSync(join(tmpdir(), "artifact-io-"));
-    const path = join(dir, "bad-shortlist.json");
+    const path = join(dir, "bad-sample.json");
     writeFileSync(
       path,
       JSON.stringify({ seeds: [{ doi: "10.1234/test" }] }),
       "utf8",
     );
 
-    expect(() =>
-      loadJsonArtifact(path, shortlistInputSchema, "shortlist input"),
-    ).toThrow(/trackedClaim/);
+    expect(() => loadJsonArtifact(path, sampleSchema, "sample input")).toThrow(
+      /trackedClaim/,
+    );
 
     rmSync(dir, { recursive: true, force: true });
   });

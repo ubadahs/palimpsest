@@ -4,10 +4,12 @@ Use this as the map of the docs set. The goal is not to document every internal 
 
 If design documents disagree on scope, follow this order:
 
-1. [prd.md](./conception/prd.md)
-2. [build-spec.md](./conception/build-spec.md)
-3. [evaluation-protocol.md](./evaluation-protocol.md)
-4. [implementation-plan.md](./conception/implementation-plan.md)
+1. [pipeline.md](./pipeline.md) — runnable canonical six-stage workflow
+2. [status.md](./status.md) — what is implemented in the repo today
+3. [adjudication-rubric.md](./adjudication-rubric.md) — F/D/E/U and Report denominator rules
+4. [evaluation-protocol.md](./evaluation-protocol.md) — how uncalibrated outputs should be judged scientifically
+
+Historical POC conception docs (shortlist/pre-screen era) live under [`archive/pre-canonical/`](./archive/pre-canonical/) and are **not** authoritative.
 
 ## Start Here
 
@@ -20,7 +22,7 @@ If design documents disagree on scope, follow this order:
 
 - [pipeline.md](./pipeline.md) — what each stage reads, writes, and decides
 - [pipeline-concepts.md](./pipeline-concepts.md) — main objects that move through the stages
-- [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests, benchmark outputs
+- [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests
 - [status.md](./status.md) — what is implemented in the repo today
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
 - [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
@@ -28,27 +30,23 @@ If design documents disagree on scope, follow this order:
 ## If You Want The Project Intent
 
 - [concept-memo.md](./concept-memo.md) — why this project is worth testing
-- [prd.md](./conception/prd.md) — canonical scope, taxonomy, outputs, success criteria
-- [build-spec.md](./conception/build-spec.md) — minimum implementation and non-goals
-- [evaluation-protocol.md](./evaluation-protocol.md) — how the POC is judged
-- [implementation-plan.md](./conception/implementation-plan.md) — execution-oriented plan for the scoped POC
+- [evaluation-protocol.md](./evaluation-protocol.md) — how uncalibrated outputs should be reviewed
+- [conception/README.md](./conception/README.md) — pointer to demoted historical conception docs
 
 ## Archived / Historical
 
-Snapshots that can mislead if read without context:
-
-- [`archive/README.md`](./archive/README.md) — superseded pipeline split note and archived April 2026 audit snapshots
+- [`archive/README.md`](./archive/README.md) — superseded pipeline notes, pre-canonical conception docs, and archived April 2026 audit snapshots
 
 ## Focused Reference Docs
 
 - [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric and Report denominator rules
-- [eval-reranker-model-selection.md](./eval-reranker-model-selection.md) — reranker evaluation note and current retrieval-model rationale
+- [caching.md](./caching.md) — paper and LLM exact-result cache behavior
 
 ## Lint And Tests
 
 - Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
 - UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (Vitest + `happy-dom`; `@vitejs/plugin-react` aligns with Vite 6 alongside root Vitest 3.x)
-- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json) to suppress intentional export noise under `src/domain/**` (taxonomy surface) plus other internal modules; widen or tighten `ignoreIssues` entries when refactoring public API
+- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so legacy modules stay visible
 
 ## Large-Change Checklist
 

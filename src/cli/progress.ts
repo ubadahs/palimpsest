@@ -14,9 +14,7 @@ export type CliProgressReporter = {
   failStep: (step: string, payload?: ProgressPayload) => void;
 };
 
-export function createCliProgressReporter(
-  stage: StageKey,
-): CliProgressReporter {
+function createCliProgressReporter(stage: StageKey): CliProgressReporter {
   function emit(
     step: string,
     status: StageProgressEvent["status"],

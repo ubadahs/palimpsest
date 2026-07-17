@@ -2,12 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { stageKeySchema } from "palimpsest/contract";
 
 import { getArtifactContent } from "@/lib/run-queries";
-import {
-  allowMethods,
-  handleApiError,
-  readOptionalFamilyIndex,
-  readQueryParam,
-} from "@/lib/api-route";
+import { allowMethods, handleApiError, readQueryParam } from "@/lib/api-route";
 
 function contentTypeForKind(kind: string): string {
   if (kind === "primary" || kind === "manifest") {
@@ -28,8 +23,7 @@ export default async function handler(
     const runId = readQueryParam(request, "runId");
     const stageKey = stageKeySchema.parse(readQueryParam(request, "stageKey"));
     const kind = readQueryParam(request, "kind");
-    const familyIndex = readOptionalFamilyIndex(request) ?? 0;
-    const artifact = getArtifactContent(runId, stageKey, kind, familyIndex);
+    const artifact = getArtifactContent(runId, stageKey, kind);
     response.setHeader("content-type", contentTypeForKind(kind));
     response.setHeader("x-artifact-path", artifact.path);
     response.status(200).send(artifact.content);

@@ -20,32 +20,23 @@ export function resolveStageOutputDir(
   return resolve(outputRoot, getStageDefinition(stageKey).directoryName);
 }
 
-export function ensureStageOutputDir(
-  outputRoot: string,
-  stageKey: StageKey,
-): string {
+function ensureStageOutputDir(outputRoot: string, stageKey: StageKey): string {
   const stageDir = resolveStageOutputDir(outputRoot, stageKey);
   mkdirSync(stageDir, { recursive: true });
   return stageDir;
 }
 
-export function buildStageArtifactStem(
-  stamp: string,
-  familyIndex?: number,
-): string {
-  return familyIndex == null
-    ? stamp
-    : `${stamp}_family-${String(familyIndex + 1)}`;
+export function buildStageArtifactStem(stamp: string): string {
+  return stamp;
 }
 
 export function resolveStageArtifactPaths(
   outputRoot: string,
   stageKey: StageKey,
   stamp: string,
-  familyIndex?: number,
 ): StageArtifactPaths {
   const stageDir = ensureStageOutputDir(outputRoot, stageKey);
-  const artifactStem = buildStageArtifactStem(stamp, familyIndex);
+  const artifactStem = buildStageArtifactStem(stamp);
   const definition = getStageDefinition(stageKey);
 
   return {
@@ -67,13 +58,11 @@ export function resolveStageExtraArtifactPath(
   stageKey: StageKey,
   stamp: string,
   suffix: string,
-  familyIndex?: number,
 ): string {
   const { stageDir, artifactStem } = resolveStageArtifactPaths(
     outputRoot,
     stageKey,
     stamp,
-    familyIndex,
   );
   return resolve(stageDir, `${artifactStem}${suffix}`);
 }

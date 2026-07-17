@@ -8,7 +8,7 @@ This file provides guidance to coding agents (e.g. Codex) when working with code
 
 CLI-first tooling for auditing citation fidelity in scientific literature. It analyzes whether citing papers faithfully represent the claims of cited papers — domain-agnostic and not limited to any single citation function. Local SQLite storage. **CLI and JSON/Markdown artifacts are canonical; there is no hosted multi-user product. A local-only Next.js app in `apps/ui` may orchestrate CLI subprocesses and inspect artifacts.**
 
-The project follows a milestone-based implementation plan in [`docs/conception/implementation-plan.md`](docs/conception/implementation-plan.md). **What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). The canonical PRD/build spec live under `docs/conception/`; companion docs (`evaluation-protocol`, `concept memo`, etc.) sit alongside them in `docs/`. Do not build infrastructure for later milestones early.
+**What is actually built today** is summarized in `docs/status.md` (CLI-aligned; update when phases land). Authoritative workflow docs are `docs/pipeline.md`, `docs/status.md`, and `docs/adjudication-rubric.md`. Historical shortlist/pre-screen conception docs live under `docs/archive/pre-canonical/` and are not build authority. Do not reintroduce legacy stages or compatibility bridges.
 
 ## Commands
 
@@ -40,20 +40,19 @@ npx knip --reporter compact               # optional dead-code / deps (see repo 
 ```
 apps/ui/      Local-only Next.js (App Router pages + Pages API); depends on root via workspace
 src/
-  adjudication/ Fidelity scoring, calibration, and LLM adjudicator
-  benchmark/    Blind benchmark harness (types + workflow)
-  classification/ Citation-function and evaluation-mode classification into eval packets
+  adjudication/ Canonical adjudicate packet builders
+  classification/ Deterministic citation-function and evaluation-mode helpers
   cli/          Command entrypoints (index.ts dispatches to commands/)
   config/       Env loading (Zod-validated) and AppConfig construction
   domain/       Core taxonomy types and decision logic (pure)
   health/       Health checks shared by CLI (doctor) and UI
   integrations/ External provider adapters (bioRxiv, OpenAlex, Semantic Scholar); centralized LLM client (llm-client.ts)
   pipeline/     Canonical six-stage orchestration and production adapters
-  retrieval/    Chunking, BM25 ranking, LLM reranking, cited-span selection
-  reporting/    JSON and Markdown artifact generation
+  retrieval/    Full-text acquisition, parsing, BM25, canonical evidence retrieval
+  reporting/    Canonical Report Markdown rendering
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
-  contract/  Shared stage/run types; package exports: palimpsest/contract (+ /server)
+  contract/     Shared stage/run types; package exports: palimpsest/contract (+ /server)
 tests/          Mirrors src/ structure
 ```
 
@@ -81,7 +80,7 @@ tests/          Mirrors src/ structure
 
 ### Domain Model
 
-Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability gates (`auditable_structured`, `auditable_pdf`, `partially_auditable`, `not_auditable`) must pass before fidelity scoring. The current implementation focuses on `empirical_attribution` but the taxonomy is designed to extend to other citation functions.
+Fidelity labels are `F` (faithful), `D` (distortion), `E` (error), `U` (uncertain). Auditability taxonomy values remain in `src/domain/taxonomy.ts` for doctor/reporting vocabulary. The current implementation focuses on `empirical_attribution` but the taxonomy is designed to extend to other citation functions.
 
 ## TypeScript Strictness
 

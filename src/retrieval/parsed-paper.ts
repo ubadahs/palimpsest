@@ -4,20 +4,21 @@ import { DOMParser } from "@xmldom/xmldom";
 
 import type Database from "better-sqlite3";
 
+import type { CachePolicy } from "../domain/classification.js";
 import type {
-  CachePolicy,
-  CitationMention,
   FullTextAcquisition,
+  ResolvedPaper,
+  Result,
+} from "../domain/common.js";
+import type {
   FullTextFormat,
   ParsedBlockKind,
   ParsedCitationMention,
   ParsedPaperBlock,
   ParsedPaperDocument,
   ParsedPaperReference,
-  ResolvedPaper,
-  Result,
-} from "../domain/types.js";
-import { parsedPaperDocumentSchema } from "../domain/types.js";
+} from "../domain/parsing.js";
+import { parsedPaperDocumentSchema } from "../domain/parsing.js";
 import {
   acquireFullText,
   type FullTextContent,
@@ -31,7 +32,7 @@ import {
 
 export const PARSED_PAPER_PARSER_VERSION = "structured-v2";
 
-export type ParsedPaperMaterialized = {
+type ParsedPaperMaterialized = {
   fullText: FullTextContent;
   acquisition: FullTextAcquisition;
   parsedDocument: ParsedPaperDocument;
@@ -873,7 +874,7 @@ export async function materializeLocalPdf(
   };
 }
 
-export type BibliographyMatchMethod =
+type BibliographyMatchMethod =
   | "doi"
   | "author_year_exact_title"
   | "author_year_title_overlap";
@@ -1038,31 +1039,4 @@ export function findReferenceByMetadata(
   },
 ): ParsedPaperReference | undefined {
   return matchReferenceByMetadata(references, locator)?.reference;
-}
-
-export function toCitationMention(
-  mention: ParsedCitationMention,
-): CitationMention {
-  return {
-    mentionIndex: mention.mentionIndex,
-    rawContext: mention.rawContext,
-    citationMarker: mention.citationMarker,
-    sectionTitle: mention.sectionTitle,
-    isDuplicate: false,
-    contextLength: mention.rawContext.length,
-    markerStyle: "unknown",
-    contextType: "unknown",
-    confidence: "low",
-    isBundledCitation: mention.isBundledCitation,
-    bundleSize: mention.bundleSize,
-    bundleRefIds: mention.bundleRefIds,
-    bundlePattern: mention.bundlePattern,
-    provenance: {
-      sourceType: mention.sourceType,
-      parser: mention.parser,
-      refId: mention.refId,
-      charOffsetStart: mention.charOffsetStart,
-      charOffsetEnd: mention.charOffsetEnd,
-    },
-  };
 }
