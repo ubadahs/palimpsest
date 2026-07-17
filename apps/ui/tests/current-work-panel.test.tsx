@@ -5,34 +5,41 @@ import type { StageWorkflowSnapshot } from "palimpsest/contract";
 import { CurrentWorkPanel } from "../components/current-work-panel";
 
 const workflow: StageWorkflowSnapshot = {
-  stageKey: "extract",
+  stageKey: "evidence",
   title: "Current work",
-  summary: "Citation extraction is underway.",
+  summary: "Canonical evidence retrieval is underway.",
   source: "telemetry",
   counts: {
     current: 2,
     total: 6,
-    label: "edges",
+    label: "records",
   },
   steps: [
     {
-      id: "select_auditable_papers",
-      label: "Select auditable citing papers",
-      description: "Choose the citing papers that can actually be parsed.",
+      id: "verify_lineage",
+      label: "Verify lineage",
+      description: "Verify exact input artifacts before retrieval.",
       status: "completed",
-      detail: "6 auditable papers selected",
+      detail: "Prepare and Scope lineage verified",
     },
     {
-      id: "fetch_and_parse_full_text",
-      label: "Fetch and parse citing full text",
-      description: "Fetch each citing paper and parse it into structured text.",
+      id: "chunk_seed_text",
+      label: "Chunk seed text",
+      description: "Create deterministic fixed-window chunks from Scope text.",
+      status: "completed",
+      detail: "12 chunks",
+    },
+    {
+      id: "run_bm25",
+      label: "Run BM25",
+      description: "Retrieve using only the declared family claim.",
       status: "running",
-      detail: "Working through edge 2 of 6",
+      detail: "Ranking record 2 of 6",
     },
     {
-      id: "locate_citation_mentions",
-      label: "Locate citation mentions",
-      description: "Find the in-text references that point back to the seed.",
+      id: "rerank_if_enabled",
+      label: "Optional rerank",
+      description: "Record a separate relevance-only reranking outcome.",
       status: "pending",
     },
   ],
@@ -42,11 +49,13 @@ describe("CurrentWorkPanel", () => {
   it("renders workflow steps and live source details", () => {
     render(<CurrentWorkPanel workflow={workflow} />);
 
-    expect(screen.getByText("Citation extraction is underway.")).toBeTruthy();
-    expect(screen.getByText("2/6 edges")).toBeTruthy();
-    expect(screen.getByText("Fetch and parse citing full text")).toBeTruthy();
-    expect(screen.getByText("Working through edge 2 of 6")).toBeTruthy();
-    expect(screen.queryByText("6 auditable papers selected")).toBeNull();
+    expect(
+      screen.getByText("Canonical evidence retrieval is underway."),
+    ).toBeTruthy();
+    expect(screen.getByText("2/6 records")).toBeTruthy();
+    expect(screen.getByText("Run BM25")).toBeTruthy();
+    expect(screen.getByText("Ranking record 2 of 6")).toBeTruthy();
+    expect(screen.queryByText("Prepare and Scope lineage verified")).toBeNull();
   });
 
   it("shows completed step detail inside the info popover only", () => {
@@ -54,11 +63,11 @@ describe("CurrentWorkPanel", () => {
 
     fireEvent.click(
       screen.getAllByRole("button", {
-        name: "More about Select auditable citing papers",
+        name: "More about Verify lineage",
       })[0]!,
     );
 
-    expect(screen.getByText("6 auditable papers selected")).toBeTruthy();
+    expect(screen.getByText("Prepare and Scope lineage verified")).toBeTruthy();
   });
 
   it("opens the step explanation popover", () => {
@@ -66,14 +75,12 @@ describe("CurrentWorkPanel", () => {
 
     fireEvent.click(
       screen.getAllByRole("button", {
-        name: "More about Fetch and parse citing full text",
+        name: "More about Run BM25",
       })[0]!,
     );
 
     expect(
-      screen.getByText(
-        "Fetch each citing paper and parse it into structured text.",
-      ),
+      screen.getByText("Retrieve using only the declared family claim."),
     ).toBeTruthy();
   });
 
