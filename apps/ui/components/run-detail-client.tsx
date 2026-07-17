@@ -87,7 +87,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
     fetch: () => fetchJson<RunDetail>(`/api/runs/${run.id}`),
     onSuccess: setRun,
     intervalMs: 2_000,
-    enabled: run.status === "running",
+    enabled: run.status === "queued" || run.status === "running",
   });
 
   useEffect(() => {
@@ -110,11 +110,20 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
   async function trigger(
     _action: "start" | "cancel",
     path: string,
+    body?: unknown,
   ): Promise<void> {
     setError(null);
     startTransition(async () => {
       try {
-        await fetchJson<{ ok: true }>(path, { method: "POST" });
+        await fetchJson<{ ok: true }>(path, {
+          method: "POST",
+          ...(body != null
+            ? {
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(body),
+              }
+            : {}),
+        });
         const nextRun = await fetchJson<RunDetail>(`/api/runs/${run.id}`);
         setRun(nextRun);
       } catch (nextError) {
@@ -126,7 +135,8 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
   }
 
   const isRunning = run.status === "running";
-  const isComplete = run.status === "succeeded";
+  const targetComplete = run.status === "succeeded";
+  const fullPipelineComplete = targetComplete && run.targetStage === "report";
 
   return (
     <div className="space-y-6">
@@ -149,8 +159,9 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
               />
             </h2>
             <p className="max-w-4xl text-sm leading-7 text-[var(--text-muted)]">
-              {run.trackedClaim ??
-                "Auto-discover — harvests citing-side attributions and builds a grounded shortlist"}
+              Canonical DOI-first audit: discover citing-side attributions,
+              scope families, prepare records, retrieve evidence, adjudicate,
+              and report.
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">
@@ -164,7 +175,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                 </span>{" "}
                 {formatDateCompact(run.createdAt)}
               </div>
-              {isComplete && runStart && runFinish ? (
+              {targetComplete && runStart && runFinish ? (
                 <div>
                   <span className="text-[11px] uppercase tracking-[0.14em]">
                     Duration
@@ -203,7 +214,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                 </div>
               ) : null}
             </div>
-            {!isComplete ? (
+            {!fullPipelineComplete ? (
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -214,11 +225,19 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                         : "Start or resume the next pending stage in pipeline order."
                     }
                     onClick={() =>
-                      trigger("start", `/api/runs/${run.id}/start`)
+                      trigger(
+                        "start",
+                        `/api/runs/${run.id}/start`,
+                        targetComplete && nextGroup
+                          ? { targetStage: nextGroup.stageKey }
+                          : undefined,
+                      )
                     }
                     variant="default"
                   >
-                    Continue
+                    {targetComplete && nextStageTitle
+                      ? `Continue to ${nextStageTitle}`
+                      : "Continue"}
                   </Button>
                   <Button
                     disabled={isPending || !isRunning}
@@ -252,11 +271,11 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
         ) : null}
       </Card>
 
-      {isComplete ? <RunResultsSummary run={run} /> : null}
+      {targetComplete ? <RunResultsSummary run={run} /> : null}
 
       <StageRail run={run} />
 
-      {!isComplete ? (
+      {!targetComplete ? (
         <div className="grid gap-6 xl:grid-cols-2">
           <div className="space-y-6">
             {run.activeWorkflow ? (
@@ -279,7 +298,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
       ) : null}
 
       <Card className="overflow-hidden">
-        <details className="group" open={isComplete}>
+        <details className="group" open={targetComplete}>
           <summary className="flex cursor-pointer list-none flex-col gap-2 border-b border-[var(--border)] px-6 py-5 [&::-webkit-details-marker]:hidden">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -309,9 +328,6 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                     </p>
                     <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
                       {group.stageKey}
-                      {group.members.length > 1
-                        ? ` · ${String(group.members.length)} families`
-                        : ""}
                     </p>
                     <p className="mt-2 text-sm text-[var(--text-muted)]">
                       {stageGroupCardHeadline(group)}
