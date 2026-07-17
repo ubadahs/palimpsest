@@ -37,5 +37,5 @@ The UI reads the same environment used by the CLI (including `.env.local` / `.en
 
 - the UI launches the CLI as subprocesses from the repo root
 - logs are streamed into `data/runs/<runId>/logs/`
-- canonical stage artifacts remain the source of truth
+- current-executor stage artifacts remain the UI's operational source of truth until the lean artifact writers replace them
 - cancelling a run terminates the active subprocess only

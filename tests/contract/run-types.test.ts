@@ -53,4 +53,17 @@ describe("analysis run config", () => {
       vectorFirstConcurrency: 3,
     });
   });
+
+  it("rejects superseded config fields and stage names", () => {
+    expect(
+      analysisRunConfigSchema.safeParse({
+        m5TargetSize: 10,
+      }).success,
+    ).toBe(false);
+    expect(
+      analysisRunConfigSchema.safeParse({
+        stopAfterStage: "m2-extract",
+      }).success,
+    ).toBe(false);
+  });
 });

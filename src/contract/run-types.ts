@@ -88,42 +88,9 @@ export const analysisRunConfigObjectSchema = z
     /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
     seedPdfPath: z.string().min(1).optional(),
   })
-  .passthrough();
+  .strict();
 
-function migrateConfigFields(val: unknown): unknown {
-  if (typeof val !== "object" || val === null) return val;
-  const obj = val as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...obj };
-  // Migrate legacy field names from stored config_json.
-  if ("m5TargetSize" in obj && !("curateTargetSize" in obj)) {
-    out["curateTargetSize"] = obj["m5TargetSize"];
-    delete out["m5TargetSize"];
-  }
-  if ("m6Model" in obj && !("adjudicateModel" in obj)) {
-    out["adjudicateModel"] = obj["m6Model"];
-    delete out["m6Model"];
-  }
-  if ("m6Thinking" in obj && !("adjudicateThinking" in obj)) {
-    out["adjudicateThinking"] = obj["m6Thinking"];
-    delete out["m6Thinking"];
-  }
-  if (out["stopAfterStage"] === "m6-llm-judge")
-    out["stopAfterStage"] = "adjudicate";
-  if (out["stopAfterStage"] === "pre-screen") out["stopAfterStage"] = "screen";
-  if (out["stopAfterStage"] === "m2-extract") out["stopAfterStage"] = "extract";
-  if (out["stopAfterStage"] === "m3-classify")
-    out["stopAfterStage"] = "classify";
-  if (out["stopAfterStage"] === "m4-evidence")
-    out["stopAfterStage"] = "evidence";
-  if (out["stopAfterStage"] === "m5-adjudicate")
-    out["stopAfterStage"] = "curate";
-  return out;
-}
-
-export const analysisRunConfigSchema = z.preprocess(
-  migrateConfigFields,
-  analysisRunConfigObjectSchema,
-);
+export const analysisRunConfigSchema = analysisRunConfigObjectSchema;
 export type AnalysisRunConfig = z.infer<typeof analysisRunConfigSchema>;
 
 export const stageArtifactPointerSchema = z

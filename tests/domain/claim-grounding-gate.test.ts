@@ -76,7 +76,7 @@ describe("claimGroundingBlocksAnalysis", () => {
     expect(claimGroundingBlocksAnalysis(g)).toBe(true);
   });
 
-  it("migrates legacy m2Priority from stored artifacts", () => {
+  it("rejects superseded m2Priority artifacts", () => {
     const g: ClaimGrounding = {
       status: "grounded",
       analystClaim: "x",
@@ -85,13 +85,13 @@ describe("claimGroundingBlocksAnalysis", () => {
       blocksDownstream: false,
       detailReason: "grounded",
     };
-    const legacy: Record<string, unknown> = {
+    const superseded: Record<string, unknown> = {
       ...minimalFamily(g),
       m2Priority: "later",
     };
-    delete legacy["downstreamPriority"];
-    const parsed = claimFamilyPreScreenSchema.parse(legacy);
-    expect(parsed.downstreamPriority).toBe("later");
-    expect("m2Priority" in parsed).toBe(false);
+    delete superseded["downstreamPriority"];
+    expect(claimFamilyPreScreenSchema.safeParse(superseded).success).toBe(
+      false,
+    );
   });
 });

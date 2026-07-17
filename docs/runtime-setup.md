@@ -35,7 +35,7 @@ Base URLs for OpenAlex, Semantic Scholar, and bioRxiv also have defaults and usu
 
 The PDF fallback path no longer uses raw PDF text extraction in production. When a paper is only available as PDF, the pipeline validates that the fetched payload is actually a PDF before sending it to GROBID, then stores the resulting TEI as `grobid_tei_xml`.
 
-Historical artifacts with legacy `pdf_text` remain loadable, but new PDF-backed runs should go through GROBID.
+The temporary executor still recognizes stored `pdf_text`, but that compatibility reader is outside the lean contracts and should be removed with the old parsing path. New PDF-backed runs go through GROBID.
 
 ### Recommended local deployment
 
