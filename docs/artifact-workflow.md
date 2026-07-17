@@ -1,6 +1,6 @@
 # Artifact Workflow
 
-This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover, Scope, Prepare, and Evidence persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover, Scope, Prepare, Evidence, and Adjudicate persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
@@ -90,6 +90,28 @@ The application and persistence seams are:
 
 Unavailable seed text, acquisition failure, zero lexical matches, deterministic retrieval failure, and rerank failure remain separate machine states. Disabled reranking has no model provenance; nonfatal failure preserves BM25 and remains explicit; fatal authentication/authorization/billing/quota errors produce no successful Evidence artifact.
 
+## Canonical Adjudicate Artifact
+
+Canonical Adjudicate reads one current Evidence envelope and the exact current Prepare ancestor referenced by Evidence. It reads no current-executor audit-sample/adjudicate artifact and does not consult Scope/Discover unless a future scientific need binds exact lineage. Its authoritative envelope contains:
+
+- exact Evidence and Prepare artifact ID/content-hash lineage
+- the explicit uncalibrated categorical method descriptor (`canonical-categorical-adjudicate-v1`, routing `none`)
+- exactly one outcome per Evidence record: `adjudicated` (`F`/`D`/`E`/`U`), `not_adjudicated` (typed gate), `adjudication_failed`, or `invalid_output`
+- for adjudicated records: comparison, rationale, confidence, the complete occurrence-local claim text/ID set in Prepare order, exact selected cited chunk IDs, model-cited chunk subsets in Evidence-selection order, and full model/prompt/request/response provenance
+- three append-only decisions per record (gate, model, final outcome), with no exclusions or sampling
+- exact prompt metadata/content and complete canonical adapter-request hashing before any completed or failed model execution is accepted
+- stable non-verdict identities that ignore descriptive reason and artifact location/role while binding semantic gate/failure and request/response content
+- no adapter or model provenance for fully gated runs; validated-artifact selection/chunk corruption throws instead of becoming a gate outcome
+
+The application and persistence seams are:
+
+- `runCanonicalAdjudicate` — verifies Evidence/Prepare lineage, applies deterministic adjudicability gates before any model call, requires an adapter only upon reaching an eligible record, verifies exact request provenance, and emits complete accounting
+- `buildCanonicalAdjudicateArtifact` — binds exact direct inputs, decisions, and non-replayable model provenance into the lean envelope; every modeled outcome must link exactly to prompt/model/request/response provenance and fully gated artifacts must carry none
+- `writeCanonicalAdjudicateArtifact` — validates and writes only the current Adjudicate envelope
+- `loadCanonicalAdjudicateArtifact` — validates current version, lineage, complete accounting, provenance, stable identities, and tamper hashes
+
+Operational gates never become `U`. Confidence never routes another model. Advisor/vector paths are absent. Blinded human calibration is still required before trust claims or restoring routed methods. Production adapters, Report, CLI, and executor wiring remain unimplemented.
+
 ## Artifact Roles
 
 Artifacts fall into four roles:
@@ -127,7 +149,7 @@ The current executor uses the stage keys below. Artifact readers accept only the
 | 3 | `classify` | `classify` | `03-classify/` | `*_classification-results.json` | `*_classification-report.md` | none |
 | 4 | `evidence` | `evidence` | `04-evidence/` | `*_evidence-results.json` | `*_evidence-report.md` | none |
 | 5 | `curate` | `curate` | `05-curate/` | `*_audit-sample.json` | `*_audit-sample-worksheet.md` | none |
-| 6 | `adjudicate` | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | Optional in-record diagnostic: `fidelityVectorTrace` when enabled; opt-in vector-first provenance: `vectorRoutingDecision` |
+| 6 | `adjudicate` (temporary executor) | `adjudicate` | `06-adjudicate/` | `*_llm-audit-sample.json` | `*_llm-summary.md`; `*_agreement-report.md` when available | Temporary-executor support-style verdicts only; optional in-record diagnostic: `fidelityVectorTrace`; opt-in vector-first provenance: `vectorRoutingDecision`. Not the canonical Adjudicate envelope. |
 
 Every primary JSON artifact also gets:
 
