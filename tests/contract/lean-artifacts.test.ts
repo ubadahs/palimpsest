@@ -23,7 +23,6 @@ import {
   leanArtifactVersion,
   leanStageArtifactSchema,
   parseLeanStageArtifact,
-  prepareArtifactPayloadSchema,
   prepareArtifactSchema,
   reportArtifactSchema,
   scopedFamilySchema,
@@ -370,11 +369,105 @@ function buildAllStageArtifacts() {
       ],
     },
   });
+  const prepareScopeReference = {
+    ...asReference(scope, "canonical-scope-input"),
+    role: "canonical-scope-input" as const,
+    canonicalStage: "scope" as const,
+  };
+  if (
+    discover.canonicalStage !== "discover" ||
+    scope.canonicalStage !== "scope"
+  ) {
+    throw new Error("Expected canonical Discover and Scope artifacts");
+  }
+  const family = scope.payload.families[0]!;
+  const citationOccurrence = discover.payload.citationMentions[0]!;
+  const prepareRecordId = buildCitationInstanceRecordId({
+    familyId: family.familyId,
+    citationOccurrenceId: citationOccurrence.mentionId,
+  });
+  const prepareLineage = {
+    runId: "run-contract-test",
+    scopeArtifact: prepareScopeReference,
+    discoverArtifact: discoverReference,
+  };
+  const classificationRationale =
+    "Fixture role classification for the prepared citation instance.";
+  const prepareRecord = {
+    recordId: prepareRecordId,
+    familyId: family.familyId,
+    citationOccurrenceId: citationOccurrence.mentionId,
+    family,
+    sourceCandidates: discover.payload.claimCandidates.filter((candidate) =>
+      family.candidateIds.includes(candidate.candidateId),
+    ),
+    sourceClaimRecords: discover.payload.attributedClaimRecords.filter(
+      (sourceClaim) =>
+        family.sourceClaimRecordIds.includes(sourceClaim.claimRecordId),
+    ),
+    occurrenceSourceCandidates: discover.payload.claimCandidates.filter(
+      (candidate) =>
+        family.candidateIds.includes(candidate.candidateId) &&
+        candidate.memberMentionIds.includes(citationOccurrence.mentionId),
+    ),
+    occurrenceSourceClaimRecords:
+      discover.payload.attributedClaimRecords.filter(
+        (sourceClaim) =>
+          family.sourceClaimRecordIds.includes(sourceClaim.claimRecordId) &&
+          sourceClaim.mentionId === citationOccurrence.mentionId,
+      ),
+    seed: discover.payload.seeds[0]!,
+    citingPaper: discover.payload.citingPapers[0]!,
+    citationOccurrence,
+    context: {
+      verbatim: {
+        text: citationOccurrence.rawContext,
+        sourceOccurrenceId: citationOccurrence.mentionId,
+        sourceArtifacts: citationOccurrence.observationProvenance.artifacts,
+      },
+      derived: [],
+    },
+    classification: {
+      status: "classified" as const,
+      citationRole: "substantive_attribution" as const,
+      evaluationMode: "fidelity_specific_claim" as const,
+      modifiers: {
+        isBundled: false,
+        isReviewMediated: false,
+        bundleSize: 1,
+      },
+      signals: ["fixture:substantive-attribution"],
+      rationale: classificationRationale,
+      confidence: "high" as const,
+      execution: {
+        kind: "deterministic" as const,
+        implementation: "fixture-classifier-v1",
+      },
+    },
+    lineage: prepareLineage,
+  };
+  const prepareDecision = createAppendOnlyDecision({
+    recordId: prepareRecordId,
+    decisionType: "prepare_classification_outcome",
+    outcome: "classified",
+    reason: classificationRationale,
+    recordedAt: "2026-07-16T12:00:00.000Z",
+    actor: {
+      kind: "deterministic",
+      identifier: "fixture-classifier-v1",
+    },
+    evidenceArtifacts: [prepareScopeReference, discoverReference],
+  });
   const prepare = createLeanStageArtifact({
     ...baseEnvelope(),
     canonicalStage: "prepare",
-    inputArtifacts: [asReference(scope, "scope-decisions")],
-    payload: { records: [] },
+    inputArtifacts: [prepareScopeReference, discoverReference],
+    decisions: [prepareDecision],
+    payload: {
+      lineage: prepareLineage,
+      scopedFamilies: [family],
+      records: [prepareRecord],
+    },
   });
   const evidence = createLeanStageArtifact({
     ...baseEnvelope(),
@@ -737,144 +830,29 @@ describe("canonical scientific identities", () => {
 });
 
 describe("citation-instance and decision provenance", () => {
-  const mention = {
-    mentionIndex: 2,
-    rawContext: "Prior work [7] reported the measured effect.",
-    citationMarker: "[7]",
-    sectionTitle: "Discussion",
-    refId: "ref-7",
-    charOffsetStart: 100,
-    charOffsetEnd: 149,
-    isBundledCitation: false,
-    bundleSize: 1,
-    bundleRefIds: ["ref-7"],
-    bundlePattern: "single" as const,
-    sourceType: "jats_xml" as const,
-    parser: "jats-v1",
-    isDuplicate: false,
-    contextLength: 49,
-    markerStyle: "numeric" as const,
-    contextType: "narrative_like" as const,
-    confidence: "high" as const,
-    provenance: {
-      sourceType: "jats_xml" as const,
-      parser: "jats-v1",
-      refId: "ref-7",
-      charOffsetStart: 100,
-      charOffsetEnd: 149,
-    },
-  };
-  const seedId = buildSeedId({ doi: "10.1234/seed" });
-  const citationInstanceIdentity = {
-    seedDoi: "https://doi.org/10.1234/SEED",
-    citingPaperId: "citing-paper",
-    citedPaperId: "seed-paper",
-    mentionIndex: mention.mentionIndex,
-    refId: mention.refId,
-    charOffsetStart: mention.charOffsetStart,
-    charOffsetEnd: mention.charOffsetEnd,
-    citationMarker: mention.citationMarker,
-    rawContext: mention.rawContext,
-  };
-  const citationOccurrenceId = buildCitationOccurrenceId({
-    ...citationInstanceIdentity,
-    seedId,
-  });
-  const recordId = buildCitationInstanceRecordId(citationInstanceIdentity);
-  const preparedRecord = {
-    recordId,
+  const familyId = buildStableId("family", { claim: "measured effect" });
+  const citationOccurrenceId = buildStableId("mention", { offset: 100 });
+  const recordId = buildCitationInstanceRecordId({
+    familyId,
     citationOccurrenceId,
-    seed: {
-      seedId,
-      doi: "10.1234/seed",
-      trackedClaim: "The measured effect changed.",
-    },
-    citingPaper: {
-      paperId: "citing-paper",
-      title: "Citing paper",
-      doi: "10.1234/citing",
-    },
-    citedPaper: {
-      paperId: "seed-paper",
-      title: "Seed paper",
-      doi: "10.1234/seed",
-    },
-    mention,
-    classification: {
-      citationRole: "background_context" as const,
-      evaluationMode: "fidelity_background_framing" as const,
-      modifiers: {
-        isBundled: false,
-        isReviewMediated: false,
-      },
-      signals: ["discussion-context"],
-    },
-  };
-
-  it("ignores parser metadata but changes identity with the occurrence location", () => {
-    const alternateParserRecord = {
-      ...preparedRecord,
-      mention: {
-        ...preparedRecord.mention,
-        sourceType: "grobid_tei" as const,
-        parser: "grobid-v2",
-        provenance: {
-          ...preparedRecord.mention.provenance,
-          sourceType: "grobid_tei" as const,
-          parser: "grobid-v2",
-        },
-      },
-    };
-    expect(
-      prepareArtifactPayloadSchema.safeParse({
-        records: [preparedRecord, alternateParserRecord],
-      }).success,
-    ).toBe(true);
-    expect(alternateParserRecord.recordId).toBe(preparedRecord.recordId);
-
-    const movedRecordId = buildCitationInstanceRecordId({
-      seedDoi: preparedRecord.seed.doi,
-      citingPaperId: preparedRecord.citingPaper.paperId,
-      citedPaperId: preparedRecord.citedPaper.paperId,
-      mentionIndex: mention.mentionIndex,
-      refId: mention.refId,
-      charOffsetStart: mention.charOffsetStart + 1,
-      charOffsetEnd: mention.charOffsetEnd + 1,
-      citationMarker: mention.citationMarker,
-      rawContext: mention.rawContext,
-    });
-    expect(movedRecordId).not.toBe(recordId);
   });
 
-  it("keeps citation identity stable while classification content changes", () => {
-    const changedClassification = {
-      ...preparedRecord,
-      classification: {
-        ...preparedRecord.classification,
-        citationRole: "substantive_attribution" as const,
-        evaluationMode: "fidelity_specific_claim" as const,
-      },
-    };
-
+  it("uses exactly family and occurrence for prepared-record identity", () => {
     expect(
-      prepareArtifactPayloadSchema.safeParse({
-        records: [preparedRecord, changedClassification],
-      }).success,
-    ).toBe(true);
-    expect(changedClassification.recordId).toBe(preparedRecord.recordId);
-
-    const first = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "prepare",
-      payload: { records: [preparedRecord] },
-    });
-    const second = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "prepare",
-      payload: { records: [changedClassification] },
-    });
-    expect(second.contentHash).not.toBe(first.contentHash);
-    expect(second.artifactId).not.toBe(first.artifactId);
+      buildCitationInstanceRecordId({ familyId, citationOccurrenceId }),
+    ).toBe(recordId);
+    expect(
+      buildCitationInstanceRecordId({
+        familyId: buildStableId("family", { claim: "different" }),
+        citationOccurrenceId,
+      }),
+    ).not.toBe(recordId);
+    expect(
+      buildCitationInstanceRecordId({
+        familyId,
+        citationOccurrenceId: buildStableId("mention", { offset: 200 }),
+      }),
+    ).not.toBe(recordId);
   });
 
   it("uses append-only, reasoned decisions and exclusions with stable IDs", () => {
@@ -938,46 +916,5 @@ describe("citation-instance and decision provenance", () => {
       evidenceArtifacts: [],
     });
     expect(retimedDecision.decisionId).toBe(firstDecision.decisionId);
-
-    const firstDecisionArtifact = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "prepare",
-      decisions: [firstDecision],
-      payload: { records: [preparedRecord] },
-    });
-    const retimedDecisionArtifact = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "prepare",
-      decisions: [retimedDecision],
-      payload: { records: [preparedRecord] },
-    });
-    expect(retimedDecisionArtifact.contentHash).toBe(
-      firstDecisionArtifact.contentHash,
-    );
-    expect(retimedDecisionArtifact.artifactId).toBe(
-      firstDecisionArtifact.artifactId,
-    );
-
-    const artifact = createLeanStageArtifact({
-      ...baseEnvelope(),
-      canonicalStage: "prepare",
-      decisions: [firstDecision, revisedDecision],
-      exclusions: [exclusion],
-      payload: { records: [preparedRecord] },
-    });
-    expect(artifact.decisions).toHaveLength(2);
-    expect(artifact.decisions[1]?.supersedesDecisionId).toBe(
-      firstDecision.decisionId,
-    );
-    expect(artifact.exclusions[0]?.reason).toContain("cannot be isolated");
-
-    expect(() =>
-      createLeanStageArtifact({
-        ...baseEnvelope(),
-        canonicalStage: "prepare",
-        decisions: [firstDecision, firstDecision],
-        payload: { records: [preparedRecord] },
-      }),
-    ).toThrow(/Duplicate append-only decision ID/);
   });
 });

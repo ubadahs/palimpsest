@@ -1,6 +1,6 @@
 # Artifact Workflow
 
-This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover and Scope persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover, Scope, and Prepare persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
@@ -43,7 +43,29 @@ The application and persistence seams are:
 - `writeCanonicalScopeArtifact` — validates and writes only the current Scope envelope
 - `loadCanonicalScopeArtifact` — validates the current envelope, including internal references, stable identities, and tamper hashes
 
-Scope does not emit or consume shortlist, handoff, pre-screen, screen, or other temporary executor artifacts. Grounding never acts as an exclusion gate: `grounded`, `ambiguous`, `not_found`, seed-text failure, provider `grounding_failed`, and `invalid_grounding_output` outcomes retain the frozen occurrence membership. `not_found` carries no accepted evidence; provider failures retain typed code/reason rather than masquerading as malformed output. Prepare and executor/CLI wiring are not implemented yet.
+Scope does not emit or consume shortlist, handoff, pre-screen, screen, or other temporary executor artifacts. Grounding never acts as an exclusion gate: `grounded`, `ambiguous`, `not_found`, seed-text failure, provider `grounding_failed`, and `invalid_grounding_output` outcomes retain the frozen occurrence membership. `not_found` carries no accepted evidence; provider failures retain typed code/reason rather than masquerading as malformed output.
+
+## Canonical Prepare Artifact
+
+Canonical Prepare reads one current Scope envelope and the exact current Discover ancestor referenced by Scope. It writes one authoritative Prepare envelope whose lineage names both artifact IDs/content hashes and whose payload contains:
+
+- the complete preserved Scope family ledger used to verify exact pair accounting
+- one `PreparedCitationInstance` for every family × included citation-occurrence pair, ordered by stable record ID
+- the full Scope family and complete Discover source-candidate/source-claim ledger in each evaluation record
+- exact nonempty occurrence-local candidate and source-claim subsets, preserving the attributed wording for this record's citation occurrence
+- complete Discover seed, citing-paper, and citation-occurrence records
+- exact verbatim source context separated from any derived context
+- typed `classified`, `ambiguous`, or nonfatal `failed` classification, with deterministic/model/external execution provenance
+- one append-only classification outcome decision per record and no sampling exclusions
+
+The application and persistence seams are:
+
+- `runCanonicalPrepare` — verifies both current ancestors before adapter calls, checks Scope against Discover, materializes every frozen pair, validates classifier output, and preserves failures
+- `buildCanonicalPrepareArtifact` — binds exact Scope/Discover lineage, pair decisions, and classifier request/response provenance into the lean envelope
+- `writeCanonicalPrepareArtifact` — validates and writes only the current Prepare envelope
+- `loadCanonicalPrepareArtifact` — validates the current envelope, including exact pair accounting, stable identities, internal references, provenance, and tamper hashes
+
+Prepare does not read or write extract, classify, curate, shortlist, handoff, or other temporary-executor shapes. Record identity is versioned family ID + citation-occurrence ID only. Model or external classification makes execution explicitly non-replayable. Evidence and executor/CLI wiring are not implemented yet.
 
 ## Artifact Roles
 
