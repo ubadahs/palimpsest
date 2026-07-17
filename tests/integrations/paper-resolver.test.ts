@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ResolvedPaper } from "../../src/domain/types.js";
+import type { ResolvedPaper } from "../../src/domain/common.js";
 
 vi.mock("../../src/integrations/openalex.js", () => ({
   resolveWorkByDoi: vi.fn(),

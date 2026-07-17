@@ -101,7 +101,6 @@ describe("Run detail smoke", () => {
                   runId: "run-partial",
                   stageKey: "discover" as const,
                   stageOrder: stage.order,
-                  familyIndex: 0,
                   status: "succeeded" as const,
                 },
               ]
@@ -171,7 +170,6 @@ describe("Run detail smoke", () => {
                   runId: "run-live",
                   stageKey: "discover" as const,
                   stageOrder: 0,
-                  familyIndex: 0,
                   status: "running" as const,
                 },
               ]
@@ -205,7 +203,6 @@ describe("Run detail smoke", () => {
             runId: "run-live",
             stageKey: stage.stageKey,
             stageOrder: stage.stageOrder,
-            familyIndex: 0,
             status: "succeeded",
           },
         ],

@@ -3,7 +3,7 @@ import type {
   Confidence,
   EvaluationMode,
   TransmissionModifiers,
-} from "../domain/types.js";
+} from "../domain/classification.js";
 
 const ROLE_TO_MODE: Record<CitationRole, EvaluationMode> = {
   substantive_attribution: "fidelity_specific_claim",

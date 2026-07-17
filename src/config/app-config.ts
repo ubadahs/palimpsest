@@ -11,7 +11,6 @@ export type AppConfig = {
     bioRxiv: string;
     grobid: string;
   };
-  localRerankerBaseUrl: string | undefined;
   openAlexEmail: string | undefined;
   semanticScholarApiKey: string | undefined;
   anthropicApiKey: string | undefined;
@@ -32,7 +31,6 @@ export function createAppConfig(
       bioRxiv: environment.BIORXIV_BASE_URL,
       grobid: environment.GROBID_BASE_URL,
     },
-    localRerankerBaseUrl: environment.LOCAL_RERANKER_BASE_URL,
     openAlexEmail: environment.OPENALEX_EMAIL,
     semanticScholarApiKey: environment.SEMANTIC_SCHOLAR_API_KEY,
     anthropicApiKey: environment.ANTHROPIC_API_KEY,

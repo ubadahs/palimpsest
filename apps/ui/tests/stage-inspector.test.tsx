@@ -10,7 +10,6 @@ describe("typed canonical stage inspector", () => {
       runId: "run-inspector",
       stageKey: "evidence",
       stageOrder: 3,
-      familyIndex: 0,
       status: "succeeded",
       stageTitle: "Evidence",
       artifactPointers: [],

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyEdge } from "../../src/domain/attribution-signal.js";
-import type { ResolvedPaper } from "../../src/domain/types.js";
+import type { ResolvedPaper } from "../../src/domain/common.js";
 
 function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
   return {

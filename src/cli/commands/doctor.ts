@@ -29,9 +29,6 @@ export async function runDoctorCommand(): Promise<void> {
   console.info(
     `  Anthropic:      ${statusIcon(h.anthropic)}  ${h.anthropic.detail ?? "configured"}`,
   );
-  console.info(
-    `  Reranker:       ${statusIcon(h.reranker)}  ${h.reranker.detail ?? environmentHealth.localRerankerBaseUrl ?? "not configured (optional)"}`,
-  );
 
   if (environmentHealth.institutionalProxyUrl) {
     console.info(

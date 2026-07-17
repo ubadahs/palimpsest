@@ -32,7 +32,7 @@ import {
 } from "../contract/lean-artifacts.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
-export const canonicalScopeOptionsSchema = z
+const canonicalScopeOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     discoverArtifactUri: z.string().min(1).optional(),
@@ -40,11 +40,8 @@ export const canonicalScopeOptionsSchema = z
   .strict();
 export type CanonicalScopeOptions = z.infer<typeof canonicalScopeOptionsSchema>;
 
-export const canonicalScopeSeedMaterializationResultSchema =
+const canonicalScopeSeedMaterializationResultSchema =
   scopeSeedMaterializationSchema;
-export type CanonicalScopeSeedMaterializationResult = z.infer<
-  typeof canonicalScopeSeedMaterializationResultSchema
->;
 
 const groundingSupportSpanOutputSchema = z
   .object({
@@ -83,7 +80,7 @@ export type CanonicalScopeGroundingOutput = z.infer<
   typeof canonicalScopeGroundingOutputSchema
 >;
 
-export const canonicalScopeGroundingResultSchema = z
+const canonicalScopeGroundingResultSchema = z
   .discriminatedUnion("status", [
     z
       .object({
@@ -113,11 +110,7 @@ export const canonicalScopeGroundingResultSchema = z
       });
     }
   });
-export type CanonicalScopeGroundingResult = z.infer<
-  typeof canonicalScopeGroundingResultSchema
->;
-
-export type CanonicalScopeFamilyInput = {
+type CanonicalScopeFamilyInput = {
   familyId: string;
   seedId: string;
   candidateIds: string[];
@@ -136,7 +129,7 @@ export type CanonicalScopeAdapters = {
   }) => Promise<unknown>;
 };
 
-export type CanonicalScopeProvenanceInputs = {
+type CanonicalScopeProvenanceInputs = {
   prompts: LeanArtifactProvenance["prompts"];
   models: LeanArtifactProvenance["models"];
   responseArtifacts: ArtifactReference[];

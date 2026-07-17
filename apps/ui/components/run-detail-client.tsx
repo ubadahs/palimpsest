@@ -291,7 +291,6 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
             defaultCollapsed={!isRunning}
             runId={run.id}
             stageKey={focusStage?.stageKey}
-            {...(focusStage ? { familyIndex: focusStage.familyIndex } : {})}
             {...(focusStageTitle ? { stageTitle: focusStageTitle } : {})}
           />
         </div>
@@ -361,7 +360,6 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
       {focusStage ? (
         <ArtifactTabs
           artifactPointers={focusStage.summary?.artifacts ?? []}
-          familyIndex={focusStage.familyIndex}
           runId={run.id}
           stageKey={focusStage.stageKey}
           {...(focusStageTitle ? { stageTitle: focusStageTitle } : {})}

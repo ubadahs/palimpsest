@@ -254,7 +254,7 @@ export function parseCanonicalPipelineArgs(
   };
 }
 
-export function printCanonicalPipelineHelp(): void {
+function printCanonicalPipelineHelp(): void {
   console.info(`Usage: pipeline --input <dois.json> [options]
        pipeline --run-id <uuid> [options]
 

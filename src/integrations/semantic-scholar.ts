@@ -5,7 +5,7 @@ import type {
   PaperResolutionProvenance,
   ResolvedPaper,
   Result,
-} from "../domain/types.js";
+} from "../domain/common.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schema for the Semantic Scholar Paper endpoint subset ---

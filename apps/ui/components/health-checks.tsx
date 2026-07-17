@@ -49,15 +49,6 @@ export function buildHealthCheckRows(
         (health.anthropicConfigured ? "Configured" : "Missing API key"),
       blocking: false,
     },
-    {
-      label: "Local reranker",
-      status: health.health.reranker.status,
-      detail:
-        health.health.reranker.detail ??
-        health.localRerankerBaseUrl ??
-        "Optional service",
-      blocking: false,
-    },
   ];
 }
 

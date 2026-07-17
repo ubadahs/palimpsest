@@ -3,11 +3,10 @@ import { z } from "zod";
 import {
   confidenceSchema,
   evaluationModeSchema,
-  paperTypeSchema,
   type CitationRole,
-} from "../domain/types.js";
+} from "../domain/classification.js";
+import { paperTypeSchema, type Result } from "../domain/common.js";
 import { parsedBlockKindSchema } from "../domain/parsing.js";
-import type { Result } from "../domain/types.js";
 import {
   buildStableId,
   canonicalSerialize,
@@ -75,7 +74,6 @@ export {
   type EvidenceRetrievalStatus,
 } from "./canonical-evidence-statuses.js";
 export {
-  REPORT_DECISION_ACTOR_ID,
   REPORT_INTERPRETATION_WARNING,
   REPORT_PUBLICATION_REASON,
   REQUIRED_REPORT_RATE_METRIC_IDS,

@@ -9,15 +9,13 @@ function isTerminalFailure(status: AnalysisRunStage["status"]): boolean {
 function flattenStageMembers(groups: LogicalStageGroup[]): AnalysisRunStage[] {
   return groups
     .flatMap((g) => g.members)
-    .sort(
-      (a, b) => a.stageOrder - b.stageOrder || a.familyIndex - b.familyIndex,
-    );
+    .sort((a, b) => a.stageOrder - b.stageOrder);
 }
 
 /**
  * Member row used for run overview log, artifacts, and workflow recap: a
  * running row if any, else first failed row, else last succeeded row, else
- * the first row in pipeline / family order.
+ * the first row in pipeline order.
  */
 export function resolveFocusStage(
   groups: LogicalStageGroup[],

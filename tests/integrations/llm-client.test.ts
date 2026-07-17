@@ -49,15 +49,6 @@ describe("resolvePromptCacheControl", () => {
     expect(cacheControl).toBeUndefined();
   });
 
-  it("does not cache purposes without a default policy", () => {
-    const cacheControl = resolvePromptCacheControl({
-      purpose: "claim-discovery",
-      prompt: "x".repeat(10_000),
-    });
-
-    expect(cacheControl).toBeUndefined();
-  });
-
   it("caches evidence reranking prompts over 2KB by default", () => {
     const cacheControl = resolvePromptCacheControl({
       purpose: "evidence-rerank",
@@ -78,11 +69,11 @@ describe("resolvePromptCacheControl", () => {
 
   it("respects custom per-purpose overrides", () => {
     const cacheControl = resolvePromptCacheControl({
-      purpose: "claim-discovery",
+      purpose: "evidence-rerank",
       prompt: "x".repeat(600),
       options: {
         byPurpose: {
-          "claim-discovery": {
+          "evidence-rerank": {
             minPromptChars: 500,
             cacheControl: { type: "ephemeral", ttl: "1h" },
           },

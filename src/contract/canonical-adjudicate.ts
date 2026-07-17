@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { confidenceSchema } from "../domain/extraction.js";
+import { confidenceSchema } from "../domain/classification.js";
 import { fidelityTopLabelSchema } from "../domain/taxonomy.js";
 import {
   buildStableId,

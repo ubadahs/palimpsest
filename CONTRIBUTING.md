@@ -13,7 +13,7 @@ npm run test                  # run tests
 ### Required Services
 
 - **GROBID** (PDF parsing): `docker run -d -p 8070:8070 lfoppiano/grobid:0.8.1`
-- **ANTHROPIC_API_KEY**: Required for LLM-based stages (discover, screen, adjudicate)
+- **ANTHROPIC_API_KEY**: Required for LLM-backed canonical stages (discover extraction, scope grounding, optional evidence rerank, adjudicate)
 
 ### Optional Services
 
@@ -24,17 +24,19 @@ npm run test                  # run tests
 
 ```
 src/
+  adjudication/ Canonical adjudicate packet builders
+  classification/ Deterministic citation-function and evaluation-mode helpers
   cli/          Command entrypoints (index.ts dispatches to commands/)
   config/       Env loading (Zod-validated) and AppConfig construction
+  contract/     Shared stage/run types (consumed by both CLI and UI)
   domain/       Core taxonomy types and decision logic (pure, no I/O)
   health/       Health checks shared by CLI (doctor) and UI
   integrations/ External provider adapters + centralized LLM client
-  pipeline/     Claim discovery, pre-screen, and full-analysis orchestration
-  retrieval/    Chunking, BM25 ranking, LLM reranking, cited-span selection
-  reporting/    JSON and Markdown artifact generation
+  pipeline/     Canonical six-stage orchestration and production adapters
+  retrieval/    Full-text acquisition, parsing, BM25, canonical evidence retrieval
+  reporting/    Canonical Report Markdown rendering
   storage/      SQLite schema, migrations, repositories
   shared/       Cross-cutting primitives
-  contract/  Shared stage/run types (consumed by both CLI and UI)
 apps/ui/        Local-only Next.js dashboard
 tests/          Mirrors src/ structure
 ```
@@ -48,7 +50,7 @@ npm run lint           # eslint src tests
 npm run format         # prettier --write
 npm run test           # vitest run
 npm run dev -- doctor  # check config and taxonomy
-npm run dev -- pipeline --input dois.json  # full e2e pipeline
+npm run dev -- pipeline --input dois.json  # canonical e2e pipeline
 npm run ui:dev         # local Next.js UI
 ```
 
@@ -56,11 +58,11 @@ npm run ui:dev         # local Next.js UI
 
 **Add a new command**: Create `src/cli/commands/my-command.ts`, register in `src/cli/index.ts`.
 
-**Update domain schemas**: Edit types in `src/domain/`, update barrel export in `src/domain/types.ts`.
+**Update domain schemas**: Prefer focused modules under `src/domain/` (`taxonomy.ts`, `classification.ts`, `common.ts`, `parsing.ts`). Import directly from those modules rather than a barrel.
 
 **Add a migration**: Create `src/storage/migrations/NNNN_description.sql`. Never modify existing migration files.
 
-**Run a single stage**: `npm run dev -- extract --pre-screen /path/to/screen-output.json`
+**Run or resume the pipeline**: `npm run dev -- pipeline --input path/to/dois.json` or `npm run dev -- pipeline --run-id <uuid>`. Use `--stop-after <canonical-stage>` to halt early.
 
 ## Code Conventions
 
@@ -69,3 +71,4 @@ npm run ui:dev         # local Next.js UI
 - `Result<T>` for expected failures; throw only for programmer errors
 - No `any` in production code; relaxed in tests
 - Adapter interfaces on pipeline stages for dependency injection
+- Do not reintroduce shortlist/pre-screen/extract/classify/curate stages, sampling, advisor/vector routing, or support-style labels

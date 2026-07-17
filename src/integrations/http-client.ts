@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-import type { Result } from "../domain/types.js";
+import type { Result } from "../domain/common.js";
 
 export type FetchJsonOptions = {
   timeoutMs?: number;

@@ -3,11 +3,10 @@ import {
   METHODS_SECTION_PATTERNS,
 } from "../domain/section-patterns.js";
 import type {
-  CitationMention,
   CitationRole,
-  ClassifiedMention,
+  Confidence,
   TransmissionModifiers,
-} from "../domain/types.js";
+} from "../domain/classification.js";
 
 // --- Phrase-level cues ---
 
@@ -61,16 +60,15 @@ function extractLocalWindow(
 
 type Signal = { role: CitationRole; source: string };
 
-export type CitationFunctionInput = Pick<
-  CitationMention,
-  | "rawContext"
-  | "citationMarker"
-  | "sectionTitle"
-  | "contextLength"
-  | "confidence"
-  | "isBundledCitation"
-  | "bundleSize"
->;
+export type CitationFunctionInput = {
+  rawContext: string;
+  citationMarker: string;
+  sectionTitle?: string | undefined;
+  contextLength: number;
+  confidence: Confidence;
+  isBundledCitation: boolean;
+  bundleSize: number;
+};
 
 export type CitationFunctionClassification = {
   citationRole: CitationRole;
@@ -170,16 +168,6 @@ function resolveRole(
   }
 
   return "unclear";
-}
-
-export function classifyMention(
-  mention: CitationMention,
-  isReviewPaper: boolean,
-): ClassifiedMention {
-  return {
-    ...mention,
-    ...classifyCitationFunction(mention, isReviewPaper),
-  };
 }
 
 export function classifyCitationFunction(

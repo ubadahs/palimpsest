@@ -162,7 +162,6 @@ export function StageDetailClient({
       />
       <ArtifactTabs
         artifactPointers={detail.artifactPointers}
-        familyIndex={detail.familyIndex}
         runId={run.id}
         stageKey={detail.stageKey}
       />

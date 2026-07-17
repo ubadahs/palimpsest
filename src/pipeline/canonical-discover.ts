@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { paperTypeSchema } from "../domain/types.js";
+import { paperTypeSchema } from "../domain/common.js";
 import {
   artifactReferenceSchema,
   buildAttributedClaimRecordId,
@@ -39,7 +39,7 @@ const fatalProviderFailureCodeSchema = z.enum([
   "quota",
 ]);
 
-export const canonicalDiscoverFailureCodeSchema = z.union([
+const canonicalDiscoverFailureCodeSchema = z.union([
   fatalProviderFailureCodeSchema,
   z.enum([
     "not_found",
@@ -51,7 +51,7 @@ export const canonicalDiscoverFailureCodeSchema = z.union([
     "extraction_failed",
   ]),
 ]);
-export type CanonicalDiscoverFailureCode = z.infer<
+type CanonicalDiscoverFailureCode = z.infer<
   typeof canonicalDiscoverFailureCodeSchema
 >;
 
@@ -78,7 +78,7 @@ const yearRangeSchema = z
     }
   });
 
-export const canonicalDiscoverOptionsSchema = z
+const canonicalDiscoverOptionsSchema = z
   .object({
     seeds: z.array(seedInputSchema).min(1),
     neighborhood: z
@@ -120,27 +120,24 @@ const resolvedPaperInputSchema = z
   })
   .strict();
 
-export const canonicalSeedResolutionResultSchema = z.discriminatedUnion(
-  "status",
-  [
-    z
-      .object({
-        status: z.literal("resolved"),
-        paper: resolvedPaperInputSchema,
-        execution: externalExecutionSchema,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: canonicalDiscoverFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: externalExecutionSchema,
-      })
-      .strict(),
-  ],
-);
-export type CanonicalSeedResolutionResult = z.infer<
+const canonicalSeedResolutionResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("resolved"),
+      paper: resolvedPaperInputSchema,
+      execution: externalExecutionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: canonicalDiscoverFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: externalExecutionSchema,
+    })
+    .strict(),
+]);
+type CanonicalSeedResolutionResult = z.infer<
   typeof canonicalSeedResolutionResultSchema
 >;
 
@@ -164,29 +161,26 @@ const citingPaperInputSchema = z
   })
   .strict();
 
-export const canonicalNeighborhoodResultSchema = z.discriminatedUnion(
-  "status",
-  [
-    z
-      .object({
-        status: z.literal("completed"),
-        providerReportedTotal: z.number().int().nonnegative().optional(),
-        coverage: z.enum(["complete", "truncated", "unknown"]),
-        papers: z.array(citingPaperInputSchema),
-        execution: externalExecutionSchema,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: canonicalDiscoverFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: externalExecutionSchema,
-      })
-      .strict(),
-  ],
-);
-export type CanonicalNeighborhoodResult = z.infer<
+const canonicalNeighborhoodResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("completed"),
+      providerReportedTotal: z.number().int().nonnegative().optional(),
+      coverage: z.enum(["complete", "truncated", "unknown"]),
+      papers: z.array(citingPaperInputSchema),
+      execution: externalExecutionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: canonicalDiscoverFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: externalExecutionSchema,
+    })
+    .strict(),
+]);
+type CanonicalNeighborhoodResult = z.infer<
   typeof canonicalNeighborhoodResultSchema
 >;
 
@@ -313,10 +307,6 @@ export const canonicalMentionHarvestResultSchema = z
       });
     }
   });
-export type CanonicalMentionHarvestResult = z.infer<
-  typeof canonicalMentionHarvestResultSchema
->;
-
 const modelExecutionInputSchema = z
   .object({
     provider: z.string().min(1),
@@ -359,10 +349,6 @@ export const canonicalClaimExtractionResultSchema = z.discriminatedUnion(
       .strict(),
   ],
 );
-export type CanonicalClaimExtractionResult = z.infer<
-  typeof canonicalClaimExtractionResultSchema
->;
-
 export type CanonicalDiscoverAdapters = {
   resolveSeed: (input: { doi: string }) => Promise<unknown>;
   retrieveCitingNeighborhood: (input: {
@@ -380,7 +366,7 @@ export type CanonicalDiscoverAdapters = {
   }) => Promise<unknown>;
 };
 
-export type CanonicalDiscoverProvenanceInputs = {
+type CanonicalDiscoverProvenanceInputs = {
   inputArtifacts: ArtifactReference[];
   prompts: LeanArtifactProvenance["prompts"];
   models: LeanArtifactProvenance["models"];
@@ -857,7 +843,7 @@ export function buildCanonicalDiscoverArtifact(input: {
   return discoverArtifactSchema.parse(artifact);
 }
 
-export function normalizeClaimForDiscovery(value: string): string {
+function normalizeClaimForDiscovery(value: string): string {
   return normalizeDiscoverClaimText(value);
 }
 

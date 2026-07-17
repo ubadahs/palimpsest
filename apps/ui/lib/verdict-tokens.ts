@@ -1,5 +1,3 @@
-import type { BadgeVariant } from "@/components/ui/badge";
-
 export const VERDICT_ORDER = ["F", "D", "E", "U"] as const;
 
 export type VerdictKey = (typeof VERDICT_ORDER)[number];
@@ -24,17 +22,3 @@ export const VERDICT_TEXT_COLORS: Record<VerdictKey, string> = {
   E: "text-[rgba(151,100,44,0.9)]",
   U: "text-[var(--text-muted)]",
 };
-
-/** Badge styling for an adjudication verdict string. */
-export function verdictBadgeVariant(verdict: string): BadgeVariant {
-  if (verdict === "F") return "success";
-  if (verdict === "D" || verdict === "E") {
-    return "failed";
-  }
-  return "neutral";
-}
-
-/** Lowercase words for compact filter chips (matches prior `replaceAll("_", " ")`). */
-export function formatVerdictSlug(key: VerdictKey): string {
-  return key.replaceAll("_", " ");
-}

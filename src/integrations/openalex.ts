@@ -5,7 +5,7 @@ import type {
   PaperResolutionProvenance,
   ResolvedPaper,
   Result,
-} from "../domain/types.js";
+} from "../domain/common.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schemas for the OpenAlex Works API subset we use ---
@@ -398,32 +398,6 @@ export async function getCitingWorks(
 
   if (!result.ok) return result;
   return { ok: true, data: result.data.results.map(toResolvedPaper) };
-}
-
-export async function findPublishedVersion(
-  title: string,
-  excludeId: string,
-  baseUrl: string,
-  email?: string,
-): Promise<Result<ResolvedPaper>> {
-  const query = encodeURIComponent(`"${title}"`);
-  const url = appendEmail(
-    `${baseUrl}/works?search=${query}&filter=type:article&per_page=5`,
-    email,
-  );
-  const result = await fetchJson(url, openAlexWorksListSchema);
-
-  if (!result.ok) return result;
-
-  const match = result.data.results.find(
-    (w) => w.id !== excludeId && w.display_name === title,
-  );
-
-  if (!match) {
-    return { ok: false, error: "No published version found" };
-  }
-
-  return { ok: true, data: toResolvedPaper(match) };
 }
 
 export { reconstructAbstract as _reconstructAbstract };
