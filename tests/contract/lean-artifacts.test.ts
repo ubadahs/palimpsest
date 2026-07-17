@@ -10,6 +10,7 @@ import {
   buildCitationOccurrenceId,
   buildCitationInstanceRecordId,
   buildCitingPaperRecordId,
+  buildEvidenceQueryId,
   buildNeighborhoodQueryId,
   buildScopedFamilyId,
   buildSeedId,
@@ -469,11 +470,111 @@ function buildAllStageArtifacts() {
       records: [prepareRecord],
     },
   });
+  const evidencePrepareReference = {
+    ...asReference(prepare, "canonical-prepare-input"),
+    role: "canonical-prepare-input" as const,
+    canonicalStage: "prepare" as const,
+  };
+  const evidenceScopeReference = {
+    ...asReference(scope, "canonical-scope-input"),
+    role: "canonical-scope-input" as const,
+    canonicalStage: "scope" as const,
+  };
+  const evidenceQueryText = family.trackedClaim;
+  const evidenceQueryId = buildEvidenceQueryId({
+    familyId: family.familyId,
+    text: evidenceQueryText,
+    source: "scope-family-tracked-claim",
+  });
+  const evidenceInputArtifacts = [
+    evidencePrepareReference,
+    evidenceScopeReference,
+  ];
+  const evidenceDecisions = [
+    createAppendOnlyDecision({
+      recordId: prepareRecordId,
+      decisionType: "evidence_retrieval_outcome",
+      outcome: "seed_text_unavailable",
+      reason: "Fixture seed text is unavailable.",
+      recordedAt: "2026-07-16T12:00:00.000Z",
+      actor: {
+        kind: "deterministic",
+        identifier: "canonical-evidence-bm25-v1",
+      },
+      evidenceArtifacts: evidenceInputArtifacts,
+    }),
+    createAppendOnlyDecision({
+      recordId: prepareRecordId,
+      decisionType: "evidence_rerank_outcome",
+      outcome: "disabled",
+      reason: "Fixture reranking is disabled.",
+      recordedAt: "2026-07-16T12:00:00.000Z",
+      actor: {
+        kind: "deterministic",
+        identifier: "canonical-evidence-rerank-policy-v1",
+      },
+      evidenceArtifacts: evidenceInputArtifacts,
+    }),
+    createAppendOnlyDecision({
+      recordId: prepareRecordId,
+      decisionType: "evidence_final_selection",
+      outcome: "not_available",
+      reason: "Fixture seed text prevents final selection.",
+      recordedAt: "2026-07-16T12:00:00.000Z",
+      actor: {
+        kind: "deterministic",
+        identifier: "canonical-evidence-selection-v1",
+      },
+      evidenceArtifacts: evidenceInputArtifacts,
+    }),
+  ];
   const evidence = createLeanStageArtifact({
     ...baseEnvelope(),
     canonicalStage: "evidence",
-    inputArtifacts: [asReference(prepare, "prepared-records")],
-    payload: { records: [] },
+    inputArtifacts: evidenceInputArtifacts,
+    decisions: evidenceDecisions,
+    payload: {
+      lineage: {
+        runId: "run-contract-test",
+        prepareArtifact: evidencePrepareReference,
+        scopeArtifact: evidenceScopeReference,
+      },
+      rerankingPolicy: { enabled: false },
+      preparedRecords: [
+        {
+          recordId: prepareRecordId,
+          familyId: family.familyId,
+          citationOccurrenceId: citationOccurrence.mentionId,
+          seedId,
+        },
+      ],
+      queries: [
+        {
+          queryId: evidenceQueryId,
+          familyId: family.familyId,
+          text: evidenceQueryText,
+          contentHash: canonicalSha256(evidenceQueryText),
+          source: "scope-family-tracked-claim",
+          groundingStatus: "seed_text_unavailable",
+          verificationStatus: "unverified_attributed_claim",
+        },
+      ],
+      corpora: [],
+      bm25Runs: [],
+      rerankRuns: [],
+      selections: [],
+      records: [
+        {
+          recordId: prepareRecordId,
+          familyId: family.familyId,
+          citationOccurrenceId: citationOccurrence.mentionId,
+          seedId,
+          queryId: evidenceQueryId,
+          retrievalStatus: "seed_text_unavailable",
+          rerankStatus: "disabled",
+        },
+      ],
+    },
   });
   const adjudicate = createLeanStageArtifact({
     ...baseEnvelope(),

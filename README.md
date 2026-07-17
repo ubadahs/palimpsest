@@ -10,7 +10,7 @@ The CLI and artifacts are the source of truth. SQLite stores local run state. Th
 
 - Node.js 22+
 - `GROBID_BASE_URL` for validated PDF parsing
-- `ANTHROPIC_API_KEY` for LLM-backed stages: `discover`, `screen`, `pipeline`, `adjudicate`, and `evidence` when LLM reranking is enabled
+- `ANTHROPIC_API_KEY` for current-executor LLM-backed commands: `discover`, `screen`, `pipeline`, `adjudicate`, and `evidence` when reranking is enabled. Canonical Evidence is not CLI-wired and takes an optional dependency-injected reranker.
 
 See [docs/runtime-setup.md](docs/runtime-setup.md) for environment variables, GROBID setup, and optional providers.
 
@@ -71,7 +71,7 @@ See [docs/artifact-workflow.md](docs/artifact-workflow.md) for the artifact layo
 
 ## Pipeline
 
-The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, and Prepare have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Until that migration lands, the CLI and UI run these temporary stages:
+The canonical target is `discover → scope → prepare → evidence → adjudicate → report`. Discover, Scope, Prepare, and Evidence have isolated current-version services/artifacts, but the runnable executor has not yet been replaced. Canonical Evidence reads the exact Scope seed text referenced by Prepare, writes one outcome per Prepare record, keeps deterministic BM25 and optional relevance reranking as separate immutable versions, and never uses citing context or classification as a lexical score boost. Until executor migration lands, the CLI and UI run these temporary stages:
 
 | Current executor stage | Purpose |
 |------|---------|

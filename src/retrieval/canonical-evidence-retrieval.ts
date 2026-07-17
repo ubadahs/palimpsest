@@ -1,0 +1,195 @@
+import {
+  buildEvidenceBm25RunId,
+  buildEvidenceChunkCorpusId,
+  buildEvidenceChunkId,
+  buildEvidenceQueryId,
+  evidenceBm25RunSchema,
+  evidenceChunkCorpusSchema,
+  evidenceQuerySchema,
+  type EvidenceBm25Configuration,
+  type EvidenceBm25Run,
+  type EvidenceChunkConfiguration,
+  type EvidenceChunkCorpus,
+  type EvidenceQuery,
+  type ScopeSeedMaterialization,
+  type ScopedFamily,
+} from "../contract/lean-artifacts.js";
+import {
+  BM25_DEFAULT_SCORING_CONFIGURATION,
+  rankDocumentsByBm25Detailed,
+  tokenizeBm25Text,
+} from "./bm25.js";
+import { canonicalSha256 } from "../shared/stable-identity.js";
+
+export const canonicalEvidenceChunkConfiguration: EvidenceChunkConfiguration = {
+  version: "canonical-evidence-chunking-v1",
+  strategy: "scope-block-character-windows",
+  boundaryRule: "fixed-character",
+  maxCharacters: 1_200,
+  overlapCharacters: 200,
+  sourceOrdering: "scope-block-offset-then-chunk-offset",
+};
+
+export function chunkScopeSeedText(
+  materialization: ScopeSeedMaterialization & { status: "materialized" },
+  configuration: EvidenceChunkConfiguration = canonicalEvidenceChunkConfiguration,
+): EvidenceChunkCorpus {
+  const chunks: EvidenceChunkCorpus["chunks"] = [];
+
+  for (const block of materialization.blocks) {
+    let relativeStart = 0;
+    while (relativeStart < block.text.length) {
+      const relativeEnd = Math.min(
+        block.text.length,
+        relativeStart + configuration.maxCharacters,
+      );
+      const text = block.text.slice(relativeStart, relativeEnd);
+      const charOffsetStart = block.charOffsetStart + relativeStart;
+      const charOffsetEnd = block.charOffsetStart + relativeEnd;
+      const contentHash = canonicalSha256(text);
+      chunks.push({
+        chunkId: buildEvidenceChunkId({
+          seedId: materialization.seedId,
+          sourceBlockKind: block.blockKind,
+          sourceSectionTitle: block.sectionTitle,
+          sourceBlockCharOffsetStart: block.charOffsetStart,
+          sourceBlockCharOffsetEnd: block.charOffsetEnd,
+          charOffsetStart,
+          charOffsetEnd,
+          textContentHash: contentHash,
+          configuration,
+        }),
+        seedId: materialization.seedId,
+        chunkIndex: chunks.length,
+        text,
+        contentHash,
+        sourceBlockId: block.blockId,
+        sourceBlockKind: block.blockKind,
+        ...(block.sectionTitle
+          ? { sourceSectionTitle: block.sectionTitle }
+          : {}),
+        sourceBlockCharOffsetStart: block.charOffsetStart,
+        sourceBlockCharOffsetEnd: block.charOffsetEnd,
+        charOffsetStart,
+        charOffsetEnd,
+        overlapWithPrevious:
+          relativeStart === 0 ? 0 : configuration.overlapCharacters,
+        sourceArtifact: materialization.seedTextArtifact,
+        sourceArtifacts: materialization.sourceArtifacts,
+        configuration,
+      });
+      if (relativeEnd === block.text.length) break;
+      relativeStart = relativeEnd - configuration.overlapCharacters;
+    }
+  }
+
+  return evidenceChunkCorpusSchema.parse({
+    corpusId: buildEvidenceChunkCorpusId({
+      seedId: materialization.seedId,
+      configuration,
+      chunkIds: chunks.map((chunk) => chunk.chunkId),
+    }),
+    seedId: materialization.seedId,
+    seedTextArtifact: materialization.seedTextArtifact,
+    sourceArtifacts: materialization.sourceArtifacts,
+    configuration,
+    chunks,
+  });
+}
+
+export function buildScopedFamilyEvidenceQuery(
+  family: ScopedFamily,
+): EvidenceQuery {
+  const text = normalizeWhitespace(family.trackedClaim);
+  const source = "scope-family-tracked-claim" as const;
+  const verificationStatus =
+    family.grounding.status === "grounded"
+      ? "scope_grounded"
+      : family.grounding.status === "ambiguous"
+        ? "scope_ambiguous"
+        : "unverified_attributed_claim";
+  return evidenceQuerySchema.parse({
+    queryId: buildEvidenceQueryId({
+      familyId: family.familyId,
+      text,
+      source,
+    }),
+    familyId: family.familyId,
+    text,
+    contentHash: canonicalSha256(text),
+    source,
+    groundingStatus: family.grounding.status,
+    verificationStatus,
+  });
+}
+
+export function retrieveEvidenceByBm25(input: {
+  familyId: string;
+  query: EvidenceQuery;
+  corpus: EvidenceChunkCorpus;
+  candidateLimit: number;
+}): EvidenceBm25Run {
+  const configuration = buildBm25Configuration(input.candidateLimit);
+  const scoringConfiguration = {
+    ...BM25_DEFAULT_SCORING_CONFIGURATION,
+    tokenizer: {
+      ...BM25_DEFAULT_SCORING_CONFIGURATION.tokenizer,
+      stopWords: configuration.tokenizer.stopWords,
+    },
+  };
+  const ranked = rankDocumentsByBm25Detailed(
+    input.query.text,
+    input.corpus.chunks,
+    (chunk) => chunk.text,
+    (chunk) => chunk.chunkId,
+    input.candidateLimit,
+    scoringConfiguration,
+  );
+  const candidates = ranked.map((entry) => ({
+    chunkId: entry.document.chunkId,
+    rawScore: entry.score,
+    rank: entry.rank,
+  }));
+  const queryTerms = tokenizeBm25Text(input.query.text, scoringConfiguration);
+  const corpusChunkIds = input.corpus.chunks.map((chunk) => chunk.chunkId);
+  return evidenceBm25RunSchema.parse({
+    bm25RunId: buildEvidenceBm25RunId({
+      queryId: input.query.queryId,
+      corpusId: input.corpus.corpusId,
+      corpusChunkIds,
+      configuration,
+    }),
+    familyId: input.familyId,
+    queryId: input.query.queryId,
+    queryText: input.query.text,
+    queryTerms,
+    corpusId: input.corpus.corpusId,
+    corpusChunkIds,
+    configuration,
+    status: candidates.length > 0 ? "matched" : "no_lexical_matches",
+    candidates,
+    rankingContentHash: canonicalSha256({ queryTerms, candidates }),
+  });
+}
+
+function buildBm25Configuration(
+  candidateLimit: number,
+): EvidenceBm25Configuration {
+  return {
+    version: BM25_DEFAULT_SCORING_CONFIGURATION.version,
+    k1: BM25_DEFAULT_SCORING_CONFIGURATION.k1,
+    b: BM25_DEFAULT_SCORING_CONFIGURATION.b,
+    tokenizer: {
+      version: BM25_DEFAULT_SCORING_CONFIGURATION.tokenizer.version,
+      tokenPattern: BM25_DEFAULT_SCORING_CONFIGURATION.tokenizer.tokenPattern,
+      lowercase: true,
+      stopWords: [...BM25_DEFAULT_SCORING_CONFIGURATION.tokenizer.stopWords],
+    },
+    candidateLimit,
+    tieBreaker: "chunk-id-code-unit-ascending",
+  };
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}

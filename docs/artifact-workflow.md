@@ -1,6 +1,6 @@
 # Artifact Workflow
 
-This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover, Scope, and Prepare persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
+This document describes the not-yet-replaced executor's current artifact layout: what files each stage emits, how runs are laid out on disk, and how the UI tracks the latest outputs. The lean six-stage artifact contracts replace these shapes as stage-specific implementations land. Canonical Discover, Scope, Prepare, and Evidence persistence now exist in isolation, but no CLI/executor path selects their output locations yet.
 
 `data/` is generated output, not source of truth. Preserve only the smallest artifacts you actually need for tests or examples.
 
@@ -65,7 +65,30 @@ The application and persistence seams are:
 - `writeCanonicalPrepareArtifact` — validates and writes only the current Prepare envelope
 - `loadCanonicalPrepareArtifact` — validates the current envelope, including exact pair accounting, stable identities, internal references, provenance, and tamper hashes
 
-Prepare does not read or write extract, classify, curate, shortlist, handoff, or other temporary-executor shapes. Record identity is versioned family ID + citation-occurrence ID only. Model or external classification makes execution explicitly non-replayable. Evidence and executor/CLI wiring are not implemented yet.
+Prepare does not read or write extract, classify, curate, shortlist, handoff, or other temporary-executor shapes. Record identity is versioned family ID + citation-occurrence ID only. Model or external classification makes execution explicitly non-replayable. Executor/CLI wiring is not implemented yet.
+
+## Canonical Evidence Artifact
+
+Canonical Evidence reads one current Prepare envelope and the exact current Scope ancestor referenced by Prepare. It reads no current-executor classification/evidence/curate artifact and never reacquires cited text. Its authoritative envelope contains:
+
+- exact Prepare and Scope artifact ID/content-hash lineage plus a compact ledger of every Prepare record identity
+- one honest family query per scoped family, including grounding-status/verification annotation that is excluded from query and BM25 identity
+- deterministic chunk corpora built from immutable Scope blocks, with exact untruncated text, content hashes, source block/section/offsets, chunk configuration/overlap/order, seed-text artifact, and raw source artifacts
+- immutable BM25 runs with exact query text/terms, tokenizer/scoring config, ordered corpus chunk IDs, raw scores, deterministic ranks/ties, and complete candidate IDs
+- optional immutable relevance-rerank runs that reference one exact BM25 run/candidate set and carry strict result IDs, score/rank/rationale, prompt/model/request/response provenance, or a typed nonfatal failure
+- explicit nonempty final selections naming either the BM25 version or the separate reranked version; no-match and unavailable/failure outcomes carry no selection
+- exactly one retrieval outcome per Prepare record and three append-only decisions per record (retrieval, rerank, final selection), with no exclusions or sampling
+
+Shared family query/corpus/ranking computations remain reconstructable even when multiple occurrence records reuse them. BM25 uses only the Scope family claim: citing context, local extracted claims, classification, adjudication labels, and Scope support spans cannot affect lexical scoring. Model/config changes can change rerank/artifact identity but cannot change Prepare-record, chunk, corpus, query, or BM25 identity when their semantic inputs are unchanged.
+
+The application and persistence seams are:
+
+- `runCanonicalEvidence` — verifies Prepare/Scope lineage, chunks exact Scope text, runs deterministic BM25, optionally invokes a dependency-injected relevance reranker, and emits complete record accounting
+- `buildCanonicalEvidenceArtifact` — binds exact direct inputs, all shared runs/selections, decisions, and optional non-replayable model provenance into the lean envelope
+- `writeCanonicalEvidenceArtifact` — validates and writes only the current Evidence envelope
+- `loadCanonicalEvidenceArtifact` — validates current version, ranking/reference consistency, exact provenance, stable identities, and tamper hashes
+
+Unavailable seed text, acquisition failure, zero lexical matches, deterministic retrieval failure, and rerank failure remain separate machine states. Disabled reranking has no model provenance; nonfatal failure preserves BM25 and remains explicit; fatal authentication/authorization/billing/quota errors produce no successful Evidence artifact.
 
 ## Artifact Roles
 
@@ -236,7 +259,7 @@ The shared provenance shape includes:
 
 This provenance is the authoritative answer to "how did we get this parsed paper?" and should be preferred over superseded cache fetch-status fields.
 
-### Evidence spans
+### Evidence spans (temporary executor)
 
 Evidence spans include retrieval metadata needed for auditability and debugging:
 
@@ -245,9 +268,9 @@ Evidence spans include retrieval metadata needed for auditability and debugging:
 - optional `rerankScore`
 - `matchMethod`
 
-`matchMethod` distinguishes BM25-only retrieval from reranked retrieval.
+`matchMethod` distinguishes BM25-only retrieval from reranked retrieval in the temporary task shape. Canonical Evidence does not overwrite or blend these fields: exact chunks, raw BM25 rankings, optional rerank rankings, and final selections are separate referenced collections.
 
-### Retrieval statuses
+### Retrieval statuses (temporary executor)
 
 Task-level evidence retrieval statuses distinguish:
 
