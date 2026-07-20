@@ -97,6 +97,8 @@ export function parseCanonicalPipelineArgs(
   let evidenceRerankEnabled: boolean | undefined;
   let evidenceRerankModel: string | undefined;
   let evidenceRerankTopN: number | undefined;
+  let evidenceBm25CandidateLimit: number | undefined;
+  let evidenceSelectionLimit: number | undefined;
   let adjudicateModel: string | undefined;
   let adjudicateThinking: boolean | undefined;
   let rerunFromStage: StageKey | undefined;
@@ -202,6 +204,14 @@ export function parseCanonicalPipelineArgs(
         evidenceRerankTopN = readPositiveInteger(argv, index, flag);
         index++;
         break;
+      case "--bm25-candidate-limit":
+        evidenceBm25CandidateLimit = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--evidence-selection-limit":
+        evidenceSelectionLimit = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
       case "--adjudicate-model":
         adjudicateModel = readValue(argv, index, flag);
         index++;
@@ -266,6 +276,8 @@ export function parseCanonicalPipelineArgs(
     evidenceRerankEnabled,
     evidenceRerankModel,
     evidenceRerankTopN,
+    evidenceBm25CandidateLimit,
+    evidenceSelectionLimit,
     adjudicateModel,
     adjudicateThinking,
     rerunFromStage,
@@ -303,6 +315,8 @@ Options:
   --rerank / --no-rerank            Enable or disable Evidence reranking
   --rerank-model <model>            Evidence reranking model
   --rerank-top-n <n>                Evidence reranking candidate count
+  --bm25-candidate-limit <n>        Evidence BM25 candidates per query
+  --evidence-selection-limit <n>    Final evidence passages per record
   --adjudicate-model <model>        Adjudication model
   --adjudicate-thinking             Enable adjudication thinking
   --no-adjudicate-thinking          Disable adjudication thinking

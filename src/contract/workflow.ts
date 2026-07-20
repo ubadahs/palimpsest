@@ -209,7 +209,8 @@ const workflowDefinitions = [
       {
         id: "run_bm25",
         label: "Retrieve BM25 evidence",
-        description: "Retrieve using only the declared family claim.",
+        description:
+          "Retrieve from occurrence-local claims with the scoped family claim as fallback.",
       },
       {
         id: "rerank_if_enabled",

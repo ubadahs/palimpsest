@@ -38,6 +38,8 @@ type FormState = {
     rerankEnabled: boolean;
     rerankModel: string;
     rerankTopN: number;
+    bm25CandidateLimit: number;
+    selectionLimit: number;
   };
   adjudicate: {
     model: string;
@@ -88,6 +90,8 @@ const defaultState: FormState = {
     rerankEnabled: false,
     rerankModel: "claude-haiku-4-5",
     rerankTopN: 5,
+    bm25CandidateLimit: 20,
+    selectionLimit: 5,
   },
   adjudicate: {
     model: "claude-opus-4-6",
@@ -157,6 +161,12 @@ export function NewRunForm() {
     }
     if (seedPdfFile && seedDois.length > 1) {
       setError("Seed PDF upload is only valid for a single-DOI run.");
+      return;
+    }
+    if (state.evidence.selectionLimit > state.evidence.bm25CandidateLimit) {
+      setError(
+        "Evidence selection limit cannot exceed the BM25 candidate limit.",
+      );
       return;
     }
 
@@ -301,8 +311,8 @@ export function NewRunForm() {
                     Neighborhood limit
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Total citing works to retrieve from the provider, across
-                    as many paginated requests as needed.
+                    Total citing works to retrieve from the provider, across as
+                    many paginated requests as needed.
                   </span>
                   <Input
                     min={1}
@@ -471,6 +481,47 @@ export function NewRunForm() {
                 </span>
               </summary>
               <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    BM25 candidate limit
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Maximum passages retained from each lexical query.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.evidence.bm25CandidateLimit}
+                    onChange={(event) =>
+                      updateStage(
+                        "evidence",
+                        "bm25CandidateLimit",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Selection limit
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Maximum final passages retained for adjudication.
+                  </span>
+                  <Input
+                    min={1}
+                    max={state.evidence.bm25CandidateLimit}
+                    type="number"
+                    value={state.evidence.selectionLimit}
+                    onChange={(event) =>
+                      updateStage(
+                        "evidence",
+                        "selectionLimit",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
                 <div className="grid gap-1 md:col-span-2">
                   <label className="grid cursor-pointer gap-1">
                     <span className="flex items-center gap-3 text-sm text-[var(--text)]">

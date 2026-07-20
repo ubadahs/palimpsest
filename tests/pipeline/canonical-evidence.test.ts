@@ -50,6 +50,7 @@ import {
   writeCanonicalEvidenceArtifact,
 } from "../../src/pipeline/canonical-evidence-artifact.js";
 import {
+  buildOccurrenceLocalEvidenceQuery,
   buildScopedFamilyEvidenceQuery,
   chunkScopeSeedText,
   retrieveEvidenceByBm25,
@@ -168,7 +169,10 @@ function discoverOptions(claim: string): CanonicalDiscoverOptions {
   };
 }
 
-function discoverAdapters(claim: string): CanonicalDiscoverAdapters {
+function discoverAdapters(
+  claim: string,
+  secondClaim = `  ${claim.toUpperCase()}  `,
+): CanonicalDiscoverAdapters {
   return {
     resolveSeed: ({ doi }) =>
       Promise.resolve({
@@ -278,8 +282,7 @@ function discoverAdapters(claim: string): CanonicalDiscoverAdapters {
         reason: "Fixture attributed claim extracted.",
         claims: [
           {
-            text:
-              mention.mentionIndex === 0 ? claim : `  ${claim.toUpperCase()}  `,
+            text: mention.mentionIndex === 0 ? claim : secondClaim,
             supportSpanText:
               mention.mentionIndex === 0
                 ? "reported phenotype"
@@ -459,6 +462,7 @@ async function buildPrepareAncestors(
     blocks?: typeof SOURCE_BLOCKS;
     runId?: string;
     classificationFailure?: boolean;
+    secondClaim?: string;
   } = {},
 ): Promise<{
   discover: DiscoverArtifact;
@@ -468,7 +472,7 @@ async function buildPrepareAncestors(
   const claim = options.claim ?? TRACKED_CLAIM;
   const discoverResult = await runCanonicalDiscover(
     discoverOptions(claim),
-    discoverAdapters(claim),
+    discoverAdapters(claim, options.secondClaim),
   );
   const discover = buildCanonicalDiscoverArtifact({
     result: discoverResult,
@@ -583,6 +587,7 @@ async function runEvidenceFixture(
     rerankVariant?: RerankVariant;
     model?: string;
     classificationFailure?: boolean;
+    secondClaim?: string;
   } = {},
 ) {
   const ancestors = await buildPrepareAncestors(options);
@@ -692,7 +697,7 @@ describe("canonical Evidence", () => {
     }
   });
 
-  it("reuses one family query, corpus, and BM25 run across unlike occurrences", async () => {
+  it("uses occurrence-local queries plus a family fallback for unlike occurrences", async () => {
     const { prepare, result } = await runEvidenceFixture();
     expect(prepare.payload.records).toHaveLength(2);
     expect(
@@ -709,16 +714,51 @@ describe("canonical Evidence", () => {
     expect(result.payload.records).toHaveLength(2);
     expect(
       new Set(result.payload.records.map((record) => record.queryId)).size,
-    ).toBe(1);
+    ).toBe(2);
     expect(
       new Set(result.payload.records.map((record) => record.corpusId)).size,
     ).toBe(1);
     expect(
       new Set(result.payload.records.map((record) => record.bm25RunId)).size,
-    ).toBe(1);
-    expect(result.payload.queries[0]!.text).toBe(
-      prepare.payload.scopedFamilies[0]!.trackedClaim,
+    ).toBe(2);
+    expect(
+      result.payload.records.every(
+        (record) =>
+          record.primaryQuerySource === "occurrence-local-claims" &&
+          record.fallbackQueryId != null,
+      ),
+    ).toBe(true);
+    expect(
+      result.payload.queries.filter(
+        (query) => query.source === "occurrence-local-claims",
+      ),
+    ).toHaveLength(2);
+    expect(
+      result.payload.queries.find(
+        (query) => query.source === "scope-family-tracked-claim",
+      )!.text,
+    ).toBe(prepare.payload.scopedFamilies[0]!.trackedClaim);
+    expect(result.payload.bm25Runs).toHaveLength(3);
+    expect(
+      result.payload.bm25Runs.some(
+        (run) => run.componentBm25RunIds?.length === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it("reuses content-hash BM25 work for equal local text across occurrences", async () => {
+    const { prepare, result } = await runEvidenceFixture({
+      secondClaim: TRACKED_CLAIM,
+    });
+    const family = prepare.payload.scopedFamilies[0]!;
+    const localQueries = prepare.payload.records.map((record) =>
+      buildOccurrenceLocalEvidenceQuery(record, family),
     );
+    expect(localQueries[0]!.queryId).not.toBe(localQueries[1]!.queryId);
+    expect(localQueries[0]!.contentHash).toBe(localQueries[1]!.contentHash);
+    expect(
+      new Set(result.payload.records.map((record) => record.bm25RunId)).size,
+    ).toBe(1);
     expect(result.payload.bm25Runs).toHaveLength(1);
   });
 
@@ -890,6 +930,7 @@ describe("canonical Evidence", () => {
     for (const record of typedRetrievalFailure.records) {
       record.retrievalStatus = "retrieval_failed";
       delete record.bm25RunId;
+      delete record.componentBm25RunIds;
       delete record.finalSelectionId;
       record.failure = {
         code: "bm25_failed",
@@ -933,23 +974,33 @@ describe("canonical Evidence", () => {
     const enabled = await runEvidenceFixture({ rerankEnabled: true });
     const bm25Before = canonicalSerialize(disabled.result.payload.bm25Runs);
 
-    expect(enabled.calls).toHaveLength(1);
+    expect(enabled.calls).toHaveLength(enabled.prepare.payload.records.length);
     expect(canonicalSerialize(enabled.result.payload.bm25Runs)).toBe(
       bm25Before,
     );
-    expect(enabled.result.payload.rerankRuns).toHaveLength(1);
-    expect(enabled.result.payload.rerankRuns[0]).toMatchObject({
-      bm25RunId: enabled.result.payload.bm25Runs[0]!.bm25RunId,
-      status: "completed",
-      candidateChunkIds: enabled.result.payload.bm25Runs[0]!.candidates.map(
-        (candidate) => candidate.chunkId,
-      ),
-    });
+    expect(enabled.result.payload.rerankRuns).toHaveLength(
+      enabled.prepare.payload.records.length,
+    );
+    for (const outcome of enabled.result.payload.records) {
+      const bm25Run = enabled.result.payload.bm25Runs.find(
+        (run) => run.bm25RunId === outcome.bm25RunId,
+      )!;
+      expect(
+        enabled.result.payload.rerankRuns.find(
+          (run) => run.rerankRunId === outcome.rerankRunId,
+        ),
+      ).toMatchObject({
+        bm25RunId: bm25Run.bm25RunId,
+        status: "completed",
+        candidateChunkIds: bm25Run.candidates.map(
+          (candidate) => candidate.chunkId,
+        ),
+      });
+    }
     expect(enabled.calls[0]).toMatchObject({
       purpose: "relevance_only",
       query: {
-        source: "scope-family-tracked-claim",
-        text: enabled.prepare.payload.scopedFamilies[0]!.trackedClaim,
+        source: "occurrence-local-claims",
       },
     });
     expect(enabled.calls[0]).not.toHaveProperty("citingContext");
@@ -1125,15 +1176,16 @@ describe("canonical Evidence", () => {
       fixture: Awaited<ReturnType<typeof runEvidenceFixture>>,
       source: "bm25" | "reranked",
     ) => {
-      const selection = fixture.result.payload.selections[0]!;
       const chunks = fixture.result.payload.corpora[0]!.chunks;
-      expect(selection.rankingSource).toBe(source);
-      expect(selection.selectedChunkIds.length).toBeGreaterThan(0);
-      for (const chunkId of selection.selectedChunkIds) {
-        expect(chunks.some((chunk) => chunk.chunkId === chunkId)).toBe(true);
-      }
       for (const outcome of fixture.result.payload.records) {
-        expect(outcome.finalSelectionId).toBe(selection.selectionId);
+        const selection = fixture.result.payload.selections.find(
+          (entry) => entry.selectionId === outcome.finalSelectionId,
+        )!;
+        expect(selection.rankingSource).toBe(source);
+        expect(selection.selectedChunkIds.length).toBeGreaterThan(0);
+        for (const chunkId of selection.selectedChunkIds) {
+          expect(chunks.some((chunk) => chunk.chunkId === chunkId)).toBe(true);
+        }
       }
     };
     assertSelection(bm25, "bm25");
@@ -1304,17 +1356,20 @@ describe("canonical Evidence", () => {
       },
     });
     expect(result.payload.records).toHaveLength(prepare.payload.records.length);
-    expect(result.payload.bm25Runs).toHaveLength(1);
-    expect(result.payload.rerankRuns).toHaveLength(1);
-    expect(result.payload.rerankRuns[0]!.bm25RunId).toBe(
-      result.payload.bm25Runs[0]!.bm25RunId,
+    expect(result.payload.bm25Runs).toHaveLength(3);
+    expect(result.payload.rerankRuns).toHaveLength(
+      prepare.payload.records.length,
     );
     expect(
-      result.payload.records.every(
-        (record) =>
+      result.payload.records.every((record) => {
+        const rerankRun = result.payload.rerankRuns.find(
+          (run) => run.rerankRunId === record.rerankRunId,
+        );
+        return (
           record.rerankStatus === "completed" &&
-          record.finalSelectionId === result.payload.selections[0]!.selectionId,
-      ),
+          rerankRun?.bm25RunId === record.bm25RunId
+        );
+      }),
     ).toBe(true);
   });
 });

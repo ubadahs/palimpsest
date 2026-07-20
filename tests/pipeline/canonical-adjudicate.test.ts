@@ -759,6 +759,7 @@ function buildRetrievalFailedEvidence(
   for (const record of failed.payload.records) {
     record.retrievalStatus = "retrieval_failed";
     delete record.bm25RunId;
+    delete record.componentBm25RunIds;
     delete record.finalSelectionId;
     record.failure = {
       code: "bm25_failed",

@@ -2004,18 +2004,29 @@ export const evidenceChunkCorpusSchema = z
   });
 export type EvidenceChunkCorpus = z.infer<typeof evidenceChunkCorpusSchema>;
 
-export type EvidenceQueryIdentityInputs = {
-  familyId: string;
-  text: string;
-  source: "scope-family-tracked-claim";
-};
+export type EvidenceQueryIdentityInputs =
+  | {
+      familyId: string;
+      text: string;
+      source: "scope-family-tracked-claim";
+      citationOccurrenceId?: never;
+    }
+  | {
+      familyId: string;
+      citationOccurrenceId: string;
+      text: string;
+      source: "occurrence-local-claims";
+    };
 
 export function buildEvidenceQueryId(
   input: EvidenceQueryIdentityInputs,
 ): string {
   return buildStableId("evidence-query", {
-    identityKind: "scoped-family-query-v1",
+    identityKind: "evidence-query-v2",
     familyId: input.familyId,
+    ...(input.source === "occurrence-local-claims"
+      ? { citationOccurrenceId: input.citationOccurrenceId }
+      : {}),
     text: normalizeWhitespace(input.text),
     source: input.source,
   });
@@ -2025,9 +2036,10 @@ export const evidenceQuerySchema = z
   .object({
     queryId: stableIdentifierSchema,
     familyId: stableIdentifierSchema,
+    citationOccurrenceId: stableIdentifierSchema.optional(),
     text: z.string().min(1),
     contentHash: sha256DigestSchema,
-    source: z.literal("scope-family-tracked-claim"),
+    source: z.enum(["scope-family-tracked-claim", "occurrence-local-claims"]),
     groundingStatus: scopeGroundingStatusSchema,
     verificationStatus: z.enum([
       "scope_grounded",
@@ -2037,6 +2049,19 @@ export const evidenceQuerySchema = z
   })
   .strict()
   .superRefine((query, context) => {
+    if (
+      (query.source === "occurrence-local-claims" &&
+        query.citationOccurrenceId == null) ||
+      (query.source === "scope-family-tracked-claim" &&
+        query.citationOccurrenceId != null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["citationOccurrenceId"],
+        message:
+          "Only occurrence-local Evidence queries must identify their citation occurrence",
+      });
+    }
     if (query.text !== normalizeWhitespace(query.text)) {
       context.addIssue({
         code: "custom",
@@ -2051,11 +2076,27 @@ export const evidenceQuerySchema = z
         message: "Evidence query content hash does not match its exact text",
       });
     }
-    if (query.queryId !== buildEvidenceQueryId(query)) {
+    if (
+      query.queryId !==
+      buildEvidenceQueryId(
+        query.source === "occurrence-local-claims"
+          ? {
+              familyId: query.familyId,
+              citationOccurrenceId: query.citationOccurrenceId ?? "",
+              text: query.text,
+              source: query.source,
+            }
+          : {
+              familyId: query.familyId,
+              text: query.text,
+              source: query.source,
+            },
+      )
+    ) {
       context.addIssue({
         code: "custom",
         path: ["queryId"],
-        message: "queryId does not match the scoped family query",
+        message: "queryId does not match the Evidence query identity",
       });
     }
     const expectedVerification =
@@ -2097,21 +2138,27 @@ export type EvidenceBm25Configuration = z.infer<
 >;
 
 export type EvidenceBm25RunIdentityInputs = {
-  queryId: string;
+  queryText: string;
   corpusId: string;
   corpusChunkIds: readonly string[];
   configuration: EvidenceBm25Configuration;
+  rankingContentHash: string;
+  componentBm25RunIds?: readonly string[] | undefined;
 };
 
 export function buildEvidenceBm25RunId(
   input: EvidenceBm25RunIdentityInputs,
 ): string {
   return buildStableId("bm25-run", {
-    identityKind: "canonical-evidence-bm25-run-v1",
-    queryId: input.queryId,
+    identityKind: "canonical-evidence-bm25-run-v2",
+    queryContentHash: canonicalSha256(normalizeWhitespace(input.queryText)),
     corpusId: input.corpusId,
     corpusChunkIds: input.corpusChunkIds,
     configuration: input.configuration,
+    rankingContentHash: input.rankingContentHash,
+    ...(input.componentBm25RunIds
+      ? { componentBm25RunIds: input.componentBm25RunIds }
+      : {}),
   });
 }
 
@@ -2136,6 +2183,7 @@ export const evidenceBm25RunSchema = z
     configuration: evidenceBm25ConfigurationSchema,
     status: z.enum(["matched", "no_lexical_matches"]),
     candidates: z.array(evidenceBm25CandidateSchema),
+    componentBm25RunIds: z.array(stableIdentifierSchema).min(2).optional(),
     rankingContentHash: sha256DigestSchema,
   })
   .strict()
@@ -2150,6 +2198,13 @@ export const evidenceBm25RunSchema = z
       ["candidates"],
       context,
     );
+    if (run.componentBm25RunIds) {
+      addSortedUniqueIdentifierIssue(
+        run.componentBm25RunIds,
+        ["componentBm25RunIds"],
+        context,
+      );
+    }
     if (
       run.candidates.some(
         (candidate, index) =>
@@ -2192,6 +2247,9 @@ export const evidenceBm25RunSchema = z
       canonicalSha256({
         queryTerms: run.queryTerms,
         candidates: run.candidates,
+        ...(run.componentBm25RunIds
+          ? { componentBm25RunIds: run.componentBm25RunIds }
+          : {}),
       })
     ) {
       context.addIssue({
@@ -2522,6 +2580,11 @@ export const evidenceRecordOutcomeSchema = z
     queryId: stableIdentifierSchema,
     retrievalStatus: evidenceRetrievalStatusSchema,
     rerankStatus: evidenceRerankStatusSchema,
+    fallbackQueryId: stableIdentifierSchema.optional(),
+    componentBm25RunIds: z.array(stableIdentifierSchema).min(1).optional(),
+    primaryQuerySource: z
+      .enum(["scope-family-tracked-claim", "occurrence-local-claims"])
+      .optional(),
     corpusId: stableIdentifierSchema.optional(),
     bm25RunId: stableIdentifierSchema.optional(),
     rerankRunId: stableIdentifierSchema.optional(),
@@ -3961,22 +4024,6 @@ function validateEvidencePayload(
   const queriesById = new Map(
     payload.queries.map((query) => [query.queryId, query]),
   );
-  const queryIdsByFamily = new Map<string, string[]>();
-  for (const query of payload.queries) {
-    const ids = queryIdsByFamily.get(query.familyId) ?? [];
-    ids.push(query.queryId);
-    queryIdsByFamily.set(query.familyId, ids);
-  }
-  for (const [familyId, queryIds] of queryIdsByFamily) {
-    if (queryIds.length !== 1) {
-      addEvidenceIssue(
-        context,
-        ["queries"],
-        `Scoped family must have exactly one retrieval query: ${familyId}`,
-      );
-    }
-  }
-
   const corporaById = new Map(
     payload.corpora.map((corpus) => [corpus.corpusId, corpus]),
   );
@@ -4017,6 +4064,20 @@ function validateEvidencePayload(
         `BM25 run does not name its exact ordered chunk corpus: ${run.bm25RunId}`,
       );
     }
+    for (const componentBm25RunId of run.componentBm25RunIds ?? []) {
+      const component = bm25RunsById.get(componentBm25RunId);
+      if (
+        !component ||
+        component.bm25RunId === run.bm25RunId ||
+        component.corpusId !== run.corpusId
+      ) {
+        addEvidenceIssue(
+          context,
+          ["bm25Runs"],
+          `Union BM25 run references an invalid component run: ${run.bm25RunId}`,
+        );
+      }
+    }
   }
 
   for (const run of payload.rerankRuns) {
@@ -4025,8 +4086,8 @@ function validateEvidencePayload(
     if (
       !bm25Run ||
       !query ||
-      bm25Run.queryId !== run.queryId ||
       bm25Run.queryText !== run.queryText ||
+      query.text !== run.queryText ||
       !sameIdentifierSequence(
         run.candidateChunkIds,
         bm25Run.candidates.map((candidate) => candidate.chunkId),
@@ -4089,7 +4150,14 @@ function validateEvidencePayload(
   const usedSelectionIds = new Set<string>();
   for (const outcome of payload.records) {
     const query = queriesById.get(outcome.queryId);
-    if (!query || query.familyId !== outcome.familyId) {
+    if (
+      !query ||
+      query.familyId !== outcome.familyId ||
+      (query.source === "occurrence-local-claims" &&
+        query.citationOccurrenceId !== outcome.citationOccurrenceId) ||
+      (outcome.primaryQuerySource != null &&
+        outcome.primaryQuerySource !== query.source)
+    ) {
       addEvidenceIssue(
         context,
         ["records"],
@@ -4098,8 +4166,25 @@ function validateEvidencePayload(
     } else {
       usedQueryIds.add(query.queryId);
     }
+    if (outcome.fallbackQueryId) {
+      const fallbackQuery = queriesById.get(outcome.fallbackQueryId);
+      if (
+        !fallbackQuery ||
+        fallbackQuery.familyId !== outcome.familyId ||
+        fallbackQuery.source !== "scope-family-tracked-claim"
+      ) {
+        addEvidenceIssue(
+          context,
+          ["records"],
+          `Evidence outcome references a dangling or cross-family fallback query: ${outcome.recordId}`,
+        );
+      } else {
+        usedQueryIds.add(fallbackQuery.queryId);
+      }
+    }
     validateEvidenceOutcomeReferences(
       outcome,
+      query,
       payload.rerankingPolicy,
       corporaById,
       bm25RunsById,
@@ -4109,6 +4194,16 @@ function validateEvidencePayload(
     );
     if (outcome.corpusId) usedCorpusIds.add(outcome.corpusId);
     if (outcome.bm25RunId) usedBm25RunIds.add(outcome.bm25RunId);
+    for (const componentBm25RunId of outcome.componentBm25RunIds ?? []) {
+      if (!bm25RunsById.has(componentBm25RunId)) {
+        addEvidenceIssue(
+          context,
+          ["records"],
+          `Evidence outcome references an unknown component BM25 run: ${outcome.recordId}`,
+        );
+      }
+      usedBm25RunIds.add(componentBm25RunId);
+    }
     if (outcome.rerankRunId) usedRerankRunIds.add(outcome.rerankRunId);
     if (outcome.finalSelectionId) {
       usedSelectionIds.add(outcome.finalSelectionId);
@@ -4164,6 +4259,7 @@ function validateEvidencePayload(
 
 function validateEvidenceOutcomeReferences(
   outcome: EvidenceRecordOutcome,
+  query: EvidenceQuery | undefined,
   rerankingPolicy: EvidenceRerankingPolicy,
   corporaById: ReadonlyMap<string, EvidenceChunkCorpus>,
   bm25RunsById: ReadonlyMap<string, EvidenceBm25Run>,
@@ -4189,7 +4285,8 @@ function validateEvidenceOutcomeReferences(
     (corpus.seedId !== outcome.seedId ||
       (bm25Run != null &&
         (bm25Run.corpusId !== corpus.corpusId ||
-          bm25Run.queryId !== outcome.queryId)) ||
+          query == null ||
+          canonicalSha256(bm25Run.queryText) !== query.contentHash)) ||
       (selection != null && selection.bm25RunId !== bm25Run?.bm25RunId))
   ) {
     addEvidenceIssue(
@@ -4197,6 +4294,17 @@ function validateEvidenceOutcomeReferences(
       ["records"],
       `Evidence outcome products do not share one query and corpus: ${outcome.recordId}`,
     );
+  }
+
+  for (const componentBm25RunId of outcome.componentBm25RunIds ?? []) {
+    const component = bm25RunsById.get(componentBm25RunId);
+    if (component && component.corpusId !== outcome.corpusId) {
+      addEvidenceIssue(
+        context,
+        ["records"],
+        `Evidence outcome component BM25 runs must share its corpus: ${outcome.recordId}`,
+      );
+    }
   }
 
   if (outcome.retrievalStatus === "retrieved") {
@@ -4235,6 +4343,7 @@ function validateEvidenceOutcomeReferences(
     if (
       outcome.failure == null ||
       outcome.bm25RunId != null ||
+      outcome.componentBm25RunIds != null ||
       outcome.rerankRunId != null ||
       outcome.finalSelectionId != null
     ) {
@@ -4247,6 +4356,7 @@ function validateEvidenceOutcomeReferences(
   } else if (
     outcome.corpusId != null ||
     outcome.bm25RunId != null ||
+    outcome.componentBm25RunIds != null ||
     outcome.rerankRunId != null ||
     outcome.finalSelectionId != null ||
     outcome.failure != null

@@ -1602,7 +1602,7 @@ describe("canonical Report", () => {
     expect(
       rerankedResult.payload.funnel.evidence.uniqueFinalSelectionsReranked
         .count,
-    ).toBeLessThan(
+    ).toBeLessThanOrEqual(
       rerankedResult.payload.funnel.evidence.recordSelectionReranked.count,
     );
     expect(
