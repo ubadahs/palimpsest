@@ -84,6 +84,7 @@ function citingPaper(
     | "abstract_only"
     | "unavailable"
     | "unknown" = "available",
+  extra: { publicationYear?: number; paperType?: string } = {},
 ) {
   return {
     providerRecordId: `provider-${paperId}`,
@@ -91,7 +92,8 @@ function citingPaper(
     title: `Citing ${paperId}`,
     doi: `10.2000/${paperId}`,
     authors: [`Author ${paperId}`],
-    publicationYear: 2024,
+    publicationYear: extra.publicationYear ?? 2024,
+    ...(extra.paperType ? { paperType: extra.paperType } : {}),
     fullTextAvailability: availability,
     provenanceArtifacts: [artifactReference("provider-paper-record", paperId)],
   };

@@ -174,6 +174,8 @@ const canonicalNeighborhoodResultSchema = z.discriminatedUnion("status", [
       coverage: z.enum(["complete", "truncated", "unknown"]),
       papers: z.array(citingPaperInputSchema),
       execution: externalExecutionSchema,
+      /** Per-page request/response provenance when the provider paginates. */
+      pageArtifacts: z.array(artifactReferenceSchema).optional(),
     })
     .strict(),
   z
@@ -524,6 +526,7 @@ export async function runCanonicalDiscover(
     }
 
     validateNeighborhoodBoundary(neighborhood, options.neighborhood.limit);
+    const pageArtifacts = neighborhood.pageArtifacts ?? [];
     neighborhoodQueries.push({
       ...boundaryBase,
       status: "completed",
@@ -539,11 +542,13 @@ export async function runCanonicalDiscover(
       requestHash: neighborhood.execution.requestHash,
       requestArtifact: neighborhood.execution.requestArtifact,
       responseArtifact: neighborhood.execution.responseArtifact,
-      provenanceArtifacts: [
+      provenanceArtifacts: uniqueSortedArtifactReferences([
         neighborhood.execution.requestArtifact,
         neighborhood.execution.responseArtifact,
-      ],
+        ...pageArtifacts,
+      ]),
     });
+    responseArtifacts.push(...pageArtifacts);
 
     const paperObservations = neighborhood.papers.map(
       (paper, providerPosition) => ({
@@ -556,15 +561,18 @@ export async function runCanonicalDiscover(
         }),
       }),
     );
-    const selectedPaperIds = new Set(
-      [...paperObservations]
-        .sort(comparePaperProbePriority)
-        .slice(0, options.probeBudget)
-        .map((paper) => paper.citingPaperRecordId),
+    const probeSelection = selectDeterministicProbeSet(
+      paperObservations,
+      options.probeBudget,
     );
 
     for (const observation of paperObservations) {
-      const isSelected = selectedPaperIds.has(observation.citingPaperRecordId);
+      const isSelected = probeSelection.selectedIds.has(
+        observation.citingPaperRecordId,
+      );
+      const stratum = probeSelection.stratumById.get(
+        observation.citingPaperRecordId,
+      );
       const paperBase = {
         citingPaperRecordId: observation.citingPaperRecordId,
         seedId,
@@ -599,8 +607,8 @@ export async function runCanonicalDiscover(
             ? ("selected" as const)
             : ("not_selected" as const),
           reason: isSelected
-            ? "Selected within the deterministic probe budget"
-            : "Not selected because the probe budget was exhausted",
+            ? `Selected within the deterministic stratified probe budget (stratum ${stratum ?? "unknown"}).`
+            : `Not selected: the stratified probe budget was exhausted for stratum ${stratum ?? "unknown"}.`,
           provenanceArtifacts: [neighborhood.execution.responseArtifact],
         },
       };
@@ -1065,6 +1073,94 @@ function comparePaperProbePriority(
     return left.providerPosition - right.providerPosition;
   }
   return compareCodeUnits(left.citingPaperRecordId, right.citingPaperRecordId);
+}
+
+/**
+ * Deterministic 5-year publication band, e.g. "2020-2024". Papers with no
+ * known publication year fall into a distinct "unknown" band rather than
+ * being silently dropped from stratification.
+ */
+function probeYearBand(publicationYear: number | undefined): string {
+  if (publicationYear == null) return "unknown";
+  const bandStart = Math.floor(publicationYear / 5) * 5;
+  return `${String(bandStart)}-${String(bandStart + 4)}`;
+}
+
+function probeStratumKey(paper: {
+  publicationYear?: number | undefined;
+  paperType?: string | undefined;
+}): string {
+  return `${probeYearBand(paper.publicationYear)}::${paper.paperType ?? "unknown"}`;
+}
+
+type ProbeObservation = {
+  citingPaperRecordId: string;
+  providerPosition: number;
+  paper: z.infer<typeof citingPaperInputSchema>;
+};
+
+/**
+ * Select which returned citing papers to probe within `probeBudget`.
+ *
+ * Groups observations into strata by publication-year band × paper type,
+ * then round-robins deterministically across strata (sorted by stratum key)
+ * so the probe budget spreads across the citing neighborhood's temporal and
+ * document-type diversity rather than only the provider's return order.
+ * Within each stratum, papers with materializable full text are still
+ * preferred (via `comparePaperProbePriority`). When the probe budget covers
+ * every observation, all are selected and stratification is a no-op.
+ */
+function selectDeterministicProbeSet<T extends ProbeObservation>(
+  observations: readonly T[],
+  probeBudget: number,
+): { selectedIds: Set<string>; stratumById: Map<string, string> } {
+  const stratumById = new Map<string, string>();
+  for (const observation of observations) {
+    stratumById.set(observation.citingPaperRecordId, probeStratumKey(observation.paper));
+  }
+
+  if (probeBudget >= observations.length) {
+    return {
+      selectedIds: new Set(
+        observations.map((observation) => observation.citingPaperRecordId),
+      ),
+      stratumById,
+    };
+  }
+
+  const membersByStratum = new Map<string, T[]>();
+  for (const observation of observations) {
+    const stratum = stratumById.get(observation.citingPaperRecordId)!;
+    const members = membersByStratum.get(stratum);
+    if (members) {
+      members.push(observation);
+    } else {
+      membersByStratum.set(stratum, [observation]);
+    }
+  }
+  const strataOrder = [...membersByStratum.keys()].sort(compareCodeUnits);
+  for (const stratum of strataOrder) {
+    membersByStratum.get(stratum)!.sort(comparePaperProbePriority);
+  }
+
+  const selectedIds = new Set<string>();
+  const cursorByStratum = new Map(strataOrder.map((stratum) => [stratum, 0]));
+  let remaining = probeBudget;
+  while (remaining > 0) {
+    let madeProgress = false;
+    for (const stratum of strataOrder) {
+      if (remaining === 0) break;
+      const members = membersByStratum.get(stratum)!;
+      const cursor = cursorByStratum.get(stratum)!;
+      if (cursor >= members.length) continue;
+      selectedIds.add(members[cursor]!.citingPaperRecordId);
+      cursorByStratum.set(stratum, cursor + 1);
+      remaining -= 1;
+      madeProgress = true;
+    }
+    if (!madeProgress) break;
+  }
+  return { selectedIds, stratumById };
 }
 
 function validateNeighborhoodBoundary(

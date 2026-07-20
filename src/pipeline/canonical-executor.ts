@@ -130,6 +130,8 @@ export type CanonicalPipelineCliOverrides = {
   seedPdfPath: string | undefined;
   forceRefresh: boolean | undefined;
   stopAfterStage: StageKey | undefined;
+  /** Total citing-work observation cap across paginated provider requests. */
+  discoverNeighborhoodLimit?: number | undefined;
   discoverProbeBudget: number | undefined;
   discoverMinFamilies: number | undefined;
   discoverMaxFamilies: number | undefined;
@@ -210,6 +212,9 @@ function buildConfigFromCli(
       : {}),
     discover: {
       ...base.discover,
+      ...(args.discoverNeighborhoodLimit != null
+        ? { neighborhoodLimit: args.discoverNeighborhoodLimit }
+        : {}),
       ...(args.discoverProbeBudget != null
         ? { probeBudget: args.discoverProbeBudget }
         : {}),
