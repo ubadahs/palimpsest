@@ -157,6 +157,7 @@ function buildAllStageArtifacts() {
     citedPaperId: "seed-paper",
     mentionIndex: 0,
     refId: "ref-7",
+    targetRefIds: ["ref-7"],
     charOffsetStart: 100,
     charOffsetEnd: 149,
     citationMarker: "[7]",
@@ -1337,6 +1338,25 @@ describe("canonical scientific identities", () => {
       charOffsetEnd: 249,
     });
     expect(secondMentionId).not.toBe(firstMentionId);
+
+    // Locators dominate offsets; mentionIndex remains a final tie-break.
+    const withLocator = buildCitationOccurrenceId({
+      ...occurrence,
+      sourceLocator: {
+        kind: "block_id",
+        value: "body_paragraph-1#cg-0",
+      },
+    });
+    expect(withLocator).not.toBe(firstMentionId);
+    const sameLocatorDifferentIndex = buildCitationOccurrenceId({
+      ...occurrence,
+      mentionIndex: 1,
+      sourceLocator: {
+        kind: "block_id",
+        value: "body_paragraph-1#cg-0",
+      },
+    });
+    expect(sameLocatorDifferentIndex).not.toBe(withLocator);
 
     const claimRecordId = buildAttributedClaimRecordId({
       seedId,

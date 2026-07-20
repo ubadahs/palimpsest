@@ -116,6 +116,7 @@ function modelExecution(
   model = `fixture-${purpose}-model`,
 ) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model,
     promptId: `canonical-${purpose}-prompt`,
@@ -353,7 +354,6 @@ function scopeAdapters(
     },
     groundFamily: ({ family }) => {
       const execution = {
-        kind: "model" as const,
         ...modelExecution("scope", family.familyId),
       };
       if (grounding === "grounding_failed") {
@@ -506,7 +506,6 @@ function rerankerAdapter(
   return (input: CanonicalEvidenceRerankerInput) => {
     calls.push(input);
     const execution = {
-      kind: "model" as const,
       ...modelExecution("rerank", input.bm25RunId, model),
     };
     if (variant === "nonfatal_failure" || variant === "fatal_failure") {

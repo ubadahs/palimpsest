@@ -129,8 +129,11 @@ function successfulHarvest(
     mentions: mentions.map((mention) => ({
       mentionIndex: mention.mentionIndex,
       refId: "seed-ref",
+      targetRefIds: ["seed-ref"],
       charOffsetStart: mention.offset,
       charOffsetEnd: mention.offset + mention.rawContext.length,
+      citationGroupOrdinal: mention.mentionIndex,
+      locationQuality: "exact_dom" as const,
       citationMarker: mention.citationMarker,
       rawContext: mention.rawContext,
       sectionTitle: "Discussion",

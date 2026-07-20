@@ -32,7 +32,7 @@ import {
   upsertParsedData,
 } from "../storage/paper-cache.js";
 
-export const PARSED_PAPER_PARSER_VERSION = "structured-v2";
+export const PARSED_PAPER_PARSER_VERSION = "structured-v3";
 
 type ParsedPaperMaterialized = {
   fullText: FullTextContent;
@@ -154,37 +154,147 @@ function appendBlock(
   offsetState.value = charOffsetEnd + 2;
 }
 
-function detectBundle(
-  targetText: string,
-  allMarkers: Array<{ marker: string; refIds: string[] }>,
-  rawContext: string,
+type ParagraphCitationGroup = {
+  element: Element;
+  targetRefIds: string[];
+  citationMarker: string;
+  localStart: number;
+  localEnd: number;
+  locationQuality: ParsedCitationMention["locationQuality"];
+};
+
+type TextSegment =
+  | { kind: "text"; text: string }
+  | { kind: "cite"; element: Element; text: string };
+
+function normalizeWithRawMap(raw: string): {
+  normalized: string;
+  /** Exclusive end index in normalized string for each raw exclusive end. */
+  rawExclusiveToNormExclusive: number[];
+} {
+  const rawExclusiveToNormExclusive = new Array<number>(raw.length + 1);
+  rawExclusiveToNormExclusive[0] = 0;
+  let normalized = "";
+  let lastWasSpace = true; // trim leading whitespace
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (/\s/.test(ch)) {
+      if (!lastWasSpace) {
+        normalized += " ";
+        lastWasSpace = true;
+      }
+    } else {
+      normalized += ch;
+      lastWasSpace = false;
+    }
+    rawExclusiveToNormExclusive[i + 1] = normalized.length;
+  }
+  if (normalized.endsWith(" ")) {
+    normalized = normalized.slice(0, -1);
+    for (let i = 0; i < rawExclusiveToNormExclusive.length; i++) {
+      if (rawExclusiveToNormExclusive[i]! > normalized.length) {
+        rawExclusiveToNormExclusive[i] = normalized.length;
+      }
+    }
+  }
+  return { normalized, rawExclusiveToNormExclusive };
+}
+
+function collectParagraphSegments(
+  paragraph: Element,
+  isCitation: (el: Element) => boolean,
+): TextSegment[] {
+  const segs: TextSegment[] = [];
+  const walk = (node: Node): void => {
+    if (node.nodeType === 3) {
+      segs.push({ kind: "text", text: node.textContent ?? "" });
+      return;
+    }
+    if (node.nodeType !== 1) {
+      return;
+    }
+    const el = node as Element;
+    if (isCitation(el)) {
+      segs.push({ kind: "cite", element: el, text: el.textContent ?? "" });
+      return;
+    }
+    for (let i = 0; i < node.childNodes.length; i++) {
+      const child = node.childNodes.item(i);
+      if (child) walk(child);
+    }
+  };
+  walk(paragraph);
+  return segs;
+}
+
+function locateCitationGroupsInParagraph(
+  paragraph: Element,
+  isCitation: (el: Element) => boolean,
+  readTargetRefIds: (el: Element) => string[],
+): { rawContext: string; groups: ParagraphCitationGroup[] } {
+  const segs = collectParagraphSegments(paragraph, isCitation);
+  const raw = segs.map((seg) => seg.text).join("");
+  const { normalized, rawExclusiveToNormExclusive } = normalizeWithRawMap(raw);
+  const groups: ParagraphCitationGroup[] = [];
+  let rawCursor = 0;
+  for (const seg of segs) {
+    const rawStart = rawCursor;
+    const rawEnd = rawCursor + seg.text.length;
+    rawCursor = rawEnd;
+    if (seg.kind !== "cite") continue;
+    const localStart = rawExclusiveToNormExclusive[rawStart] ?? 0;
+    const localEnd = rawExclusiveToNormExclusive[rawEnd] ?? localStart;
+    const marker = normalizeText(seg.text);
+    const exact =
+      marker.length > 0 &&
+      localEnd > localStart &&
+      normalized.slice(localStart, localEnd) === marker;
+    groups.push({
+      element: seg.element,
+      targetRefIds: readTargetRefIds(seg.element),
+      citationMarker: marker.length > 0 ? marker : getTextContent(seg.element),
+      localStart,
+      localEnd,
+      locationQuality: exact ? "exact_dom" : "missing",
+    });
+  }
+  return { rawContext: normalized, groups };
+}
+
+function bundleMetadataForGroup(
+  groups: readonly ParagraphCitationGroup[],
+  groupIndex: number,
 ): Pick<
   ParsedCitationMention,
   "isBundledCitation" | "bundleSize" | "bundleRefIds" | "bundlePattern"
 > {
-  const targetPos = rawContext.indexOf(targetText);
-  if (targetPos < 0) {
+  const target = groups[groupIndex];
+  if (!target || target.locationQuality === "missing") {
+    const alone = target?.targetRefIds.filter(Boolean) ?? [];
     return {
-      isBundledCitation: false,
-      bundleSize: 1,
-      bundleRefIds: [],
-      bundlePattern: "single",
+      isBundledCitation: alone.length > 1,
+      bundleSize: Math.max(1, alone.length),
+      bundleRefIds: alone,
+      bundlePattern: alone.length > 1 ? "parenthetical_group" : "single",
     };
   }
 
   const clusterRadius = 80;
+  const clustered: ParagraphCitationGroup[] = [];
+  for (const group of groups) {
+    if (group.locationQuality === "missing") continue;
+    if (Math.abs(group.localStart - target.localStart) <= clusterRadius) {
+      clustered.push(group);
+    }
+  }
   const bundleRefIds: string[] = [];
-  for (const marker of allMarkers) {
-    const markerPos = rawContext.indexOf(marker.marker);
-    if (markerPos >= 0 && Math.abs(markerPos - targetPos) <= clusterRadius) {
-      for (const refId of marker.refIds) {
-        if (refId && !bundleRefIds.includes(refId)) {
-          bundleRefIds.push(refId);
-        }
+  for (const group of clustered) {
+    for (const refId of group.targetRefIds) {
+      if (refId && !bundleRefIds.includes(refId)) {
+        bundleRefIds.push(refId);
       }
     }
   }
-
   if (bundleRefIds.length <= 1) {
     return {
       isBundledCitation: false,
@@ -193,21 +303,94 @@ function detectBundle(
       bundlePattern: "single",
     };
   }
-
-  const windowStart = Math.max(0, targetPos - clusterRadius);
-  const windowEnd = Math.min(
-    rawContext.length,
-    targetPos + targetText.length + clusterRadius,
-  );
-  const window = rawContext.substring(windowStart, windowEnd);
-
   return {
     isBundledCitation: true,
     bundleSize: bundleRefIds.length,
     bundleRefIds,
+    bundlePattern: "parenthetical_group",
+  };
+}
+
+function refineBundlePattern(
+  rawContext: string,
+  target: ParagraphCitationGroup,
+  bundle: Pick<
+    ParsedCitationMention,
+    "isBundledCitation" | "bundleSize" | "bundleRefIds" | "bundlePattern"
+  >,
+): typeof bundle {
+  if (!bundle.isBundledCitation) return bundle;
+  const windowStart = Math.max(0, target.localStart - 80);
+  const windowEnd = Math.min(rawContext.length, target.localEnd + 80);
+  const window = rawContext.slice(windowStart, windowEnd);
+  return {
+    ...bundle,
     bundlePattern: window.includes(";")
       ? "semicolon_separated"
       : "parenthetical_group",
+  };
+}
+
+function matchBlockIdForParagraph(
+  blocks: readonly ParsedPaperBlock[],
+  rawContext: string,
+): string | undefined {
+  const matches = blocks.filter((block) => block.text === rawContext);
+  if (matches.length === 1) return matches[0]!.blockId;
+  // Prefer body paragraphs when abstracts share text.
+  const body = matches.find((block) => block.blockKind === "body_paragraph");
+  return body?.blockId ?? matches[0]?.blockId;
+}
+
+function buildSourceLocator(
+  blockId: string | undefined,
+  citationGroupOrdinal: number,
+): ParsedCitationMention["sourceLocator"] {
+  if (!blockId) return undefined;
+  return {
+    kind: "block_id",
+    value: `${blockId}#cg-${String(citationGroupOrdinal)}`,
+  };
+}
+
+function buildParsedCitationMention(input: {
+  mentionIndex: number;
+  rawContext: string;
+  citationMarker: string;
+  sectionTitle: string | undefined;
+  targetRefIds: string[];
+  charOffsetStart: number | undefined;
+  charOffsetEnd: number | undefined;
+  locationQuality: ParsedCitationMention["locationQuality"];
+  sourceLocator: ParsedCitationMention["sourceLocator"];
+  blockId: string | undefined;
+  citationGroupOrdinal: number;
+  bundle: Pick<
+    ParsedCitationMention,
+    "isBundledCitation" | "bundleSize" | "bundleRefIds" | "bundlePattern"
+  >;
+  sourceType: ParsedCitationMention["sourceType"];
+  parser: string;
+}): ParsedCitationMention {
+  return {
+    mentionIndex: input.mentionIndex,
+    rawContext: input.rawContext,
+    citationMarker: input.citationMarker,
+    sectionTitle: input.sectionTitle,
+    refId: input.targetRefIds[0],
+    targetRefIds: input.targetRefIds,
+    charOffsetStart: input.charOffsetStart,
+    charOffsetEnd: input.charOffsetEnd,
+    locationQuality: input.locationQuality,
+    sourceLocator: input.sourceLocator,
+    blockId: input.blockId,
+    citationGroupOrdinal: input.citationGroupOrdinal,
+    isBundledCitation: input.bundle.isBundledCitation,
+    bundleSize: input.bundle.bundleSize,
+    bundleRefIds: input.bundle.bundleRefIds,
+    bundlePattern: input.bundle.bundlePattern,
+    sourceType: input.sourceType,
+    parser: input.parser,
   };
 }
 
@@ -264,7 +447,18 @@ function getJatsSectionTitle(node: Node): string | undefined {
   return titleEl ? getTextContent(titleEl) : undefined;
 }
 
-function parseJatsMentions(doc: Document): ParsedCitationMention[] {
+function isJatsBibrXref(el: Element): boolean {
+  return el.tagName === "xref" && el.getAttribute("ref-type") === "bibr";
+}
+
+function readJatsTargetRefIds(el: Element): string[] {
+  return (el.getAttribute("rid") ?? "").split(/\s+/).filter(Boolean);
+}
+
+function parseJatsMentions(
+  doc: Document,
+  blocks: readonly ParsedPaperBlock[],
+): ParsedCitationMention[] {
   const bodyEl = getFirstElement(doc, "body");
   if (!bodyEl) {
     return [];
@@ -272,48 +466,63 @@ function parseJatsMentions(doc: Document): ParsedCitationMention[] {
 
   const mentions: ParsedCitationMention[] = [];
   let mentionIndex = 0;
+  const seenParagraphs = new Set<Element>();
+
   for (const xref of getElementsByTagName(bodyEl, "xref")) {
-    if (xref.getAttribute("ref-type") !== "bibr") {
-      continue;
-    }
-
+    if (!isJatsBibrXref(xref)) continue;
     const paragraph = findAncestor(xref, "p");
-    if (!paragraph) {
-      continue;
+    if (!paragraph || seenParagraphs.has(paragraph)) continue;
+    seenParagraphs.add(paragraph);
+
+    const { rawContext, groups } = locateCitationGroupsInParagraph(
+      paragraph,
+      isJatsBibrXref,
+      readJatsTargetRefIds,
+    );
+    const blockId = matchBlockIdForParagraph(blocks, rawContext);
+    const block = blocks.find((entry) => entry.blockId === blockId);
+
+    for (let groupOrdinal = 0; groupOrdinal < groups.length; groupOrdinal++) {
+      const group = groups[groupOrdinal]!;
+      const bundle = refineBundlePattern(
+        rawContext,
+        group,
+        bundleMetadataForGroup(groups, groupOrdinal),
+      );
+      const absoluteStart =
+        block && group.locationQuality === "exact_dom"
+          ? block.charOffsetStart + group.localStart
+          : undefined;
+      const absoluteEnd =
+        block && group.locationQuality === "exact_dom"
+          ? block.charOffsetStart + group.localEnd
+          : undefined;
+      const sourceLocator = buildSourceLocator(blockId, groupOrdinal);
+      mentions.push(
+        buildParsedCitationMention({
+          mentionIndex,
+          rawContext,
+          citationMarker: group.citationMarker,
+          sectionTitle: getJatsSectionTitle(group.element),
+          targetRefIds: group.targetRefIds,
+          charOffsetStart: absoluteStart,
+          charOffsetEnd: absoluteEnd,
+          locationQuality:
+            absoluteStart != null && absoluteEnd != null
+              ? "exact_dom"
+              : sourceLocator
+                ? "approximate"
+                : "missing",
+          sourceLocator,
+          blockId,
+          citationGroupOrdinal: groupOrdinal,
+          bundle,
+          sourceType: "jats_xml",
+          parser: "jats-normalized",
+        }),
+      );
+      mentionIndex++;
     }
-
-    const rawContext = getTextContent(paragraph);
-    const citationMarker = getTextContent(xref);
-    const targetRefIds = (xref.getAttribute("rid") ?? "")
-      .split(/\s+/)
-      .filter(Boolean);
-    const paragraphMarkers = getElementsByTagName(paragraph, "xref")
-      .filter((el) => el.getAttribute("ref-type") === "bibr")
-      .map((el) => ({
-        marker: getTextContent(el),
-        refIds: (el.getAttribute("rid") ?? "").split(/\s+/).filter(Boolean),
-      }));
-    const bundle = detectBundle(citationMarker, paragraphMarkers, rawContext);
-    const markerStart = rawContext.indexOf(citationMarker);
-
-    mentions.push({
-      mentionIndex,
-      rawContext,
-      citationMarker,
-      sectionTitle: getJatsSectionTitle(xref),
-      refId: targetRefIds[0],
-      charOffsetStart: markerStart >= 0 ? markerStart : undefined,
-      charOffsetEnd:
-        markerStart >= 0 ? markerStart + citationMarker.length : undefined,
-      isBundledCitation: bundle.isBundledCitation,
-      bundleSize: bundle.bundleSize,
-      bundleRefIds: bundle.bundleRefIds,
-      bundlePattern: bundle.bundlePattern,
-      sourceType: "jats_xml",
-      parser: "jats-normalized",
-    });
-
-    mentionIndex++;
   }
 
   return mentions;
@@ -417,13 +626,14 @@ function parseJatsBlocks(doc: Document): ParsedPaperBlock[] {
 
 function parseJatsDocument(fullText: string): ParsedPaperDocument {
   const doc = new DOMParser().parseFromString(fullText, "text/xml");
+  const blocks = parseJatsBlocks(doc);
   return {
     parserKind: "jats",
     parserVersion: PARSED_PAPER_PARSER_VERSION,
     fullTextFormat: "jats_xml",
-    blocks: parseJatsBlocks(doc),
+    blocks,
     references: parseJatsReferences(doc),
-    mentions: parseJatsMentions(doc),
+    mentions: parseJatsMentions(doc, blocks),
   };
 }
 
@@ -507,7 +717,23 @@ function getTeiSectionTitle(node: Node): string | undefined {
   return undefined;
 }
 
-function parseGrobidMentions(doc: Document): ParsedCitationMention[] {
+function isTeiBibrRef(el: Element): boolean {
+  return (
+    el.tagName === "ref" && (el.getAttribute("type") ?? "").toLowerCase() === "bibr"
+  );
+}
+
+function readTeiTargetRefIds(el: Element): string[] {
+  return (el.getAttribute("target") ?? "")
+    .split(/\s+/)
+    .map((target) => target.replace(/^#/, ""))
+    .filter(Boolean);
+}
+
+function parseGrobidMentions(
+  doc: Document,
+  blocks: readonly ParsedPaperBlock[],
+): ParsedCitationMention[] {
   const body = getElementsByTagName(doc, "body")[0];
   if (!body) {
     return [];
@@ -515,51 +741,63 @@ function parseGrobidMentions(doc: Document): ParsedCitationMention[] {
 
   const mentions: ParsedCitationMention[] = [];
   let mentionIndex = 0;
+  const seenParagraphs = new Set<Element>();
+
   for (const ref of getElementsByTagName(body, "ref")) {
-    if ((ref.getAttribute("type") ?? "").toLowerCase() !== "bibr") {
-      continue;
-    }
-
+    if (!isTeiBibrRef(ref)) continue;
     const paragraph = findAncestor(ref, "p");
-    if (!paragraph) {
-      continue;
+    if (!paragraph || seenParagraphs.has(paragraph)) continue;
+    seenParagraphs.add(paragraph);
+
+    const { rawContext, groups } = locateCitationGroupsInParagraph(
+      paragraph,
+      isTeiBibrRef,
+      readTeiTargetRefIds,
+    );
+    const blockId = matchBlockIdForParagraph(blocks, rawContext);
+    const block = blocks.find((entry) => entry.blockId === blockId);
+
+    for (let groupOrdinal = 0; groupOrdinal < groups.length; groupOrdinal++) {
+      const group = groups[groupOrdinal]!;
+      const bundle = refineBundlePattern(
+        rawContext,
+        group,
+        bundleMetadataForGroup(groups, groupOrdinal),
+      );
+      const absoluteStart =
+        block && group.locationQuality === "exact_dom"
+          ? block.charOffsetStart + group.localStart
+          : undefined;
+      const absoluteEnd =
+        block && group.locationQuality === "exact_dom"
+          ? block.charOffsetStart + group.localEnd
+          : undefined;
+      const sourceLocator = buildSourceLocator(blockId, groupOrdinal);
+      mentions.push(
+        buildParsedCitationMention({
+          mentionIndex,
+          rawContext,
+          citationMarker: group.citationMarker,
+          sectionTitle: getTeiSectionTitle(group.element),
+          targetRefIds: group.targetRefIds,
+          charOffsetStart: absoluteStart,
+          charOffsetEnd: absoluteEnd,
+          locationQuality:
+            absoluteStart != null && absoluteEnd != null
+              ? "exact_dom"
+              : sourceLocator
+                ? "approximate"
+                : "missing",
+          sourceLocator,
+          blockId,
+          citationGroupOrdinal: groupOrdinal,
+          bundle,
+          sourceType: "grobid_tei",
+          parser: "grobid-tei",
+        }),
+      );
+      mentionIndex++;
     }
-
-    const rawContext = getTextContent(paragraph);
-    const citationMarker = getTextContent(ref);
-    const refIds = (ref.getAttribute("target") ?? "")
-      .split(/\s+/)
-      .map((target) => target.replace(/^#/, ""))
-      .filter(Boolean);
-    const paragraphMarkers = getElementsByTagName(paragraph, "ref")
-      .filter((el) => (el.getAttribute("type") ?? "").toLowerCase() === "bibr")
-      .map((el) => ({
-        marker: getTextContent(el),
-        refIds: (el.getAttribute("target") ?? "")
-          .split(/\s+/)
-          .map((target) => target.replace(/^#/, ""))
-          .filter(Boolean),
-      }));
-    const bundle = detectBundle(citationMarker, paragraphMarkers, rawContext);
-    const markerStart = rawContext.indexOf(citationMarker);
-
-    mentions.push({
-      mentionIndex,
-      rawContext,
-      citationMarker,
-      sectionTitle: getTeiSectionTitle(ref),
-      refId: refIds[0],
-      charOffsetStart: markerStart >= 0 ? markerStart : undefined,
-      charOffsetEnd:
-        markerStart >= 0 ? markerStart + citationMarker.length : undefined,
-      isBundledCitation: bundle.isBundledCitation,
-      bundleSize: bundle.bundleSize,
-      bundleRefIds: bundle.bundleRefIds,
-      bundlePattern: bundle.bundlePattern,
-      sourceType: "grobid_tei",
-      parser: "grobid-tei",
-    });
-    mentionIndex++;
   }
 
   return mentions;
@@ -669,13 +907,14 @@ function parseGrobidBlocks(doc: Document): ParsedPaperBlock[] {
 
 function parseGrobidDocument(fullText: string): ParsedPaperDocument {
   const doc = new DOMParser().parseFromString(fullText, "text/xml");
+  const blocks = parseGrobidBlocks(doc);
   return {
     parserKind: "grobid_tei",
     parserVersion: PARSED_PAPER_PARSER_VERSION,
     fullTextFormat: "grobid_tei_xml",
-    blocks: parseGrobidBlocks(doc),
+    blocks,
     references: parseGrobidReferences(doc),
-    mentions: parseGrobidMentions(doc),
+    mentions: parseGrobidMentions(doc, blocks),
   };
 }
 

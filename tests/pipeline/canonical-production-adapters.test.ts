@@ -156,6 +156,7 @@ const mention = {
   citingPaperId: "citing-paper",
   citedPaperId: "seed-paper",
   mentionIndex: 0,
+  targetRefIds: ["seed-ref"],
   identityStrength: "weak_context_fallback" as const,
   citationMarker: "[1]",
   rawContext: "The seed showed claim A and claim B [1].",
@@ -406,16 +407,33 @@ describe("canonical production adapter seams", () => {
     expect(getCitingWorks).not.toHaveBeenCalled();
   });
 
-  it("selects direct and bundled seed references exactly once", () => {
-    const direct = { refId: "seed-ref", bundleRefIds: ["seed-ref"] };
-    const bundled = {
-      refId: "other-ref",
+  it("selects only citation groups whose exact target refs include the seed", () => {
+    const direct = {
+      refId: "seed-ref",
+      targetRefIds: ["seed-ref"],
       bundleRefIds: ["other-ref", "seed-ref"],
     };
-    const unrelated = { refId: "other-ref", bundleRefIds: ["other-ref"] };
+    const siblingOnly = {
+      refId: "other-ref",
+      targetRefIds: ["other-ref"],
+      bundleRefIds: ["other-ref", "seed-ref"],
+    };
+    const multiTarget = {
+      refId: "seed-ref",
+      targetRefIds: ["seed-ref", "also-ref"],
+      bundleRefIds: ["seed-ref", "also-ref"],
+    };
+    const unrelated = {
+      refId: "other-ref",
+      targetRefIds: ["other-ref"],
+      bundleRefIds: ["other-ref"],
+    };
     expect(
-      selectSeedReferenceMentions([direct, bundled, unrelated], "seed-ref"),
-    ).toEqual([direct, bundled]);
+      selectSeedReferenceMentions(
+        [direct, siblingOnly, multiTarget, unrelated],
+        "seed-ref",
+      ),
+    ).toEqual([direct, multiTarget]);
   });
 
   it.each([

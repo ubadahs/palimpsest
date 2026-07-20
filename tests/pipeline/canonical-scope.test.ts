@@ -75,6 +75,7 @@ function externalExecution(provider: string, key: string) {
 
 function discoverModelExecution(key: string) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model: "fixture-discover-model",
     promptId: "canonical-attributed-claim-extraction",
@@ -141,6 +142,7 @@ function successfulHarvest(
     mentions: mentions.map((mention) => ({
       mentionIndex: mention.mentionIndex,
       refId: "seed-ref",
+      targetRefIds: ["seed-ref"],
       charOffsetStart: mention.mentionIndex * 100,
       charOffsetEnd: mention.mentionIndex * 100 + mention.context.length,
       citationMarker: mention.bundled ? "[2–4]" : "[3]",

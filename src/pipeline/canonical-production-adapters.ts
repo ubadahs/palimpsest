@@ -306,13 +306,23 @@ export function openAlexNeighborhoodSeedId(input: {
     : undefined;
 }
 
+/**
+ * Keep one harvested mention per citation group whose exact target refs include
+ * the seed bibliography id. Sibling refs stay on bundleRefIds for context only.
+ */
 export function selectSeedReferenceMentions<
-  T extends { refId?: string | undefined; bundleRefIds: string[] },
+  T extends {
+    refId?: string | undefined;
+    targetRefIds?: readonly string[] | undefined;
+    bundleRefIds: readonly string[];
+  },
 >(mentions: readonly T[], seedRefId: string): T[] {
-  return mentions.filter(
-    (mention) =>
-      mention.refId === seedRefId || mention.bundleRefIds.includes(seedRefId),
-  );
+  return mentions.filter((mention) => {
+    const targetRefIds =
+      mention.targetRefIds ??
+      (mention.refId != null ? [mention.refId] : []);
+    return targetRefIds.includes(seedRefId);
+  });
 }
 
 function createCanonicalAdapterSession(): CanonicalAdapterSession {
@@ -762,12 +772,21 @@ export function buildCanonicalDiscoverAdapters(
         mentions: rawMentions.map((mention) => ({
           mentionIndex: mention.mentionIndex,
           ...(mention.refId ? { refId: mention.refId } : {}),
-          ...(mention.charOffsetStart != null
-            ? { charOffsetStart: mention.charOffsetStart }
+          targetRefIds: mention.targetRefIds,
+          // Drop malformed parser offsets rather than failing Discover.
+          ...(mention.charOffsetStart != null &&
+          mention.charOffsetEnd != null &&
+          mention.charOffsetEnd > mention.charOffsetStart
+            ? {
+                charOffsetStart: mention.charOffsetStart,
+                charOffsetEnd: mention.charOffsetEnd,
+              }
             : {}),
-          ...(mention.charOffsetEnd != null
-            ? { charOffsetEnd: mention.charOffsetEnd }
+          ...(mention.sourceLocator
+            ? { sourceLocator: mention.sourceLocator }
             : {}),
+          locationQuality: mention.locationQuality,
+          citationGroupOrdinal: mention.citationGroupOrdinal,
           citationMarker: mention.citationMarker,
           rawContext: mention.rawContext,
           ...(mention.sectionTitle
@@ -787,6 +806,9 @@ export function buildCanonicalDiscoverAdapters(
               body: {
                 citingPaperId: citing.id,
                 mentionIndex: mention.mentionIndex,
+                targetRefIds: mention.targetRefIds,
+                citationGroupOrdinal: mention.citationGroupOrdinal,
+                sourceLocator: mention.sourceLocator,
                 citationMarker: mention.citationMarker,
                 rawContext: mention.rawContext,
               },

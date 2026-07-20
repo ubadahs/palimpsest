@@ -12,7 +12,7 @@ export const LLM_CACHE_VERSIONS = {
   /** Seed-claim grounding via full-document LLM call (canonical Scope). */
   grounding: "grounding-2026-07-17-v1",
   /** Attributed claim extraction from citing-paper mentions. */
-  extraction: "extraction-2026-07-17-v2",
+  extraction: "extraction-2026-07-20-v3",
   /** LLM-based evidence reranking. */
   rerank: "rerank-2026-04-11-v1",
   /** Citation fidelity adjudication. */
