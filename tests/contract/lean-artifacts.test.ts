@@ -1367,6 +1367,29 @@ describe("canonical scientific identities", () => {
     });
     expect(secondMentionId).not.toBe(firstMentionId);
 
+    // Distinct citation groups in the same paragraph must not collapse.
+    const sameParagraphGroupA = buildCitationOccurrenceId({
+      ...occurrence,
+      mentionIndex: 0,
+      citationGroupOrdinal: 0,
+      sourceLocator: {
+        kind: "block_id",
+        value: "body_paragraph-1#cg-0",
+      },
+    });
+    const sameParagraphGroupB = buildCitationOccurrenceId({
+      ...occurrence,
+      mentionIndex: 1,
+      citationGroupOrdinal: 1,
+      charOffsetStart: 160,
+      charOffsetEnd: 190,
+      sourceLocator: {
+        kind: "block_id",
+        value: "body_paragraph-1#cg-1",
+      },
+    });
+    expect(sameParagraphGroupA).not.toBe(sameParagraphGroupB);
+
     // Locators dominate offsets; mentionIndex remains a final tie-break.
     const withLocator = buildCitationOccurrenceId({
       ...occurrence,

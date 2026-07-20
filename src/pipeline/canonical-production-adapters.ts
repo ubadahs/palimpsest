@@ -193,7 +193,7 @@ function mapTransportFailure(error: string): {
  * Publisher paywalls are per-paper unavailable outcomes. OpenAlex/Anthropic
  * credential denial stays on mapTransportFailure / mapLlmFailureCode.
  */
-function mapFullTextAcquisitionFailure(failure: {
+export function mapFullTextAcquisitionFailure(failure: {
   failureCode: FullTextAcquisitionFailureCode;
   error: string;
 }): {
