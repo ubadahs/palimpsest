@@ -31,7 +31,24 @@ import {
   stableIdentifierSchema,
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
+import {
+  discoverModelExecutionSchema,
+  evidenceRerankModelExecutionSchema,
+  scopeGroundingModelExecutionSchema,
+  type EvidenceRerankModelExecution,
+} from "./model-execution.js";
 import type { CanonicalStageKey } from "./lean-stages.js";
+
+export {
+  discoverModelExecutionSchema,
+  evidenceRerankModelExecutionSchema,
+  modelExecutionSchema,
+  scopeGroundingModelExecutionSchema,
+  type DiscoverModelExecution,
+  type EvidenceRerankModelExecution,
+  type ModelExecution,
+  type ScopeGroundingModelExecution,
+} from "./model-execution.js";
 
 export {
   artifactReferenceSchema,
@@ -782,20 +799,6 @@ export function buildClaimExtractionObservationId(
   });
 }
 
-const discoverModelExecutionSchema = z
-  .object({
-    kind: z.literal("model"),
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-
 export const discoverClaimExtractionObservationSchema = z
   .object({
     extractionId: stableIdentifierSchema,
@@ -1130,23 +1133,6 @@ export const scopeSeedMaterializationSchema = z.discriminatedUnion("status", [
 ]);
 export type ScopeSeedMaterialization = z.infer<
   typeof scopeSeedMaterializationSchema
->;
-
-export const scopeGroundingModelExecutionSchema = z
-  .object({
-    kind: z.literal("model"),
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-export type ScopeGroundingModelExecution = z.infer<
-  typeof scopeGroundingModelExecutionSchema
 >;
 
 export const scopeVerifiedEvidenceSpanSchema = z
@@ -2201,23 +2187,6 @@ export const evidenceRerankFailureCodeSchema = z.union([
   evidenceRerankFatalFailureCodeSchema,
   evidenceRerankNonfatalFailureCodeSchema,
 ]);
-
-export const evidenceRerankModelExecutionSchema = z
-  .object({
-    kind: z.literal("model"),
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-export type EvidenceRerankModelExecution = z.infer<
-  typeof evidenceRerankModelExecutionSchema
->;
 
 export const evidenceRerankOutputSchema = z
   .object({

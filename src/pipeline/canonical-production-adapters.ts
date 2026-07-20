@@ -73,7 +73,10 @@ import {
   materializeParsedPaper,
   PARSED_PAPER_PARSER_VERSION,
 } from "../retrieval/parsed-paper.js";
-import type { FullTextFetchAdapters } from "../retrieval/fulltext-fetch.js";
+import type {
+  FullTextAcquisitionFailureCode,
+  FullTextFetchAdapters,
+} from "../retrieval/fulltext-fetch.js";
 import type { ParsedPaperCacheOptions } from "../retrieval/parsed-paper.js";
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
@@ -183,6 +186,46 @@ function mapTransportFailure(error: string): {
     return { reasonCode: "invalid_response", reason: error };
   }
   return { reasonCode: "transport", reason: error };
+}
+
+/**
+ * Map typed full-text acquisition failures onto Discover/Scope reason codes.
+ * Publisher paywalls are per-paper unavailable outcomes. OpenAlex/Anthropic
+ * credential denial stays on mapTransportFailure / mapLlmFailureCode.
+ */
+function mapFullTextAcquisitionFailure(failure: {
+  failureCode: FullTextAcquisitionFailureCode;
+  error: string;
+}): {
+  reasonCode:
+    | "not_found"
+    | "unavailable"
+    | "timeout"
+    | "rate_limited"
+    | "transport"
+    | "invalid_response"
+    | "authentication"
+    | "authorization"
+    | "billing"
+    | "quota";
+  reason: string;
+} {
+  switch (failure.failureCode) {
+    case "not_found":
+      return { reasonCode: "not_found", reason: failure.error };
+    case "paywall":
+      return { reasonCode: "unavailable", reason: failure.error };
+    case "rate_limited":
+      return { reasonCode: "rate_limited", reason: failure.error };
+    case "invalid_content":
+      return { reasonCode: "invalid_response", reason: failure.error };
+    case "authentication":
+    case "authorization":
+      // Acquisition-layer authz is publisher/proxy access denial for a paper.
+      return { reasonCode: "unavailable", reason: failure.error };
+    case "transport":
+      return { reasonCode: "transport", reason: failure.error };
+  }
 }
 
 /**
@@ -570,13 +613,17 @@ export function buildCanonicalDiscoverAdapters(
       );
 
       if (!materializeResult.ok) {
-        const mapped = mapTransportFailure(materializeResult.error);
+        const mapped = mapFullTextAcquisitionFailure({
+          failureCode: materializeResult.failureCode,
+          error: materializeResult.error,
+        });
         const provenanceArtifacts = [
           store.persist({
             role: "citing-paper-materialization-failure",
             body: {
               citingPaperId: citing.id,
               error: materializeResult.error,
+              failureCode: materializeResult.failureCode,
               acquisition: materializeResult.acquisition,
             },
             canonicalStage: "discover",
@@ -879,12 +926,9 @@ export function buildCanonicalScopeAdapters(
         return {
           seedId: seed.seedId,
           status: "seed_text_unavailable" as const,
+          reasonCode: "unavailable" as const,
           reason: "Seed DOI did not resolve; cannot materialize seed text.",
-          failure: {
-            code: "unavailable" as const,
-            reason: "Unresolved seed paper.",
-          },
-          sourceArtifacts,
+          provenanceArtifacts: sourceArtifacts,
           execution: {
             kind: "deterministic" as const,
             implementation: "canonical-scope-seed-materialize-v1",
@@ -928,12 +972,9 @@ export function buildCanonicalScopeAdapters(
             return {
               seedId: seed.seedId,
               status: "acquisition_failed" as const,
+              reasonCode: "unavailable" as const,
               reason: resolution.error,
-              failure: {
-                code: "unavailable" as const,
-                reason: resolution.error,
-              },
-              sourceArtifacts,
+              provenanceArtifacts: sourceArtifacts,
               execution: {
                 kind: "external" as const,
                 ...contentAddressedExternalExecution({
@@ -960,12 +1001,17 @@ export function buildCanonicalScopeAdapters(
       }
 
       if (!materializeResult.ok) {
-        const sourceArtifacts = [
+        const mapped = mapFullTextAcquisitionFailure({
+          failureCode: materializeResult.failureCode,
+          error: materializeResult.error,
+        });
+        const provenanceArtifacts = [
           store.persist({
             role: "seed-materialization-failure",
             body: {
               seedId: seed.seedId,
               error: materializeResult.error,
+              failureCode: materializeResult.failureCode,
               acquisition: materializeResult.acquisition,
             },
             canonicalStage: "scope",
@@ -974,12 +1020,9 @@ export function buildCanonicalScopeAdapters(
         return {
           seedId: seed.seedId,
           status: "acquisition_failed" as const,
-          reason: materializeResult.error,
-          failure: {
-            code: "unavailable" as const,
-            reason: materializeResult.error,
-          },
-          sourceArtifacts,
+          reasonCode: mapped.reasonCode,
+          reason: mapped.reason,
+          provenanceArtifacts,
           execution: {
             kind: "external" as const,
             ...contentAddressedExternalExecution({
@@ -987,7 +1030,10 @@ export function buildCanonicalScopeAdapters(
                 ? "local-pdf-grobid"
                 : "fulltext-acquisition",
               requestBody,
-              responseBody: { error: materializeResult.error },
+              responseBody: {
+                error: materializeResult.error,
+                failureCode: materializeResult.failureCode,
+              },
               store,
               requestRole: "normalized-seed-materialization-request",
               responseRole: "seed-materialization-failure",
@@ -1009,12 +1055,9 @@ export function buildCanonicalScopeAdapters(
         return {
           seedId: seed.seedId,
           status: "seed_text_unavailable" as const,
+          reasonCode: "unavailable" as const,
           reason: "Parsed seed document contained no text blocks.",
-          failure: {
-            code: "unavailable" as const,
-            reason: "Empty parsed seed document.",
-          },
-          sourceArtifacts,
+          provenanceArtifacts: sourceArtifacts,
           execution: {
             kind: "deterministic" as const,
             implementation: "canonical-scope-seed-materialize-v1",

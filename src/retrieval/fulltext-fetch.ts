@@ -44,6 +44,24 @@ export type FullTextFetchAdapters = {
   institutionalProxyUrl: string | undefined;
 };
 
+/**
+ * Typed full-text acquisition failures. Publisher paywalls are `paywall`
+ * (per-paper unavailable at the adapter boundary). Provider credential denial
+ * for OpenAlex/Anthropic stays outside this surface.
+ */
+export const fullTextAcquisitionFailureCodes = [
+  "not_found",
+  "paywall",
+  "authentication",
+  "authorization",
+  "rate_limited",
+  "invalid_content",
+  "transport",
+] as const;
+
+export type FullTextAcquisitionFailureCode =
+  (typeof fullTextAcquisitionFailureCodes)[number];
+
 type FullTextAcquisitionSuccess = {
   ok: true;
   data: FullTextContent & { acquisition: FullTextAcquisition };
@@ -52,12 +70,61 @@ type FullTextAcquisitionSuccess = {
 type FullTextAcquisitionFailure = {
   ok: false;
   error: string;
+  failureCode: FullTextAcquisitionFailureCode;
   acquisition: FullTextAcquisition | undefined;
 };
 
 export type FullTextAcquisitionResult =
   | FullTextAcquisitionSuccess
   | FullTextAcquisitionFailure;
+
+export function classifyHttpAcquisitionFailure(
+  status: number,
+): FullTextAcquisitionFailureCode {
+  if (status === 404) return "not_found";
+  if (status === 401 || status === 403) return "paywall";
+  if (status === 429) return "rate_limited";
+  return "transport";
+}
+
+export function classifyAcquisitionAttemptFailure(input: {
+  httpStatus?: number | undefined;
+  probeClassification?: string | undefined;
+  failureReason?: string | undefined;
+}): FullTextAcquisitionFailureCode {
+  const probe = input.probeClassification ?? "";
+  if (
+    probe === "html_instead_of_pdf" ||
+    probe === "invalid_pdf_payload" ||
+    probe === "empty_xml" ||
+    probe === "invalid_xml"
+  ) {
+    return "invalid_content";
+  }
+  if (probe === "network_error") {
+    return "transport";
+  }
+  if (input.httpStatus != null && input.httpStatus >= 400) {
+    return classifyHttpAcquisitionFailure(input.httpStatus);
+  }
+  const reason = (input.failureReason ?? "").toLowerCase();
+  if (/no fetchable|no .*found|xml_url_missing|no pmcid/i.test(reason)) {
+    return "not_found";
+  }
+  if (/rate limit|429|too many requests/i.test(reason)) {
+    return "rate_limited";
+  }
+  if (/unauthorized|authentication|api key/i.test(reason)) {
+    return "authentication";
+  }
+  if (/forbidden|permission/i.test(reason)) {
+    return "authorization";
+  }
+  if (/invalid|parse|schema|html_instead|rejected/i.test(reason)) {
+    return "invalid_content";
+  }
+  return "transport";
+}
 
 type AcquisitionCandidate = {
   candidateKind:
@@ -1137,8 +1204,14 @@ function buildProxyCandidates(
 async function executeCandidateQueue(
   state: AcquisitionExecutionState,
   adapters: FullTextFetchAdapters,
-): Promise<AcquisitionCandidateResult & { lastFailureReason: string }> {
+): Promise<
+  AcquisitionCandidateResult & {
+    lastFailureReason: string;
+    lastFailureCode: FullTextAcquisitionFailureCode;
+  }
+> {
   let lastFailureReason = "No fetchable full text candidates";
+  let lastFailureCode: FullTextAcquisitionFailureCode = "not_found";
 
   while (state.candidates.length > 0) {
     const candidate = state.candidates.shift()!;
@@ -1172,14 +1245,20 @@ async function executeCandidateQueue(
     }
 
     if (candidateResult.kind === "selected") {
-      return { ...candidateResult, lastFailureReason };
+      return { ...candidateResult, lastFailureReason, lastFailureCode };
     }
     if (candidateResult.failureReason) {
       lastFailureReason = candidateResult.failureReason;
+      const lastAttempt = state.attempts[state.attempts.length - 1];
+      lastFailureCode = classifyAcquisitionAttemptFailure({
+        httpStatus: lastAttempt?.httpStatus,
+        probeClassification: lastAttempt?.probeClassification,
+        failureReason: lastFailureReason,
+      });
     }
   }
 
-  return { kind: "continue", lastFailureReason };
+  return { kind: "continue", lastFailureReason, lastFailureCode };
 }
 
 async function acquireFullTextFromNetwork(
@@ -1254,7 +1333,14 @@ async function acquireFullTextFromNetwork(
     }
   }
 
-  const lastFailureReason = oaResult.lastFailureReason;
+  const lastAttempt = state.attempts[state.attempts.length - 1];
+  const lastFailureReason =
+    lastAttempt?.failureReason ?? oaResult.lastFailureReason;
+  const lastFailureCode = classifyAcquisitionAttemptFailure({
+    httpStatus: lastAttempt?.httpStatus,
+    probeClassification: lastAttempt?.probeClassification,
+    failureReason: lastFailureReason,
+  });
   const acquisition = makeAcquisition(
     {
       materializationSource: "network",
@@ -1266,6 +1352,7 @@ async function acquireFullTextFromNetwork(
   return {
     ok: false,
     error: lastFailureReason,
+    failureCode: lastFailureCode,
     acquisition,
   };
 }
