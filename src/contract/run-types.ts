@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
-import { adaptivePortfolioPolicySchema } from "./candidate-selection-policy.js";
+import { adaptivePortfolioPolicySchema } from "./adaptive-portfolio-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeyValues } from "./stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";

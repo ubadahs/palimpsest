@@ -882,6 +882,30 @@ function buildAllStageArtifacts() {
             "discover.deferred_candidates",
             "Deferred candidates",
           ),
+          uniqueCitingPapersWithOccurrences: buildReportCount({
+            metricId: "discover.unique_citing_papers_with_occurrences",
+            count: 0,
+            unit: "citing_papers",
+            population: "Unique citing papers with occurrences",
+          }),
+          uniqueCitationGroups: buildReportCount({
+            metricId: "discover.unique_citation_groups",
+            count: 0,
+            unit: "citation_groups",
+            population: "Unique citation groups",
+          }),
+          deferredByFamilyCap: zeroCandidates(
+            "discover.deferred_by_family_cap",
+            "Deferred by family cap",
+          ),
+          deferredByRecordBudget: zeroCandidates(
+            "discover.deferred_by_record_budget",
+            "Deferred by record budget",
+          ),
+          deferredByNovelty: zeroCandidates(
+            "discover.deferred_by_novelty",
+            "Deferred by novelty",
+          ),
         },
         scope: {
           scopedCandidates: zeroCandidates(
@@ -1371,7 +1395,6 @@ describe("canonical scientific identities", () => {
     const sameParagraphGroupA = buildCitationOccurrenceId({
       ...occurrence,
       mentionIndex: 0,
-      citationGroupOrdinal: 0,
       sourceLocator: {
         kind: "block_id",
         value: "body_paragraph-1#cg-0",
@@ -1380,7 +1403,6 @@ describe("canonical scientific identities", () => {
     const sameParagraphGroupB = buildCitationOccurrenceId({
       ...occurrence,
       mentionIndex: 1,
-      citationGroupOrdinal: 1,
       charOffsetStart: 160,
       charOffsetEnd: 190,
       sourceLocator: {

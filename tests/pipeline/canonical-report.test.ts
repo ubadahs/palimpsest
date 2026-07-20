@@ -1742,6 +1742,9 @@ describe("canonical Report", () => {
     expect(markdown).toContain(
       "Manual-review queue entries stay gated as operational non-verdicts",
     );
+    expect(markdown).toContain("Adaptive portfolio selection is deterministic");
+    expect(markdown).toContain("discover.unique_citation_groups");
+    expect(markdown).toContain("discover.deferred_by_novelty");
     expect(markdown).toContain("prepare.manual_review_role_ambiguous");
     expect(markdown).toContain("prepare.manual_review_extraction_limited");
     expect(markdown).toContain(

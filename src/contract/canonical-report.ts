@@ -119,7 +119,9 @@ export type ReportLineage = z.infer<typeof reportLineageSchema>;
 const reportCountUnitSchema = z.enum([
   "seeds",
   "citing_paper_observations",
+  "citing_papers",
   "citation_occurrences",
+  "citation_groups",
   "attributed_claim_records",
   "candidates",
   "families",
@@ -254,6 +256,11 @@ const discoverFunnelCountsSchema = z
     candidateClaims: reportCountSchema,
     selectedCandidates: reportCountSchema,
     deferredCandidates: reportCountSchema,
+    uniqueCitingPapersWithOccurrences: reportCountSchema,
+    uniqueCitationGroups: reportCountSchema,
+    deferredByFamilyCap: reportCountSchema,
+    deferredByRecordBudget: reportCountSchema,
+    deferredByNovelty: reportCountSchema,
   })
   .strict();
 const scopeFunnelCountsSchema = z

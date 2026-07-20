@@ -30,7 +30,9 @@ The input is a JSON object with a nonempty DOI array:
 
 ### Discover
 
-Discover establishes a lossless, declared citing-neighborhood observation boundary. It preserves every returned citing-paper disposition, citation occurrence, extraction outcome, attributed claim, candidate membership, and cap disposition. It does not ground a claim or filter membership.
+Discover establishes a lossless, declared citing-neighborhood observation boundary. It paginates citation-index requests up to an exposed total `neighborhoodLimit`, records page provenance and complete/truncated coverage, and selects the probe set with a deterministic year-band × paper-type stratification when the probe budget is below the returned neighborhood.
+
+It preserves every returned citing-paper disposition, citation occurrence, extraction outcome, attributed claim, and candidate. Seed occurrences are one per citation group whose exact `targetRefIds` include the seed; sibling refs remain bundle metadata only. Candidate selection uses an adaptive 15–25 family portfolio under a prepared-record budget with deterministic prevalence/specificity/confidence/novelty annotations. Lexical redundancy can defer candidates; claims are not consolidated. Grounding is intentionally deferred.
 
 ### Scope
 
@@ -42,17 +44,17 @@ Prepare consumes Scope and its exact Discover ancestor. It emits exactly one sta
 
 ### Evidence
 
-Evidence consumes Prepare and Scope. It retrieves only from immutable Scope seed text, emits one outcome per Prepare record, and can share family-level query/corpus/ranking work without collapsing records. BM25 uses only the declared Scope family claim. Optional relevance reranking is a separate immutable ranking, not a mutation of BM25.
+Evidence consumes Prepare and Scope. It retrieves only from immutable Scope seed text and emits one outcome per Prepare record. BM25 queries are built from occurrence-local atomic claims, with the Scope family claim as a declared fallback/secondary query. Candidate union and optional relevance reranking remain separate immutable rankings; content-hash reuse may share work across records without collapsing them. `bm25CandidateLimit` and `selectionLimit` are exposed in CLI/UI.
 
 ### Adjudicate
 
-Adjudicate consumes Evidence and Prepare. Deterministic gates produce typed `not_adjudicated` outcomes for unavailable evidence, retrieval failure, invalid context, unsuitable roles, and comparable operational conditions. Eligible records receive one categorical model request and yield `F`, `D`, `E`, or `U`; confidence never routes to another model or method.
+Adjudicate consumes Evidence and Prepare. Deterministic gates produce typed `not_adjudicated` outcomes for unavailable evidence, retrieval failure, invalid context, unsuitable roles, and comparable operational conditions. Ambiguous citation roles stay in the manual-review queue (`manual_review_role_ambiguous` / `manual_review_extraction_limited`) and are not auto-routed to the model. Eligible records receive one categorical model request and yield `F`, `D`, `E`, or `U`; confidence never routes to another model or method.
 
 This method is **uncalibrated**. A completed run is not a validated scientific result and must not be used for trust claims before blinded human calibration.
 
 ### Report
 
-Report consumes and tamper-verifies the full five-artifact chain. It writes authoritative JSON funnel counts, rates, and per-record traces, then renders Markdown from that validated JSON. `F`/`D`/`E`/`U` rates use adjudicated records as their denominator; operational non-verdicts are not verdicts.
+Report consumes and tamper-verifies the full five-artifact chain. It writes authoritative JSON funnel counts, rates, and per-record traces, then renders Markdown from that validated JSON. Funnel accounting includes unique citing-paper/group coverage, adaptive portfolio deferral reasons (family cap, record budget, lexical novelty), manual-review queue splits, and gate-code counts. `F`/`D`/`E`/`U` rates use adjudicated records as their denominator; operational non-verdicts are not verdicts.
 
 ## Run behavior
 
