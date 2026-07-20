@@ -145,6 +145,8 @@ export type CanonicalPipelineCliOverrides = {
   evidenceRerankEnabled: boolean | undefined;
   evidenceRerankModel: string | undefined;
   evidenceRerankTopN: number | undefined;
+  evidenceBm25CandidateLimit?: number | undefined;
+  evidenceSelectionLimit?: number | undefined;
   adjudicateModel: string | undefined;
   adjudicateThinking: boolean | undefined;
   /** Explicit stage to force-rerun (invalidates downstream). */
@@ -261,6 +263,12 @@ function buildConfigFromCli(
         : {}),
       ...(args.evidenceRerankTopN != null
         ? { rerankTopN: args.evidenceRerankTopN }
+        : {}),
+      ...(args.evidenceBm25CandidateLimit != null
+        ? { bm25CandidateLimit: args.evidenceBm25CandidateLimit }
+        : {}),
+      ...(args.evidenceSelectionLimit != null
+        ? { selectionLimit: args.evidenceSelectionLimit }
         : {}),
     },
     adjudicate: {

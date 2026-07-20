@@ -11,6 +11,7 @@ import {
   type EvidenceChunkConfiguration,
   type EvidenceChunkCorpus,
   type EvidenceQuery,
+  type PreparedCitationInstance,
   type ScopeSeedMaterialization,
   type ScopedFamily,
 } from "../contract/lean-artifacts.js";
@@ -123,6 +124,41 @@ export function buildScopedFamilyEvidenceQuery(
   });
 }
 
+export function buildOccurrenceLocalEvidenceQuery(
+  record: PreparedCitationInstance,
+  family: ScopedFamily,
+): EvidenceQuery {
+  const text = record.occurrenceSourceClaimRecords
+    .slice()
+    .sort((left, right) =>
+      compareCodeUnits(left.claimRecordId, right.claimRecordId),
+    )
+    .map((claim) => normalizeWhitespace(claim.extractedClaimText))
+    .join(" ");
+  const source = "occurrence-local-claims" as const;
+  const verificationStatus =
+    family.grounding.status === "grounded"
+      ? "scope_grounded"
+      : family.grounding.status === "ambiguous"
+        ? "scope_ambiguous"
+        : "unverified_attributed_claim";
+  return evidenceQuerySchema.parse({
+    queryId: buildEvidenceQueryId({
+      familyId: family.familyId,
+      citationOccurrenceId: record.citationOccurrenceId,
+      text,
+      source,
+    }),
+    familyId: family.familyId,
+    citationOccurrenceId: record.citationOccurrenceId,
+    text,
+    contentHash: canonicalSha256(text),
+    source,
+    groundingStatus: family.grounding.status,
+    verificationStatus,
+  });
+}
+
 export function retrieveEvidenceByBm25(input: {
   familyId: string;
   query: EvidenceQuery;
@@ -152,12 +188,14 @@ export function retrieveEvidenceByBm25(input: {
   }));
   const queryTerms = tokenizeBm25Text(input.query.text, scoringConfiguration);
   const corpusChunkIds = input.corpus.chunks.map((chunk) => chunk.chunkId);
+  const rankingContentHash = canonicalSha256({ queryTerms, candidates });
   return evidenceBm25RunSchema.parse({
     bm25RunId: buildEvidenceBm25RunId({
-      queryId: input.query.queryId,
+      queryText: input.query.text,
       corpusId: input.corpus.corpusId,
       corpusChunkIds,
       configuration,
+      rankingContentHash,
     }),
     familyId: input.familyId,
     queryId: input.query.queryId,
@@ -168,8 +206,32 @@ export function retrieveEvidenceByBm25(input: {
     configuration,
     status: candidates.length > 0 ? "matched" : "no_lexical_matches",
     candidates,
-    rankingContentHash: canonicalSha256({ queryTerms, candidates }),
+    rankingContentHash,
   });
+}
+
+export function unionBm25Candidates(
+  runs: readonly EvidenceBm25Run[],
+): EvidenceBm25Run["candidates"] {
+  const bestByChunkId = new Map<string, number>();
+  for (const run of runs) {
+    for (const candidate of run.candidates) {
+      const current = bestByChunkId.get(candidate.chunkId);
+      if (current == null || candidate.rawScore > current) {
+        bestByChunkId.set(candidate.chunkId, candidate.rawScore);
+      }
+    }
+  }
+  return [...bestByChunkId.entries()]
+    .sort(
+      ([leftId, leftScore], [rightId, rightScore]) =>
+        rightScore - leftScore || compareCodeUnits(leftId, rightId),
+    )
+    .map(([chunkId, rawScore], index) => ({
+      chunkId,
+      rawScore,
+      rank: index + 1,
+    }));
 }
 
 function buildBm25Configuration(
@@ -192,4 +254,8 @@ function buildBm25Configuration(
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
