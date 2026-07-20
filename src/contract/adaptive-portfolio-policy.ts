@@ -6,7 +6,7 @@ import { z } from "zod";
  * `palimpsest/contract` (UI) can import run config without `node:crypto`.
  */
 export const CANDIDATE_SELECTION_POLICY_VERSION =
-  "adaptive-portfolio-v1" as const;
+  "adaptive-portfolio-v2" as const;
 
 export const adaptivePortfolioPolicySchema = z
   .object({
@@ -14,10 +14,12 @@ export const adaptivePortfolioPolicySchema = z
     minFamilies: z.number().int().positive().default(15),
     maxFamilies: z.number().int().positive().default(25),
     maxPreparedRecords: z.number().int().positive().default(100),
-    prevalenceWeight: z.number().finite().nonnegative().default(0.35),
+    // Lower prevalence / higher novelty so recurring vague paraphrases
+    // cannot crowd out specific but less-repeated claims.
+    prevalenceWeight: z.number().finite().nonnegative().default(0.25),
     specificityWeight: z.number().finite().nonnegative().default(0.35),
     confidenceWeight: z.number().finite().nonnegative().default(0.15),
-    noveltyWeight: z.number().finite().nonnegative().default(0.15),
+    noveltyWeight: z.number().finite().nonnegative().default(0.25),
     minMarginalNovelty: z.number().finite().min(0).max(1).default(0.08),
     policyVersion: z
       .literal(CANDIDATE_SELECTION_POLICY_VERSION)

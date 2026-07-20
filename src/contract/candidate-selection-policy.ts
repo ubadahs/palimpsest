@@ -219,6 +219,81 @@ function jaccard(left: readonly string[], right: readonly string[]): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+/**
+ * Lexical markers that can change citation-fidelity meaning. Claims that
+ * differ on these markers must not be treated as redundant for novelty,
+ * even when the surrounding wording overlaps heavily.
+ */
+const FIDELITY_MARKER_GROUPS: ReadonlyArray<{
+  kind: string;
+  pattern: RegExp;
+}> = [
+  {
+    kind: "quantifier",
+    pattern:
+      /\b(?:mainly|primarily|largely|mostly|predominantly|substantially|many|most|some|all|few|several|none|every|any|majority|minority|half|nearly|almost|approximately|about|only|at\s+least|at\s+most|more|less|greater|fewer|increased|decreased|higher|lower)\b/gi,
+  },
+  {
+    kind: "certainty",
+    pattern:
+      /\b(?:may|might|could|possibly|perhaps|likely|unlikely|apparently|seemingly|putative|potential|suggests?|suggested|appears?|seem(?:s|ed)?|clearly|definitely|established|known|thought|believed|evidence|prov(?:e|es|en)|demonstrat(?:e|es|ed)|indicat(?:e|es|ed))\b/gi,
+  },
+  {
+    kind: "causality",
+    pattern:
+      /\b(?:cause[sd]?|because|due\s+to|leads?\s+to|leading\s+to|results?\s+in|resulting\s+in|induc(?:e|es|ed)|mediat(?:e|es|ed)|required\s+for|necessary\s+for|sufficient(?:\s+for)?|associated\s+with|correlat(?:e|es|ed|ion))\b/gi,
+  },
+  {
+    kind: "polarity",
+    pattern:
+      /\b(?:not|no|never|neither|without|absent|lack(?:ing|s)?|fail(?:s|ed)?|non[a-z]+)\b/gi,
+  },
+  {
+    kind: "condition",
+    pattern:
+      /\b(?:when|if|after|before|during|in\s+the\s+presence|in\s+the\s+absence|unless|under|following|upon|only\s+when|only\s+if)\b/gi,
+  },
+  {
+    kind: "population",
+    pattern:
+      /\b(?:mice|mouse|human|humans|adult|adults|immature|mature|neonatal|male|female|wild[- ]?type|knockout|neurons?|cells?|patients?|subjects?)\b/gi,
+  },
+];
+
+const FIDELITY_QUANTITY_PATTERN = /\b\d+(?:\.\d+)?%?\b/g;
+
+export function extractFidelityMarkers(claimText: string): string[] {
+  const markers = new Set<string>();
+  const normalized = claimText.toLowerCase();
+  for (const group of FIDELITY_MARKER_GROUPS) {
+    group.pattern.lastIndex = 0;
+    for (const match of normalized.matchAll(group.pattern)) {
+      const token = match[0]!.replace(/\s+/g, " ").trim();
+      if (token.length > 0) {
+        markers.add(`${group.kind}:${token}`);
+      }
+    }
+  }
+  FIDELITY_QUANTITY_PATTERN.lastIndex = 0;
+  for (const match of normalized.matchAll(FIDELITY_QUANTITY_PATTERN)) {
+    markers.add(`quantity:${match[0]!}`);
+  }
+  return [...markers].sort(compareCodeUnits);
+}
+
+function fidelityMarkersDiffer(
+  leftClaim: string,
+  rightClaim: string,
+): boolean {
+  const left = extractFidelityMarkers(leftClaim);
+  const right = extractFidelityMarkers(rightClaim);
+  if (left.length !== right.length) return true;
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return true;
+  }
+  return false;
+}
+
 function computeSpecificity(normalizedClaim: string): {
   specificityScore: number;
   informativeTokenCount: number;
@@ -360,6 +435,15 @@ function maxRedundancy(
   if (selected.length === 0) return 0;
   let max = 0;
   for (const prior of selected) {
+    // Fidelity-sensitive wording differences keep novelty high.
+    if (
+      fidelityMarkersDiffer(
+        candidate.candidate.normalizedClaim,
+        prior.candidate.normalizedClaim,
+      )
+    ) {
+      continue;
+    }
     max = Math.max(
       max,
       jaccard(

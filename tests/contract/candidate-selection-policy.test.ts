@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   annotateClaimCandidate,
+  extractFidelityMarkers,
   selectAdaptivePortfolio,
   adaptivePortfolioPolicySchema,
 } from "../../src/contract/candidate-selection-policy.js";
+import { defaultAdaptivePortfolioPolicy } from "../../src/contract/adaptive-portfolio-policy.js";
 import {
   buildStableId,
   canonicalSha256,
@@ -95,6 +97,89 @@ function candidate(input: {
 }
 
 describe("adaptive portfolio candidate selection", () => {
+  it("defaults to balanced prevalence and novelty weights under v2 policy", () => {
+    expect(defaultAdaptivePortfolioPolicy.policyVersion).toBe(
+      "adaptive-portfolio-v2",
+    );
+    expect(defaultAdaptivePortfolioPolicy.prevalenceWeight).toBe(0.25);
+    expect(defaultAdaptivePortfolioPolicy.noveltyWeight).toBe(0.25);
+    expect(defaultAdaptivePortfolioPolicy.specificityWeight).toBe(0.35);
+    expect(defaultAdaptivePortfolioPolicy.confidenceWeight).toBe(0.15);
+  });
+
+  it("extracts distinct fidelity markers for many vs mainly", () => {
+    const many = extractFidelityMarkers(
+      "Many GABAergic neurons in the VRN express Pvalb.",
+    );
+    const mainly = extractFidelityMarkers(
+      "GABAergic neurons in the VRN mainly express Pvalb.",
+    );
+    expect(many).toContain("quantifier:many");
+    expect(mainly).toContain("quantifier:mainly");
+    expect(many).not.toEqual(mainly);
+  });
+
+  it("keeps fidelity-sensitive near-paraphrases non-redundant in the portfolio", () => {
+    const manyMention = mention({
+      id: "m_many",
+      paperId: "p-many",
+      group: 0,
+      context: "Many GABAergic neurons in the VRN express Pvalb.",
+    });
+    const mainlyMention = mention({
+      id: "m_mainly",
+      paperId: "p-mainly",
+      group: 0,
+      context: "GABAergic neurons in the VRN mainly express Pvalb.",
+    });
+    const manyClaim = claim({
+      id: "c_many",
+      mentionId: "m_many",
+      text: "Many GABAergic neurons in the VRN express Pvalb.",
+      confidence: "high",
+    });
+    const mainlyClaim = claim({
+      id: "c_mainly",
+      mentionId: "m_mainly",
+      text: "GABAergic neurons in the VRN mainly express Pvalb.",
+      confidence: "high",
+    });
+    const manyCandidate = candidate({
+      id: "cand_many",
+      text: "Many GABAergic neurons in the VRN express Pvalb.",
+      mentionIds: ["m_many"],
+      claimIds: ["c_many"],
+    });
+    const mainlyCandidate = candidate({
+      id: "cand_mainly",
+      text: "GABAergic neurons in the VRN mainly express Pvalb.",
+      mentionIds: ["m_mainly"],
+      claimIds: ["c_mainly"],
+    });
+
+    const dispositions = selectAdaptivePortfolio({
+      candidates: [manyCandidate, mainlyCandidate],
+      mentions: [manyMention as never, mainlyMention as never],
+      claims: [manyClaim as never, mainlyClaim as never],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 2,
+        maxFamilies: 2,
+        maxPreparedRecords: 20,
+        minMarginalNovelty: 0.08,
+      }),
+    });
+
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    expect(selected.map((entry) => entry.candidateId).sort()).toEqual([
+      "cand_mainly",
+      "cand_many",
+    ]);
+    for (const entry of selected) {
+      expect(entry.componentScores?.novelty).toBe(1);
+    }
+  });
+
   it("annotates prevalence from unique papers and citation groups", () => {
     const mentions = [
       mention({

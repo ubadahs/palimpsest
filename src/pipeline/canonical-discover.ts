@@ -773,7 +773,7 @@ export async function runCanonicalDiscover(
         recordedAt: options.recordedAt,
         actor: {
           kind: "deterministic",
-          identifier: "canonical-discover-adaptive-portfolio-v1",
+          identifier: "canonical-discover-adaptive-portfolio-v2",
         },
         evidenceArtifacts: candidate.provenanceArtifacts,
       }),
