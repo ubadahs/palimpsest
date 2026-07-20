@@ -16,6 +16,7 @@ import {
   buildCanonicalDiscoverAdapters,
   buildCanonicalPrepareAdapters,
   buildCanonicalScopeAdapters,
+  mapFullTextAcquisitionFailure,
   openAlexNeighborhoodSeedId,
   parseCanonicalAttributedClaimExtractionResponse,
   selectSeedReferenceMentions,
@@ -431,6 +432,36 @@ describe("canonical production adapter seams", () => {
       reasonCode: "unavailable",
     });
     expect(getCitingWorks).not.toHaveBeenCalled();
+  });
+
+  it("maps publisher paywalls to per-paper unavailable, not provider auth", () => {
+    expect(
+      mapFullTextAcquisitionFailure({
+        failureCode: "paywall",
+        error: "HTTP 403 from publisher PDF",
+      }),
+    ).toEqual({
+      reasonCode: "unavailable",
+      reason: "HTTP 403 from publisher PDF",
+    });
+    expect(
+      mapFullTextAcquisitionFailure({
+        failureCode: "authentication",
+        error: "proxy login required",
+      }).reasonCode,
+    ).toBe("unavailable");
+    expect(
+      mapFullTextAcquisitionFailure({
+        failureCode: "authorization",
+        error: "publisher forbidden",
+      }).reasonCode,
+    ).toBe("unavailable");
+    expect(
+      mapFullTextAcquisitionFailure({
+        failureCode: "not_found",
+        error: "no pdf candidate",
+      }).reasonCode,
+    ).toBe("not_found");
   });
 
   it("selects only citation groups whose exact target refs include the seed", () => {

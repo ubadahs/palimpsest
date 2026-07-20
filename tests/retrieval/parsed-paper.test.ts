@@ -309,6 +309,32 @@ describe("parseParsedPaperDocument", () => {
     );
   });
 
+  it("records missing location quality when DOM offsets cannot be recovered", () => {
+    const xml = `<?xml version="1.0"?>
+<article>
+  <body>
+    <sec>
+      <title>Discussion</title>
+      <p>See <xref ref-type="bibr" rid="seed">1</xref> for the claim.</p>
+    </sec>
+  </body>
+  <back>
+    <ref-list>
+      <ref id="seed"><element-citation><article-title>Seed</article-title></element-citation></ref>
+    </ref-list>
+  </back>
+</article>`;
+    const result = parseParsedPaperDocument(xml, "jats_xml");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const mention = result.data.mentions[0];
+    expect(mention?.targetRefIds).toEqual(["seed"]);
+    expect(mention?.locationQuality).toBe("missing");
+    expect(mention?.sourceLocator).toBeUndefined();
+    expect(mention?.charOffsetStart).toBeUndefined();
+    expect(mention?.charOffsetEnd).toBeUndefined();
+  });
+
   it("keeps multi-target xrefs as one group and distinguishes repeated markers", () => {
     const tei = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI>
