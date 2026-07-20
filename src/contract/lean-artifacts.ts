@@ -398,20 +398,20 @@ export type CitationOccurrenceIdentityInputs = {
 };
 
 /**
- * Occurrence identity excludes parser and source-format implementation data.
- * Complete source offsets are preferred. Without them, normalized marker and
- * context plus mention index form a weaker fallback that can change if context
- * windows or mention ordering change.
+ * Occurrence identity excludes parser/source-format implementation data.
+ * Stable source locators are preferred; valid char offsets are next; mention
+ * index remains a final tie-break so distinct harvest rows never collapse.
  */
 export function buildCitationOccurrenceId(
   input: CitationOccurrenceIdentityInputs,
 ): string {
   return buildStableId("mention", {
-    identityKind: "citation-occurrence-v1",
+    identityKind: "citation-occurrence-v2",
     seedId: input.seedId,
     citingPaperId: input.citingPaperId.trim(),
     citedPaperId: input.citedPaperId.trim(),
     refId: input.refId,
+    mentionIndex: input.mentionIndex,
     sourceLocation: buildCitationSourceLocation(input),
   });
 }
@@ -673,9 +673,11 @@ export const discoverCitationOccurrenceSchema = z
     citedPaperId: z.string().min(1),
     mentionIndex: z.number().int().nonnegative(),
     refId: z.string().min(1).optional(),
+    targetRefIds: z.array(z.string().min(1)).default([]),
     charOffsetStart: z.number().int().nonnegative().optional(),
     charOffsetEnd: z.number().int().nonnegative().optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
+    citationGroupOrdinal: z.number().int().nonnegative().optional(),
     identityStrength: z.enum([
       "strong_source_offsets",
       "strong_source_locator",
@@ -4804,17 +4806,17 @@ function buildCitationSourceLocation(input: {
   citationMarker: string;
   rawContext: string;
 }) {
+  if (input.sourceLocator) {
+    return {
+      kind: "source_locator",
+      locator: input.sourceLocator,
+    };
+  }
   if (input.charOffsetStart != null && input.charOffsetEnd != null) {
     return {
       kind: "char_offsets",
       start: input.charOffsetStart,
       end: input.charOffsetEnd,
-    };
-  }
-  if (input.sourceLocator) {
-    return {
-      kind: "source_locator",
-      locator: input.sourceLocator,
     };
   }
   return {
@@ -4833,12 +4835,13 @@ function citationIdentityStrength(input: {
   | "strong_source_offsets"
   | "strong_source_locator"
   | "weak_context_fallback" {
+  if (input.sourceLocator) {
+    return "strong_source_locator";
+  }
   if (input.charOffsetStart != null && input.charOffsetEnd != null) {
     return "strong_source_offsets";
   }
-  return input.sourceLocator
-    ? "strong_source_locator"
-    : "weak_context_fallback";
+  return "weak_context_fallback";
 }
 
 function sortedUniqueIdentifiers(values: readonly string[]): string[] {

@@ -107,6 +107,7 @@ function modelExecution(
   model = `fixture-${purpose}-model`,
 ) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model,
     promptId: `canonical-${purpose}-prompt`,
@@ -341,7 +342,6 @@ function scopeAdapters(
           ],
         },
         execution: {
-          kind: "model" as const,
           ...modelExecution("scope", family.familyId),
         },
       }),
@@ -478,7 +478,6 @@ async function buildChain(
                 ],
               },
               execution: {
-                kind: "model" as const,
                 ...modelExecution("rerank", input.bm25RunId),
               },
             }),
@@ -508,7 +507,6 @@ async function buildChain(
       adjudicate: (input) => {
         calls.push(input);
         const execution = {
-          kind: "model" as const,
           ...modelExecution("adjudicate", input.recordId),
           promptId: String(input.promptId),
           promptVersion: String(input.promptVersion),

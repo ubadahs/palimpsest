@@ -84,6 +84,7 @@ function modelExecution(
   purpose: "discover" | "scope" | "prepare",
 ) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model: `fixture-${purpose}-model`,
     promptId: `canonical-${purpose}-prompt`,
@@ -364,7 +365,6 @@ function scopeAdapters(variant: GroundingVariant): CanonicalScopeAdapters {
     },
     groundFamily: ({ family }) => {
       const execution = {
-        kind: "model" as const,
         ...modelExecution(family.familyId, "scope"),
       };
       if (variant === "grounding_failed") {
@@ -432,10 +432,7 @@ async function buildScopeArtifact(
 
 function classificationExecution(key: string, kind: "model" | "external") {
   if (kind === "model") {
-    return {
-      kind,
-      ...modelExecution(key, "prepare"),
-    };
+    return modelExecution(key, "prepare");
   }
   return {
     kind,

@@ -120,10 +120,13 @@ describe("parseParsedPaperDocument", () => {
     const mention = result.data.mentions[0];
     expect(mention).toMatchObject({
       refId: "b1",
+      targetRefIds: ["b1"],
       citationMarker: "Belicova et al., 2021",
       sectionTitle: "Results",
       sourceType: "grobid_tei",
+      locationQuality: "exact_dom",
     });
+    expect(mention?.sourceLocator?.kind).toBe("block_id");
 
     const figureCaption = result.data.blocks.find(
       (block) => block.blockKind === "figure_caption",
@@ -261,5 +264,78 @@ describe("parseParsedPaperDocument", () => {
     expect(result.data.blocks[0]?.blockKind).toBe("abstract");
     expect(result.data.blocks[1]?.sectionTitle).toBe("Results");
     expect(result.data.references[0]?.refId).toBe("bib2");
+  });
+
+  it("emits one citation group per xref with exact targetRefIds and DOM offsets", () => {
+    const xml = `<?xml version="1.0"?>
+<article>
+  <body>
+    <sec>
+      <title>Discussion</title>
+      <p>Prior work (<xref ref-type="bibr" rid="r1">1</xref>; <xref ref-type="bibr" rid="r2">2</xref>; <xref ref-type="bibr" rid="seed">3</xref>) and later (<xref ref-type="bibr" rid="seed">3</xref>) support the claim.</p>
+    </sec>
+  </body>
+  <back>
+    <ref-list>
+      <ref id="r1"><element-citation><article-title>One</article-title></element-citation></ref>
+      <ref id="r2"><element-citation><article-title>Two</article-title></element-citation></ref>
+      <ref id="seed"><element-citation><article-title>Seed</article-title></element-citation></ref>
+    </ref-list>
+  </back>
+</article>`;
+    const result = parseParsedPaperDocument(xml, "jats_xml");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.mentions).toHaveLength(4);
+    const seedGroups = result.data.mentions.filter((mention) =>
+      mention.targetRefIds.includes("seed"),
+    );
+    expect(seedGroups).toHaveLength(2);
+    expect(seedGroups[0]?.targetRefIds).toEqual(["seed"]);
+    expect(seedGroups[0]?.bundleRefIds).toEqual(
+      expect.arrayContaining(["r1", "r2", "seed"]),
+    );
+    expect(seedGroups[0]?.sourceLocator).toMatchObject({
+      kind: "block_id",
+      value: expect.stringMatching(/#cg-\d+/),
+    });
+    expect(seedGroups[0]?.locationQuality).toBe("exact_dom");
+    expect(seedGroups[0]?.charOffsetStart).toBeLessThan(
+      seedGroups[0]!.charOffsetEnd!,
+    );
+    expect(seedGroups[1]?.charOffsetStart).toBeGreaterThan(
+      seedGroups[0]!.charOffsetEnd!,
+    );
+  });
+
+  it("keeps multi-target xrefs as one group and distinguishes repeated markers", () => {
+    const tei = `<?xml version="1.0" encoding="UTF-8"?>
+<TEI>
+  <text>
+    <body>
+      <div>
+        <p>See the earlier reports <ref type="bibr" target="#b1 #b2">1,2</ref> and again <ref type="bibr" target="#b1">1</ref> versus <ref type="bibr" target="#b1">1</ref> for the repeated marker case.</p>
+      </div>
+    </body>
+  </text>
+  <back>
+    <listBibl>
+      <biblStruct xml:id="b1"><analytic><title level="a">A</title></analytic></biblStruct>
+      <biblStruct xml:id="b2"><analytic><title level="a">B</title></analytic></biblStruct>
+    </listBibl>
+  </back>
+</TEI>`;
+    const result = parseParsedPaperDocument(tei, "grobid_tei_xml");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.data.mentions).toHaveLength(3);
+    expect(result.data.mentions[0]?.targetRefIds).toEqual(["b1", "b2"]);
+    expect(result.data.mentions[1]?.charOffsetStart).not.toBe(
+      result.data.mentions[2]?.charOffsetStart,
+    );
+    expect(result.data.mentions[1]?.citationGroupOrdinal).toBe(1);
+    expect(result.data.mentions[2]?.citationGroupOrdinal).toBe(2);
   });
 });
