@@ -933,12 +933,60 @@ export type DiscoverClaimCandidate = z.infer<
   typeof discoverClaimCandidateSchema
 >;
 
+export const discoverCandidateSelectionAnnotationSchema = z
+  .object({
+    policyVersion: z.literal("adaptive-portfolio-v1"),
+    uniqueCitingPaperCount: z.number().int().nonnegative(),
+    uniqueCitationGroupCount: z.number().int().nonnegative(),
+    sourceRecordCount: z.number().int().positive(),
+    mentionCount: z.number().int().positive(),
+    confidenceAggregate: z.number().min(0).max(1),
+    specificityScore: z.number().min(0).max(1),
+    informativeTokenCount: z.number().int().nonnegative(),
+    namedOrAlphanumericTermCount: z.number().int().nonnegative(),
+    quantityCount: z.number().int().nonnegative(),
+    comparisonCount: z.number().int().nonnegative(),
+    conditionCount: z.number().int().nonnegative(),
+    genericLanguagePenalty: z.number().min(0).max(1),
+    lexicalFingerprint: z
+      .object({
+        wordShingleHash: z.string().min(1),
+        charShingleHash: z.string().min(1),
+        wordShingles: z.array(z.string()),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const discoverCandidateDispositionSchema = z
   .object({
     candidateId: stableIdentifierSchema,
     selectedForScope: z.boolean(),
     rank: z.number().int().positive(),
     reason: z.string().min(1),
+    annotation: discoverCandidateSelectionAnnotationSchema,
+    selectionStep: z.number().int().nonnegative().optional(),
+    componentScores: z
+      .object({
+        prevalence: z.number(),
+        specificity: z.number(),
+        confidence: z.number(),
+        novelty: z.number(),
+        utility: z.number(),
+      })
+      .strict()
+      .optional(),
+    marginalUtility: z.number().optional(),
+    projectedRecordCost: z.number().int().nonnegative().optional(),
+    bindingConstraint: z
+      .enum([
+        "selected",
+        "max_families",
+        "max_prepared_records",
+        "min_marginal_novelty",
+        "exhausted",
+      ])
+      .optional(),
   })
   .strict();
 

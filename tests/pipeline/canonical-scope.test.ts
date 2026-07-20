@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { adaptivePortfolioPolicySchema } from "../../src/contract/candidate-selection-policy.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +41,7 @@ import {
 } from "../../src/shared/stable-identity.js";
 
 type ScopeFixtureOptions = {
-  scopeCandidateCap?: number;
+  maxFamilies?: number;
   groundingStatus?: "grounded" | "ambiguous" | "not_found";
   hallucinatedQuote?: boolean;
   seedUnavailable?: boolean;
@@ -168,7 +169,7 @@ function successfulHarvest(
   };
 }
 
-function discoverOptions(scopeCandidateCap = 1): CanonicalDiscoverOptions {
+function discoverOptions(maxFamilies = 1): CanonicalDiscoverOptions {
   return {
     seeds: ["10.1000/seed-a", "10.1000/seed-b"].map((doi) => ({
       doi,
@@ -180,7 +181,13 @@ function discoverOptions(scopeCandidateCap = 1): CanonicalDiscoverOptions {
       limit: 10,
     },
     probeBudget: 10,
-    scopeCandidateCap,
+    candidateSelection: adaptivePortfolioPolicySchema.parse({
+      mode: "adaptive_portfolio",
+      minFamilies: 1,
+      maxFamilies,
+      maxPreparedRecords: 1000,
+      minMarginalNovelty: 0,
+    }),
     recordedAt: "2026-07-16T12:00:00.000Z",
   };
 }
@@ -302,10 +309,10 @@ function discoverAdapters(): CanonicalDiscoverAdapters {
 }
 
 async function buildDiscoverArtifact(
-  scopeCandidateCap = 1,
+  maxFamilies = 1,
 ): Promise<DiscoverArtifact> {
   const result = await runCanonicalDiscover(
-    discoverOptions(scopeCandidateCap),
+    discoverOptions(maxFamilies),
     discoverAdapters(),
   );
   return buildCanonicalDiscoverArtifact({
@@ -313,7 +320,7 @@ async function buildDiscoverArtifact(
     runId: "run-canonical-scope-fixture",
     createdAt: "2026-07-16T12:05:00.000Z",
     configuration: {
-      contentHash: canonicalSha256(discoverOptions(scopeCandidateCap)),
+      contentHash: canonicalSha256(discoverOptions(maxFamilies)),
     },
     code: {
       revision: "64890ed",
@@ -358,18 +365,41 @@ function splitEquivalentCandidate(
       return candidate != null && candidate.seedId !== original.seedId;
     },
   );
+  const fixtureAnnotation =
+    discover.payload.candidateDispositions[0]?.annotation ?? {
+      policyVersion: "adaptive-portfolio-v1" as const,
+      uniqueCitingPaperCount: 1,
+      uniqueCitationGroupCount: 1,
+      sourceRecordCount: 1,
+      mentionCount: 1,
+      confidenceAggregate: 0.5,
+      specificityScore: 0.5,
+      informativeTokenCount: 4,
+      namedOrAlphanumericTermCount: 1,
+      quantityCount: 0,
+      comparisonCount: 0,
+      conditionCount: 0,
+      genericLanguagePenalty: 0,
+      lexicalFingerprint: {
+        wordShingleHash: canonicalSha256("word"),
+        charShingleHash: canonicalSha256("char"),
+        wordShingles: ["fixture claim text"],
+      },
+    };
   const candidateDispositions = [
     ...splitCandidates.map((candidate, index) => ({
       candidateId: candidate.candidateId,
       selectedForScope: true,
       rank: index + 1,
       reason: `Selected split equivalent candidate at rank ${String(index + 1)}`,
+      annotation: fixtureAnnotation,
     })),
     ...seedAOtherCandidates.map((candidate, index) => ({
       candidateId: candidate.candidateId,
       selectedForScope: false,
       rank: splitCandidates.length + index + 1,
       reason: "Deferred split-fixture candidate beyond the Scope cap",
+      annotation: fixtureAnnotation,
     })),
     ...seedBDispositions,
   ];
@@ -582,7 +612,7 @@ async function runScopeFixture(options: ScopeFixtureOptions = {}): Promise<{
   result: CanonicalScopeResult;
   calls: Map<string, number>;
 }> {
-  const discover = await buildDiscoverArtifact(options.scopeCandidateCap ?? 1);
+  const discover = await buildDiscoverArtifact(options.maxFamilies ?? 1);
   const calls = new Map<string, number>();
   const result = await runCanonicalScope(
     discover,
@@ -858,7 +888,7 @@ describe("canonical Scope", () => {
 
   it("materializes seed text once for multiple selected same-seed families", async () => {
     const { discover, result, calls } = await runScopeFixture({
-      scopeCandidateCap: 2,
+      maxFamilies: 2,
     });
     const seedA = discover.payload.seeds.find(
       (seed) => seed.doi === "10.1000/seed-a",

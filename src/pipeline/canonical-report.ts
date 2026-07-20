@@ -702,13 +702,13 @@ function buildFunnelCounts(input: {
         "discover.selected_candidates",
         selectedCandidates,
         "candidates",
-        "Discover candidates selected for Scope under the candidate cap",
+        "Discover candidates selected for Scope by the adaptive portfolio",
       ),
       deferredCandidates: count(
         "discover.deferred_candidates",
         deferredCandidates,
         "candidates",
-        "Discover candidates deferred by the Scope candidate cap",
+        "Discover candidates deferred by the adaptive portfolio",
       ),
     },
     scope: {
@@ -948,7 +948,7 @@ function buildRates(funnel: ReportFunnelCounts): ReportRate[] {
       denominator: discoverCandidates,
       unit: "selected_candidates / candidates",
       populationLabel:
-        "Share of Discover candidates selected for Scope under the candidate cap",
+        "Share of Discover candidates selected for Scope by the adaptive portfolio",
       numeratorDefinition: "Discover candidates with selectedForScope true",
       denominatorDefinition: "All Discover candidates (selected + deferred)",
     }),

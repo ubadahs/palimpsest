@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
+import { adaptivePortfolioPolicySchema } from "./candidate-selection-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeyValues } from "./stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
@@ -51,7 +52,9 @@ export const analysisRunConfigSchema = z
         neighborhoodQuery: z.string().min(1).default("works-citing-seed"),
         neighborhoodLimit: z.number().int().positive().default(200),
         probeBudget: z.number().int().nonnegative().default(100),
-        scopeCandidateCap: z.number().int().nonnegative().default(5),
+        candidateSelection: adaptivePortfolioPolicySchema.default(() =>
+          adaptivePortfolioPolicySchema.parse({ mode: "adaptive_portfolio" }),
+        ),
         fromYear: z.number().int().positive().optional(),
         toYear: z.number().int().positive().optional(),
         extractionModel: z.string().min(1).default("claude-haiku-4-5"),
@@ -63,7 +66,9 @@ export const analysisRunConfigSchema = z
         neighborhoodQuery: "works-citing-seed",
         neighborhoodLimit: 200,
         probeBudget: 100,
-        scopeCandidateCap: 5,
+        candidateSelection: adaptivePortfolioPolicySchema.parse({
+          mode: "adaptive_portfolio",
+        }),
         extractionModel: "claude-haiku-4-5",
         extractionThinking: false,
       })),

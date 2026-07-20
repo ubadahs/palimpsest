@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { adaptivePortfolioPolicySchema } from "../../src/contract/candidate-selection-policy.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -155,7 +156,13 @@ function discoverOptions(claim: string): CanonicalDiscoverOptions {
       limit: 10,
     },
     probeBudget: 10,
-    scopeCandidateCap: 5,
+    candidateSelection: adaptivePortfolioPolicySchema.parse({
+      mode: "adaptive_portfolio",
+      minFamilies: 1,
+      maxFamilies: 5,
+      maxPreparedRecords: 1000,
+      minMarginalNovelty: 0,
+    }),
     recordedAt: "2026-07-17T08:00:00.000Z",
     ...(claim === TRACKED_CLAIM ? {} : {}),
   };
