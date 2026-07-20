@@ -113,6 +113,7 @@ function modelExecution(
   model = `fixture-${purpose}-model`,
 ) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model,
     promptId:
@@ -273,7 +274,6 @@ function fixtureScopeAdapters(): CanonicalScopeAdapters {
           ],
         },
         execution: {
-          kind: "model" as const,
           ...modelExecution("scope", family.familyId),
         },
       }),
@@ -296,7 +296,6 @@ function fixtureEvidenceAdapters(
   return {
     rerank: (input: CanonicalEvidenceRerankerInput) => {
       const execution = {
-        kind: "model" as const,
         ...modelExecution("rerank", input.familyId),
       };
       if (mode === "fail") {
@@ -345,7 +344,6 @@ function fixtureAdjudicateAdapters(
           citedChunkIds: chunkIds.slice(0, 1),
         },
         execution: {
-          kind: "model" as const,
           ...base,
           promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
           promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,

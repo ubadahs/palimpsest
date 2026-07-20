@@ -196,9 +196,14 @@ const harvestedMentionInputSchema = z
   .object({
     mentionIndex: z.number().int().nonnegative(),
     refId: z.string().min(1).optional(),
+    targetRefIds: z.array(z.string().min(1)).default([]),
     charOffsetStart: z.number().int().nonnegative().optional(),
     charOffsetEnd: z.number().int().nonnegative().optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
+    citationGroupOrdinal: z.number().int().nonnegative().optional(),
+    locationQuality: z
+      .enum(["exact_dom", "approximate", "missing"])
+      .optional(),
     citationMarker: z.string(),
     rawContext: z.string(),
     sectionTitle: z.string().optional(),
@@ -1031,15 +1036,24 @@ function createCitationOccurrence(input: {
     citationMarker: input.mention.citationMarker,
     rawContext: input.mention.rawContext,
   };
-  const identityStrength =
-    input.mention.charOffsetStart != null && input.mention.charOffsetEnd != null
-      ? "strong_source_offsets"
-      : input.mention.sourceLocator
-        ? "strong_source_locator"
-        : "weak_context_fallback";
+  const identityStrength = input.mention.sourceLocator
+    ? ("strong_source_locator" as const)
+    : input.mention.charOffsetStart != null &&
+        input.mention.charOffsetEnd != null
+      ? ("strong_source_offsets" as const)
+      : ("weak_context_fallback" as const);
   return {
     mentionId: buildCitationOccurrenceId(identity),
     ...identity,
+    targetRefIds:
+      input.mention.targetRefIds.length > 0
+        ? input.mention.targetRefIds
+        : input.mention.refId
+          ? [input.mention.refId]
+          : [],
+    ...(input.mention.citationGroupOrdinal != null
+      ? { citationGroupOrdinal: input.mention.citationGroupOrdinal }
+      : {}),
     identityStrength,
     ...(input.mention.sectionTitle
       ? { sectionTitle: input.mention.sectionTitle }

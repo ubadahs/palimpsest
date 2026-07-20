@@ -56,17 +56,51 @@ const parsedPaperReferenceSchema = z
   .passthrough();
 export type ParsedPaperReference = z.infer<typeof parsedPaperReferenceSchema>;
 
+const citationLocationQualityValues = [
+  "exact_dom",
+  "approximate",
+  "missing",
+] as const;
+
+export const citationLocationQualitySchema = z.enum(
+  citationLocationQualityValues,
+);
+export type CitationLocationQuality = z.infer<
+  typeof citationLocationQualitySchema
+>;
+
+const citationSourceLocatorSchema = z
+  .object({
+    kind: z.enum([
+      "xml_path",
+      "block_id",
+      "page_coordinates",
+      "provider_occurrence_id",
+      "other",
+    ]),
+    value: z.string().min(1),
+  })
+  .strict();
+
 const parsedCitationMentionSchema = z
   .object({
     mentionIndex: z.number().int().nonnegative(),
     rawContext: z.string(),
     citationMarker: z.string(),
     sectionTitle: undefinedable(z.string()),
+    /** First exact target ref for the citation group (compat / primary label). */
     refId: undefinedable(z.string()),
+    /** Exact bibliography ids belonging to this citation group/xref. */
+    targetRefIds: z.array(z.string()),
     charOffsetStart: undefinedable(z.number().int().nonnegative()),
     charOffsetEnd: undefinedable(z.number().int().nonnegative()),
+    locationQuality: citationLocationQualitySchema,
+    sourceLocator: undefinedable(citationSourceLocatorSchema),
+    blockId: undefinedable(z.string()),
+    citationGroupOrdinal: z.number().int().nonnegative(),
     isBundledCitation: z.boolean(),
     bundleSize: z.number().int().positive(),
+    /** Nearby sibling refs for context only; never used for seed selection. */
     bundleRefIds: z.array(z.string()),
     bundlePattern: z.enum([
       "parenthetical_group",
