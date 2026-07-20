@@ -273,6 +273,8 @@ const prepareFunnelCountsSchema = z
     failed: reportCountSchema,
     lowInformation: reportCountSchema,
     manualReview: reportCountSchema,
+    manualReviewRoleAmbiguous: reportCountSchema,
+    manualReviewExtractionLimited: reportCountSchema,
   })
   .strict();
 const evidenceFunnelCountsSchema = z
