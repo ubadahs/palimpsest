@@ -99,7 +99,10 @@ function harvestFromFixture(xmlName: string, paperId: string) {
   if (!parsed.ok) {
     throw new Error(parsed.error);
   }
-  const seedMentions = selectSeedReferenceMentions(parsed.data.mentions, "seed");
+  const seedMentions = selectSeedReferenceMentions(
+    parsed.data.mentions,
+    "seed",
+  );
   return {
     materialization: {
       status: "succeeded" as const,
@@ -222,7 +225,10 @@ function productionPathDiscoverAdapters(): CanonicalDiscoverAdapters {
         });
       }
       return Promise.resolve(
-        harvestFromFixture("citing-bundled-repeated.jats.xml", citingPaper.paperId),
+        harvestFromFixture(
+          "citing-bundled-repeated.jats.xml",
+          citingPaper.paperId,
+        ),
       );
     },
     extractAttributedClaims: ({ mention }) =>
@@ -449,9 +455,9 @@ describe("canonical production-path DOI→Report E2E", () => {
       expect(adjudicate.payload.records.length).toBe(
         prepare.payload.records.length,
       );
-      expect(report.payload.funnel.prepare.manualReviewRoleAmbiguous.metricId).toBe(
-        "prepare.manual_review_role_ambiguous",
-      );
+      expect(
+        report.payload.funnel.prepare.manualReviewRoleAmbiguous.metricId,
+      ).toBe("prepare.manual_review_role_ambiguous");
       expect(report.payload.recordTraces.length).toBe(
         prepare.payload.records.length,
       );

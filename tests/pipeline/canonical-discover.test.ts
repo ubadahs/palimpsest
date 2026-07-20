@@ -943,9 +943,7 @@ describe("canonical Discover", () => {
     );
     expect(probed.length).toBeGreaterThan(0);
     expect(
-      probed.every(
-        (paper) => paper.materialization.status === "unavailable",
-      ),
+      probed.every((paper) => paper.materialization.status === "unavailable"),
     ).toBe(true);
   });
 

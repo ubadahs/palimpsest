@@ -70,7 +70,10 @@ function harvestFromFixtureXml(xmlPath: string, paperId: string) {
   if (!parsed.ok) {
     throw new Error(`Failed to parse ${xmlPath}: ${parsed.error}`);
   }
-  const seedMentions = selectSeedReferenceMentions(parsed.data.mentions, "seed");
+  const seedMentions = selectSeedReferenceMentions(
+    parsed.data.mentions,
+    "seed",
+  );
   return {
     materialization: {
       status: "succeeded" as const,
@@ -292,9 +295,7 @@ describe("VRN recorded Discover replay", () => {
     );
     expect(bundledMentions).toHaveLength(2);
     expect(
-      bundledMentions.every((mention) =>
-        mention.targetRefIds.includes("seed"),
-      ),
+      bundledMentions.every((mention) => mention.targetRefIds.includes("seed")),
     ).toBe(true);
     expect(
       new Set(bundledMentions.map((mention) => mention.mentionId)).size,
@@ -307,9 +308,9 @@ describe("VRN recorded Discover replay", () => {
           mention.bundleRefIds.includes("seed"),
       ),
     ).toBe(true);
-    expect(
-      bundledMentions.some((mention) => !mention.isBundledCitation),
-    ).toBe(true);
+    expect(bundledMentions.some((mention) => !mention.isBundledCitation)).toBe(
+      true,
+    );
 
     const paywalled = result.payload.citingPapers.find(
       (paper) => paper.paper.paperId === "citing-paywalled",

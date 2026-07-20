@@ -6,42 +6,17 @@ import type {
   DiscoverClaimCandidate,
 } from "./lean-artifacts.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
+import {
+  CANDIDATE_SELECTION_POLICY_VERSION,
+  type AdaptivePortfolioPolicy,
+} from "./adaptive-portfolio-policy.js";
 
-export const CANDIDATE_SELECTION_POLICY_VERSION =
-  "adaptive-portfolio-v1" as const;
-
-export const adaptivePortfolioPolicySchema = z
-  .object({
-    mode: z.literal("adaptive_portfolio"),
-    minFamilies: z.number().int().positive().default(15),
-    maxFamilies: z.number().int().positive().default(25),
-    maxPreparedRecords: z.number().int().positive().default(100),
-    prevalenceWeight: z.number().finite().nonnegative().default(0.35),
-    specificityWeight: z.number().finite().nonnegative().default(0.35),
-    confidenceWeight: z.number().finite().nonnegative().default(0.15),
-    noveltyWeight: z.number().finite().nonnegative().default(0.15),
-    minMarginalNovelty: z.number().finite().min(0).max(1).default(0.08),
-    policyVersion: z
-      .literal(CANDIDATE_SELECTION_POLICY_VERSION)
-      .default(CANDIDATE_SELECTION_POLICY_VERSION),
-  })
-  .strict()
-  .superRefine((policy, context) => {
-    if (policy.minFamilies > policy.maxFamilies) {
-      context.addIssue({
-        code: "custom",
-        path: ["minFamilies"],
-        message: "minFamilies cannot exceed maxFamilies",
-      });
-    }
-  });
-
-export type AdaptivePortfolioPolicy = z.infer<
-  typeof adaptivePortfolioPolicySchema
->;
-
-export const defaultAdaptivePortfolioPolicy: AdaptivePortfolioPolicy =
-  adaptivePortfolioPolicySchema.parse({ mode: "adaptive_portfolio" });
+export {
+  CANDIDATE_SELECTION_POLICY_VERSION,
+  adaptivePortfolioPolicySchema,
+  defaultAdaptivePortfolioPolicy,
+  type AdaptivePortfolioPolicy,
+} from "./adaptive-portfolio-policy.js";
 
 const STOP_WORDS = new Set([
   "a",
@@ -260,10 +235,12 @@ function computeSpecificity(normalizedClaim: string): {
   const namedOrAlphanumeric = tokens.filter(
     (token) =>
       /[0-9]/.test(token) ||
-      (token.length >= 3 && /[A-Z]/.test(token) === false && /[a-z]{2,}/.test(token) &&
+      (token.length >= 3 &&
+        /[A-Z]/.test(token) === false &&
+        /[a-z]{2,}/.test(token) &&
         !STOP_WORDS.has(token) &&
         (/[a-z]*[0-9][a-z0-9]*/.test(token) ||
-          token === token.toLowerCase() && token.length >= 5)),
+          (token === token.toLowerCase() && token.length >= 5))),
   );
   // Prefer gene-like / alphanumeric and longer content tokens.
   const namedCount = tokens.filter(
@@ -606,9 +583,7 @@ export function selectAdaptivePortfolio(input: {
     // Contiguous ranks 1..n in selection order then deferred order.
     const ordered = [
       ...selected.map((entry) => reasons.get(entry.candidate.candidateId)!),
-      ...deferred.map(
-        (item) => reasons.get(item.entry.candidate.candidateId)!,
-      ),
+      ...deferred.map((item) => reasons.get(item.entry.candidate.candidateId)!),
     ];
     ordered.forEach((disposition, index) => {
       dispositions.push({

@@ -365,27 +365,27 @@ function splitEquivalentCandidate(
       return candidate != null && candidate.seedId !== original.seedId;
     },
   );
-  const fixtureAnnotation =
-    discover.payload.candidateDispositions[0]?.annotation ?? {
-      policyVersion: "adaptive-portfolio-v1" as const,
-      uniqueCitingPaperCount: 1,
-      uniqueCitationGroupCount: 1,
-      sourceRecordCount: 1,
-      mentionCount: 1,
-      confidenceAggregate: 0.5,
-      specificityScore: 0.5,
-      informativeTokenCount: 4,
-      namedOrAlphanumericTermCount: 1,
-      quantityCount: 0,
-      comparisonCount: 0,
-      conditionCount: 0,
-      genericLanguagePenalty: 0,
-      lexicalFingerprint: {
-        wordShingleHash: canonicalSha256("word"),
-        charShingleHash: canonicalSha256("char"),
-        wordShingles: ["fixture claim text"],
-      },
-    };
+  const fixtureAnnotation = discover.payload.candidateDispositions[0]
+    ?.annotation ?? {
+    policyVersion: "adaptive-portfolio-v1" as const,
+    uniqueCitingPaperCount: 1,
+    uniqueCitationGroupCount: 1,
+    sourceRecordCount: 1,
+    mentionCount: 1,
+    confidenceAggregate: 0.5,
+    specificityScore: 0.5,
+    informativeTokenCount: 4,
+    namedOrAlphanumericTermCount: 1,
+    quantityCount: 0,
+    comparisonCount: 0,
+    conditionCount: 0,
+    genericLanguagePenalty: 0,
+    lexicalFingerprint: {
+      wordShingleHash: canonicalSha256("word"),
+      charShingleHash: canonicalSha256("char"),
+      wordShingles: ["fixture claim text"],
+    },
+  };
   const candidateDispositions = [
     ...splitCandidates.map((candidate, index) => ({
       candidateId: candidate.candidateId,

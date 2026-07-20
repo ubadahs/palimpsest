@@ -719,7 +719,8 @@ function getTeiSectionTitle(node: Node): string | undefined {
 
 function isTeiBibrRef(el: Element): boolean {
   return (
-    el.tagName === "ref" && (el.getAttribute("type") ?? "").toLowerCase() === "bibr"
+    el.tagName === "ref" &&
+    (el.getAttribute("type") ?? "").toLowerCase() === "bibr"
   );
 }
 

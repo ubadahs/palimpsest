@@ -293,9 +293,8 @@ describe("canonical production adapter seams", () => {
         },
       ],
     });
-    const openAlexPageArtifacts = (
-      openAlex as { pageArtifacts: unknown[] }
-    ).pageArtifacts;
+    const openAlexPageArtifacts = (openAlex as { pageArtifacts: unknown[] })
+      .pageArtifacts;
     expect(openAlexPageArtifacts).toHaveLength(2);
     const openAlexPapers = (
       openAlex as { papers: { provenanceArtifacts: unknown[] }[] }

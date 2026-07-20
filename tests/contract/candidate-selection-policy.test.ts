@@ -5,7 +5,10 @@ import {
   selectAdaptivePortfolio,
   adaptivePortfolioPolicySchema,
 } from "../../src/contract/candidate-selection-policy.js";
-import { buildStableId, canonicalSha256 } from "../../src/shared/stable-identity.js";
+import {
+  buildStableId,
+  canonicalSha256,
+} from "../../src/shared/stable-identity.js";
 
 function mention(input: {
   id: string;
@@ -114,9 +117,24 @@ describe("adaptive portfolio candidate selection", () => {
       }),
     ];
     const claims = [
-      claim({ id: "c1", mentionId: "m1", text: "Pvalb neurons express the marker.", confidence: "high" }),
-      claim({ id: "c2", mentionId: "m2", text: "Pvalb neurons express the marker.", confidence: "medium" }),
-      claim({ id: "c3", mentionId: "m3", text: "Pvalb neurons express the marker.", confidence: "high" }),
+      claim({
+        id: "c1",
+        mentionId: "m1",
+        text: "Pvalb neurons express the marker.",
+        confidence: "high",
+      }),
+      claim({
+        id: "c2",
+        mentionId: "m2",
+        text: "Pvalb neurons express the marker.",
+        confidence: "medium",
+      }),
+      claim({
+        id: "c3",
+        mentionId: "m3",
+        text: "Pvalb neurons express the marker.",
+        confidence: "high",
+      }),
     ];
     const cand = candidate({
       id: "cand_pvalb",
@@ -126,8 +144,12 @@ describe("adaptive portfolio candidate selection", () => {
     });
     const annotation = annotateClaimCandidate({
       candidate: cand,
-      mentionsById: new Map(mentions.map((entry) => [entry.mentionId, entry as never])),
-      claimsById: new Map(claims.map((entry) => [entry.claimRecordId, entry as never])),
+      mentionsById: new Map(
+        mentions.map((entry) => [entry.mentionId, entry as never]),
+      ),
+      claimsById: new Map(
+        claims.map((entry) => [entry.claimRecordId, entry as never]),
+      ),
     });
     expect(annotation.uniqueCitingPaperCount).toBe(2);
     expect(annotation.uniqueCitationGroupCount).toBe(3);
@@ -144,7 +166,8 @@ describe("adaptive portfolio candidate selection", () => {
           id: mentionId,
           paperId: `gaba-${String(index)}`,
           group: 0,
-          context: "GABAergic interneurons play an important role in the brain.",
+          context:
+            "GABAergic interneurons play an important role in the brain.",
         }),
         claim: claim({
           id: claimId,

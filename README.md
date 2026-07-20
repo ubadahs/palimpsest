@@ -60,7 +60,7 @@ The final `report` stage writes authoritative JSON funnel/rate/trace accounting 
 
 ## Pipeline
 
-The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
+The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
 
 ## Where To Read
 
@@ -79,6 +79,7 @@ The runnable production pipeline is `discover → scope → prepare → evidence
 | `npm run build` | Clear `dist/`, then compile `src/` only |
 | `npm run typecheck` | Typecheck `src/` and `tests/` |
 | `npm run test` | Run root Vitest suite |
+| `npm run test:live-smoke` | Optional live dual-DOI smoke (`PALIMPSEST_LIVE_SMOKE=1`; non-CI) |
 | `npm run lint` | Run ESLint over `src/` and `tests/` |
 | `npm run lint:all` | Run root lint plus UI workspace lint |
 | `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |

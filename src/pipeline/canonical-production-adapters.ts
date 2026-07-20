@@ -367,8 +367,7 @@ export function selectSeedReferenceMentions<
 >(mentions: readonly T[], seedRefId: string): T[] {
   return mentions.filter((mention) => {
     const targetRefIds =
-      mention.targetRefIds ??
-      (mention.refId != null ? [mention.refId] : []);
+      mention.targetRefIds ?? (mention.refId != null ? [mention.refId] : []);
     return targetRefIds.includes(seedRefId);
   });
 }
