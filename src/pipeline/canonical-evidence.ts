@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   artifactReferenceSchema,
+  buildEvidenceBm25RunId,
   buildEvidenceRerankRunId,
   buildEvidenceSelectionId,
   createAppendOnlyDecision,
@@ -9,6 +10,7 @@ import {
   evidenceArtifactPayloadSchema,
   evidenceArtifactSchema,
   evidenceChunkConfigurationSchema,
+  evidenceBm25RunSchema,
   evidenceRerankFailureCodeSchema,
   evidenceRerankFatalFailureCodeSchema,
   evidenceRerankModelExecutionSchema,
@@ -37,15 +39,18 @@ import {
   type EvidenceSelection,
   type LeanArtifactProvenance,
   type PrepareArtifact,
+  type PreparedCitationInstance,
   type ScopeArtifact,
   type ScopeSeedMaterialization,
   type ScopedFamily,
 } from "../contract/lean-artifacts.js";
 import {
+  buildOccurrenceLocalEvidenceQuery,
   buildScopedFamilyEvidenceQuery,
   canonicalEvidenceChunkConfiguration,
   chunkScopeSeedText,
   retrieveEvidenceByBm25,
+  unionBm25Candidates,
 } from "../retrieval/canonical-evidence-retrieval.js";
 import {
   canonicalSerialize,
@@ -151,8 +156,10 @@ export class CanonicalEvidenceFatalError extends Error {
   }
 }
 
-type FamilyEvidenceComputation = {
+type RecordEvidenceComputation = {
   query: EvidenceQuery;
+  fallbackQuery: EvidenceQuery;
+  componentBm25Runs: EvidenceBm25Run[];
   retrievalStatus: EvidenceRecordOutcome["retrievalStatus"];
   rerankStatus: EvidenceRerankStatus;
   corpus?: EvidenceChunkCorpus | undefined;
@@ -198,23 +205,33 @@ export async function runCanonicalEvidence(
     ]),
   );
   const corporaBySeedId = new Map<string, EvidenceChunkCorpus>();
-  const familyComputations = new Map<string, FamilyEvidenceComputation>();
-
-  for (const family of scopeArtifact.payload.families) {
-    const query = buildScopedFamilyEvidenceQuery(family);
+  const bm25WorkByContent = new Map<string, EvidenceBm25Run>();
+  const unionRunsByComponents = new Map<string, EvidenceBm25Run>();
+  const familiesById = new Map(
+    scopeArtifact.payload.families.map((family) => [family.familyId, family]),
+  );
+  const computations: RecordEvidenceComputation[] = [];
+  for (const record of prepareArtifact.payload.records) {
+    const family = familiesById.get(record.familyId);
+    if (!family) {
+      throw new CanonicalEvidenceBoundaryError(
+        `Prepare record has no Scope family: ${record.recordId}`,
+      );
+    }
     const materialization = materializationsBySeedId.get(family.seedId);
     if (!materialization) {
       throw new CanonicalEvidenceBoundaryError(
         `Scope family has no seed materialization: ${family.familyId}`,
       );
     }
-    familyComputations.set(
-      family.familyId,
-      await retrieveFamilyEvidence({
+    computations.push(
+      await retrieveRecordEvidence({
+        record,
         family,
-        query,
         materialization,
         corporaBySeedId,
+        bm25WorkByContent,
+        unionRunsByComponents,
         adapters,
         options,
       }),
@@ -228,17 +245,24 @@ export async function runCanonicalEvidence(
     seedId: record.seed.seedId,
   }));
   const records: EvidenceRecordOutcome[] = prepareArtifact.payload.records.map(
-    (record) => {
-      const computation = familyComputations.get(record.familyId);
-      if (!computation) {
-        throw new Error("Evidence family computation was unexpectedly lost");
-      }
+    (record, index) => {
+      const computation = computations[index];
+      if (!computation) throw new Error("Evidence record computation was lost");
       return {
         recordId: record.recordId,
         familyId: record.familyId,
         citationOccurrenceId: record.citationOccurrenceId,
         seedId: record.seed.seedId,
         queryId: computation.query.queryId,
+        fallbackQueryId: computation.fallbackQuery.queryId,
+        ...(computation.componentBm25Runs.length > 0
+          ? {
+              componentBm25RunIds: computation.componentBm25Runs.map(
+                (run) => run.bm25RunId,
+              ),
+            }
+          : {}),
+        primaryQuerySource: computation.query.source,
         retrievalStatus: computation.retrievalStatus,
         rerankStatus: computation.rerankStatus,
         ...(computation.corpus
@@ -265,31 +289,33 @@ export async function runCanonicalEvidence(
       rerankingPolicy: options.reranking,
       preparedRecords,
       queries: uniqueSortedById(
-        [...familyComputations.values()].map(
-          (computation) => computation.query,
-        ),
+        computations.flatMap((computation) => [
+          computation.query,
+          computation.fallbackQuery,
+        ]),
         (query) => query.queryId,
       ),
       corpora: uniqueSortedById(
-        [...familyComputations.values()].flatMap((computation) =>
+        computations.flatMap((computation) =>
           computation.corpus ? [computation.corpus] : [],
         ),
         (corpus) => corpus.corpusId,
       ),
       bm25Runs: uniqueSortedById(
-        [...familyComputations.values()].flatMap((computation) =>
-          computation.bm25Run ? [computation.bm25Run] : [],
-        ),
+        computations.flatMap((computation) => [
+          ...computation.componentBm25Runs,
+          ...(computation.bm25Run ? [computation.bm25Run] : []),
+        ]),
         (run) => run.bm25RunId,
       ),
       rerankRuns: uniqueSortedById(
-        [...familyComputations.values()].flatMap((computation) =>
+        computations.flatMap((computation) =>
           computation.rerankRun ? [computation.rerankRun] : [],
         ),
         (run) => run.rerankRunId,
       ),
       selections: uniqueSortedById(
-        [...familyComputations.values()].flatMap((computation) =>
+        computations.flatMap((computation) =>
           computation.selection ? [computation.selection] : [],
         ),
         (selection) => selection.selectionId,
@@ -386,19 +412,33 @@ export function buildCanonicalEvidenceArtifact(input: {
   );
 }
 
-async function retrieveFamilyEvidence(input: {
+async function retrieveRecordEvidence(input: {
+  record: PreparedCitationInstance;
   family: ScopedFamily;
-  query: EvidenceQuery;
   materialization: ScopeSeedMaterialization;
   corporaBySeedId: Map<string, EvidenceChunkCorpus>;
+  bm25WorkByContent: Map<string, EvidenceBm25Run>;
+  unionRunsByComponents: Map<string, EvidenceBm25Run>;
   adapters: CanonicalEvidenceAdapters;
   options: z.output<typeof canonicalEvidenceOptionsSchema>;
-}): Promise<FamilyEvidenceComputation> {
-  const { family, query, materialization, corporaBySeedId, adapters, options } =
-    input;
+}): Promise<RecordEvidenceComputation> {
+  const {
+    record,
+    family,
+    materialization,
+    corporaBySeedId,
+    bm25WorkByContent,
+    unionRunsByComponents,
+    adapters,
+    options,
+  } = input;
+  const query = buildOccurrenceLocalEvidenceQuery(record, family);
+  const fallbackQuery = buildScopedFamilyEvidenceQuery(family);
   if (materialization.status !== "materialized") {
     return {
       query,
+      fallbackQuery,
+      componentBm25Runs: [],
       retrievalStatus:
         materialization.status === "seed_text_unavailable"
           ? "seed_text_unavailable"
@@ -421,6 +461,8 @@ async function retrieveFamilyEvidence(input: {
     } catch (error) {
       return {
         query,
+        fallbackQuery,
+        componentBm25Runs: [],
         retrievalStatus: "retrieval_failed",
         rerankStatus: options.reranking.enabled
           ? "not_attempted_retrieval_failure"
@@ -433,17 +475,43 @@ async function retrieveFamilyEvidence(input: {
     }
   }
 
+  let componentBm25Runs: EvidenceBm25Run[];
   let bm25Run: EvidenceBm25Run;
   try {
-    bm25Run = retrieveEvidenceByBm25({
-      familyId: family.familyId,
+    const localRun = retrieveEvidenceByBm25Cached({
+      family,
       query,
       corpus,
       candidateLimit: options.bm25CandidateLimit,
+      bm25WorkByContent,
     });
+    if (query.contentHash === fallbackQuery.contentHash) {
+      componentBm25Runs = [localRun];
+      bm25Run = localRun;
+    } else {
+      const fallbackRun = retrieveEvidenceByBm25Cached({
+        family,
+        query: fallbackQuery,
+        corpus,
+        candidateLimit: options.bm25CandidateLimit,
+        bm25WorkByContent,
+      });
+      componentBm25Runs = uniqueSortedById(
+        [localRun, fallbackRun],
+        (run) => run.bm25RunId,
+      );
+      bm25Run = buildUnionBm25Run({
+        query,
+        corpus,
+        componentRuns: componentBm25Runs,
+        unionRunsByComponents,
+      });
+    }
   } catch (error) {
     return {
       query,
+      fallbackQuery,
+      componentBm25Runs: [],
       corpus,
       retrievalStatus: "retrieval_failed",
       rerankStatus: options.reranking.enabled
@@ -459,6 +527,8 @@ async function retrieveFamilyEvidence(input: {
   if (bm25Run.candidates.length === 0) {
     return {
       query,
+      fallbackQuery,
+      componentBm25Runs,
       corpus,
       bm25Run,
       retrievalStatus: "no_lexical_matches",
@@ -476,6 +546,8 @@ async function retrieveFamilyEvidence(input: {
     );
     return {
       query,
+      fallbackQuery,
+      componentBm25Runs,
       corpus,
       bm25Run,
       selection,
@@ -541,6 +613,8 @@ async function retrieveFamilyEvidence(input: {
   );
   return {
     query,
+    fallbackQuery,
+    componentBm25Runs,
     corpus,
     bm25Run,
     rerankRun,
@@ -548,6 +622,82 @@ async function retrieveFamilyEvidence(input: {
     retrievalStatus: "retrieved",
     rerankStatus: rerankRun.status === "completed" ? "completed" : "failed",
   };
+}
+
+function retrieveEvidenceByBm25Cached(input: {
+  family: ScopedFamily;
+  query: EvidenceQuery;
+  corpus: EvidenceChunkCorpus;
+  candidateLimit: number;
+  bm25WorkByContent: Map<string, EvidenceBm25Run>;
+}): EvidenceBm25Run {
+  const cacheKey = canonicalSerialize({
+    corpusId: input.corpus.corpusId,
+    queryContentHash: input.query.contentHash,
+  });
+  const cached = input.bm25WorkByContent.get(cacheKey);
+  if (cached) return cached;
+  const run = retrieveEvidenceByBm25({
+    familyId: input.family.familyId,
+    query: input.query,
+    corpus: input.corpus,
+    candidateLimit: input.candidateLimit,
+  });
+  input.bm25WorkByContent.set(cacheKey, run);
+  return run;
+}
+
+function buildUnionBm25Run(input: {
+  query: EvidenceQuery;
+  corpus: EvidenceChunkCorpus;
+  componentRuns: EvidenceBm25Run[];
+  unionRunsByComponents: Map<string, EvidenceBm25Run>;
+}): EvidenceBm25Run {
+  const componentBm25RunIds = input.componentRuns
+    .map((run) => run.bm25RunId)
+    .sort(compareCodeUnits);
+  const cacheKey = canonicalSerialize(componentBm25RunIds);
+  const cached = input.unionRunsByComponents.get(cacheKey);
+  if (cached) return cached;
+  const candidates = unionBm25Candidates(input.componentRuns);
+  const queryTerms = uniqueSorted(
+    input.componentRuns.flatMap((run) => run.queryTerms),
+  );
+  const configuration = {
+    ...input.componentRuns[0]!.configuration,
+    candidateLimit: Math.max(
+      input.componentRuns[0]!.configuration.candidateLimit,
+      candidates.length,
+    ),
+  };
+  const rankingContentHash = canonicalSha256({
+    queryTerms,
+    candidates,
+    componentBm25RunIds,
+  });
+  const run = evidenceBm25RunSchema.parse({
+    bm25RunId: buildEvidenceBm25RunId({
+      queryText: input.query.text,
+      corpusId: input.corpus.corpusId,
+      corpusChunkIds: input.corpus.chunks.map((chunk) => chunk.chunkId),
+      configuration,
+      rankingContentHash,
+      componentBm25RunIds,
+    }),
+    familyId: input.query.familyId,
+    queryId: input.query.queryId,
+    queryText: input.query.text,
+    queryTerms,
+    corpusId: input.corpus.corpusId,
+    corpusChunkIds: input.corpus.chunks.map((chunk) => chunk.chunkId),
+    configuration,
+    status: candidates.length > 0 ? "matched" : "no_lexical_matches",
+    candidates,
+    componentBm25RunIds,
+    rankingContentHash,
+  });
+  input.unionRunsByComponents.set(cacheKey, run);
+  return run;
 }
 
 function buildRerankRun(
