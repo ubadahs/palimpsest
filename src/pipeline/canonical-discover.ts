@@ -17,6 +17,7 @@ import {
   discoverArtifactSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
+  modelExecutionSchema,
   normalizeDiscoverClaimText,
   sha256DigestSchema,
   type AppendOnlyDecision,
@@ -307,19 +308,6 @@ export const canonicalMentionHarvestResultSchema = z
       });
     }
   });
-const modelExecutionInputSchema = z
-  .object({
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-
 const extractedClaimInputSchema = z
   .object({
     text: z.string().min(1),
@@ -336,7 +324,7 @@ export const canonicalClaimExtractionResultSchema = z.discriminatedUnion(
         status: z.literal("completed"),
         reason: z.string().min(1),
         claims: z.array(extractedClaimInputSchema),
-        execution: modelExecutionInputSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
     z
@@ -344,7 +332,7 @@ export const canonicalClaimExtractionResultSchema = z.discriminatedUnion(
         status: z.literal("failed"),
         reasonCode: canonicalDiscoverFailureCodeSchema,
         reason: z.string().min(1),
-        execution: modelExecutionInputSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
   ],
@@ -718,10 +706,7 @@ export async function runCanonicalDiscover(
             reason: extraction.reason,
             claimRecordIds: [],
             provenanceArtifacts,
-            execution: {
-              kind: "model",
-              ...execution,
-            },
+            execution,
           });
           continue;
         }
@@ -742,10 +727,7 @@ export async function runCanonicalDiscover(
           reason: extraction.reason,
           claimRecordIds: records.map((record) => record.claimRecordId),
           provenanceArtifacts,
-          execution: {
-            kind: "model",
-            ...execution,
-          },
+          execution,
         });
       }
     }

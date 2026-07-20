@@ -62,6 +62,7 @@ function externalExecution(provider: string, key: string) {
 
 function modelExecution(key: string, model: string) {
   return {
+    kind: "model" as const,
     provider: "fixture-model-provider",
     model,
     promptId: "canonical-attributed-claim-extraction",
@@ -883,21 +884,37 @@ describe("canonical Discover", () => {
       runCanonicalDiscover(fixtureOptions(), fatalAdapters),
     ).rejects.toBeInstanceOf(CanonicalDiscoverFatalError);
 
-    const fatalAcquisitionAdapters: CanonicalDiscoverAdapters = {
+    const fatalNeighborhoodAdapters: CanonicalDiscoverAdapters = {
+      ...buildFixtureAdapters(),
+      retrieveCitingNeighborhood: () =>
+        Promise.resolve({
+          status: "failed",
+          reasonCode: "authorization",
+          reason: "Citation-index provider denied access",
+          execution: externalExecution("openalex", "fatal-neighborhood"),
+        }),
+    };
+    await expect(
+      runCanonicalDiscover(fixtureOptions(), fatalNeighborhoodAdapters),
+    ).rejects.toBeInstanceOf(CanonicalDiscoverFatalError);
+  });
+
+  it("records publisher full-text access denials without failing the stage", async () => {
+    const paywalledAdapters: CanonicalDiscoverAdapters = {
       ...buildFixtureAdapters(),
       harvestMentions: ({ citingPaper: paper }) =>
         Promise.resolve({
           materialization: {
-            status: "failed",
-            reasonCode: "authorization",
-            reason: "Full-text provider denied access",
+            status: "unavailable",
+            reasonCode: "unavailable",
+            reason: "HTTP 403 from http://www.cell.com/article/example/pdf",
             provenanceArtifacts: [
               artifactReference("acquisition-failure", paper.paperId),
             ],
           },
           harvest: {
             status: "not_attempted",
-            reason: "Materialization failed fatally",
+            reason: "Harvest not attempted after materialization failure.",
             provenanceArtifacts: [
               artifactReference("harvest-not-attempted", paper.paperId),
             ],
@@ -905,9 +922,19 @@ describe("canonical Discover", () => {
           mentions: [],
         }),
     };
-    await expect(
-      runCanonicalDiscover(fixtureOptions(), fatalAcquisitionAdapters),
-    ).rejects.toBeInstanceOf(CanonicalDiscoverFatalError);
+    const result = await runCanonicalDiscover(
+      fixtureOptions(),
+      paywalledAdapters,
+    );
+    const probed = result.payload.citingPapers.filter(
+      (paper) => paper.probe.status === "selected",
+    );
+    expect(probed.length).toBeGreaterThan(0);
+    expect(
+      probed.every(
+        (paper) => paper.materialization.status === "unavailable",
+      ),
+    ).toBe(true);
   });
 
   it("round-trips only the current Discover artifact and detects tampering", () => {

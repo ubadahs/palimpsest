@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
+  classifyAcquisitionAttemptFailure,
+  classifyHttpAcquisitionFailure,
   fetchFullText,
   type FullTextFetchResponse,
 } from "../../src/retrieval/fulltext-fetch.js";
@@ -54,6 +56,56 @@ function makeXmlResponse(url: string): FullTextFetchResponse {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("typed full-text acquisition failures", () => {
+  it("classifies publisher HTTP 401/403 as paywall, not provider auth", () => {
+    expect(classifyHttpAcquisitionFailure(401)).toBe("paywall");
+    expect(classifyHttpAcquisitionFailure(403)).toBe("paywall");
+    expect(classifyHttpAcquisitionFailure(404)).toBe("not_found");
+    expect(classifyHttpAcquisitionFailure(429)).toBe("rate_limited");
+    expect(
+      classifyAcquisitionAttemptFailure({
+        httpStatus: 403,
+        probeClassification: "http_error",
+        failureReason: "HTTP 403 from http://www.cell.com/article/example/pdf",
+      }),
+    ).toBe("paywall");
+  });
+
+  it("returns a typed paywall failure when every PDF candidate is HTTP 403", async () => {
+    const fetchUrl = vi.fn(async (url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          finalUrl: url,
+          status: 403,
+          contentType: "text/html",
+          body: Buffer.from("Forbidden"),
+        },
+      }),
+    );
+    const result = await fetchFullText(
+      makePaper({
+        fullTextHints: {
+          providerAvailability: "available",
+          pdfUrl: "http://www.cell.com/article/example/pdf",
+        },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: () =>
+          Promise.resolve({ ok: false as const, error: "unused" }),
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.failureCode).toBe("paywall");
+    expect(result.error).toContain("HTTP 403");
+  });
 });
 
 describe("fetchFullText acquisition policy", () => {
@@ -183,6 +235,7 @@ describe("fetchFullText acquisition policy", () => {
     if (result.ok) {
       return;
     }
+    expect(result.failureCode).toBe("invalid_content");
     expect(result.error).toContain("html_instead_of_pdf");
     expect(result.acquisition?.attempts.at(-1)?.probeClassification).toBe(
       "html_instead_of_pdf",
