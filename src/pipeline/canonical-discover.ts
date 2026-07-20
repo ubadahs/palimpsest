@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  adaptivePortfolioPolicySchema,
+  selectAdaptivePortfolio,
+} from "../contract/candidate-selection-policy.js";
 import { paperTypeSchema } from "../domain/common.js";
 import {
   artifactReferenceSchema,
@@ -91,7 +95,7 @@ const canonicalDiscoverOptionsSchema = z
       })
       .strict(),
     probeBudget: z.number().int().nonnegative(),
-    scopeCandidateCap: z.number().int().nonnegative(),
+    candidateSelection: adaptivePortfolioPolicySchema,
     recordedAt: z.string().datetime({ offset: true }),
   })
   .strict();
@@ -739,10 +743,12 @@ export async function runCanonicalDiscover(
   }
 
   const claimCandidates = buildClaimCandidates(attributedClaimRecords);
-  const candidateDispositions = rankCandidates(
-    claimCandidates,
-    options.scopeCandidateCap,
-  );
+  const candidateDispositions = selectAdaptivePortfolio({
+    candidates: claimCandidates,
+    mentions: citationMentions,
+    claims: attributedClaimRecords,
+    policy: options.candidateSelection,
+  });
   for (const disposition of candidateDispositions) {
     const candidate = claimCandidates.find(
       (entry) => entry.candidateId === disposition.candidateId,
@@ -761,7 +767,7 @@ export async function runCanonicalDiscover(
         recordedAt: options.recordedAt,
         actor: {
           kind: "deterministic",
-          identifier: "canonical-discover-candidate-ranking-v1",
+          identifier: "canonical-discover-adaptive-portfolio-v1",
         },
         evidenceArtifacts: candidate.provenanceArtifacts,
       }),
@@ -964,49 +970,6 @@ function buildClaimCandidates(
     })
     .sort((left, right) =>
       compareCodeUnits(left.candidateId, right.candidateId),
-    );
-}
-
-function rankCandidates(
-  candidates: readonly DiscoverClaimCandidate[],
-  cap: number,
-): DiscoverArtifactPayload["candidateDispositions"] {
-  const bySeed = new Map<string, DiscoverClaimCandidate[]>();
-  for (const candidate of candidates) {
-    const seedCandidates = bySeed.get(candidate.seedId);
-    if (seedCandidates) {
-      seedCandidates.push(candidate);
-    } else {
-      bySeed.set(candidate.seedId, [candidate]);
-    }
-  }
-
-  return [...bySeed.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .flatMap(([, seedCandidates]) =>
-      [...seedCandidates]
-        .sort((left, right) => {
-          const recordDifference =
-            right.sourceClaimRecordIds.length -
-            left.sourceClaimRecordIds.length;
-          if (recordDifference !== 0) return recordDifference;
-          const mentionDifference =
-            right.memberMentionIds.length - left.memberMentionIds.length;
-          if (mentionDifference !== 0) return mentionDifference;
-          return compareCodeUnits(left.candidateId, right.candidateId);
-        })
-        .map((candidate, index) => {
-          const rank = index + 1;
-          const selectedForScope = index < cap;
-          return {
-            candidateId: candidate.candidateId,
-            selectedForScope,
-            rank,
-            reason: selectedForScope
-              ? `Selected for Scope at deterministic rank ${String(rank)} within cap ${String(cap)}`
-              : `Retained but deferred from Scope at deterministic rank ${String(rank)} beyond cap ${String(cap)}`,
-          };
-        }),
     );
 }
 

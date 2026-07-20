@@ -21,7 +21,9 @@ type FormState = {
   targetStage: StageKey;
   discover: {
     probeBudget: number;
-    scopeCandidateCap: number;
+    minFamilies: number;
+    maxFamilies: number;
+    maxPreparedRecords: number;
     fromYear: string;
     toYear: string;
     extractionModel: string;
@@ -68,7 +70,9 @@ const defaultState: FormState = {
   targetStage: "report",
   discover: {
     probeBudget: 100,
-    scopeCandidateCap: 5,
+    minFamilies: 15,
+    maxFamilies: 25,
+    maxPreparedRecords: 100,
     fromYear: "",
     toYear: "",
     extractionModel: "claude-haiku-4-5",
@@ -96,7 +100,12 @@ function flattenConfig(s: FormState) {
     forceRefresh: s.forceRefresh,
     discover: {
       probeBudget: s.discover.probeBudget,
-      scopeCandidateCap: s.discover.scopeCandidateCap,
+      candidateSelection: {
+        mode: "adaptive_portfolio" as const,
+        minFamilies: s.discover.minFamilies,
+        maxFamilies: s.discover.maxFamilies,
+        maxPreparedRecords: s.discover.maxPreparedRecords,
+      },
       extractionModel: s.discover.extractionModel,
       extractionThinking: s.discover.extractionThinking,
       ...(s.discover.fromYear ? { fromYear: Number(s.discover.fromYear) } : {}),
@@ -306,19 +315,60 @@ export function NewRunForm() {
                 </label>
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
-                    Scope cap
+                    Min families
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Maximum candidates passed from discovery to scope.
+                    Adaptive portfolio keeps selecting until at least this many
+                    claim families are chosen.
                   </span>
                   <Input
                     min={1}
                     type="number"
-                    value={state.discover.scopeCandidateCap}
+                    value={state.discover.minFamilies}
                     onChange={(event) =>
                       updateStage(
                         "discover",
-                        "scopeCandidateCap",
+                        "minFamilies",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Max families
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Upper bound on claim families selected for Scope.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discover.maxFamilies}
+                    onChange={(event) =>
+                      updateStage(
+                        "discover",
+                        "maxFamilies",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Max prepared records
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Budget on family × occurrence prepare records downstream.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discover.maxPreparedRecords}
+                    onChange={(event) =>
+                      updateStage(
+                        "discover",
+                        "maxPreparedRecords",
                         Number(event.target.value),
                       )
                     }
