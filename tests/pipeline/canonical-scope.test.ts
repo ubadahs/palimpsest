@@ -367,7 +367,7 @@ function splitEquivalentCandidate(
   );
   const fixtureAnnotation = discover.payload.candidateDispositions[0]
     ?.annotation ?? {
-    policyVersion: "adaptive-portfolio-v1" as const,
+    policyVersion: "adaptive-portfolio-v2" as const,
     uniqueCitingPaperCount: 1,
     uniqueCitationGroupCount: 1,
     sourceRecordCount: 1,

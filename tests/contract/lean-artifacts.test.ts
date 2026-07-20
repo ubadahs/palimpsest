@@ -332,7 +332,7 @@ function buildAllStageArtifacts() {
           rank: 1,
           reason: "Highest-supported claim candidate.",
           annotation: {
-            policyVersion: "adaptive-portfolio-v1",
+            policyVersion: "adaptive-portfolio-v2",
             uniqueCitingPaperCount: 1,
             uniqueCitationGroupCount: 1,
             sourceRecordCount: 1,

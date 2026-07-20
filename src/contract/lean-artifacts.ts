@@ -935,7 +935,7 @@ export type DiscoverClaimCandidate = z.infer<
 
 export const discoverCandidateSelectionAnnotationSchema = z
   .object({
-    policyVersion: z.literal("adaptive-portfolio-v1"),
+    policyVersion: z.literal("adaptive-portfolio-v2"),
     uniqueCitingPaperCount: z.number().int().nonnegative(),
     uniqueCitationGroupCount: z.number().int().nonnegative(),
     sourceRecordCount: z.number().int().positive(),
