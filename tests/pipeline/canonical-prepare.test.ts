@@ -11,6 +11,7 @@ import {
   prepareClassificationSchema,
   type ArtifactReference,
   type DiscoverArtifact,
+  type DiscoverCitationOccurrence,
   type PrepareClassification,
   type ScopeArtifact,
 } from "../../src/contract/lean-artifacts.js";
@@ -955,6 +956,65 @@ describe("canonical Prepare", () => {
       status: "failed",
       reasonCode: "timeout",
       reason: "The classifier timed out for this scoped pair.",
+    });
+  });
+
+  it("queues unclear roles for manual review and keeps clear bundled roles classified", () => {
+    const occurrence = (
+      overrides: Partial<DiscoverCitationOccurrence>,
+    ): DiscoverCitationOccurrence =>
+      ({
+        mentionId: "mention-fixture",
+        seedId: "seed-1",
+        citingPaperRecordId: "citing-1",
+        citingPaperId: "paper-1",
+        citedPaperId: "seed-paper",
+        mentionIndex: 0,
+        targetRefIds: ["ref-seed"],
+        identityStrength: "weak_context_fallback",
+        citationMarker: "Belicova et al., 2021",
+        rawContext: "",
+        isBundledCitation: false,
+        bundleSize: 1,
+        bundleRefIds: ["ref-seed"],
+        bundlePattern: "single",
+        observationProvenance: {
+          sourceType: "fixture",
+          parser: "fixture",
+          artifacts: [artifactReference("parsed-paper", "fixture")],
+        },
+        ...overrides,
+      }) as DiscoverCitationOccurrence;
+
+    const unclear = classifyPrepareOccurrenceDeterministically(
+      occurrence({
+        rawContext:
+          "Additional related observations appear near Belicova et al., 2021 without a decisive claim verb.",
+        sectionTitle: "Discussion",
+      }),
+    );
+    expect(unclear).toMatchObject({
+      status: "ambiguous",
+      citationRole: "unclear",
+      evaluationMode: "manual_review_role_ambiguous",
+    });
+
+    const bundledClear = classifyPrepareOccurrenceDeterministically(
+      occurrence({
+        mentionIndex: 1,
+        rawContext:
+          "Earlier work showed and demonstrated that VRN shapes Pvalb expression (Smith 2019; Belicova et al., 2021; Jones 2020).",
+        sectionTitle: "Results",
+        isBundledCitation: true,
+        bundleSize: 3,
+        bundleRefIds: ["ref-a", "ref-seed", "ref-b"],
+        bundlePattern: "semicolon_list",
+      }),
+    );
+    expect(bundledClear).toMatchObject({
+      status: "classified",
+      citationRole: "substantive_attribution",
+      evaluationMode: "fidelity_bundled_use",
     });
   });
 

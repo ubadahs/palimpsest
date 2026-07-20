@@ -686,6 +686,19 @@ describe("canonical Report", () => {
     expect(funnel.prepare.preparedRecords.count).toBe(
       chain.prepare.payload.records.length,
     );
+    expect(funnel.prepare.manualReview.metricId).toBe("prepare.manual_review");
+    expect(funnel.prepare.manualReviewRoleAmbiguous.metricId).toBe(
+      "prepare.manual_review_role_ambiguous",
+    );
+    expect(funnel.prepare.manualReviewExtractionLimited.metricId).toBe(
+      "prepare.manual_review_extraction_limited",
+    );
+    expect(funnel.prepare.manualReviewRoleAmbiguous.unit).toBe(
+      "family_occurrence_records",
+    );
+    expect(funnel.prepare.manualReviewExtractionLimited.unit).toBe(
+      "family_occurrence_records",
+    );
     expect(funnel.evidence.recordOutcomes.count).toBe(
       chain.evidence.payload.records.length,
     );
@@ -1726,6 +1739,11 @@ describe("canonical Report", () => {
     expect(markdown).toContain(
       "Low-information and manual-review counts are overlapping",
     );
+    expect(markdown).toContain(
+      "Manual-review queue entries stay gated as operational non-verdicts",
+    );
+    expect(markdown).toContain("prepare.manual_review_role_ambiguous");
+    expect(markdown).toContain("prepare.manual_review_extraction_limited");
     expect(markdown).toContain(
       "Unique final selections count selection objects",
     );

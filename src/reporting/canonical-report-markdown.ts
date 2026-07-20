@@ -88,10 +88,16 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.prepare.failed,
     payload.funnel.prepare.lowInformation,
     payload.funnel.prepare.manualReview,
+    payload.funnel.prepare.manualReviewRoleAmbiguous,
+    payload.funnel.prepare.manualReviewExtractionLimited,
   ]);
   lines.push("");
   lines.push(
     "Low-information and manual-review counts are overlapping role/mode populations; they may overlap classification-status counts and are not a partition.",
+  );
+  lines.push("");
+  lines.push(
+    "Manual-review queue entries stay gated as operational non-verdicts. Ambiguous citation roles are not auto-routed to the model.",
   );
   lines.push("");
 

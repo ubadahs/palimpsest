@@ -926,6 +926,14 @@ function buildAllStageArtifacts() {
             "prepare.manual_review",
             "Manual-review records",
           ),
+          manualReviewRoleAmbiguous: zeroFamilyOccurrence(
+            "prepare.manual_review_role_ambiguous",
+            "Role-ambiguous manual-review records",
+          ),
+          manualReviewExtractionLimited: zeroFamilyOccurrence(
+            "prepare.manual_review_extraction_limited",
+            "Extraction-limited manual-review records",
+          ),
         },
         evidence: {
           recordOutcomes: zeroFamilyOccurrence(

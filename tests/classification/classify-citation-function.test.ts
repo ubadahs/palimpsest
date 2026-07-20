@@ -102,4 +102,36 @@ describe("classifyCitationFunction", () => {
     expect(result.modifiers.isBundled).toBe(true);
     expect(result.modifiers.bundleSize).toBe(4);
   });
+
+  it("classifies an occurrence-local bundled attribution without forcing unclear", () => {
+    // After citation-group correction, the occurrence targets one seed even when
+    // the source marker sits inside a multi-reference group.
+    const m = mention({
+      sectionTitle: "Results",
+      citationMarker: "Belicova et al., 2021",
+      rawContext:
+        "Earlier work showed and demonstrated that VRN shapes Pvalb expression (Smith 2019; Belicova et al., 2021; Jones 2020).",
+      isBundledCitation: true,
+      bundleSize: 3,
+      contextLength: 140,
+      confidence: "medium",
+    });
+    const result = classifyCitationFunction(m, false);
+    expect(result.citationRole).toBe("substantive_attribution");
+    expect(result.modifiers.isBundled).toBe(true);
+  });
+
+  it("keeps genuinely signal-free occurrence text as unclear for manual review", () => {
+    const m = mention({
+      sectionTitle: "Discussion",
+      citationMarker: "Belicova et al., 2021",
+      rawContext:
+        "Additional related observations appear near Belicova et al., 2021 without a decisive claim verb.",
+      isBundledCitation: false,
+      bundleSize: 1,
+      contextLength: 120,
+      confidence: "medium",
+    });
+    expect(classifyCitationFunction(m, false).citationRole).toBe("unclear");
+  });
 });

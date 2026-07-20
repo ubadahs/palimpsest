@@ -495,6 +495,19 @@ function buildFunnelCounts(input: {
       record.classification.evaluationMode === "skip_low_information"
     );
   });
+  const manualReviewRoleAmbiguous = countBy(preparedRecords, (record) => {
+    if (record.classification.status === "failed") return false;
+    return (
+      record.classification.evaluationMode === "manual_review_role_ambiguous"
+    );
+  });
+  const manualReviewExtractionLimited = countBy(preparedRecords, (record) => {
+    if (record.classification.status === "failed") return false;
+    return (
+      record.classification.evaluationMode ===
+      "manual_review_extraction_limited"
+    );
+  });
   const manualReview = countBy(preparedRecords, (record) => {
     if (record.classification.status === "failed") return false;
     return (
@@ -774,6 +787,18 @@ function buildFunnelCounts(input: {
         manualReview,
         "family_occurrence_records",
         "Prepare records needing manual review (ambiguous status or manual-review evaluation modes)",
+      ),
+      manualReviewRoleAmbiguous: count(
+        "prepare.manual_review_role_ambiguous",
+        manualReviewRoleAmbiguous,
+        "family_occurrence_records",
+        "Prepare records queued for manual review because citation role is ambiguous; never model-adjudicated",
+      ),
+      manualReviewExtractionLimited: count(
+        "prepare.manual_review_extraction_limited",
+        manualReviewExtractionLimited,
+        "family_occurrence_records",
+        "Prepare records queued for manual review because extraction is limited; never model-adjudicated",
       ),
     },
     evidence: {

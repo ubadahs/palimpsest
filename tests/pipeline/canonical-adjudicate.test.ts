@@ -72,7 +72,8 @@ type ClassifierVariant =
   | "classification_failed"
   | "skip_low_information"
   | "ambiguous"
-  | "manual_review_role_ambiguous";
+  | "manual_review_role_ambiguous"
+  | "manual_review_extraction_limited";
 
 type AdjudicateVariant =
   | "F"
@@ -487,6 +488,25 @@ function prepareAdapters(
           },
           signals: ["fixture:ambiguous"],
           rationale: "The citation role is genuinely ambiguous.",
+          confidence: "medium",
+          execution: {
+            kind: "deterministic",
+            implementation: "fixture-classifier-v1",
+          },
+        });
+      }
+      if (classifier === "manual_review_extraction_limited") {
+        return Promise.resolve({
+          status: "ambiguous",
+          citationRole: "unclear",
+          evaluationMode: "manual_review_extraction_limited",
+          modifiers: {
+            isBundled: citationOccurrence.isBundledCitation,
+            isReviewMediated: false,
+            bundleSize: citationOccurrence.bundleSize,
+          },
+          signals: ["fixture:extraction-limited"],
+          rationale: "Extraction confidence is too low for model adjudication.",
           confidence: "low",
           execution: {
             kind: "deterministic",
@@ -857,6 +877,10 @@ describe("canonical Adjudicate", () => {
         classifier: "manual_review_role_ambiguous",
         gateCode: "manual_review_role_ambiguous",
       },
+      {
+        classifier: "manual_review_extraction_limited",
+        gateCode: "manual_review_extraction_limited",
+      },
     ];
     for (const testCase of cases) {
       const { result, calls } = await runAdjudicateFixture(testCase);
@@ -869,6 +893,23 @@ describe("canonical Adjudicate", () => {
         expect(record).not.toHaveProperty("verdict");
       }
     }
+  });
+
+  it("keeps role-ambiguous records in the manual-review queue with zero model calls", async () => {
+    const { result, calls } = await runAdjudicateFixture({
+      classifier: "manual_review_role_ambiguous",
+    });
+    expect(calls).toHaveLength(0);
+    expect(
+      result.payload.records.every(
+        (record) =>
+          record.status === "not_adjudicated" &&
+          record.gateCode === "manual_review_role_ambiguous",
+      ),
+    ).toBe(true);
+    expect(
+      result.payload.records.every((record) => !("verdict" in record)),
+    ).toBe(true);
   });
 
   it("gates a valid typed retrieval failure with zero model calls", async () => {
