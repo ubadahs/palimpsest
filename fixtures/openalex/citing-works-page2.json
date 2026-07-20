@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "count": 4,
+    "db_response_time_ms": 6,
+    "page": 2,
+    "per_page": 2,
+    "next_cursor": null
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W4100000003",
+      "doi": "https://doi.org/10.5678/2024.06.03.666666",
+      "display_name": "Page Two Citing Paper C",
+      "authorships": [{ "author": { "display_name": "Gamma Author" } }],
+      "abstract_inverted_index": null,
+      "open_access": {
+        "is_oa": true,
+        "oa_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC99999"
+      },
+      "primary_location": {
+        "source": { "display_name": "PubMed Central", "type": "repository" },
+        "pdf_url": null,
+        "landing_page_url": "https://example.com/c"
+      },
+      "type": "article",
+      "publication_year": 2022
+    },
+    {
+      "id": "https://openalex.org/W4100000004",
+      "doi": "https://doi.org/10.9999/2024.06.04.777777",
+      "display_name": "Page Two Citing Paper D",
+      "authorships": [{ "author": { "display_name": "Delta Author" } }],
+      "abstract_inverted_index": null,
+      "open_access": { "is_oa": false, "oa_url": null },
+      "primary_location": {
+        "source": { "display_name": "Journal of Chemistry", "type": "journal" },
+        "pdf_url": null,
+        "landing_page_url": "https://example.com/d"
+      },
+      "type": "article",
+      "publication_year": 2021
+    }
+  ]
+}

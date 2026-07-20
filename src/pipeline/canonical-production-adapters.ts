@@ -279,6 +279,54 @@ function fullTextAvailability(
   return "unknown";
 }
 
+/**
+ * Persist each cursor-paginated citing-neighborhood page's normalized
+ * request/response as its own provenance artifact, and align each returned
+ * paper (in provider order) with the page response artifact that produced
+ * it. Never fabricate a single-page shape when the provider paginated.
+ */
+function persistCitingNeighborhoodPages(input: {
+  pages: readonly openalex.OpenAlexCitingWorksPage[];
+  store: CanonicalProvenanceStore;
+  seedProviderRecordId: string;
+}): {
+  pageArtifacts: ArtifactReference[];
+  responseArtifactByPaperIndex: ArtifactReference[];
+} {
+  const pageArtifacts: ArtifactReference[] = [];
+  const responseArtifactByPaperIndex: ArtifactReference[] = [];
+  for (const page of input.pages) {
+    const requestArtifact = input.store.persist({
+      role: "normalized-citing-neighborhood-page-request",
+      body: {
+        role: "normalized-citing-neighborhood-page-request",
+        seedProviderRecordId: input.seedProviderRecordId,
+        pageIndex: page.pageIndex,
+        requestUrl: page.requestUrl,
+        cursor: page.cursor,
+        perPage: page.perPage,
+      },
+      canonicalStage: "discover",
+    });
+    const responseArtifact = input.store.persist({
+      role: "normalized-citing-neighborhood-page-response",
+      body: {
+        role: "normalized-citing-neighborhood-page-response",
+        pageIndex: page.pageIndex,
+        returnedCount: page.returnedCount,
+        nextCursor: page.nextCursor,
+        responseTotalCount: page.responseTotalCount,
+      },
+      canonicalStage: "discover",
+    });
+    pageArtifacts.push(requestArtifact, responseArtifact);
+    for (let i = 0; i < page.returnedCount; i++) {
+      responseArtifactByPaperIndex.push(responseArtifact);
+    }
+  }
+  return { pageArtifacts, responseArtifactByPaperIndex };
+}
+
 function paperToCanonical(paper: ResolvedPaper) {
   return {
     paperId: paper.id,
@@ -540,14 +588,23 @@ export function buildCanonicalDiscoverAdapters(
         };
       }
 
-      const papers = result.data.map((paper) => {
+      const { pageArtifacts, responseArtifactByPaperIndex } =
+        persistCitingNeighborhoodPages({
+          pages: result.data.pages,
+          store,
+          seedProviderRecordId: openAlexId,
+        });
+
+      const papers = result.data.papers.map((paper, paperIndex) => {
         session.citingPapersByProviderId.set(paper.id, paper);
+        const pageResponseArtifact = responseArtifactByPaperIndex[paperIndex];
         const provenanceArtifacts = [
           store.persist({
             role: "normalized-citing-paper",
             body: { role: "normalized-citing-paper", paper },
             canonicalStage: "discover",
           }),
+          ...(pageResponseArtifact ? [pageResponseArtifact] : []),
         ];
         return {
           ...paperToCanonical(paper),
@@ -556,15 +613,12 @@ export function buildCanonicalDiscoverAdapters(
         };
       });
 
-      const coverage =
-        papers.length < boundary.limit
-          ? ("complete" as const)
-          : ("truncated" as const);
-
       return {
         status: "completed" as const,
-        coverage,
+        providerReportedTotal: result.data.providerReportedTotal,
+        coverage: result.data.coverage,
         papers,
+        pageArtifacts,
         execution: contentAddressedExternalExecution({
           provider: boundary.provider,
           requestBody,
@@ -572,6 +626,9 @@ export function buildCanonicalDiscoverAdapters(
             role: "normalized-citing-neighborhood-response",
             returnedCount: papers.length,
             paperIds: papers.map((paper) => paper.providerRecordId),
+            providerReportedTotal: result.data.providerReportedTotal,
+            coverage: result.data.coverage,
+            pageCount: result.data.pages.length,
           },
           store,
           requestRole: "normalized-citing-neighborhood-request",

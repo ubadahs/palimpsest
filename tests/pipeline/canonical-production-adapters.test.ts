@@ -226,18 +226,33 @@ describe("canonical production adapter seams", () => {
   it("calls OpenAlex neighborhoods only for OpenAlex-resolved seeds", async () => {
     const getCitingWorks = vi.fn().mockResolvedValue({
       ok: true,
-      data: [
-        {
-          id: "https://openalex.org/W456",
-          doi: "10.1000/review",
-          title: "Review citing paper",
-          authors: ["Review Author"],
-          source: "openalex",
-          fullTextHints: { providerAvailability: "available" },
-          paperType: "review",
-          referencedWorksCount: 120,
-        },
-      ],
+      data: {
+        papers: [
+          {
+            id: "https://openalex.org/W456",
+            doi: "10.1000/review",
+            title: "Review citing paper",
+            authors: ["Review Author"],
+            source: "openalex",
+            fullTextHints: { providerAvailability: "available" },
+            paperType: "review",
+            referencedWorksCount: 120,
+          },
+        ],
+        pages: [
+          {
+            pageIndex: 0,
+            requestUrl: "https://example.test/openalex/works?fixture",
+            cursor: "*",
+            perPage: 10,
+            returnedCount: 1,
+            nextCursor: null,
+            responseTotalCount: 1,
+          },
+        ],
+        providerReportedTotal: 1,
+        coverage: "complete",
+      },
     });
     const adapter = buildCanonicalDiscoverAdapters({
       config: appConfig(),
@@ -268,6 +283,8 @@ describe("canonical production adapter seams", () => {
     });
     expect(openAlex).toMatchObject({
       status: "completed",
+      providerReportedTotal: 1,
+      coverage: "complete",
       papers: [
         {
           paperType: "review",
@@ -275,6 +292,15 @@ describe("canonical production adapter seams", () => {
         },
       ],
     });
+    const openAlexPageArtifacts = (
+      openAlex as { pageArtifacts: unknown[] }
+    ).pageArtifacts;
+    expect(openAlexPageArtifacts).toHaveLength(2);
+    const openAlexPapers = (
+      openAlex as { papers: { provenanceArtifacts: unknown[] }[] }
+    ).papers;
+    // Each returned paper carries its owning page's response artifact.
+    expect(openAlexPapers[0]?.provenanceArtifacts.length).toBeGreaterThan(1);
     expect(getCitingWorks).toHaveBeenCalledWith(
       "https://openalex.org/W123",
       expect.any(String),
