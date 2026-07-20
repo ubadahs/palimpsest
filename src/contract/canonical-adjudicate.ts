@@ -9,10 +9,18 @@ import {
 } from "../shared/stable-identity.js";
 import {
   artifactReferenceSchema,
-  sha256DigestSchema,
   stableIdentifierSchema,
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
+import {
+  adjudicateModelExecutionSchema,
+  type AdjudicateModelExecution,
+} from "./model-execution.js";
+
+export {
+  adjudicateModelExecutionSchema,
+  type AdjudicateModelExecution,
+} from "./model-execution.js";
 
 /**
  * Canonical Adjudicate contract (isolated stage module). Shared envelope
@@ -105,23 +113,6 @@ export const adjudicateFailureCodeSchema = z.union([
   adjudicateNonfatalFailureCodeSchema,
 ]);
 export type AdjudicateFailureCode = z.infer<typeof adjudicateFailureCodeSchema>;
-
-export const adjudicateModelExecutionSchema = z
-  .object({
-    kind: z.literal("model"),
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-export type AdjudicateModelExecution = z.infer<
-  typeof adjudicateModelExecutionSchema
->;
 
 /**
  * Strict model JSON crossing the adapter boundary. Claim/chunk IDs are checked

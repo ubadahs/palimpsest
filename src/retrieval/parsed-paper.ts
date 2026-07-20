@@ -21,6 +21,8 @@ import type {
 import { parsedPaperDocumentSchema } from "../domain/parsing.js";
 import {
   acquireFullText,
+  classifyAcquisitionAttemptFailure,
+  type FullTextAcquisitionFailureCode,
   type FullTextContent,
   type FullTextFetchAdapters,
 } from "./fulltext-fetch.js";
@@ -40,7 +42,12 @@ type ParsedPaperMaterialized = {
 
 export type ParsedPaperMaterializeResult =
   | { ok: true; data: ParsedPaperMaterialized }
-  | { ok: false; error: string; acquisition: FullTextAcquisition | undefined };
+  | {
+      ok: false;
+      error: string;
+      failureCode: FullTextAcquisitionFailureCode;
+      acquisition: FullTextAcquisition | undefined;
+    };
 
 export type ParsedPaperCacheOptions = {
   db: Database.Database;
@@ -763,6 +770,7 @@ export async function materializeParsedPaper(
     return {
       ok: false,
       error: fullTextResult.error,
+      failureCode: fullTextResult.failureCode,
       acquisition: fullTextResult.acquisition,
     };
   }
@@ -800,6 +808,7 @@ export async function materializeParsedPaper(
     return {
       ok: false,
       error: parsedResult.error,
+      failureCode: "invalid_content",
       acquisition: fullTextResult.data.acquisition,
     };
   }
@@ -843,13 +852,25 @@ export async function materializeLocalPdf(
   const pdfBuffer = readFileSync(pdfPath);
   const grobidResult = await adapters.processPdfWithGrobid(pdfBuffer);
   if (!grobidResult.ok) {
-    return { ok: false, error: grobidResult.error, acquisition: undefined };
+    return {
+      ok: false,
+      error: grobidResult.error,
+      failureCode: classifyAcquisitionAttemptFailure({
+        failureReason: grobidResult.error,
+      }),
+      acquisition: undefined,
+    };
   }
 
   const teiXml = grobidResult.data;
   const parsedResult = parseParsedPaperDocument(teiXml, "grobid_tei_xml");
   if (!parsedResult.ok) {
-    return { ok: false, error: parsedResult.error, acquisition: undefined };
+    return {
+      ok: false,
+      error: parsedResult.error,
+      failureCode: "invalid_content",
+      acquisition: undefined,
+    };
   }
 
   const acquisition: FullTextAcquisition = {
