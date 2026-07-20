@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { adaptivePortfolioPolicySchema } from "../../src/contract/candidate-selection-policy.js";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -38,7 +39,7 @@ type FixtureVariant = {
   reverseFirstClaims?: boolean;
   addDifferentFirstClaim?: boolean;
   duplicateFirstClaim?: boolean;
-  scopeCandidateCap?: number;
+  maxFamilies?: number;
   recordedAt?: string;
 };
 
@@ -403,7 +404,13 @@ function fixtureOptions(
       yearRange: { from: 2000, to: 2026 },
     },
     probeBudget: 5,
-    scopeCandidateCap: variant.scopeCandidateCap ?? 1,
+    candidateSelection: adaptivePortfolioPolicySchema.parse({
+      mode: "adaptive_portfolio",
+      minFamilies: 1,
+      maxFamilies: variant.maxFamilies ?? 1,
+      maxPreparedRecords: 1000,
+      minMarginalNovelty: 0,
+    }),
     recordedAt: variant.recordedAt ?? "2026-07-16T12:00:00.000Z",
   };
 }
@@ -578,8 +585,8 @@ describe("canonical Discover", () => {
     });
   });
 
-  it("uses the scope cap only as a candidate disposition", async () => {
-    const wider = await runFixture({ scopeCandidateCap: 2 });
+  it("uses the adaptive portfolio only as a candidate disposition", async () => {
+    const wider = await runFixture({ maxFamilies: 2 });
     expect(wider.payload.claimCandidates).toHaveLength(
       result.payload.claimCandidates.length,
     );
@@ -623,11 +630,11 @@ describe("canonical Discover", () => {
     ).toBe(false);
   });
 
-  it("keeps identities stable across parser, model, cap, and timestamps", async () => {
+  it("keeps identities stable across parser, model, portfolio, and timestamps", async () => {
     const provenanceChanged = await runFixture({
       parser: "fixture-parser-b",
       model: "fixture-model-b",
-      scopeCandidateCap: 2,
+      maxFamilies: 2,
       recordedAt: "2026-07-17T12:00:00.000Z",
     });
     expect(

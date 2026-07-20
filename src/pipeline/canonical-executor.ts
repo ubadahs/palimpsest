@@ -131,7 +131,9 @@ export type CanonicalPipelineCliOverrides = {
   forceRefresh: boolean | undefined;
   stopAfterStage: StageKey | undefined;
   discoverProbeBudget: number | undefined;
-  discoverScopeCandidateCap: number | undefined;
+  discoverMinFamilies: number | undefined;
+  discoverMaxFamilies: number | undefined;
+  discoverMaxPreparedRecords: number | undefined;
   discoverFromYear: number | undefined;
   discoverToYear: number | undefined;
   discoverExtractionModel: string | undefined;
@@ -211,9 +213,18 @@ function buildConfigFromCli(
       ...(args.discoverProbeBudget != null
         ? { probeBudget: args.discoverProbeBudget }
         : {}),
-      ...(args.discoverScopeCandidateCap != null
-        ? { scopeCandidateCap: args.discoverScopeCandidateCap }
-        : {}),
+      candidateSelection: {
+        ...base.discover.candidateSelection,
+        ...(args.discoverMinFamilies != null
+          ? { minFamilies: args.discoverMinFamilies }
+          : {}),
+        ...(args.discoverMaxFamilies != null
+          ? { maxFamilies: args.discoverMaxFamilies }
+          : {}),
+        ...(args.discoverMaxPreparedRecords != null
+          ? { maxPreparedRecords: args.discoverMaxPreparedRecords }
+          : {}),
+      },
       ...(args.discoverFromYear != null
         ? { fromYear: args.discoverFromYear }
         : {}),
@@ -800,7 +811,7 @@ export async function orchestrateCanonicalPipelineRun(
                   : {}),
               },
               probeBudget: runConfig.discover.probeBudget,
-              scopeCandidateCap: runConfig.discover.scopeCandidateCap,
+              candidateSelection: runConfig.discover.candidateSelection,
               recordedAt,
             },
             adapters.discover,

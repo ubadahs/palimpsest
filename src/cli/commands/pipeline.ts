@@ -84,7 +84,9 @@ export function parseCanonicalPipelineArgs(
   let forceRefresh: boolean | undefined;
   let stopAfterStage: StageKey | undefined;
   let discoverProbeBudget: number | undefined;
-  let discoverScopeCandidateCap: number | undefined;
+  let discoverMinFamilies: number | undefined;
+  let discoverMaxFamilies: number | undefined;
+  let discoverMaxPreparedRecords: number | undefined;
   let discoverFromYear: number | undefined;
   let discoverToYear: number | undefined;
   let discoverExtractionModel: string | undefined;
@@ -141,8 +143,16 @@ export function parseCanonicalPipelineArgs(
         discoverProbeBudget = readPositiveInteger(argv, index, flag);
         index++;
         break;
-      case "--scope-candidate-cap":
-        discoverScopeCandidateCap = readPositiveInteger(argv, index, flag);
+      case "--min-families":
+        discoverMinFamilies = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--max-families":
+        discoverMaxFamilies = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--max-prepared-records":
+        discoverMaxPreparedRecords = readPositiveInteger(argv, index, flag);
         index++;
         break;
       case "--from-year":
@@ -238,7 +248,9 @@ export function parseCanonicalPipelineArgs(
     forceRefresh,
     stopAfterStage,
     discoverProbeBudget,
-    discoverScopeCandidateCap,
+    discoverMinFamilies,
+    discoverMaxFamilies,
+    discoverMaxPreparedRecords,
     discoverFromYear,
     discoverToYear,
     discoverExtractionModel,
@@ -270,7 +282,9 @@ Options:
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
   --probe-budget <n>                Discover citing-paper probe budget
-  --scope-candidate-cap <n>         Discover candidate cap for Scope
+  --min-families <n>                Adaptive portfolio minimum families (default 15)
+  --max-families <n>                Adaptive portfolio maximum families (default 25)
+  --max-prepared-records <n>        Prepared-record budget for portfolio (default 100)
   --from-year <year>                Earliest citing-paper year
   --to-year <year>                  Latest citing-paper year
   --extraction-model <model>        Discover attributed-claim extraction model
