@@ -26,6 +26,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:live-smoke": "vitest run --config vitest.live.config.mjs",
     "ui:dev": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run dev",
     "ui:build": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run build",
     "ui:start": "PALIMPSEST_ROOT=$PWD npm --workspace @palimpsest/ui run start"
