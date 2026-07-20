@@ -207,9 +207,7 @@ const harvestedMentionInputSchema = z
     charOffsetEnd: z.number().int().nonnegative().optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
     citationGroupOrdinal: z.number().int().nonnegative().optional(),
-    locationQuality: z
-      .enum(["exact_dom", "approximate", "missing"])
-      .optional(),
+    locationQuality: z.enum(["exact_dom", "approximate", "missing"]).optional(),
     citationMarker: z.string(),
     rawContext: z.string(),
     sectionTitle: z.string().optional(),
@@ -1116,7 +1114,10 @@ function selectDeterministicProbeSet<T extends ProbeObservation>(
 ): { selectedIds: Set<string>; stratumById: Map<string, string> } {
   const stratumById = new Map<string, string>();
   for (const observation of observations) {
-    stratumById.set(observation.citingPaperRecordId, probeStratumKey(observation.paper));
+    stratumById.set(
+      observation.citingPaperRecordId,
+      probeStratumKey(observation.paper),
+    );
   }
 
   if (probeBudget >= observations.length) {

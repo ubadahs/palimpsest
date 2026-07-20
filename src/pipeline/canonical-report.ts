@@ -458,6 +458,30 @@ function buildFunnelCounts(input: {
   const deferredCandidates = discover.candidateDispositions.filter(
     (disposition) => !disposition.selectedForScope,
   ).length;
+  const uniqueCitingPapersWithOccurrences = new Set(
+    discover.citationMentions.map((mention) => mention.citingPaperId),
+  ).size;
+  const uniqueCitationGroups = new Set(
+    discover.citationMentions.map((mention) => {
+      const group =
+        mention.citationGroupOrdinal != null
+          ? String(mention.citationGroupOrdinal)
+          : String(mention.mentionIndex);
+      return `${mention.citingPaperId}:${group}`;
+    }),
+  ).size;
+  const deferredByFamilyCap = countBy(
+    discover.candidateDispositions,
+    (disposition) => disposition.bindingConstraint === "max_families",
+  );
+  const deferredByRecordBudget = countBy(
+    discover.candidateDispositions,
+    (disposition) => disposition.bindingConstraint === "max_prepared_records",
+  );
+  const deferredByNovelty = countBy(
+    discover.candidateDispositions,
+    (disposition) => disposition.bindingConstraint === "min_marginal_novelty",
+  );
 
   const scopedCandidates = scopeArtifact.payload.candidateDecisions.filter(
     (decision) => decision.disposition === "scoped",
@@ -722,6 +746,36 @@ function buildFunnelCounts(input: {
         deferredCandidates,
         "candidates",
         "Discover candidates deferred by the adaptive portfolio",
+      ),
+      uniqueCitingPapersWithOccurrences: count(
+        "discover.unique_citing_papers_with_occurrences",
+        uniqueCitingPapersWithOccurrences,
+        "citing_papers",
+        "Distinct citing papers that contributed at least one seed citation occurrence",
+      ),
+      uniqueCitationGroups: count(
+        "discover.unique_citation_groups",
+        uniqueCitationGroups,
+        "citation_groups",
+        "Distinct seed citation groups after exact targetRefIds occurrence selection",
+      ),
+      deferredByFamilyCap: count(
+        "discover.deferred_by_family_cap",
+        deferredByFamilyCap,
+        "candidates",
+        "Candidates deferred because the adaptive portfolio reached maxFamilies",
+      ),
+      deferredByRecordBudget: count(
+        "discover.deferred_by_record_budget",
+        deferredByRecordBudget,
+        "candidates",
+        "Candidates deferred because the adaptive portfolio reached maxPreparedRecords",
+      ),
+      deferredByNovelty: count(
+        "discover.deferred_by_novelty",
+        deferredByNovelty,
+        "candidates",
+        "Candidates deferred for insufficient lexical novelty relative to the selected portfolio",
       ),
     },
     scope: {

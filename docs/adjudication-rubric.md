@@ -15,6 +15,7 @@ Critical policy:
 
 - `U` is **not** an operational failure bucket
 - retrieval/provider/classification/gate failures are `not_adjudicated`, `adjudication_failed`, or `invalid_output` — never F/D/E/U
+- ambiguous citation roles (`manual_review_role_ambiguous`, `manual_review_extraction_limited`) stay gated as operational non-verdicts and are not auto-routed to the model
 - `no_lexical_matches` never becomes `E` or `U`
 - confidence may be recorded but never chooses another model or alters the verdict path
 - there is no advisor, vector-first, challenger, or confidence-only escalation path

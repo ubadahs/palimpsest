@@ -63,7 +63,16 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.discover.candidateClaims,
     payload.funnel.discover.selectedCandidates,
     payload.funnel.discover.deferredCandidates,
+    payload.funnel.discover.uniqueCitingPapersWithOccurrences,
+    payload.funnel.discover.uniqueCitationGroups,
+    payload.funnel.discover.deferredByFamilyCap,
+    payload.funnel.discover.deferredByRecordBudget,
+    payload.funnel.discover.deferredByNovelty,
   ]);
+  lines.push("");
+  lines.push(
+    "Adaptive portfolio selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics, not claim consolidations.",
+  );
   lines.push("");
   lines.push("### Scope");
   lines.push("");
