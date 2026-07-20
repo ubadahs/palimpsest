@@ -83,6 +83,7 @@ export function parseCanonicalPipelineArgs(
   let seedPdfPath: string | undefined;
   let forceRefresh: boolean | undefined;
   let stopAfterStage: StageKey | undefined;
+  let discoverNeighborhoodLimit: number | undefined;
   let discoverProbeBudget: number | undefined;
   let discoverMinFamilies: number | undefined;
   let discoverMaxFamilies: number | undefined;
@@ -137,6 +138,10 @@ export function parseCanonicalPipelineArgs(
         break;
       case "--stop-after":
         stopAfterStage = readCanonicalStage(argv, index, flag);
+        index++;
+        break;
+      case "--neighborhood-limit":
+        discoverNeighborhoodLimit = readPositiveInteger(argv, index, flag);
         index++;
         break;
       case "--probe-budget":
@@ -247,6 +252,7 @@ export function parseCanonicalPipelineArgs(
     seedPdfPath,
     forceRefresh,
     stopAfterStage,
+    discoverNeighborhoodLimit,
     discoverProbeBudget,
     discoverMinFamilies,
     discoverMaxFamilies,
@@ -281,6 +287,7 @@ Options:
   --seed-pdf <path>                 Local seed PDF (single-DOI runs only)
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
+  --neighborhood-limit <n>          Total citing-work observation cap (across paginated requests)
   --probe-budget <n>                Discover citing-paper probe budget
   --min-families <n>                Adaptive portfolio minimum families (default 15)
   --max-families <n>                Adaptive portfolio maximum families (default 25)

@@ -176,13 +176,11 @@ describe("resolveWorkByDoi", () => {
 describe("getCitingWorks", () => {
   it("returns resolved papers from citing-works response", async () => {
     const fixture = loadFixture("citing-works-response.json");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(fixture),
-      }),
-    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(fixture),
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await getCitingWorks(
       "https://openalex.org/W2100837269",
@@ -192,24 +190,127 @@ describe("getCitingWorks", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data).toHaveLength(3);
+    expect(result.data.papers).toHaveLength(3);
+    expect(result.data.providerReportedTotal).toBe(3);
+    expect(result.data.coverage).toBe("complete");
+    expect(result.data.pages).toHaveLength(1);
+    expect(result.data.pages[0]).toMatchObject({
+      pageIndex: 0,
+      cursor: "*",
+      returnedCount: 3,
+      nextCursor: null,
+    });
+    // Everything available fits on the provider's single page; no second request.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const biorxivPaper = result.data[0];
+    const biorxivPaper = result.data.papers[0];
     expect(biorxivPaper?.fullTextHints).toMatchObject({
       providerAvailability: "available",
       providerSourceHint: "biorxiv_xml",
     });
 
-    const closedPaper = result.data[1];
+    const closedPaper = result.data.papers[1];
     expect(closedPaper?.fullTextHints).toMatchObject({
       providerAvailability: "unavailable",
     });
 
-    const pmcPaper = result.data[2];
+    const pmcPaper = result.data.papers[2];
     expect(pmcPaper?.fullTextHints).toMatchObject({
       providerAvailability: "available",
       providerSourceHint: "pmc_xml",
     });
+
+    vi.restoreAllMocks();
+  });
+
+  it("paginates across cursor pages until the limit or provider exhaustion", async () => {
+    const page1 = loadFixture("citing-works-page1.json");
+    const page2 = loadFixture("citing-works-page2.json");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page2) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W2100837269",
+      "https://api.openalex.org",
+      4,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.data.papers).toHaveLength(4);
+    expect(result.data.papers.map((paper) => paper.title)).toEqual([
+      "Page One Citing Paper A",
+      "Page One Citing Paper B",
+      "Page Two Citing Paper C",
+      "Page Two Citing Paper D",
+    ]);
+    expect(result.data.providerReportedTotal).toBe(4);
+    expect(result.data.coverage).toBe("complete");
+    expect(result.data.pages).toHaveLength(2);
+    expect(result.data.pages[0]).toMatchObject({
+      pageIndex: 0,
+      cursor: "*",
+      perPage: 4,
+      returnedCount: 2,
+      nextCursor: "cursor-page-2",
+    });
+    expect(result.data.pages[1]).toMatchObject({
+      pageIndex: 1,
+      cursor: "cursor-page-2",
+      perPage: 2,
+      returnedCount: 2,
+      nextCursor: null,
+    });
+    // Second page's request URL carries the cursor from the first page's response.
+    const secondRequestUrl = fetchMock.mock.calls[1]![0] as string;
+    expect(secondRequestUrl).toContain("cursor=cursor-page-2");
+
+    vi.restoreAllMocks();
+  });
+
+  it("reports truncated coverage when the observation limit stops pagination early", async () => {
+    const page1 = loadFixture("citing-works-page1.json");
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(page1),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W2100837269",
+      "https://api.openalex.org",
+      2,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // page1.json reports meta.count=4 but the limit of 2 stops after one page.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.data.papers).toHaveLength(2);
+    expect(result.data.providerReportedTotal).toBe(4);
+    expect(result.data.coverage).toBe("truncated");
+
+    vi.restoreAllMocks();
+  });
+
+  it("propagates a page fetch failure without fabricating partial results", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 404 }),
+    );
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W2100837269",
+      "https://api.openalex.org",
+    );
+
+    expect(result.ok).toBe(false);
 
     vi.restoreAllMocks();
   });

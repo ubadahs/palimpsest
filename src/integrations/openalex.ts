@@ -64,6 +64,7 @@ const openAlexWorkSchema = z
 const openAlexWorksListSchema = z.object({
   meta: z.object({
     count: z.number(),
+    next_cursor: z.string().nullable().optional(),
   }),
   results: z.array(openAlexWorkSchema),
 });
@@ -376,13 +377,44 @@ export async function resolveWorkByMetadata(
   };
 }
 
+/** Wire-level page provenance for one cursor-paginated citing-works request. */
+export type OpenAlexCitingWorksPage = {
+  pageIndex: number;
+  requestUrl: string;
+  cursor: string;
+  perPage: number;
+  returnedCount: number;
+  nextCursor: string | null;
+  /** OpenAlex `meta.count`, echoed on every page of a given query. */
+  responseTotalCount: number;
+};
+
+export type CitingWorksResult = {
+  papers: ResolvedPaper[];
+  pages: OpenAlexCitingWorksPage[];
+  /** Authoritative provider-reported total citing-work count for this boundary. */
+  providerReportedTotal: number;
+  /** "complete" when every citing work was retrieved; "truncated" when the
+   * observation limit was reached before the provider's cursor was exhausted. */
+  coverage: "complete" | "truncated";
+};
+
+/** OpenAlex's documented maximum `per_page` for the Works API. */
+const OPENALEX_MAX_PER_PAGE = 200;
+
+/**
+ * Retrieve up to `limit` citing works, treating `limit` as a total
+ * observation cap across as many cursor-paginated requests as needed (not a
+ * single `per_page` request). Each page's request/response shape is returned
+ * so callers can persist page-level provenance.
+ */
 export async function getCitingWorks(
   openAlexId: string,
   baseUrl: string,
   limit = 50,
   email?: string,
   yearRange?: { fromYear?: number; toYear?: number },
-): Promise<Result<ResolvedPaper[]>> {
+): Promise<Result<CitingWorksResult>> {
   let filter = `cites:${openAlexId}`;
   if (yearRange?.fromYear != null) {
     filter += `,publication_year:>${String(yearRange.fromYear - 1)}`;
@@ -390,14 +422,50 @@ export async function getCitingWorks(
   if (yearRange?.toYear != null) {
     filter += `,publication_year:<${String(yearRange.toYear + 1)}`;
   }
-  const url = appendEmail(
-    `${baseUrl}/works?filter=${filter}&per_page=${String(limit)}`,
-    email,
-  );
-  const result = await fetchJson(url, openAlexWorksListSchema);
 
-  if (!result.ok) return result;
-  return { ok: true, data: result.data.results.map(toResolvedPaper) };
+  const works: OpenAlexWork[] = [];
+  const pages: OpenAlexCitingWorksPage[] = [];
+  let providerReportedTotal = 0;
+  let cursor = "*";
+  let pageIndex = 0;
+
+  while (works.length < limit) {
+    const perPage = Math.min(OPENALEX_MAX_PER_PAGE, limit - works.length);
+    const url = appendEmail(
+      `${baseUrl}/works?filter=${filter}&per_page=${String(perPage)}&cursor=${encodeURIComponent(cursor)}`,
+      email,
+    );
+    const result = await fetchJson(url, openAlexWorksListSchema);
+    if (!result.ok) return result;
+
+    providerReportedTotal = result.data.meta.count;
+    const nextCursor = result.data.meta.next_cursor ?? null;
+    pages.push({
+      pageIndex,
+      requestUrl: url,
+      cursor,
+      perPage,
+      returnedCount: result.data.results.length,
+      nextCursor,
+      responseTotalCount: providerReportedTotal,
+    });
+    works.push(...result.data.results);
+    pageIndex += 1;
+
+    if (result.data.results.length === 0 || nextCursor == null) {
+      break;
+    }
+    cursor = nextCursor;
+  }
+
+  const papers = works.slice(0, limit).map(toResolvedPaper);
+  const coverage: "complete" | "truncated" =
+    papers.length >= providerReportedTotal ? "complete" : "truncated";
+
+  return {
+    ok: true,
+    data: { papers, pages, providerReportedTotal, coverage },
+  };
 }
 
 export { reconstructAbstract as _reconstructAbstract };

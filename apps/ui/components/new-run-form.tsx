@@ -20,6 +20,7 @@ type FormState = {
   seedDoisText: string;
   targetStage: StageKey;
   discover: {
+    neighborhoodLimit: number;
     probeBudget: number;
     minFamilies: number;
     maxFamilies: number;
@@ -69,6 +70,7 @@ const defaultState: FormState = {
   seedDoisText: "",
   targetStage: "report",
   discover: {
+    neighborhoodLimit: 200,
     probeBudget: 100,
     minFamilies: 15,
     maxFamilies: 25,
@@ -99,6 +101,7 @@ function flattenConfig(s: FormState) {
     stopAfterStage: s.targetStage,
     forceRefresh: s.forceRefresh,
     discover: {
+      neighborhoodLimit: s.discover.neighborhoodLimit,
       probeBudget: s.discover.probeBudget,
       candidateSelection: {
         mode: "adaptive_portfolio" as const,
@@ -293,6 +296,27 @@ export function NewRunForm() {
                   thinkingDescription="Enable thinking for claim extraction."
                   modelClassName="md:col-span-2"
                 />
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Neighborhood limit
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Total citing works to retrieve from the provider, across
+                    as many paginated requests as needed.
+                  </span>
+                  <Input
+                    min={1}
+                    type="number"
+                    value={state.discover.neighborhoodLimit}
+                    onChange={(event) =>
+                      updateStage(
+                        "discover",
+                        "neighborhoodLimit",
+                        Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
                     Probe budget
