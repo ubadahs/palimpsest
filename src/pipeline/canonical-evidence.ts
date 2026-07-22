@@ -50,6 +50,7 @@ import {
   canonicalEvidenceChunkConfiguration,
   chunkScopeSeedText,
   retrieveEvidenceByBm25,
+  selectEvidenceChunkIds,
   unionBm25Candidates,
 } from "../retrieval/canonical-evidence-retrieval.js";
 import {
@@ -543,6 +544,8 @@ async function retrieveRecordEvidence(input: {
       bm25Run,
       undefined,
       options.selectionLimit,
+      family,
+      corpus,
     );
     return {
       query,
@@ -610,6 +613,8 @@ async function retrieveRecordEvidence(input: {
     bm25Run,
     rerankRun.status === "completed" ? rerankRun : undefined,
     options.selectionLimit,
+    family,
+    corpus,
   );
   return {
     query,
@@ -814,25 +819,49 @@ function buildFinalSelection(
   bm25Run: EvidenceBm25Run,
   rerankRun: EvidenceRerankRun | undefined,
   selectionLimit: number,
+  family: ScopedFamily,
+  corpus: EvidenceChunkCorpus,
 ): EvidenceSelection {
   const usesRerank = rerankRun?.status === "completed";
-  const selectedChunkIds = usesRerank
-    ? rerankRun.results.slice(0, selectionLimit).map((result) => result.chunkId)
-    : bm25Run.candidates
-        .slice(0, selectionLimit)
-        .map((candidate) => candidate.chunkId);
+  if (usesRerank) {
+    const selectedChunkIds = rerankRun.results
+      .slice(0, selectionLimit)
+      .map((result) => result.chunkId);
+    const identity = {
+      bm25RunId: bm25Run.bm25RunId,
+      rerankRunId: rerankRun.rerankRunId,
+      rankingSource: "reranked" as const,
+      rankingId: rerankRun.rerankRunId,
+      selectionLimit,
+      selectedChunkIds,
+    };
+    return evidenceSelectionSchema.parse({
+      selectionId: buildEvidenceSelectionId(identity),
+      ...identity,
+      selectionContentHash: canonicalSha256(selectedChunkIds),
+    });
+  }
+
+  const selected = selectEvidenceChunkIds({
+    family,
+    corpus,
+    bm25Candidates: bm25Run.candidates,
+    selectionLimit,
+  });
   const identity = {
     bm25RunId: bm25Run.bm25RunId,
-    ...(usesRerank ? { rerankRunId: rerankRun.rerankRunId } : {}),
-    rankingSource: usesRerank ? ("reranked" as const) : ("bm25" as const),
-    rankingId: usesRerank ? rerankRun.rerankRunId : bm25Run.bm25RunId,
+    rankingSource: selected.rankingSource,
+    rankingId: bm25Run.bm25RunId,
     selectionLimit,
-    selectedChunkIds,
+    selectedChunkIds: selected.selectedChunkIds,
+    ...(selected.pinnedChunkIds.length > 0
+      ? { pinnedChunkIds: selected.pinnedChunkIds }
+      : {}),
   };
   return evidenceSelectionSchema.parse({
     selectionId: buildEvidenceSelectionId(identity),
     ...identity,
-    selectionContentHash: canonicalSha256(selectedChunkIds),
+    selectionContentHash: canonicalSha256(selected.selectedChunkIds),
   });
 }
 

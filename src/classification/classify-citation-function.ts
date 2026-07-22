@@ -46,6 +46,18 @@ const BACKGROUND_PHRASES: RegExp[] = [
   /\bwidely\s+(?:used|studied|reported)\b/i,
 ];
 
+/** Author–year / "et al." markers get a slightly wider local window. */
+const AUTHOR_YEAR_MARKER_RE = /\bet\s+al\.|,?\s*(?:19|20)\d{2}\b/i;
+
+const RESULTS_DISCUSSION_SECTION_RE =
+  /\b(?:results?|discussion|conclusions?)\b/i;
+
+/** Light narrative frames near author–year markers (not bare "see also"). */
+const NARRATIVE_ATTRIBUTION_FRAMES: RegExp[] = [
+  /\b(?:reported|showed|shown|found|finding|observed)\b/i,
+  /\baccording\s+to\b/i,
+];
+
 function extractLocalWindow(
   rawContext: string,
   marker: string,
@@ -56,6 +68,10 @@ function extractLocalWindow(
   const start = Math.max(0, idx - radius);
   const end = Math.min(rawContext.length, idx + marker.length + radius);
   return rawContext.substring(start, end);
+}
+
+function isAuthorYearMarker(marker: string): boolean {
+  return AUTHOR_YEAR_MARKER_RE.test(marker);
 }
 
 type Signal = { role: CitationRole; source: string };
@@ -79,10 +95,11 @@ export type CitationFunctionClassification = {
 function collectSignals(mention: CitationFunctionInput): Signal[] {
   const hits: Signal[] = [];
   const section = mention.sectionTitle ?? "";
+  const authorYear = isAuthorYearMarker(mention.citationMarker);
   const window = extractLocalWindow(
     mention.rawContext,
     mention.citationMarker,
-    200,
+    authorYear ? 320 : 200,
   );
 
   if (METHODS_SECTION_PATTERNS.some((re) => re.test(section))) {
@@ -108,6 +125,23 @@ function collectSignals(mention: CitationFunctionInput): Signal[] {
   for (const re of BACKGROUND_PHRASES) {
     if (re.test(window)) {
       hits.push({ role: "background_context", source: `phrase:${re.source}` });
+    }
+  }
+
+  if (authorYear) {
+    if (RESULTS_DISCUSSION_SECTION_RE.test(section)) {
+      hits.push({
+        role: "substantive_attribution",
+        source: `narrative:section:${section}`,
+      });
+    }
+    for (const re of NARRATIVE_ATTRIBUTION_FRAMES) {
+      if (re.test(window)) {
+        hits.push({
+          role: "substantive_attribution",
+          source: `narrative:${re.source}`,
+        });
+      }
     }
   }
 

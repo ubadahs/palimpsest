@@ -1567,9 +1567,11 @@ describe("canonical Report", () => {
       chain.adjudicate,
       { recordedAt: "2026-07-17T10:50:00.000Z" },
     );
+    const isBm25Selection = (rankingSource: string | undefined) =>
+      rankingSource === "bm25" || rankingSource === "bm25_with_scope_pins";
     expect(result.payload.funnel.evidence.uniqueFinalSelectionsBm25.count).toBe(
-      chain.evidence.payload.selections.filter(
-        (selection) => selection.rankingSource === "bm25",
+      chain.evidence.payload.selections.filter((selection) =>
+        isBm25Selection(selection.rankingSource),
       ).length,
     );
     expect(
@@ -1580,8 +1582,8 @@ describe("canonical Report", () => {
       ).length,
     );
     expect(result.payload.funnel.evidence.recordSelectionBm25.count).toBe(
-      result.payload.recordTraces.filter(
-        (trace) => trace.evidence.rankingSource === "bm25",
+      result.payload.recordTraces.filter((trace) =>
+        isBm25Selection(trace.evidence.rankingSource),
       ).length,
     );
     expect(result.payload.funnel.evidence.recordSelectionReranked.count).toBe(

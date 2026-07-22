@@ -44,6 +44,7 @@ type ScopeFixtureOptions = {
   maxFamilies?: number;
   groundingStatus?: "grounded" | "ambiguous" | "not_found";
   hallucinatedQuote?: boolean;
+  allHallucinatedQuotes?: boolean;
   seedUnavailable?: boolean;
   acquisitionFailed?: boolean;
   fatalMaterialization?: boolean;
@@ -367,7 +368,7 @@ function splitEquivalentCandidate(
   );
   const fixtureAnnotation = discover.payload.candidateDispositions[0]
     ?.annotation ?? {
-    policyVersion: "adaptive-portfolio-v2" as const,
+    policyVersion: "adaptive-portfolio-v3" as const,
     uniqueCitingPaperCount: 1,
     uniqueCitationGroupCount: 1,
     sourceRecordCount: 1,
@@ -380,6 +381,7 @@ function splitEquivalentCandidate(
     comparisonCount: 0,
     conditionCount: 0,
     genericLanguagePenalty: 0,
+    claimShape: "atomic" as const,
     lexicalFingerprint: {
       wordShingleHash: canonicalSha256("word"),
       charShingleHash: canonicalSha256("char"),
@@ -555,18 +557,29 @@ function scopeAdapters(
         });
       }
       const status = options.groundingStatus ?? "grounded";
-      const supportSpans = [
-        {
-          verbatimQuote: options.hallucinatedQuote
-            ? "a model-invented passage"
-            : "reports a measurable effect",
-          blockId: "body-1",
-        },
-        {
-          verbatimQuote: "primary outcome",
-          blockId: "body-1",
-        },
-      ];
+      const supportSpans = options.allHallucinatedQuotes
+        ? [
+            {
+              verbatimQuote: "a model-invented passage",
+              blockId: "body-1",
+            },
+            {
+              verbatimQuote: "another invented passage",
+              blockId: "body-1",
+            },
+          ]
+        : [
+            {
+              verbatimQuote: options.hallucinatedQuote
+                ? "a model-invented passage"
+                : "reports a measurable effect",
+              blockId: "body-1",
+            },
+            {
+              verbatimQuote: "primary outcome",
+              blockId: "body-1",
+            },
+          ];
       if (options.reverseSupportSpans) {
         supportSpans.reverse();
       }
@@ -806,8 +819,22 @@ describe("canonical Scope", () => {
     },
   );
 
-  it("rejects a hallucinated quote instead of accepting grounding evidence", async () => {
+  it("keeps verified spans when some proposed quotes fail exact match", async () => {
     const { result } = await runScopeFixture({ hallucinatedQuote: true });
+    expect(
+      result.payload.families.every(
+        (family) =>
+          family.grounding.status === "grounded" &&
+          family.grounding.evidenceSpans.length === 1 &&
+          family.grounding.evidenceSpans[0]?.text === "primary outcome" &&
+          family.grounding.quoteVerification.status === "verified_exact" &&
+          family.grounding.detailReason.includes("Dropped 1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects grounding when every proposed quote fails exact match", async () => {
+    const { result } = await runScopeFixture({ allHallucinatedQuotes: true });
     expect(
       result.payload.families.every(
         (family) =>
@@ -836,9 +863,9 @@ describe("canonical Scope", () => {
     );
   });
 
-  it("rejects not_found output with proposed evidence at both boundaries", async () => {
+  it("ignores proposed spans on not_found and still rejects not_found artifacts with evidence", async () => {
     const contradictoryOutput = {
-      status: "not_found",
+      status: "not_found" as const,
       detailReason: "Contradictory model output.",
       supportSpans: [
         {
@@ -850,7 +877,7 @@ describe("canonical Scope", () => {
     expect(
       canonicalScopeGroundingOutputSchema.safeParse(contradictoryOutput)
         .success,
-    ).toBe(false);
+    ).toBe(true);
 
     const { result } = await runScopeFixture({
       groundingStatus: "not_found",
@@ -859,8 +886,9 @@ describe("canonical Scope", () => {
     expect(
       result.payload.families.every(
         (family) =>
-          family.grounding.status === "invalid_grounding_output" &&
-          family.grounding.evidenceSpans.length === 0,
+          family.grounding.status === "not_found" &&
+          family.grounding.evidenceSpans.length === 0 &&
+          family.grounding.quoteVerification.status === "not_applicable",
       ),
     ).toBe(true);
 

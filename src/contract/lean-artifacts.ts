@@ -935,7 +935,7 @@ export type DiscoverClaimCandidate = z.infer<
 
 export const discoverCandidateSelectionAnnotationSchema = z
   .object({
-    policyVersion: z.literal("adaptive-portfolio-v2"),
+    policyVersion: z.literal("adaptive-portfolio-v3"),
     uniqueCitingPaperCount: z.number().int().nonnegative(),
     uniqueCitationGroupCount: z.number().int().nonnegative(),
     sourceRecordCount: z.number().int().positive(),
@@ -948,6 +948,12 @@ export const discoverCandidateSelectionAnnotationSchema = z
     comparisonCount: z.number().int().nonnegative(),
     conditionCount: z.number().int().nonnegative(),
     genericLanguagePenalty: z.number().min(0).max(1),
+    claimShape: z.enum([
+      "atomic",
+      "methods_protocol",
+      "compound",
+      "citing_meta",
+    ]),
     lexicalFingerprint: z
       .object({
         wordShingleHash: z.string().min(1),
@@ -2462,10 +2468,11 @@ export type EvidenceRerankingPolicy = z.infer<
 export type EvidenceSelectionIdentityInputs = {
   bm25RunId: string;
   rerankRunId?: string | undefined;
-  rankingSource: "bm25" | "reranked";
+  rankingSource: "bm25" | "reranked" | "bm25_with_scope_pins";
   rankingId: string;
   selectionLimit: number;
   selectedChunkIds: readonly string[];
+  pinnedChunkIds?: readonly string[] | undefined;
 };
 
 export function buildEvidenceSelectionId(
@@ -2479,6 +2486,9 @@ export function buildEvidenceSelectionId(
     rankingId: input.rankingId,
     selectionLimit: input.selectionLimit,
     selectedChunkIds: input.selectedChunkIds,
+    ...(input.pinnedChunkIds != null && input.pinnedChunkIds.length > 0
+      ? { pinnedChunkIds: input.pinnedChunkIds }
+      : {}),
   });
 }
 
@@ -2487,10 +2497,11 @@ export const evidenceSelectionSchema = z
     selectionId: stableIdentifierSchema,
     bm25RunId: stableIdentifierSchema,
     rerankRunId: stableIdentifierSchema.optional(),
-    rankingSource: z.enum(["bm25", "reranked"]),
+    rankingSource: z.enum(["bm25", "reranked", "bm25_with_scope_pins"]),
     rankingId: stableIdentifierSchema,
     selectionLimit: z.number().int().positive(),
     selectedChunkIds: z.array(stableIdentifierSchema).min(1),
+    pinnedChunkIds: z.array(stableIdentifierSchema).optional(),
     selectionContentHash: sha256DigestSchema,
   })
   .strict()
@@ -2500,6 +2511,13 @@ export const evidenceSelectionSchema = z
       ["selectedChunkIds"],
       context,
     );
+    if (selection.pinnedChunkIds) {
+      addDuplicateIdentifierIssue(
+        selection.pinnedChunkIds,
+        ["pinnedChunkIds"],
+        context,
+      );
+    }
     if (selection.selectedChunkIds.length > selection.selectionLimit) {
       context.addIssue({
         code: "custom",
@@ -2508,7 +2526,8 @@ export const evidenceSelectionSchema = z
       });
     }
     if (
-      selection.rankingSource === "bm25" &&
+      (selection.rankingSource === "bm25" ||
+        selection.rankingSource === "bm25_with_scope_pins") &&
       (selection.rankingId !== selection.bm25RunId ||
         selection.rerankRunId != null)
     ) {
@@ -2516,6 +2535,27 @@ export const evidenceSelectionSchema = z
         code: "custom",
         path: ["rankingId"],
         message: "BM25 selection must point only to its immutable BM25 run",
+      });
+    }
+    if (
+      selection.rankingSource === "bm25_with_scope_pins" &&
+      (selection.pinnedChunkIds == null || selection.pinnedChunkIds.length === 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["pinnedChunkIds"],
+        message: "Scope-pinned BM25 selection requires pinned chunk IDs",
+      });
+    }
+    if (
+      selection.rankingSource === "bm25" &&
+      selection.pinnedChunkIds != null &&
+      selection.pinnedChunkIds.length > 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["pinnedChunkIds"],
+        message: "Pure BM25 selection cannot declare scope pins",
       });
     }
     if (
@@ -4116,21 +4156,35 @@ function validateEvidencePayload(
         ? bm25Run.candidates
             .slice(0, selection.selectionLimit)
             .map((candidate) => candidate.chunkId)
-        : (() => {
-            const rerankRun = selection.rerankRunId
-              ? rerankRunsById.get(selection.rerankRunId)
-              : undefined;
-            if (
-              !rerankRun ||
-              rerankRun.status !== "completed" ||
-              rerankRun.bm25RunId !== bm25Run.bm25RunId
-            ) {
-              return undefined;
-            }
-            return rerankRun.results
-              .slice(0, selection.selectionLimit)
-              .map((result) => result.chunkId);
-          })();
+        : selection.rankingSource === "bm25_with_scope_pins"
+          ? (() => {
+              const pins = selection.pinnedChunkIds ?? [];
+              if (pins.length === 0) return undefined;
+              const selected: string[] = [...pins];
+              const seen = new Set(selected);
+              for (const candidate of bm25Run.candidates) {
+                if (selected.length >= selection.selectionLimit) break;
+                if (seen.has(candidate.chunkId)) continue;
+                selected.push(candidate.chunkId);
+                seen.add(candidate.chunkId);
+              }
+              return selected;
+            })()
+          : (() => {
+              const rerankRun = selection.rerankRunId
+                ? rerankRunsById.get(selection.rerankRunId)
+                : undefined;
+              if (
+                !rerankRun ||
+                rerankRun.status !== "completed" ||
+                rerankRun.bm25RunId !== bm25Run.bm25RunId
+              ) {
+                return undefined;
+              }
+              return rerankRun.results
+                .slice(0, selection.selectionLimit)
+                .map((result) => result.chunkId);
+            })();
     if (
       !expectedChunkIds ||
       !sameIdentifierSequence(selection.selectedChunkIds, expectedChunkIds)
@@ -4140,6 +4194,22 @@ function validateEvidencePayload(
         ["selections"],
         `Selection does not preserve the top entries of its declared ranking: ${selection.selectionId}`,
       );
+    }
+    if (selection.rankingSource === "bm25_with_scope_pins") {
+      const corpus = corporaById.get(bm25Run.corpusId);
+      const pinSet = new Set(selection.pinnedChunkIds ?? []);
+      if (
+        !corpus ||
+        [...pinSet].some(
+          (chunkId) => !corpus.chunks.some((chunk) => chunk.chunkId === chunkId),
+        )
+      ) {
+        addEvidenceIssue(
+          context,
+          ["selections"],
+          `Scope-pinned selection references chunks outside its corpus: ${selection.selectionId}`,
+        );
+      }
     }
   }
 
@@ -4376,7 +4446,11 @@ function validateEvidenceOutcomeReferences(
         `Disabled reranking cannot carry execution provenance: ${outcome.recordId}`,
       );
     }
-    if (selection && selection.rankingSource !== "bm25") {
+    if (
+      selection &&
+      selection.rankingSource !== "bm25" &&
+      selection.rankingSource !== "bm25_with_scope_pins"
+    ) {
       addEvidenceIssue(
         context,
         ["records"],
@@ -4405,7 +4479,8 @@ function validateEvidenceOutcomeReferences(
       if (
         !rerankRun ||
         rerankRun.status !== "failed" ||
-        selection?.rankingSource !== "bm25"
+        (selection?.rankingSource !== "bm25" &&
+          selection?.rankingSource !== "bm25_with_scope_pins")
       ) {
         addEvidenceIssue(
           context,

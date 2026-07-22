@@ -332,7 +332,7 @@ function buildAllStageArtifacts() {
           rank: 1,
           reason: "Highest-supported claim candidate.",
           annotation: {
-            policyVersion: "adaptive-portfolio-v2",
+            policyVersion: "adaptive-portfolio-v3",
             uniqueCitingPaperCount: 1,
             uniqueCitationGroupCount: 1,
             sourceRecordCount: 1,
@@ -345,6 +345,7 @@ function buildAllStageArtifacts() {
             comparisonCount: 0,
             conditionCount: 0,
             genericLanguagePenalty: 0,
+            claimShape: "atomic",
             lexicalFingerprint: {
               wordShingleHash: canonicalSha256("word"),
               charShingleHash: canonicalSha256("char"),
