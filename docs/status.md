@@ -50,6 +50,8 @@ The physical SQLite column `analysis_run_stages.family_index` remains because it
 
 `apps/ui` is a local-only launcher and inspector for the canonical pipeline. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, presents the six canonical logical stages, and reads typed inspector payloads. It is not a hosted product.
 
+The Report stage explorer joins Prepare/Evidence/Adjudicate onto the canonical report spine for Overview, Records, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
+
 ## Cross-cutting implementation
 
 - All external boundaries are Zod-validated.

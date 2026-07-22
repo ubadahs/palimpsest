@@ -27,6 +27,66 @@ type CanonicalInspectorPayload<
   summary: TSummary;
 };
 
+/** Display-only evidence passage for the report record browser. */
+export type ReportInspectorEvidencePassage = {
+  chunkId: string;
+  text: string;
+  sourceBlockKind: string;
+  sourceSectionTitle?: string;
+  pinned: boolean;
+  modelCited: boolean;
+};
+
+/**
+ * Lean, client-safe row for one Prepare × Evidence × Adjudicate record.
+ * Joined from upstream artifacts using the report `recordTraces` spine.
+ */
+export type ReportInspectorRecordRow = {
+  recordId: string;
+  familyId: string;
+  citationOccurrenceId: string;
+  trackedClaim: string;
+  evaluatedClaimText: string;
+  citingPaperTitle: string;
+  citingPaperDoi?: string;
+  citingPaperYear?: number;
+  seedRefLabel?: string;
+  sectionTitle?: string;
+  citationContext: string;
+  classificationStatus: string;
+  citationRole?: string;
+  evaluationMode?: string;
+  groundingStatus?: string;
+  retrievalStatus: string;
+  rerankStatus: string;
+  rankingSource?: string;
+  evidencePassages: ReportInspectorEvidencePassage[];
+  adjudicationStatus:
+    | "adjudicated"
+    | "not_adjudicated"
+    | "adjudication_failed"
+    | "invalid_output";
+  verdict?: "F" | "D" | "E" | "U";
+  confidence?: string;
+  comparison?: string;
+  rationale?: string;
+  gateCode?: string;
+  failureCode?: string;
+  operationalReason?: string;
+};
+
+export type ReportInspectorSummary = {
+  interpretationStatus: ReportArtifact["payload"]["interpretationStatus"];
+  interpretationWarning: ReportArtifact["payload"]["interpretationWarning"];
+  method: ReportArtifact["payload"]["method"];
+  lineage: ReportArtifact["payload"]["lineage"];
+  funnel: ReportArtifact["payload"]["funnel"];
+  rates: ReportArtifact["payload"]["rates"];
+  decisionSummaries: ReportArtifact["payload"]["decisionSummaries"];
+  exclusionSummaries: ReportArtifact["payload"]["exclusionSummaries"];
+  records: ReportInspectorRecordRow[];
+};
+
 export type StageInspectorPayloadMap = {
   discover: CanonicalInspectorPayload<
     "discover",
@@ -90,13 +150,18 @@ export type StageInspectorPayloadMap = {
   report: CanonicalInspectorPayload<
     "report",
     ReportArtifact,
-    {
-      interpretationStatus: ReportArtifact["payload"]["interpretationStatus"];
-      funnel: ReportArtifact["payload"]["funnel"];
-      rates: ReportArtifact["payload"]["rates"];
-    }
-  > & { markdownPath?: string };
+    ReportInspectorSummary
+  > & {
+    markdownPath?: string;
+  };
 };
 
 export type StageInspectorPayload<K extends StageKey = StageKey> =
   StageInspectorPayloadMap[K];
+
+export type BuildStageInspectorOptions = {
+  markdownPath?: string;
+  preparePath?: string;
+  evidencePath?: string;
+  adjudicatePath?: string;
+};
