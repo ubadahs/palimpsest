@@ -907,6 +907,18 @@ function buildAllStageArtifacts() {
             "discover.deferred_by_novelty",
             "Deferred by novelty",
           ),
+          attributedClaimsWithVerifiedSupportSpan: buildReportCount({
+            metricId: "discover.attributed_claims_with_verified_support_span",
+            count: 0,
+            unit: "attributed_claim_records",
+            population: "Claims with verified support spans",
+          }),
+          attributedClaimsMissingSupportSpan: buildReportCount({
+            metricId: "discover.attributed_claims_missing_support_span",
+            count: 0,
+            unit: "attributed_claim_records",
+            population: "Claims missing verified support spans",
+          }),
         },
         scope: {
           scopedCandidates: zeroCandidates(
@@ -1044,6 +1056,46 @@ function buildAllStageArtifacts() {
             E: zeroFamilyOccurrence("adjudicate.verdict_E", "Verdict E"),
             U: zeroFamilyOccurrence("adjudicate.verdict_U", "Verdict U"),
           },
+          uniqueClaimUnits: buildReportCount({
+            metricId: "adjudicate.unique_claim_units",
+            count: 0,
+            unit: "unique_claim_units",
+            population: "Unique claim units",
+          }),
+          uniqueAdjudicatedClaimUnits: buildReportCount({
+            metricId: "adjudicate.unique_adjudicated_claim_units",
+            count: 0,
+            unit: "unique_claim_units",
+            population: "Unique adjudicated claim units",
+          }),
+          repeatedRecordsBeyondUniqueUnits: zeroFamilyOccurrence(
+            "adjudicate.repeated_records_beyond_unique_units",
+            "Repeated records beyond unique units",
+          ),
+          packetsWithVerifiedSupportSpans: buildReportCount({
+            metricId: "adjudicate.packets_with_verified_support_spans",
+            count: 0,
+            unit: "adjudication_packets",
+            population: "Packets with verified support spans",
+          }),
+          packetsMissingSupportSpans: buildReportCount({
+            metricId: "adjudicate.packets_missing_support_spans",
+            count: 0,
+            unit: "adjudication_packets",
+            population: "Packets missing support spans",
+          }),
+          evidenceSufficient: zeroFamilyOccurrence(
+            "adjudicate.evidence_sufficient",
+            "Evidence sufficient",
+          ),
+          evidenceLimited: zeroFamilyOccurrence(
+            "adjudicate.evidence_limited",
+            "Evidence limited",
+          ),
+          figureOnlyLimitation: zeroFamilyOccurrence(
+            "adjudicate.figure_only_limitation",
+            "Figure-only limitation",
+          ),
         },
       },
       rates: [

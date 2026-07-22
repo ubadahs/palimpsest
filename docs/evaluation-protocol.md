@@ -66,8 +66,17 @@ For each reviewed citation instance, the reviewer should answer:
 5. Is the section label correct when present?
 6. Is the top-level label correct when adjudicated?
 7. Does the rationale match the evidence?
+8. Was selected text evidence sufficient for the judgment (for example, not figure-only)?
 
 If the cited span is wrong or not relevant, the judgment is invalid even if the final label appears plausible.
+
+Score these layers separately when summarizing calibration:
+
+- `labelAgreement` — human and model top-label match
+- `evidenceSufficiency` — packet evidence could support the judgment
+- `endToEndValid` — `labelAgreement && evidenceSufficiency` and packet quality OK
+
+Do not invent new product verdict modes for these fields.
 
 ## Review Form Fields
 
@@ -80,6 +89,7 @@ Each reviewed case should record:
 - in-scope yes or no
 - citing span valid yes or no
 - cited span valid yes or no
+- evidence sufficiency sufficient or limited
 - top-level label correct yes or no or not applicable
 - free-text notes
 

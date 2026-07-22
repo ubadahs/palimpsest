@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-07-19
+**Last updated:** 2026-07-22
 
 This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
 
@@ -14,12 +14,12 @@ The public CLI, SQLite run registry, local UI, artifact layout, resume logic, an
 
 | Stage | Status | Notes |
 |---|---|---|
-| `discover` | Runnable | Paginates the citing neighborhood, stratifies probing, emits one seed occurrence per exact citation group, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
+| `discover` | Runnable | Paginates the citing neighborhood, stratifies probing, emits one seed occurrence per exact citation group, exact-verifies claim support spans into offset-bound `supportSpan` fields, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
 | `scope` | Runnable | Accounts for every Discover candidate, freezes exact family and occurrence membership, materializes seed text once per seed, and records verified grounding without excluding a family. |
-| `prepare` | Runnable | Produces one stable record for every scoped family × citation occurrence with complete and occurrence-local claim membership plus typed classification. Ambiguous roles remain queued for manual review. |
+| `prepare` | Runnable | Produces one stable record for every scoped family × citation occurrence with complete and occurrence-local claim membership plus typed classification. Missing verified support spans and ambiguous roles remain queued for manual review. |
 | `evidence` | Runnable | Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), content-hash reuse, and optional immutable relevance-rerank versions. One outcome per Prepare record. |
-| `adjudicate` | Runnable, uncalibrated | Applies deterministic gates and one categorical model call per eligible record; emits `F`/`D`/`E`/`U` or a typed non-verdict. Manual-review roles are not auto-broadened to the model. |
-| `report` | Runnable, deterministic | Verifies the five upstream artifacts and writes authoritative JSON funnel/rate/trace accounting (including portfolio deferrals and manual-review splits) plus Markdown rendered from that JSON. |
+| `adjudicate` | Runnable, uncalibrated | Applies deterministic gates (including broken citation-scope markers and missing verified spans) and one categorical model call per eligible record; emits `F`/`D`/`E`/`U` or a typed non-verdict plus evidence-sufficiency diagnostics. Manual-review roles are not auto-broadened to the model. |
+| `report` | Runnable, deterministic | Verifies the five upstream artifacts and writes authoritative JSON funnel/rate/trace accounting (including unique claim units, support-span coverage, evidence-sufficiency diagnostics, portfolio deferrals, and manual-review splits) plus Markdown rendered from that JSON. |
 
 Run with:
 

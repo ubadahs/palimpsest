@@ -12,6 +12,7 @@ import {
   evidenceArtifactSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
+  normalizeDiscoverClaimText,
   prepareArtifactSchema,
   canonicalReportMethodId,
   REPORT_INTERPRETATION_WARNING,
@@ -482,6 +483,14 @@ function buildFunnelCounts(input: {
     discover.candidateDispositions,
     (disposition) => disposition.bindingConstraint === "min_marginal_novelty",
   );
+  const attributedClaimsWithVerifiedSupportSpan = countBy(
+    discover.attributedClaimRecords,
+    (record) => record.supportSpan != null,
+  );
+  const attributedClaimsMissingSupportSpan = countBy(
+    discover.attributedClaimRecords,
+    (record) => record.supportSpan == null,
+  );
 
   const scopedCandidates = scopeArtifact.payload.candidateDecisions.filter(
     (decision) => decision.disposition === "scoped",
@@ -633,6 +642,59 @@ function buildFunnelCounts(input: {
       (record) => record.status === "adjudicated" && record.verdict === label,
     ).length;
 
+  const prepareById = new Map(
+    preparedRecords.map((record) => [record.recordId, record]),
+  );
+  const uniqueClaimUnitKeys = new Set<string>();
+  const uniqueAdjudicatedClaimUnitKeys = new Set<string>();
+  let packetsWithVerifiedSupportSpans = 0;
+  let packetsMissingSupportSpans = 0;
+  for (const outcome of adjudicateRecords) {
+    const prepareRecord = prepareById.get(outcome.recordId);
+    if (!prepareRecord) continue;
+    const claimKey = prepareRecord.occurrenceSourceClaimRecords
+      .map((claim) => normalizeDiscoverClaimText(claim.extractedClaimText))
+      .sort(compareCodeUnits)
+      .join("\u0001");
+    const unitKey = [
+      prepareRecord.familyId,
+      prepareRecord.citingPaper.paper.paperId,
+      claimKey,
+    ].join("\u0000");
+    uniqueClaimUnitKeys.add(unitKey);
+    if (outcome.status === "adjudicated") {
+      uniqueAdjudicatedClaimUnitKeys.add(unitKey);
+    }
+    const allVerified =
+      prepareRecord.occurrenceSourceClaimRecords.length > 0 &&
+      prepareRecord.occurrenceSourceClaimRecords.every(
+        (claim) => claim.supportSpan != null,
+      );
+    if (allVerified) {
+      packetsWithVerifiedSupportSpans += 1;
+    } else {
+      packetsMissingSupportSpans += 1;
+    }
+  }
+  const evidenceSufficient = countBy(
+    adjudicated,
+    (record) =>
+      record.status === "adjudicated" &&
+      record.evidenceSufficiency === "sufficient",
+  );
+  const evidenceLimited = countBy(
+    adjudicated,
+    (record) =>
+      record.status === "adjudicated" &&
+      record.evidenceSufficiency === "limited",
+  );
+  const figureOnlyLimitation = countBy(
+    adjudicated,
+    (record) =>
+      record.status === "adjudicated" &&
+      record.evidenceLimitation === "figure_only_support",
+  );
+
   return {
     discover: {
       seeds: count(
@@ -766,6 +828,18 @@ function buildFunnelCounts(input: {
         uniqueCitationGroups,
         "citation_groups",
         "Distinct seed citation groups after exact targetRefIds occurrence selection",
+      ),
+      attributedClaimsWithVerifiedSupportSpan: count(
+        "discover.attributed_claims_with_verified_support_span",
+        attributedClaimsWithVerifiedSupportSpan,
+        "attributed_claim_records",
+        "Attributed claim records with an exact-verified citing-side support span",
+      ),
+      attributedClaimsMissingSupportSpan: count(
+        "discover.attributed_claims_missing_support_span",
+        attributedClaimsMissingSupportSpan,
+        "attributed_claim_records",
+        "Attributed claim records missing an exact-verified citing-side support span",
       ),
       deferredByFamilyCap: count(
         "discover.deferred_by_family_cap",
@@ -991,6 +1065,54 @@ function buildFunnelCounts(input: {
           "Adjudicated records with scientific uncertainty U (distinct from operational failures)",
         ),
       },
+      uniqueClaimUnits: count(
+        "adjudicate.unique_claim_units",
+        uniqueClaimUnitKeys.size,
+        "unique_claim_units",
+        "Distinct family × citing-paper × claim-record units across Adjudicate outcomes",
+      ),
+      uniqueAdjudicatedClaimUnits: count(
+        "adjudicate.unique_adjudicated_claim_units",
+        uniqueAdjudicatedClaimUnitKeys.size,
+        "unique_claim_units",
+        "Distinct family × citing-paper × claim-record units among adjudicated records",
+      ),
+      repeatedRecordsBeyondUniqueUnits: count(
+        "adjudicate.repeated_records_beyond_unique_units",
+        Math.max(0, adjudicateRecords.length - uniqueClaimUnitKeys.size),
+        "family_occurrence_records",
+        "Adjudicate records beyond the unique claim-unit count (repeated occurrence packets)",
+      ),
+      packetsWithVerifiedSupportSpans: count(
+        "adjudicate.packets_with_verified_support_spans",
+        packetsWithVerifiedSupportSpans,
+        "adjudication_packets",
+        "Packets whose occurrence-local claims all carry exact-verified support spans",
+      ),
+      packetsMissingSupportSpans: count(
+        "adjudicate.packets_missing_support_spans",
+        packetsMissingSupportSpans,
+        "adjudication_packets",
+        "Packets with one or more claims missing an exact-verified support span",
+      ),
+      evidenceSufficient: count(
+        "adjudicate.evidence_sufficient",
+        evidenceSufficient,
+        "family_occurrence_records",
+        "Adjudicated records whose selected text evidence was assessed as sufficient",
+      ),
+      evidenceLimited: count(
+        "adjudicate.evidence_limited",
+        evidenceLimited,
+        "family_occurrence_records",
+        "Adjudicated records with an evidence-sufficiency limitation diagnostic",
+      ),
+      figureOnlyLimitation: count(
+        "adjudicate.figure_only_limitation",
+        figureOnlyLimitation,
+        "family_occurrence_records",
+        "Adjudicated records limited because claim support appears figure-only in text packets",
+      ),
     },
   };
 }
@@ -1141,6 +1263,10 @@ function buildRecordTraces(input: {
             status: "adjudicated" as const,
             adjudicationResultId: adjudicateRecord.adjudicationResultId,
             verdict: adjudicateRecord.verdict,
+            evidenceSufficiency: adjudicateRecord.evidenceSufficiency,
+            ...(adjudicateRecord.evidenceLimitation
+              ? { evidenceLimitation: adjudicateRecord.evidenceLimitation }
+              : {}),
           }
         : adjudicateRecord.status === "not_adjudicated"
           ? {

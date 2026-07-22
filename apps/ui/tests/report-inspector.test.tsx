@@ -22,6 +22,8 @@ type CountUnit =
   | "candidates"
   | "families"
   | "family_occurrence_records"
+  | "unique_claim_units"
+  | "adjudication_packets"
   | "bm25_runs"
   | "rerank_runs"
   | "selections"
@@ -244,6 +246,16 @@ function buildPayload(): StageInspectorPayload<"report"> {
             45,
             "citation_groups",
           ),
+          attributedClaimsWithVerifiedSupportSpan: count(
+            "discover.attributed_claims_with_verified_support_span",
+            70,
+            "attributed_claim_records",
+          ),
+          attributedClaimsMissingSupportSpan: count(
+            "discover.attributed_claims_missing_support_span",
+            8,
+            "attributed_claim_records",
+          ),
           deferredByFamilyCap: count(
             "discover.deferred_by_family_cap",
             33,
@@ -335,6 +347,33 @@ function buildPayload(): StageInspectorPayload<"report"> {
             E: count("adjudicate.verdict_E", 0),
             U: count("adjudicate.verdict_U", 0),
           },
+          uniqueClaimUnits: count(
+            "adjudicate.unique_claim_units",
+            20,
+            "unique_claim_units",
+          ),
+          uniqueAdjudicatedClaimUnits: count(
+            "adjudicate.unique_adjudicated_claim_units",
+            17,
+            "unique_claim_units",
+          ),
+          repeatedRecordsBeyondUniqueUnits: count(
+            "adjudicate.repeated_records_beyond_unique_units",
+            24,
+          ),
+          packetsWithVerifiedSupportSpans: count(
+            "adjudicate.packets_with_verified_support_spans",
+            40,
+            "adjudication_packets",
+          ),
+          packetsMissingSupportSpans: count(
+            "adjudicate.packets_missing_support_spans",
+            4,
+            "adjudication_packets",
+          ),
+          evidenceSufficient: count("adjudicate.evidence_sufficient", 33),
+          evidenceLimited: count("adjudicate.evidence_limited", 2),
+          figureOnlyLimitation: count("adjudicate.figure_only_limitation", 1),
         },
       },
       rates: [
