@@ -155,16 +155,55 @@ export function StageDetailClient({
       </Card>
 
       <StageInspector detail={detail} runId={run.id} />
-      <CurrentWorkPanel
-        progressVariant={detail.status === "running" ? "live" : "archive"}
-        title="Stage workflow"
-        workflow={detail.workflow}
-      />
-      <ArtifactTabs
-        artifactPointers={detail.artifactPointers}
-        runId={run.id}
-        stageKey={detail.stageKey}
-      />
+      {group.stageKey === "report" ? (
+        <Card className="overflow-hidden">
+          <details className="group">
+            <summary className="flex cursor-pointer list-none flex-col gap-2 border-b border-[var(--border)] px-6 py-5 [&::-webkit-details-marker]:hidden">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-[var(--font-instrument)] text-2xl tracking-[-0.03em]">
+                    Technical stage output
+                  </h3>
+                  <p className="mt-1 text-sm text-[var(--text-muted)]">
+                    Workflow telemetry and raw JSON/Markdown/manifest artifacts.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)] group-open:bg-[var(--panel-muted)] group-open:text-[var(--text)]">
+                  <span className="group-open:hidden">Show</span>
+                  <span className="hidden group-open:inline">Hide</span>
+                </span>
+              </div>
+            </summary>
+            <CardContent className="space-y-6 pt-5">
+              <CurrentWorkPanel
+                progressVariant={
+                  detail.status === "running" ? "live" : "archive"
+                }
+                title="Stage workflow"
+                workflow={detail.workflow}
+              />
+              <ArtifactTabs
+                artifactPointers={detail.artifactPointers}
+                runId={run.id}
+                stageKey={detail.stageKey}
+              />
+            </CardContent>
+          </details>
+        </Card>
+      ) : (
+        <>
+          <CurrentWorkPanel
+            progressVariant={detail.status === "running" ? "live" : "archive"}
+            title="Stage workflow"
+            workflow={detail.workflow}
+          />
+          <ArtifactTabs
+            artifactPointers={detail.artifactPointers}
+            runId={run.id}
+            stageKey={detail.stageKey}
+          />
+        </>
+      )}
     </div>
   );
 }

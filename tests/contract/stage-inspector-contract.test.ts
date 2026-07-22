@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest";
 
 import type {
+  ReportInspectorRecordRow,
+  ReportInspectorSummary,
   RunStageDetail,
   StageInspectorPayload,
 } from "../../src/contract/index.js";
@@ -31,6 +33,19 @@ describe("stage inspector contracts", () => {
     >();
     expectTypeOf<ReportDetail["inspectorPayload"]>().toEqualTypeOf<
       StageInspectorPayload<"report"> | undefined
+    >();
+  });
+
+  it("exposes the enriched report inspector summary for browsing", () => {
+    type ReportSummary = NonNullable<
+      StageInspectorPayload<"report">
+    >["summary"];
+    expectTypeOf<ReportSummary>().toEqualTypeOf<ReportInspectorSummary>();
+    expectTypeOf<ReportSummary["records"]>().toEqualTypeOf<
+      ReportInspectorRecordRow[]
+    >();
+    expectTypeOf<ReportSummary["interpretationWarning"]>().toEqualTypeOf<
+      ReportInspectorSummary["interpretationWarning"]
     >();
   });
 });

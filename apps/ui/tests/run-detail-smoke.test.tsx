@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   analysisRunConfigSchema,
@@ -17,6 +17,7 @@ const stages = stageDefinitions.map((stage) => ({
 
 describe("Run detail smoke", () => {
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -28,34 +29,9 @@ describe("Run detail smoke", () => {
       targetStage: "report",
       status: "queued",
       runRoot: "/tmp/run-smoke",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "report",
-        forceRefresh: false,
-        discover: {
-          neighborhoodProvider: "openalex",
-          neighborhoodQuery: "works-citing-seed",
-          neighborhoodLimit: 200,
-          probeBudget: 100,
-          candidateSelection: {
-            mode: "adaptive_portfolio",
-            minFamilies: 15,
-            maxFamilies: 25,
-            maxPreparedRecords: 100,
-          },
-          extractionModel: "claude-haiku-4-5",
-          extractionThinking: false,
-        },
-        scope: { groundingModel: "claude-sonnet-4-6", groundingThinking: true },
-        prepare: { classifier: "deterministic" },
-        evidence: {
-          rerankEnabled: false,
-          rerankModel: "claude-haiku-4-5",
-          rerankTopN: 5,
-          bm25CandidateLimit: 20,
-          selectionLimit: 5,
-        },
-        adjudicate: { model: "claude-opus-4-6", thinking: true },
-      },
+      }),
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       stages,
@@ -67,6 +43,53 @@ describe("Run detail smoke", () => {
     for (const stage of stageDefinitions) {
       expect(screen.getAllByText(stage.title).length).toBeGreaterThan(0);
     }
+  });
+
+  it("links completed report runs from the cautious results summary", () => {
+    const completed: RunDetail = {
+      id: "run-complete",
+      seedDoi: "10.1234/complete",
+      targetStage: "report",
+      status: "succeeded",
+      runRoot: "/tmp/run-complete",
+      config: analysisRunConfigSchema.parse({
+        stopAfterStage: "report",
+      }),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      verdictSummary: {
+        F: 31,
+        D: 4,
+        E: 0,
+        U: 0,
+        total: 35,
+        notAdjudicated: 9,
+        adjudicationFailed: 0,
+        invalidOutput: 0,
+      },
+      stages: stageDefinitions.map((stage) => ({
+        stageKey: stage.key,
+        stageOrder: stage.order,
+        aggregateStatus: "succeeded" as const,
+        members: [
+          {
+            runId: "run-complete",
+            stageKey: stage.key,
+            stageOrder: stage.order,
+            status: "succeeded" as const,
+          },
+        ],
+      })),
+    };
+
+    render(<RunDetailClient initialRun={completed} />);
+
+    expect(
+      screen.getByText("31 of 35 adjudicated records received F."),
+    ).toBeTruthy();
+    expect(screen.getByText(/Uncalibrated research output/i)).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Browse full report" });
+    expect(link.getAttribute("href")).toBe("/runs/run-complete/stages/report");
   });
 
   it("reports a partial target truthfully and offers the next extension", () => {
@@ -133,37 +156,9 @@ describe("Run detail smoke", () => {
       status: "running",
       currentStage: "discover",
       runRoot: "/tmp/run-live",
-      config: {
+      config: analysisRunConfigSchema.parse({
         stopAfterStage: "report",
-        forceRefresh: false,
-        discover: {
-          neighborhoodProvider: "openalex",
-          neighborhoodQuery: "works-citing-seed",
-          neighborhoodLimit: 200,
-          probeBudget: 100,
-          candidateSelection: {
-            mode: "adaptive_portfolio",
-            minFamilies: 15,
-            maxFamilies: 25,
-            maxPreparedRecords: 100,
-          },
-          extractionModel: "claude-haiku-4-5",
-          extractionThinking: false,
-        },
-        scope: {
-          groundingModel: "claude-sonnet-4-6",
-          groundingThinking: true,
-        },
-        prepare: { classifier: "deterministic" },
-        evidence: {
-          rerankEnabled: false,
-          rerankModel: "claude-haiku-4-5",
-          rerankTopN: 5,
-          bm25CandidateLimit: 20,
-          selectionLimit: 5,
-        },
-        adjudicate: { model: "claude-opus-4-6", thinking: true },
-      },
+      }),
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:01.000Z",
       stages: stageDefinitions.map((stage) => ({
@@ -254,6 +249,8 @@ describe("Run detail smoke", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(screen.getAllByText("succeeded").length).toBeGreaterThan(0);
-    expect(screen.getByText("All 6 stages complete")).toBeTruthy();
+    expect(screen.getAllByText("All 6 stages complete").length).toBeGreaterThan(
+      0,
+    );
   });
 });

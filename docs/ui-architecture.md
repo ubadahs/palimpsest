@@ -19,6 +19,16 @@ Old seven-stage UI/run state is unsupported. Existing local database rows or run
 - `/runs/[runId]` — run overview, six-stage rail, live logs, and artifacts
 - `/runs/[runId]/stages/[stageKey]` — canonical stage inspection
 
+## Report explorer
+
+The Report stage (`/runs/[runId]/stages/report`) renders a typed report explorer rather than a raw dump:
+
+- **Overview** — uncalibrated-output warning, F/D/E/U distribution with the adjudicated denominator, retrieval/adjudication coverage, and Discover→Adjudicate funnel cards
+- **Records** — searchable/filterable per-record browser joined from Prepare, Evidence, and Adjudicate onto the report `recordTraces` spine (claims, citation context, evidence passages, comparison/rationale, operational gates)
+- **Audit trail** — method/lineage hashes, decision/exclusion summaries, and links to authoritative JSON/Markdown/manifest artifacts
+
+The completed-run overview links into this explorer with cautious “received F” wording. Canonical Report JSON remains authoritative; Markdown stays a derived technical artifact.
+
 ## API
 
 - `GET /api/health`

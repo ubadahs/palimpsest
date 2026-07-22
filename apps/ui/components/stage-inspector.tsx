@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import type {
   RunStageDetail,
   StageInspectorPayload,
 } from "palimpsest/contract";
 
+import { ReportInspector } from "@/components/report-inspector";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/ui/error-banner";
 
@@ -39,10 +39,10 @@ function Summary({ entries }: { entries: Array<[string, string | number]> }) {
 
 function CanonicalInspector({
   payload,
-  markdownUrl,
+  runId,
 }: {
   payload: StageInspectorPayload;
-  markdownUrl?: string;
+  runId: string;
 }) {
   switch (payload.stageKey) {
     case "discover":
@@ -99,49 +99,8 @@ function CanonicalInspector({
         </>
       );
     case "report":
-      return (
-        <ReportInspector
-          payload={payload}
-          {...(markdownUrl ? { markdownUrl } : {})}
-        />
-      );
+      return <ReportInspector payload={payload} runId={runId} />;
   }
-}
-
-function ReportInspector({
-  payload,
-  markdownUrl,
-}: {
-  payload: StageInspectorPayload<"report">;
-  markdownUrl?: string;
-}) {
-  const [markdown, setMarkdown] = useState<string>();
-
-  useEffect(() => {
-    if (!markdownUrl) return;
-    void fetch(markdownUrl)
-      .then((response) => (response.ok ? response.text() : undefined))
-      .then(setMarkdown)
-      .catch(() => undefined);
-  }, [markdownUrl]);
-
-  return (
-    <>
-      <Summary
-        entries={[["Interpretation", payload.summary.interpretationStatus]]}
-      />
-      <section className="space-y-2">
-        <h3 className="font-semibold text-[var(--text)]">Report JSON</h3>
-        <PayloadJson payload={payload} />
-      </section>
-      <section className="space-y-2">
-        <h3 className="font-semibold text-[var(--text)]">Report Markdown</h3>
-        <pre className="max-h-[540px] overflow-auto rounded-[20px] border border-[var(--border)] bg-[#1f1b17] p-5 text-xs leading-6 text-[#efe6da]">
-          {markdown ?? "Markdown is available in the report artifact tab."}
-        </pre>
-      </section>
-    </>
-  );
 }
 
 export function StageInspector({
@@ -151,10 +110,17 @@ export function StageInspector({
   detail: RunStageDetail;
   runId: string;
 }) {
-  const markdownUrl =
-    detail.stageKey === "report"
-      ? `/api/runs/${runId}/stages/report/artifacts/report`
-      : undefined;
+  if (detail.stageKey === "report" && detail.inspectorPayload) {
+    return (
+      <div className="space-y-4">
+        {detail.errorMessage ? (
+          <ErrorBanner>{detail.errorMessage}</ErrorBanner>
+        ) : null}
+        <CanonicalInspector payload={detail.inspectorPayload} runId={runId} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {detail.errorMessage ? (
@@ -170,7 +136,7 @@ export function StageInspector({
           <CardContent className="space-y-5">
             <CanonicalInspector
               payload={detail.inspectorPayload}
-              {...(markdownUrl ? { markdownUrl } : {})}
+              runId={runId}
             />
           </CardContent>
         </Card>
