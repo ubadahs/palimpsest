@@ -575,7 +575,9 @@ function buildFunnelCounts(input: {
   );
   const uniqueFinalSelectionsBm25 = countBy(
     evidenceArtifact.payload.selections,
-    (selection) => selection.rankingSource === "bm25",
+    (selection) =>
+      selection.rankingSource === "bm25" ||
+      selection.rankingSource === "bm25_with_scope_pins",
   );
   const uniqueFinalSelectionsReranked = countBy(
     evidenceArtifact.payload.selections,
@@ -597,8 +599,14 @@ function buildFunnelCounts(input: {
         `Evidence record references missing selection: ${record.recordId}`,
       );
     }
-    if (selection.rankingSource === "bm25") recordSelectionBm25 += 1;
-    else recordSelectionReranked += 1;
+    if (
+      selection.rankingSource === "bm25" ||
+      selection.rankingSource === "bm25_with_scope_pins"
+    ) {
+      recordSelectionBm25 += 1;
+    } else if (selection.rankingSource === "reranked") {
+      recordSelectionReranked += 1;
+    }
   }
 
   const adjudicateRecords = adjudicateArtifact.payload.records;

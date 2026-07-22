@@ -33,7 +33,7 @@ const formDefaults = {
       confidenceWeight: 0.15,
       noveltyWeight: 0.25,
       minMarginalNovelty: 0.08,
-      policyVersion: "adaptive-portfolio-v2",
+      policyVersion: "adaptive-portfolio-v3",
     },
     extractionModel: "claude-haiku-4-5",
     extractionThinking: false,

@@ -71,7 +71,8 @@ export const canonicalScopeGroundingOutputSchema = z.discriminatedUnion(
       .object({
         status: z.literal("not_found"),
         detailReason: z.string().min(1),
-        supportSpans: z.array(groundingSupportSpanOutputSchema).length(0),
+        // Model may propose junk spans; Scope ignores them for not_found.
+        supportSpans: z.array(groundingSupportSpanOutputSchema).default([]),
       })
       .strict(),
   ],
@@ -491,8 +492,21 @@ function mapGroundingOutput(
     );
   }
 
+  if (parsed.data.status === "not_found") {
+    return {
+      status: "not_found",
+      detailReason: parsed.data.detailReason,
+      evidenceSpans: [],
+      quoteVerification: {
+        status: "not_applicable",
+        failures: [],
+      },
+      modelExecution: execution,
+    };
+  }
+
   const verifiedSpans: ScopeVerifiedEvidenceSpan[] = [];
-  const failures: ScopeGrounding["quoteVerification"]["failures"] = [];
+  let droppedProposals = 0;
   const blocksById = new Map(
     materialization.blocks.map((block) => [block.blockId, block]),
   );
@@ -502,21 +516,12 @@ function mapGroundingOutput(
   for (const proposed of proposedSpans) {
     const block = blocksById.get(proposed.blockId);
     if (!block) {
-      failures.push({
-        proposedText: proposed.verbatimQuote,
-        proposedBlockId: proposed.blockId,
-        reason: "The model referenced a seed-text block that does not exist.",
-      });
+      droppedProposals += 1;
       continue;
     }
     const relativeStart = block.text.indexOf(proposed.verbatimQuote);
     if (relativeStart < 0) {
-      failures.push({
-        proposedText: proposed.verbatimQuote,
-        proposedBlockId: proposed.blockId,
-        reason:
-          "The proposed quote is not a contiguous exact substring of the referenced seed-text block.",
-      });
+      droppedProposals += 1;
       continue;
     }
     verifiedSpans.push({
@@ -532,29 +537,37 @@ function mapGroundingOutput(
     });
   }
 
-  if (failures.length > 0) {
+  if (verifiedSpans.length === 0) {
     return {
       status: "invalid_grounding_output",
       detailReason: `${parsed.data.detailReason} Quote verification rejected model-proposed evidence.`,
       evidenceSpans: [],
       quoteVerification: {
         status: "failed",
-        failures: failures.sort((left, right) =>
-          compareCodeUnits(canonicalSerialize(left), canonicalSerialize(right)),
-        ),
+        failures: proposedSpans.map((proposed) => ({
+          proposedText: proposed.verbatimQuote,
+          ...(proposed.blockId ? { proposedBlockId: proposed.blockId } : {}),
+          reason:
+            "No proposed quote was a contiguous exact substring of a seed-text block.",
+        })),
       },
       modelExecution: execution,
     };
   }
 
+  const detailReason =
+    droppedProposals > 0
+      ? `${parsed.data.detailReason} Dropped ${String(droppedProposals)} unverifiable support span proposal(s).`
+      : parsed.data.detailReason;
+
   return {
     status: parsed.data.status,
-    detailReason: parsed.data.detailReason,
+    detailReason,
     evidenceSpans: verifiedSpans.sort((left, right) =>
       compareCodeUnits(canonicalSerialize(left), canonicalSerialize(right)),
     ),
     quoteVerification: {
-      status: verifiedSpans.length > 0 ? "verified_exact" : "not_applicable",
+      status: "verified_exact",
       failures: [],
     },
     modelExecution: execution,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   annotateClaimCandidate,
+  classifyClaimShape,
   extractFidelityMarkers,
   selectAdaptivePortfolio,
   adaptivePortfolioPolicySchema,
@@ -97,9 +98,9 @@ function candidate(input: {
 }
 
 describe("adaptive portfolio candidate selection", () => {
-  it("defaults to balanced prevalence and novelty weights under v2 policy", () => {
+  it("defaults to balanced prevalence and novelty weights under v3 policy", () => {
     expect(defaultAdaptivePortfolioPolicy.policyVersion).toBe(
-      "adaptive-portfolio-v2",
+      "adaptive-portfolio-v3",
     );
     expect(defaultAdaptivePortfolioPolicy.prevalenceWeight).toBe(0.25);
     expect(defaultAdaptivePortfolioPolicy.noveltyWeight).toBe(0.25);
@@ -326,5 +327,187 @@ describe("adaptive portfolio candidate selection", () => {
       entry.candidateId.startsWith("cand_gaba_"),
     ).length;
     expect(gabaSelected).toBeLessThan(selected.length);
+  });
+
+  it("classifies methods, compound, and citing-meta claim shapes", () => {
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "mice were anesthetized with brinol before perfusion for immunohistochemistry.",
+        memberMentions: [],
+      }),
+    ).toBe("methods_protocol");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "lorn neurons increase burst rate; nexil marks a distinct kestrin population.",
+        memberMentions: [],
+      }),
+    ).toBe("compound");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "prior studies previously estimated that the seed paper described this circuit.",
+        memberMentions: [],
+      }),
+    ).toBe("citing_meta");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "lorn+ relay cells increase burst rate after a patterned stimulus.",
+        memberMentions: [],
+      }),
+    ).toBe("atomic");
+  });
+
+  it("demotes brinol-style methods claims below atomic Lorn/Nexil under a tight maxFamilies", () => {
+    const methodsMention = mention({
+      id: "m_brinol",
+      paperId: "p-methods",
+      group: 0,
+      context:
+        "Mice were anesthetized with Brinol before perfusion for immunohistochemistry.",
+    });
+    const lornMention = mention({
+      id: "m_lorn",
+      paperId: "p-lorn",
+      group: 0,
+      context:
+        "Lorn+ relay cells increase burst rate after a patterned stimulus.",
+    });
+    const nexilMention = mention({
+      id: "m_nexil",
+      paperId: "p-nexil",
+      group: 0,
+      context: "Nexil marks a distinct Kestrin neuronal population.",
+    });
+    const methodsClaim = claim({
+      id: "c_brinol",
+      mentionId: "m_brinol",
+      text: "Mice were anesthetized with Brinol before perfusion for immunohistochemistry.",
+      confidence: "high",
+    });
+    const lornClaim = claim({
+      id: "c_lorn",
+      mentionId: "m_lorn",
+      text: "Lorn+ relay cells increase burst rate after a patterned stimulus.",
+      confidence: "high",
+    });
+    const nexilClaim = claim({
+      id: "c_nexil",
+      mentionId: "m_nexil",
+      text: "Nexil marks a distinct Kestrin neuronal population.",
+      confidence: "high",
+    });
+    const methodsCandidate = candidate({
+      id: "cand_brinol",
+      text: "Mice were anesthetized with Brinol before perfusion for immunohistochemistry.",
+      mentionIds: ["m_brinol"],
+      claimIds: ["c_brinol"],
+    });
+    const lornCandidate = candidate({
+      id: "cand_lorn",
+      text: "Lorn+ relay cells increase burst rate after a patterned stimulus.",
+      mentionIds: ["m_lorn"],
+      claimIds: ["c_lorn"],
+    });
+    const nexilCandidate = candidate({
+      id: "cand_nexil",
+      text: "Nexil marks a distinct Kestrin neuronal population.",
+      mentionIds: ["m_nexil"],
+      claimIds: ["c_nexil"],
+    });
+
+    const dispositions = selectAdaptivePortfolio({
+      candidates: [methodsCandidate, lornCandidate, nexilCandidate],
+      mentions: [
+        methodsMention as never,
+        lornMention as never,
+        nexilMention as never,
+      ],
+      claims: [
+        methodsClaim as never,
+        lornClaim as never,
+        nexilClaim as never,
+      ],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 1,
+        maxFamilies: 2,
+        maxPreparedRecords: 20,
+        minMarginalNovelty: 0.05,
+      }),
+    });
+
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    expect(selected.map((entry) => entry.candidateId).sort()).toEqual([
+      "cand_nexil",
+      "cand_lorn",
+    ]);
+    expect(
+      dispositions.find((entry) => entry.candidateId === "cand_brinol")
+        ?.annotation.claimShape,
+    ).toBe("methods_protocol");
+  });
+
+  it("prefers an atomic claim over a compound multi-part sibling under a tight budget", () => {
+    const atomicMention = mention({
+      id: "m_atomic",
+      paperId: "p-atomic",
+      group: 0,
+      context: "Lorn neurons increase burst rate 2-fold after a patterned stimulus.",
+    });
+    const compoundMention = mention({
+      id: "m_compound",
+      paperId: "p-compound",
+      group: 0,
+      context:
+        "Lorn neurons increase burst rate; Nexil marks a distinct Kestrin population.",
+    });
+    const atomicClaim = claim({
+      id: "c_atomic",
+      mentionId: "m_atomic",
+      text: "Lorn neurons increase burst rate 2-fold after a patterned stimulus.",
+      confidence: "high",
+    });
+    const compoundClaim = claim({
+      id: "c_compound",
+      mentionId: "m_compound",
+      text: "Lorn neurons increase burst rate; Nexil marks a distinct Kestrin population.",
+      confidence: "high",
+    });
+    const atomicCandidate = candidate({
+      id: "cand_atomic",
+      text: "Lorn neurons increase burst rate 2-fold after a patterned stimulus.",
+      mentionIds: ["m_atomic"],
+      claimIds: ["c_atomic"],
+    });
+    const compoundCandidate = candidate({
+      id: "cand_compound",
+      text: "Lorn neurons increase burst rate; Nexil marks a distinct Kestrin population.",
+      mentionIds: ["m_compound"],
+      claimIds: ["c_compound"],
+    });
+
+    const dispositions = selectAdaptivePortfolio({
+      candidates: [atomicCandidate, compoundCandidate],
+      mentions: [atomicMention as never, compoundMention as never],
+      claims: [atomicClaim as never, compoundClaim as never],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 1,
+        maxFamilies: 1,
+        maxPreparedRecords: 20,
+        minMarginalNovelty: 0.05,
+      }),
+    });
+
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.candidateId).toBe("cand_atomic");
+    expect(
+      dispositions.find((entry) => entry.candidateId === "cand_compound")
+        ?.annotation.claimShape,
+    ).toBe("compound");
   });
 });

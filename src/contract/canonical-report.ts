@@ -334,7 +334,9 @@ const reportEvidenceTraceSchema = z
   .object({
     retrievalStatus: evidenceRetrievalStatusSchema,
     rerankStatus: evidenceRerankStatusSchema,
-    rankingSource: z.enum(["bm25", "reranked"]).optional(),
+    rankingSource: z
+      .enum(["bm25", "reranked", "bm25_with_scope_pins"])
+      .optional(),
     queryId: stableIdentifierSchema,
     bm25RunId: stableIdentifierSchema.optional(),
     rerankRunId: stableIdentifierSchema.optional(),
@@ -396,13 +398,14 @@ const reportEvidenceTraceSchema = z
       if (
         (trace.rerankStatus === "disabled" ||
           trace.rerankStatus === "failed") &&
-        trace.rankingSource !== "bm25"
+        trace.rankingSource !== "bm25" &&
+        trace.rankingSource !== "bm25_with_scope_pins"
       ) {
         context.addIssue({
           code: "custom",
           path: ["rankingSource"],
           message:
-            "BM25 must be the final ranking source when reranking is disabled or failed",
+            "BM25 (optionally with Scope pins) must be the final ranking source when reranking is disabled or failed",
         });
       }
       if (
@@ -1059,7 +1062,10 @@ function validateTraceAccounting(
   for (const trace of traces) {
     const selectionId = trace.evidence.finalSelectionId;
     if (selectionId == null) continue;
-    if (trace.evidence.rankingSource === "bm25") {
+    if (
+      trace.evidence.rankingSource === "bm25" ||
+      trace.evidence.rankingSource === "bm25_with_scope_pins"
+    ) {
       bm25SelectionIds.add(selectionId);
       recordSelectionBm25 += 1;
     } else if (trace.evidence.rankingSource === "reranked") {

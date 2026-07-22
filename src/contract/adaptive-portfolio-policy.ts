@@ -6,7 +6,7 @@ import { z } from "zod";
  * `palimpsest/contract` (UI) can import run config without `node:crypto`.
  */
 export const CANDIDATE_SELECTION_POLICY_VERSION =
-  "adaptive-portfolio-v2" as const;
+  "adaptive-portfolio-v3" as const;
 
 export const adaptivePortfolioPolicySchema = z
   .object({

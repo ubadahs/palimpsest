@@ -296,10 +296,8 @@ describe("parseParsedPaperDocument", () => {
     expect(seedGroups[0]?.bundleRefIds).toEqual(
       expect.arrayContaining(["r1", "r2", "seed"]),
     );
-    expect(seedGroups[0]?.sourceLocator).toMatchObject({
-      kind: "block_id",
-      value: expect.stringMatching(/#cg-\d+/),
-    });
+    expect(seedGroups[0]?.sourceLocator?.kind).toBe("block_id");
+    expect(seedGroups[0]?.sourceLocator?.value).toMatch(/#cg-\d+/);
     expect(seedGroups[0]?.locationQuality).toBe("exact_dom");
     expect(seedGroups[0]?.charOffsetStart).toBeLessThan(
       seedGroups[0]!.charOffsetEnd!,
