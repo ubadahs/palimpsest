@@ -65,6 +65,8 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.discover.deferredCandidates,
     payload.funnel.discover.uniqueCitingPapersWithOccurrences,
     payload.funnel.discover.uniqueCitationGroups,
+    payload.funnel.discover.attributedClaimsWithVerifiedSupportSpan,
+    payload.funnel.discover.attributedClaimsMissingSupportSpan,
     payload.funnel.discover.deferredByFamilyCap,
     payload.funnel.discover.deferredByRecordBudget,
     payload.funnel.discover.deferredByNovelty,
@@ -146,6 +148,14 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.adjudicate.notAdjudicated,
     payload.funnel.adjudicate.adjudicationFailed,
     payload.funnel.adjudicate.invalidOutput,
+    payload.funnel.adjudicate.uniqueClaimUnits,
+    payload.funnel.adjudicate.uniqueAdjudicatedClaimUnits,
+    payload.funnel.adjudicate.repeatedRecordsBeyondUniqueUnits,
+    payload.funnel.adjudicate.packetsWithVerifiedSupportSpans,
+    payload.funnel.adjudicate.packetsMissingSupportSpans,
+    payload.funnel.adjudicate.evidenceSufficient,
+    payload.funnel.adjudicate.evidenceLimited,
+    payload.funnel.adjudicate.figureOnlyLimitation,
   ]);
   const adjudicationCoverage = requireRate(
     payload.rates,
@@ -154,6 +164,10 @@ export function renderCanonicalReportMarkdown(
   appendRateLine(lines, adjudicationCoverage);
   const scopeSelection = requireRate(payload.rates, "scope_selection_rate");
   appendRateLine(lines, scopeSelection);
+  lines.push("");
+  lines.push(
+    "Unique claim units collapse repeated family × citing-paper × claim packets. Evidence sufficiency is a packet diagnostic, not a fidelity verdict.",
+  );
   lines.push("");
 
   lines.push("## Verdict distribution");

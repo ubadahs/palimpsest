@@ -126,6 +126,8 @@ const reportCountUnitSchema = z.enum([
   "candidates",
   "families",
   "family_occurrence_records",
+  "unique_claim_units",
+  "adjudication_packets",
   "bm25_runs",
   "rerank_runs",
   "selections",
@@ -258,6 +260,8 @@ const discoverFunnelCountsSchema = z
     deferredCandidates: reportCountSchema,
     uniqueCitingPapersWithOccurrences: reportCountSchema,
     uniqueCitationGroups: reportCountSchema,
+    attributedClaimsWithVerifiedSupportSpan: reportCountSchema,
+    attributedClaimsMissingSupportSpan: reportCountSchema,
     deferredByFamilyCap: reportCountSchema,
     deferredByRecordBudget: reportCountSchema,
     deferredByNovelty: reportCountSchema,
@@ -317,6 +321,14 @@ const adjudicateFunnelCountsSchema = z
         U: reportCountSchema,
       })
       .strict(),
+    uniqueClaimUnits: reportCountSchema,
+    uniqueAdjudicatedClaimUnits: reportCountSchema,
+    repeatedRecordsBeyondUniqueUnits: reportCountSchema,
+    packetsWithVerifiedSupportSpans: reportCountSchema,
+    packetsMissingSupportSpans: reportCountSchema,
+    evidenceSufficient: reportCountSchema,
+    evidenceLimited: reportCountSchema,
+    figureOnlyLimitation: reportCountSchema,
   })
   .strict();
 const reportFunnelCountsSchema = z
@@ -492,6 +504,8 @@ const reportAdjudicationTraceSchema = z.discriminatedUnion("status", [
       status: z.literal("adjudicated"),
       adjudicationResultId: stableIdentifierSchema,
       verdict: fidelityTopLabelSchema,
+      evidenceSufficiency: z.enum(["sufficient", "limited"]),
+      evidenceLimitation: z.enum(["figure_only_support"]).optional(),
     })
     .strict(),
   z
@@ -907,6 +921,14 @@ function validateFunnelPartitions(
     "Discover selected + deferred candidates must equal candidate claims",
     context,
   );
+  assertCountEqual(
+    discover.attributedClaimsWithVerifiedSupportSpan.count +
+      discover.attributedClaimsMissingSupportSpan.count,
+    discover.attributedClaimRecords.count,
+    ["funnel", "discover"],
+    "Discover verified + missing support-span claims must equal attributed claim records",
+    context,
+  );
 
   assertCountEqual(
     scope.scopedCandidates.count + scope.deferredCandidates.count,
@@ -987,6 +1009,44 @@ function validateFunnelPartitions(
       path: ["funnel", "evidence"],
       message:
         "Unique final-selection counts cannot exceed their per-record selection-use counts",
+    });
+  }
+
+  const { adjudicate } = payload.funnel;
+  assertCountEqual(
+    adjudicate.packetsWithVerifiedSupportSpans.count +
+      adjudicate.packetsMissingSupportSpans.count,
+    adjudicate.totalRecordOutcomes.count,
+    ["funnel", "adjudicate"],
+    "Adjudicate support-span packet diagnostics must partition record outcomes",
+    context,
+  );
+  assertCountEqual(
+    adjudicate.evidenceSufficient.count + adjudicate.evidenceLimited.count,
+    adjudicate.adjudicated.count,
+    ["funnel", "adjudicate"],
+    "Evidence sufficiency diagnostics must partition adjudicated records",
+    context,
+  );
+  if (
+    adjudicate.figureOnlyLimitation.count > adjudicate.evidenceLimited.count
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "figureOnlyLimitation"],
+      message:
+        "Figure-only limitation count cannot exceed evidence-limited adjudicated records",
+    });
+  }
+  if (
+    adjudicate.uniqueAdjudicatedClaimUnits.count >
+    adjudicate.uniqueClaimUnits.count
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "uniqueAdjudicatedClaimUnits"],
+      message:
+        "Unique adjudicated claim units cannot exceed unique claim units",
     });
   }
 }
