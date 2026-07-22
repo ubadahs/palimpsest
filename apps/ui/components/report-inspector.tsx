@@ -222,6 +222,8 @@ function FunnelOverview({
         funnel.discover.selectedCandidates,
         funnel.discover.deferredCandidates,
         funnel.discover.uniqueCitationGroups,
+        funnel.discover.attributedClaimsWithVerifiedSupportSpan,
+        funnel.discover.attributedClaimsMissingSupportSpan,
       ],
       extras: [
         `Deferred by family cap: ${String(funnel.discover.deferredByFamilyCap.count)}`,
@@ -280,12 +282,19 @@ function FunnelOverview({
         funnel.adjudicate.totalRecordOutcomes,
         funnel.adjudicate.adjudicated,
         funnel.adjudicate.notAdjudicated,
+        funnel.adjudicate.uniqueClaimUnits,
         funnel.adjudicate.verdictCounts.F,
         funnel.adjudicate.verdictCounts.D,
       ],
-      extras: funnel.adjudicate.gateCodeCounts.map(
-        (item) => `${humanizeCode(item.status)}: ${String(item.count)}`,
-      ),
+      extras: [
+        `Verified support spans: ${String(funnel.adjudicate.packetsWithVerifiedSupportSpans.count)}`,
+        `Missing support spans: ${String(funnel.adjudicate.packetsMissingSupportSpans.count)}`,
+        `Evidence limited: ${String(funnel.adjudicate.evidenceLimited.count)}`,
+        `Figure-only limitation: ${String(funnel.adjudicate.figureOnlyLimitation.count)}`,
+        ...funnel.adjudicate.gateCodeCounts.map(
+          (item) => `${humanizeCode(item.status)}: ${String(item.count)}`,
+        ),
+      ],
     },
   ];
 
