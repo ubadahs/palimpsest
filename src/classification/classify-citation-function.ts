@@ -84,6 +84,11 @@ export type CitationFunctionInput = {
   confidence: Confidence;
   isBundledCitation: boolean;
   bundleSize: number;
+  /**
+   * Exact-verified occurrence-local support span text. When present, phrase and
+   * verb signals are collected primarily from this bound claim text.
+   */
+  claimSupportText?: string | undefined;
 };
 
 export type CitationFunctionClassification = {
@@ -96,11 +101,13 @@ function collectSignals(mention: CitationFunctionInput): Signal[] {
   const hits: Signal[] = [];
   const section = mention.sectionTitle ?? "";
   const authorYear = isAuthorYearMarker(mention.citationMarker);
-  const window = extractLocalWindow(
+  const markerWindow = extractLocalWindow(
     mention.rawContext,
     mention.citationMarker,
     authorYear ? 320 : 200,
   );
+  const claimSupport = mention.claimSupportText?.trim() ?? "";
+  const phraseWindow = claimSupport.length > 0 ? claimSupport : markerWindow;
 
   if (METHODS_SECTION_PATTERNS.some((re) => re.test(section))) {
     hits.push({ role: "methods_materials", source: `section:${section}` });
@@ -110,21 +117,36 @@ function collectSignals(mention: CitationFunctionInput): Signal[] {
   }
 
   for (const re of METHODS_PHRASES) {
-    if (re.test(window)) {
-      hits.push({ role: "methods_materials", source: `phrase:${re.source}` });
+    if (re.test(phraseWindow)) {
+      hits.push({
+        role: "methods_materials",
+        source:
+          claimSupport.length > 0
+            ? `span-phrase:${re.source}`
+            : `phrase:${re.source}`,
+      });
     }
   }
   for (const re of ATTRIBUTION_VERBS) {
-    if (re.test(window)) {
+    if (re.test(phraseWindow)) {
       hits.push({
         role: "substantive_attribution",
-        source: `verb:${re.source}`,
+        source:
+          claimSupport.length > 0
+            ? `span-verb:${re.source}`
+            : `verb:${re.source}`,
       });
     }
   }
   for (const re of BACKGROUND_PHRASES) {
-    if (re.test(window)) {
-      hits.push({ role: "background_context", source: `phrase:${re.source}` });
+    if (re.test(phraseWindow)) {
+      hits.push({
+        role: "background_context",
+        source:
+          claimSupport.length > 0
+            ? `span-phrase:${re.source}`
+            : `phrase:${re.source}`,
+      });
     }
   }
 
@@ -136,10 +158,13 @@ function collectSignals(mention: CitationFunctionInput): Signal[] {
       });
     }
     for (const re of NARRATIVE_ATTRIBUTION_FRAMES) {
-      if (re.test(window)) {
+      if (re.test(phraseWindow)) {
         hits.push({
           role: "substantive_attribution",
-          source: `narrative:${re.source}`,
+          source:
+            claimSupport.length > 0
+              ? `span-narrative:${re.source}`
+              : `narrative:${re.source}`,
         });
       }
     }
@@ -147,7 +172,6 @@ function collectSignals(mention: CitationFunctionInput): Signal[] {
 
   return hits;
 }
-
 function resolveRole(
   mention: CitationFunctionInput,
   signals: Signal[],

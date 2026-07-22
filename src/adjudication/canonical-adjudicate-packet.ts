@@ -5,12 +5,14 @@ import type {
 } from "../contract/lean-artifacts.js";
 import {
   annotateCitingContext,
+  assessCitationScopeAnnotation,
   extractCitingWindow,
 } from "../shared/citation-context-window.js";
+import { assessEvidenceLimitation } from "../shared/evidence-limitation.js";
 
 export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
-export const CANONICAL_ADJUDICATE_PROMPT_VERSION = "v1" as const;
+export const CANONICAL_ADJUDICATE_PROMPT_VERSION = "v2" as const;
 
 type CanonicalAdjudicatePacketChunk = {
   chunkId: string;
@@ -24,6 +26,9 @@ type CanonicalAdjudicatePacketChunk = {
 type CanonicalAdjudicatePacketClaim = {
   claimRecordId: string;
   claimText: string;
+  supportSpanText?: string | undefined;
+  supportSpanCharOffsetStart?: number | undefined;
+  supportSpanCharOffsetEnd?: number | undefined;
 };
 
 export type CanonicalAdjudicatePacket = {
@@ -122,10 +127,50 @@ export function buildCanonicalAdjudicatePacket(
       (claim) => ({
         claimRecordId: claim.claimRecordId,
         claimText: claim.extractedClaimText,
+        ...(claim.supportSpan
+          ? {
+              supportSpanText: claim.supportSpan.text,
+              supportSpanCharOffsetStart: claim.supportSpan.charOffsetStart,
+              supportSpanCharOffsetEnd: claim.supportSpan.charOffsetEnd,
+            }
+          : {}),
       }),
     ),
     selectedChunks: orderedChunks,
   };
+}
+
+export function assessAdjudicatePacketQuality(
+  packet: CanonicalAdjudicatePacket,
+): {
+  ok: boolean;
+  gateReason?: string;
+} {
+  const missingSupportSpan = packet.occurrenceClaims.some(
+    (claim) => claim.supportSpanText == null,
+  );
+  if (missingSupportSpan) {
+    return {
+      ok: false,
+      gateReason:
+        "Occurrence-local claims lack exact-verified support spans and are reserved for manual review",
+    };
+  }
+  const markerQuality = assessCitationScopeAnnotation(
+    packet.markedCitingContext,
+  );
+  if (!markerQuality.ok) {
+    return { ok: false, gateReason: markerQuality.reason };
+  }
+  return { ok: true };
+}
+
+export function packetEvidenceLimitation(packet: CanonicalAdjudicatePacket) {
+  return assessEvidenceLimitation({
+    claimTexts: packet.occurrenceClaims.map((claim) => claim.claimText),
+    citingContext: packet.markedCitingContext,
+    selectedChunkTexts: packet.selectedChunks.map((chunk) => chunk.text),
+  });
 }
 
 function renderCanonicalAdjudicatePacket(
@@ -139,10 +184,13 @@ function renderCanonicalAdjudicatePacket(
     : "";
 
   const claimsBlock = packet.occurrenceClaims
-    .map(
-      (claim, index) =>
-        `${String(index + 1)}. claimRecordId=${claim.claimRecordId}\n   "${claim.claimText}"`,
-    )
+    .map((claim, index) => {
+      const span =
+        claim.supportSpanText != null
+          ? `\n   supportSpan: "${claim.supportSpanText}" (offsets ${String(claim.supportSpanCharOffsetStart)}-${String(claim.supportSpanCharOffsetEnd)})`
+          : "";
+      return `${String(index + 1)}. claimRecordId=${claim.claimRecordId}\n   "${claim.claimText}"${span}`;
+    })
     .join("\n");
 
   const chunksBlock = packet.selectedChunks
@@ -171,13 +219,13 @@ ${packet.markedCitingContext}
 
 ## Occurrence-local attributed claims
 
-Use only these claimRecordId values in evaluatedClaimRecordIds:
+Use only these claimRecordId values in evaluatedClaimRecordIds. Verified supportSpan text is the exact citing-side attribution span:
 
 ${claimsBlock}
 
 ## Selected cited-paper chunks
 
-Chunk order is presentation order only. It is not a judgment of support or truth. Use only these chunkId values in citedChunkIds:
+Chunk order is presentation order only. It is not a judgment of support or truth. Use only these chunkId values in citedChunkIds. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
 
 ${chunksBlock}`;
 }
@@ -194,8 +242,8 @@ Compare the citing paper's attribution to the selected cited-paper chunks.
 Return JSON with:
 - comparison: two concise sentences — (1) what the citing paper attributes to the seed, (2) what the selected cited chunks actually say
 - verdict: one of F, D, E, U using these definitions only:
-  - F (faithful): the attribution preserves the cited source's substantive meaning; reasonable compression is allowed
-  - D (distortion): a real source kernel exists, but scope, strength, certainty, causality, population, conditions, or generality is materially altered
+  - F (faithful): the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel
+  - D (distortion): a real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered
   - E (error): the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel
   - U (uncertain): exact cited evidence is present, but genuine scientific or attribution ambiguity prevents a defensible F/D/E judgment. Do not use U for missing evidence or tool failure.
 - rationale: 2-3 sentences explaining the comparison without advocacy
@@ -203,5 +251,5 @@ Return JSON with:
 - evaluatedClaimRecordIds: every occurrence-local claimRecordId supplied above, exactly once; no omissions, unknowns, or duplicates
 - citedChunkIds: one or more selected chunkId values supplied above; no unknowns or duplicates
 
-Judge only from the packet. Do not invent evidence outside the selected chunks.`;
+Judge only from the packet. Do not invent evidence outside the selected chunks. Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs.`;
 }

@@ -1309,6 +1309,7 @@ export function buildCanonicalPrepareAdapters(): CanonicalPrepareAdapters {
           isReviewMediated: isReviewPaperType(
             input.citingPaper.paper.paperType,
           ),
+          occurrenceSourceClaimRecords: input.occurrenceSourceClaimRecords,
         }),
       ),
   };

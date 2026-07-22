@@ -325,7 +325,10 @@ function discoverAdapters(
             ? [
                 {
                   text: ` ${mentionClaim} `,
-                  supportSpanText: "duplicate occurrence-local wording",
+                  supportSpanText:
+                    mention.mentionIndex === 0
+                      ? "Rab35 depletion"
+                      : "several references",
                   confidence: "medium" as const,
                 },
               ]

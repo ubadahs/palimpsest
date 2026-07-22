@@ -183,8 +183,8 @@ function mockedLlmClient(): LLMClient {
             ]
           : [
               {
-                text: "The same seed finding supports circuit plasticity.",
-                supportSpanText: "circuit plasticity",
+                text: "GABAergic interneurons play an important role in the brain.",
+                supportSpanText: "GABAergic interneurons play an important role",
                 confidence: "medium",
               },
             ],
