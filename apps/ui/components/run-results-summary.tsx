@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { RunDetail, RunVerdictSummary } from "palimpsest/contract";
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -12,13 +13,21 @@ import {
 
 function headline(summary: RunVerdictSummary): string {
   if (summary.total === 0) return "No adjudicated records.";
-  return `${String(summary.F)} of ${String(summary.total)} adjudicated records are faithful.`;
+  return `${String(summary.F)} of ${String(summary.total)} adjudicated records received F.`;
 }
 
 export function RunResultsSummary({ run }: { run: RunDetail }) {
   const verdicts = run.verdictSummary;
   if (!verdicts) return null;
   if (verdicts.total === 0 && verdicts.notAdjudicated === 0) return null;
+
+  const reportReady =
+    run.targetStage === "report" &&
+    run.status === "succeeded" &&
+    run.stages.some(
+      (stage) =>
+        stage.stageKey === "report" && stage.aggregateStatus === "succeeded",
+    );
 
   return (
     <Card className="overflow-hidden">
@@ -29,6 +38,10 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
         <h2 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
           {headline(verdicts)}
         </h2>
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
+          Uncalibrated research output — F/D/E/U labels have not been validated
+          against blinded human labels.
+        </p>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex gap-1 overflow-hidden rounded-full">
@@ -64,6 +77,14 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
           {verdicts.adjudicationFailed} failed, and {verdicts.invalidOutput}{" "}
           invalid output.
         </p>
+        {reportReady ? (
+          <Link
+            className="inline-flex rounded-full border border-[var(--border-strong)] bg-[var(--text)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2b241d]"
+            href={`/runs/${run.id}/stages/report`}
+          >
+            Browse full report
+          </Link>
+        ) : null}
       </CardContent>
     </Card>
   );

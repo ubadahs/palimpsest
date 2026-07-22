@@ -428,6 +428,39 @@ export function getRunDetailOrThrow(runId: string): RunDetail {
   };
 }
 
+/**
+ * Resolve succeeded Prepare/Evidence/Adjudicate primary paths for report joins.
+ */
+function resolveReportUpstreamArtifactPaths(runId: string): {
+  preparePath: string;
+  evidencePath: string;
+  adjudicatePath: string;
+} {
+  const database = getDatabase();
+  const stages = listRunStages(database, runId);
+  const pathFor = (key: "prepare" | "evidence" | "adjudicate"): string => {
+    const row = stages.find((stage) => stage.stageKey === key);
+    if (!row || row.status !== "succeeded") {
+      throw new Error(
+        `Report inspector requires a succeeded ${key} stage for run ${runId}`,
+      );
+    }
+    const artifacts = resolveArtifactSetForRow(runId, row);
+    const path = row.primaryArtifactPath ?? artifacts.primaryArtifactPath;
+    if (!path) {
+      throw new Error(
+        `Report inspector could not resolve ${key} artifact path for run ${runId}`,
+      );
+    }
+    return path;
+  };
+  return {
+    preparePath: pathFor("prepare"),
+    evidencePath: pathFor("evidence"),
+    adjudicatePath: pathFor("adjudicate"),
+  };
+}
+
 function buildRunStageDetail<K extends StageKey>(
   runId: string,
   stage: AnalysisRunStage & { stageKey: K },
@@ -468,10 +501,22 @@ function buildRunStageDetail<K extends StageKey>(
 
   if (primaryArtifactPath && stage.status === "succeeded") {
     try {
-      inspectorPayload = buildStageInspectorPayload(
-        stageKey,
-        primaryArtifactPath,
-      );
+      if (stageKey === "report") {
+        const upstream = resolveReportUpstreamArtifactPaths(runId);
+        inspectorPayload = buildStageInspectorPayload(
+          "report",
+          primaryArtifactPath,
+          {
+            ...(reportArtifactPath ? { markdownPath: reportArtifactPath } : {}),
+            ...upstream,
+          },
+        ) as StageInspectorPayload<K>;
+      } else {
+        inspectorPayload = buildStageInspectorPayload(
+          stageKey,
+          primaryArtifactPath,
+        );
+      }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }

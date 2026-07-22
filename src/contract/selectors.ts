@@ -9,6 +9,9 @@ import { loadCanonicalReportArtifact } from "../pipeline/canonical-report-artifa
 import { loadCanonicalScopeArtifact } from "../pipeline/canonical-scope-artifact.js";
 import { manifestPathForArtifact } from "../shared/artifact-io.js";
 import type {
+  BuildStageInspectorOptions,
+  ReportInspectorEvidencePassage,
+  ReportInspectorRecordRow,
   StageArtifactMap,
   StageInspectorPayload,
 } from "./inspector-payloads.js";
@@ -466,26 +469,298 @@ function buildAdjudicateInspectorPayload(
   };
 }
 
+function indexByRecordId<T extends { recordId: string }>(
+  records: readonly T[],
+  label: string,
+): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const record of records) {
+    if (map.has(record.recordId)) {
+      throw new Error(
+        `Duplicate ${label} recordId for report inspector join: ${record.recordId}`,
+      );
+    }
+    map.set(record.recordId, record);
+  }
+  return map;
+}
+
+function requireJoinedRecord<T>(
+  map: Map<string, T>,
+  recordId: string,
+  label: string,
+): T {
+  const record = map.get(recordId);
+  if (!record) {
+    throw new Error(
+      `Report recordTraces spine is missing ${label} record ${recordId}`,
+    );
+  }
+  return record;
+}
+
+function buildEvidencePassages(input: {
+  evidence: StageArtifactMap["evidence"];
+  evidenceRecord: StageArtifactMap["evidence"]["payload"]["records"][number];
+  modelCitedChunkIds: readonly string[];
+}): ReportInspectorEvidencePassage[] {
+  const { evidence, evidenceRecord, modelCitedChunkIds } = input;
+  if (evidenceRecord.finalSelectionId == null) {
+    return [];
+  }
+  const selection = evidence.payload.selections.find(
+    (item) => item.selectionId === evidenceRecord.finalSelectionId,
+  );
+  if (!selection) {
+    throw new Error(
+      `Evidence selection ${evidenceRecord.finalSelectionId} missing for record ${evidenceRecord.recordId}`,
+    );
+  }
+  const chunksById = new Map(
+    evidence.payload.corpora.flatMap((corpus) =>
+      corpus.chunks.map((chunk) => [chunk.chunkId, chunk] as const),
+    ),
+  );
+  const pinned = new Set(selection.pinnedChunkIds ?? []);
+  const modelCited = new Set(modelCitedChunkIds);
+  return selection.selectedChunkIds.map((chunkId) => {
+    const chunk = chunksById.get(chunkId);
+    if (!chunk) {
+      throw new Error(
+        `Evidence chunk ${chunkId} missing for selection ${selection.selectionId}`,
+      );
+    }
+    return {
+      chunkId,
+      text: chunk.text,
+      sourceBlockKind: chunk.sourceBlockKind,
+      ...(chunk.sourceSectionTitle
+        ? { sourceSectionTitle: chunk.sourceSectionTitle }
+        : {}),
+      pinned: pinned.has(chunkId),
+      modelCited: modelCited.has(chunkId),
+    };
+  });
+}
+
+function buildReportInspectorRecordRow(input: {
+  prepareRecord: StageArtifactMap["prepare"]["payload"]["records"][number];
+  evidenceRecord: StageArtifactMap["evidence"]["payload"]["records"][number];
+  adjudicateRecord: StageArtifactMap["adjudicate"]["payload"]["records"][number];
+  evidence: StageArtifactMap["evidence"];
+  rankingSource?: string;
+}): ReportInspectorRecordRow {
+  const {
+    prepareRecord,
+    evidenceRecord,
+    adjudicateRecord,
+    evidence,
+    rankingSource,
+  } = input;
+  const paper = prepareRecord.citingPaper.paper;
+  const occurrence = prepareRecord.citationOccurrence;
+  const classification = prepareRecord.classification;
+  const modelCitedChunkIds =
+    adjudicateRecord.status === "adjudicated"
+      ? adjudicateRecord.modelCitedChunkIds
+      : [];
+  const evidencePassages = buildEvidencePassages({
+    evidence,
+    evidenceRecord,
+    modelCitedChunkIds,
+  });
+
+  const evaluatedClaimText =
+    adjudicateRecord.status === "adjudicated"
+      ? adjudicateRecord.evaluatedCitingClaimText
+      : (prepareRecord.occurrenceSourceClaimRecords[0]?.extractedClaimText ??
+        prepareRecord.family.trackedClaim);
+
+  const row: ReportInspectorRecordRow = {
+    recordId: prepareRecord.recordId,
+    familyId: prepareRecord.familyId,
+    citationOccurrenceId: prepareRecord.citationOccurrenceId,
+    trackedClaim: prepareRecord.family.trackedClaim,
+    evaluatedClaimText,
+    citingPaperTitle: paper.title,
+    citationContext: prepareRecord.context.verbatim.text,
+    classificationStatus: classification.status,
+    groundingStatus: prepareRecord.family.grounding.status,
+    retrievalStatus: evidenceRecord.retrievalStatus,
+    rerankStatus: evidenceRecord.rerankStatus,
+    evidencePassages,
+    adjudicationStatus: adjudicateRecord.status,
+  };
+
+  if (paper.doi) row.citingPaperDoi = paper.doi;
+  if (paper.publicationYear != null)
+    row.citingPaperYear = paper.publicationYear;
+  if (occurrence.seedRefLabel) row.seedRefLabel = occurrence.seedRefLabel;
+  if (occurrence.sectionTitle) row.sectionTitle = occurrence.sectionTitle;
+  if (classification.status !== "failed") {
+    row.citationRole = classification.citationRole;
+    row.evaluationMode = classification.evaluationMode;
+  }
+  if (rankingSource) row.rankingSource = rankingSource;
+
+  if (adjudicateRecord.status === "adjudicated") {
+    row.verdict = adjudicateRecord.verdict;
+    row.confidence = adjudicateRecord.confidence;
+    row.comparison = adjudicateRecord.comparison;
+    row.rationale = adjudicateRecord.rationale;
+  } else if (adjudicateRecord.status === "not_adjudicated") {
+    row.gateCode = adjudicateRecord.gateCode;
+    row.operationalReason = adjudicateRecord.reason;
+  } else if (adjudicateRecord.status === "adjudication_failed") {
+    row.failureCode = adjudicateRecord.failureCode;
+    row.operationalReason = adjudicateRecord.reason;
+  } else {
+    row.operationalReason = adjudicateRecord.reason;
+  }
+
+  return row;
+}
+
+/**
+ * Join Prepare, Evidence, and Adjudicate onto the Report recordTraces spine.
+ * Throws when a spine ID is missing or inconsistently joined.
+ */
+export function buildReportInspectorRecords(input: {
+  report: StageArtifactMap["report"];
+  prepare: StageArtifactMap["prepare"];
+  evidence: StageArtifactMap["evidence"];
+  adjudicate: StageArtifactMap["adjudicate"];
+}): ReportInspectorRecordRow[] {
+  const prepareById = indexByRecordId(input.prepare.payload.records, "Prepare");
+  const evidenceById = indexByRecordId(
+    input.evidence.payload.records,
+    "Evidence",
+  );
+  const adjudicateById = indexByRecordId(
+    input.adjudicate.payload.records,
+    "Adjudicate",
+  );
+
+  return input.report.payload.recordTraces.map((trace) => {
+    const prepareRecord = requireJoinedRecord(
+      prepareById,
+      trace.recordId,
+      "Prepare",
+    );
+    const evidenceRecord = requireJoinedRecord(
+      evidenceById,
+      trace.recordId,
+      "Evidence",
+    );
+    const adjudicateRecord = requireJoinedRecord(
+      adjudicateById,
+      trace.recordId,
+      "Adjudicate",
+    );
+
+    if (prepareRecord.familyId !== trace.familyId) {
+      throw new Error(
+        `Prepare familyId mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (prepareRecord.citationOccurrenceId !== trace.citationOccurrenceId) {
+      throw new Error(
+        `Prepare citationOccurrenceId mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (
+      evidenceRecord.familyId !== trace.familyId ||
+      evidenceRecord.citationOccurrenceId !== trace.citationOccurrenceId
+    ) {
+      throw new Error(
+        `Evidence identity mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (
+      adjudicateRecord.familyId !== trace.familyId ||
+      adjudicateRecord.citationOccurrenceId !== trace.citationOccurrenceId
+    ) {
+      throw new Error(
+        `Adjudicate identity mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (evidenceRecord.retrievalStatus !== trace.evidence.retrievalStatus) {
+      throw new Error(
+        `Evidence retrievalStatus mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (adjudicateRecord.status !== trace.adjudication.status) {
+      throw new Error(
+        `Adjudication status mismatch for report record ${trace.recordId}`,
+      );
+    }
+    if (
+      adjudicateRecord.status === "adjudicated" &&
+      trace.adjudication.status === "adjudicated" &&
+      adjudicateRecord.verdict !== trace.adjudication.verdict
+    ) {
+      throw new Error(
+        `Adjudication verdict mismatch for report record ${trace.recordId}`,
+      );
+    }
+
+    return buildReportInspectorRecordRow({
+      prepareRecord,
+      evidenceRecord,
+      adjudicateRecord,
+      evidence: input.evidence,
+      ...(trace.evidence.rankingSource
+        ? { rankingSource: trace.evidence.rankingSource }
+        : {}),
+    });
+  });
+}
+
 function buildReportInspectorPayload(
   artifact: StageArtifactMap["report"],
-  reportPath?: string,
+  options?: BuildStageInspectorOptions,
 ): StageInspectorPayload<"report"> {
+  const preparePath = options?.preparePath;
+  const evidencePath = options?.evidencePath;
+  const adjudicatePath = options?.adjudicatePath;
+  if (!preparePath || !evidencePath || !adjudicatePath) {
+    throw new Error(
+      "Report inspector requires preparePath, evidencePath, and adjudicatePath for record joins",
+    );
+  }
+
+  const prepare = loadCanonicalArtifact("prepare", preparePath);
+  const evidence = loadCanonicalArtifact("evidence", evidencePath);
+  const adjudicate = loadCanonicalArtifact("adjudicate", adjudicatePath);
+  const records = buildReportInspectorRecords({
+    report: artifact,
+    prepare,
+    evidence,
+    adjudicate,
+  });
+
   return {
     stageKey: "report",
     rawArtifact: artifact,
     summary: {
       interpretationStatus: artifact.payload.interpretationStatus,
+      interpretationWarning: artifact.payload.interpretationWarning,
+      method: artifact.payload.method,
+      lineage: artifact.payload.lineage,
       funnel: artifact.payload.funnel,
       rates: artifact.payload.rates,
+      decisionSummaries: artifact.payload.decisionSummaries,
+      exclusionSummaries: artifact.payload.exclusionSummaries,
+      records,
     },
-    ...(reportPath ? { markdownPath: reportPath } : {}),
+    ...(options?.markdownPath ? { markdownPath: options.markdownPath } : {}),
   };
 }
 
 export function buildStageInspectorPayload<K extends StageKey>(
   stageKey: K,
   primaryPath: string,
-  reportPath?: string,
+  options?: BuildStageInspectorOptions,
 ): StageInspectorPayload<K> {
   switch (stageKey) {
     case "discover":
@@ -508,11 +783,21 @@ export function buildStageInspectorPayload<K extends StageKey>(
       return buildAdjudicateInspectorPayload(
         loadCanonicalArtifact("adjudicate", primaryPath),
       ) as StageInspectorPayload<K>;
-    case "report":
+    case "report": {
+      if (
+        !options?.preparePath ||
+        !options.evidencePath ||
+        !options.adjudicatePath
+      ) {
+        throw new Error(
+          "Report inspector requires preparePath, evidencePath, and adjudicatePath for record joins",
+        );
+      }
       return buildReportInspectorPayload(
         loadCanonicalArtifact("report", primaryPath),
-        reportPath,
+        options,
       ) as StageInspectorPayload<K>;
+    }
     default: {
       const _exhaustive: never = stageKey;
       throw new Error(`Unsupported stage key: ${String(_exhaustive)}`);

@@ -1,6 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -58,5 +64,71 @@ describe("canonical selectors", () => {
 
     // The overload remains constrained to the six canonical stage artifacts.
     expect(deriveCanonicalStageSummary).toBeTypeOf("function");
+  });
+
+  it("requires upstream artifact paths for report inspector joins", () => {
+    const artifactPath = writeArtifact("report.json", { legacy: true });
+    expect(() => buildStageInspectorPayload("report", artifactPath)).toThrow(
+      /preparePath, evidencePath, and adjudicatePath/i,
+    );
+  });
+
+  it("joins Prepare/Evidence/Adjudicate onto the Report spine for browsing", () => {
+    const runRoot = resolve("data/runs/2d16adf7-4169-43b2-b5d3-b1dbe0b719d7");
+    if (!existsSync(runRoot)) {
+      return;
+    }
+    const pick = (dir: string, suffix: string): string => {
+      const name = readdirSync(join(runRoot, dir)).find((entry) =>
+        entry.endsWith(suffix),
+      );
+      if (!name) {
+        throw new Error(`Missing ${suffix} under ${dir}`);
+      }
+      return join(runRoot, dir, name);
+    };
+
+    const payload = buildStageInspectorPayload(
+      "report",
+      pick("05-report", "_canonical-report.json"),
+      {
+        markdownPath: pick("05-report", "_canonical-report.md"),
+        preparePath: pick("02-prepare", "_canonical-prepare.json"),
+        evidencePath: pick("03-evidence", "_canonical-evidence.json"),
+        adjudicatePath: pick("04-adjudicate", "_canonical-adjudicate.json"),
+      },
+    );
+
+    expect(payload.stageKey).toBe("report");
+    expect(payload.markdownPath).toContain("_canonical-report.md");
+    expect(payload.summary.interpretationStatus).toBe(
+      "uncalibrated_research_output",
+    );
+    expect(payload.summary.interpretationWarning).toMatch(/uncalibrated/i);
+    expect(payload.summary.records).toHaveLength(
+      payload.rawArtifact.payload.recordTraces.length,
+    );
+    expect(payload.summary.records.length).toBeGreaterThan(0);
+
+    const first = payload.summary.records[0]!;
+    expect(first.citingPaperTitle.length).toBeGreaterThan(0);
+    expect(first.evaluatedClaimText.length).toBeGreaterThan(0);
+    expect(first.citationContext.length).toBeGreaterThan(0);
+    expect(first.evidencePassages.length).toBeGreaterThan(0);
+
+    const nullishRate = payload.summary.rates.find(
+      (rate) => rate.denominator === 0,
+    );
+    if (nullishRate) {
+      expect(nullishRate.value).toBeNull();
+    }
+
+    const fRate = payload.summary.rates.find(
+      (rate) => rate.metricId === "verdict_F_rate",
+    );
+    expect(fRate).toBeDefined();
+    expect(fRate!.denominator).toBe(
+      payload.summary.funnel.adjudicate.adjudicated.count,
+    );
   });
 });

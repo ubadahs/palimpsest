@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import type { RunStageDetail } from "palimpsest/contract";
 
 import { StageInspector } from "../components/stage-inspector";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("typed canonical stage inspector", () => {
   it("renders Evidence summaries from its typed payload", () => {
@@ -31,7 +35,7 @@ describe("typed canonical stage inspector", () => {
           rerankRuns: 1,
         },
       },
-    } as RunStageDetail<"evidence">;
+    } as unknown as RunStageDetail<"evidence">;
 
     render(<StageInspector detail={detail} runId="run-inspector" />);
     expect(screen.getByText("Canonical Evidence inspector")).toBeTruthy();
