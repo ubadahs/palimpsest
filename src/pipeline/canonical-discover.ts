@@ -35,6 +35,7 @@ import {
   type DiscoverClaimCandidate,
   type LeanArtifactProvenance,
 } from "../contract/lean-artifacts.js";
+import { verifyClaimSupportSpan } from "../shared/claim-support-span.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
 const fatalProviderFailureCodeSchema = z.enum([
@@ -731,6 +732,7 @@ export async function runCanonicalDiscover(
           seedId,
           mentionId: mention.mentionId,
           extractionId,
+          rawContext: mention.rawContext,
           provenanceArtifacts,
         });
         attributedClaimRecords.push(...records);
@@ -851,13 +853,21 @@ function buildAttributedClaimRecords(input: {
   seedId: string;
   mentionId: string;
   extractionId: string;
+  rawContext: string;
   provenanceArtifacts: ArtifactReference[];
 }): DiscoverAttributedClaimRecord[] {
-  const indexedClaims = input.claims.map((claim, sourceClaimIndex) => ({
-    claim,
-    sourceClaimIndex,
-    normalizedClaim: normalizeDiscoverClaimText(claim.text),
-  }));
+  const indexedClaims = input.claims.map((claim, sourceClaimIndex) => {
+    const supportSpan = verifyClaimSupportSpan(
+      input.rawContext,
+      claim.supportSpanText,
+    );
+    return {
+      claim,
+      supportSpan,
+      sourceClaimIndex,
+      normalizedClaim: normalizeDiscoverClaimText(claim.text),
+    };
+  });
   const claimsByNormalizedText = new Map<string, typeof indexedClaims>();
   for (const indexedClaim of indexedClaims) {
     const duplicateGroup =
@@ -870,8 +880,12 @@ function buildAttributedClaimRecords(input: {
   for (const duplicateGroup of claimsByNormalizedText.values()) {
     const deterministicOrder = [...duplicateGroup].sort((left, right) =>
       compareCodeUnits(
-        canonicalSerialize(claimDuplicateOrderingContent(left.claim)),
-        canonicalSerialize(claimDuplicateOrderingContent(right.claim)),
+        canonicalSerialize(
+          claimDuplicateOrderingContent(left.claim, left.supportSpan?.text),
+        ),
+        canonicalSerialize(
+          claimDuplicateOrderingContent(right.claim, right.supportSpan?.text),
+        ),
       ),
     );
     deterministicOrder.forEach((claim, duplicateOrdinal) => {
@@ -883,7 +897,7 @@ function buildAttributedClaimRecords(input: {
   }
 
   return indexedClaims.map(
-    ({ claim, sourceClaimIndex }): DiscoverAttributedClaimRecord => {
+    ({ claim, supportSpan, sourceClaimIndex }): DiscoverAttributedClaimRecord => {
       const duplicateOrdinal =
         duplicateOrdinalBySourceIndex.get(sourceClaimIndex);
       if (duplicateOrdinal == null) {
@@ -900,9 +914,7 @@ function buildAttributedClaimRecords(input: {
         extractionId: input.extractionId,
         ...identity,
         sourceClaimIndex,
-        ...(claim.supportSpanText
-          ? { supportSpanText: claim.supportSpanText }
-          : {}),
+        ...(supportSpan ? { supportSpan } : {}),
         ...(claim.confidence ? { confidence: claim.confidence } : {}),
         provenanceArtifacts: input.provenanceArtifacts,
       };
@@ -912,10 +924,11 @@ function buildAttributedClaimRecords(input: {
 
 function claimDuplicateOrderingContent(
   claim: z.infer<typeof extractedClaimInputSchema>,
+  verifiedSupportSpanText: string | undefined,
 ) {
   return {
     originalClaimText: claim.text,
-    supportSpanText: claim.supportSpanText,
+    supportSpanText: verifiedSupportSpanText ?? claim.supportSpanText,
     confidence: claim.confidence,
   };
 }

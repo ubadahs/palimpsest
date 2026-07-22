@@ -183,8 +183,8 @@ function mockedLlmClient(): LLMClient {
             ]
           : [
               {
-                text: "The same seed finding supports circuit plasticity.",
-                supportSpanText: "circuit plasticity",
+                text: "Calmic interneurons play an important role in the brain.",
+                supportSpanText: "Calmic interneurons play an important role",
                 confidence: "medium",
               },
             ],

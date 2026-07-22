@@ -426,9 +426,41 @@ export function buildCanonicalPrepareArtifact(input: {
  */
 export function classifyPrepareOccurrenceDeterministically(
   citationOccurrence: DiscoverCitationOccurrence,
-  options: { isReviewMediated?: boolean } = {},
+  options: {
+    isReviewMediated?: boolean;
+    occurrenceSourceClaimRecords?: PreparedCitationInstance["occurrenceSourceClaimRecords"];
+  } = {},
 ): PrepareClassification {
   const confidence = "medium" as const;
+  const occurrenceClaims = options.occurrenceSourceClaimRecords ?? [];
+  const missingVerifiedSpan =
+    occurrenceClaims.length > 0 &&
+    occurrenceClaims.some((claim) => claim.supportSpan == null);
+  if (missingVerifiedSpan) {
+    return prepareClassificationSchema.parse({
+      status: "ambiguous",
+      citationRole: "unclear",
+      evaluationMode: "manual_review_extraction_limited",
+      modifiers: {
+        isBundled: citationOccurrence.isBundledCitation,
+        isReviewMediated: options.isReviewMediated ?? false,
+        bundleSize: citationOccurrence.bundleSize,
+      },
+      signals: ["extraction:missing_verified_support_span"],
+      rationale:
+        "One or more occurrence-local claims lack an exact-verified support span in the citing context",
+      confidence: "low",
+      execution: {
+        kind: "deterministic" as const,
+        implementation: "canonical-prepare-citation-function-v2",
+      },
+    });
+  }
+
+  const claimSupportText = occurrenceClaims
+    .map((claim) => claim.supportSpan?.text)
+    .filter((text): text is string => text != null && text.length > 0)
+    .join("\n");
   const classified = classifyCitationFunction(
     {
       rawContext: citationOccurrence.rawContext,
@@ -438,6 +470,7 @@ export function classifyPrepareOccurrenceDeterministically(
       confidence,
       isBundledCitation: citationOccurrence.isBundledCitation,
       bundleSize: citationOccurrence.bundleSize,
+      ...(claimSupportText.length > 0 ? { claimSupportText } : {}),
     },
     options.isReviewMediated ?? false,
   );
@@ -463,7 +496,7 @@ export function classifyPrepareOccurrenceDeterministically(
     confidence,
     execution: {
       kind: "deterministic" as const,
-      implementation: "canonical-prepare-citation-function-v1",
+      implementation: "canonical-prepare-citation-function-v2",
     },
   };
   return prepareClassificationSchema.parse(

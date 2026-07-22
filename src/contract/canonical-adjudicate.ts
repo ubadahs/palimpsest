@@ -132,6 +132,11 @@ export type CanonicalAdjudicateModelOutput = z.infer<
   typeof canonicalAdjudicateModelOutputSchema
 >;
 
+export const evidenceLimitationSchema = z.enum(["figure_only_support"]);
+export type EvidenceLimitationCode = z.infer<typeof evidenceLimitationSchema>;
+export const evidenceSufficiencySchema = z.enum(["sufficient", "limited"]);
+export type EvidenceSufficiencyCode = z.infer<typeof evidenceSufficiencySchema>;
+
 const adjudicatedOutcomeFields = {
   status: z.literal("adjudicated"),
   verdict: fidelityTopLabelSchema,
@@ -142,6 +147,12 @@ const adjudicatedOutcomeFields = {
   evaluatedClaimRecordIds: z.array(stableIdentifierSchema).min(1),
   selectedCitedChunkIds: z.array(stableIdentifierSchema).min(1),
   modelCitedChunkIds: z.array(stableIdentifierSchema).min(1),
+  /**
+   * Deterministic packet diagnostic: whether selected text evidence could
+   * contain the supporting material. Does not invent a new verdict mode.
+   */
+  evidenceSufficiency: evidenceSufficiencySchema,
+  evidenceLimitation: evidenceLimitationSchema.optional(),
   execution: adjudicateModelExecutionSchema,
 } as const;
 
@@ -288,6 +299,10 @@ function immutableOutcomeForIdentity(
       evaluatedClaimRecordIds: outcome.evaluatedClaimRecordIds,
       selectedCitedChunkIds: outcome.selectedCitedChunkIds,
       modelCitedChunkIds: outcome.modelCitedChunkIds,
+      evidenceSufficiency: outcome.evidenceSufficiency,
+      ...(outcome.evidenceLimitation
+        ? { evidenceLimitation: outcome.evidenceLimitation }
+        : {}),
       execution: executionIdentity(outcome.execution),
     };
   }

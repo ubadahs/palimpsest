@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 import {
+  assessAdjudicatePacketQuality,
   buildCanonicalAdjudicatePacket,
   buildCanonicalAdjudicatePrompt,
   CANONICAL_ADJUDICATE_PROMPT_ID,
   CANONICAL_ADJUDICATE_PROMPT_VERSION,
+  packetEvidenceLimitation,
 } from "../adjudication/canonical-adjudicate-packet.js";
 import {
   adjudicateArtifactPayloadSchema,
@@ -218,6 +220,19 @@ export async function runCanonicalAdjudicate(
       selection: gate.selection,
       selectedChunks: gate.chunks,
     });
+    const packetQuality = assessAdjudicatePacketQuality(packet);
+    if (!packetQuality.ok) {
+      outcomes.push(
+        buildNotAdjudicatedOutcome({
+          prepareRecord,
+          gateCode: "manual_review_extraction_limited",
+          reason:
+            packetQuality.gateReason ??
+            "Adjudicate packet failed citation-scope quality checks",
+        }),
+      );
+      continue;
+    }
     const promptText = buildCanonicalAdjudicatePrompt(packet);
     const promptContentHash = hashCanonicalAdjudicatePrompt(promptText);
     promptHashes.add(promptContentHash);
@@ -313,6 +328,7 @@ export async function runCanonicalAdjudicate(
         output: parsedOutput.data,
         selectedChunkIds: gate.selection.selectedChunkIds,
         execution: adapterResult.execution,
+        packet,
       }),
     );
   }
@@ -703,6 +719,7 @@ function buildAdjudicatedOutcome(input: {
   output: z.infer<typeof canonicalAdjudicateModelOutputSchema>;
   selectedChunkIds: readonly string[];
   execution: AdjudicateModelExecution;
+  packet: ReturnType<typeof buildCanonicalAdjudicatePacket>;
 }): AdjudicateRecordOutcome {
   const evaluatedClaimRecordIds =
     input.prepareRecord.occurrenceSourceClaimRecords.map(
@@ -716,6 +733,7 @@ function buildAdjudicatedOutcome(input: {
   const modelCitedChunkIds = input.selectedChunkIds.filter((chunkId) =>
     citedChunkIds.has(chunkId),
   );
+  const limitation = packetEvidenceLimitation(input.packet);
   const draft = {
     recordId: input.prepareRecord.recordId,
     familyId: input.prepareRecord.familyId,
@@ -729,6 +747,10 @@ function buildAdjudicatedOutcome(input: {
     evaluatedClaimRecordIds,
     selectedCitedChunkIds: [...input.selectedChunkIds],
     modelCitedChunkIds,
+    evidenceSufficiency: limitation.evidenceSufficiency,
+    ...(limitation.evidenceLimitation
+      ? { evidenceLimitation: limitation.evidenceLimitation }
+      : {}),
     execution: input.execution,
   };
   return {

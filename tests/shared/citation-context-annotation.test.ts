@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { annotateCitingContext } from "../../src/shared/citation-context-window.js";
+import {
+  annotateCitingContext,
+  assessCitationScopeAnnotation,
+} from "../../src/shared/citation-context-window.js";
 
 describe("annotateCitingContext", () => {
   it("wraps the sentence containing the marker", () => {
@@ -15,6 +18,18 @@ describe("annotateCitingContext", () => {
     expect(result).toMatch(/▶.*Adeyemi and Okonkwo.*◀/);
     // The Marr sentence should NOT be wrapped.
     expect(result).not.toMatch(/▶.*Marr.*◀/);
+  });
+
+  it("does not split sentences on et al. abbreviations", () => {
+    const ctx =
+      "Background framing is unrelated. " +
+      "Marlowe et al. (2021) reported three marker classes in mouse Norel. " +
+      "Later work used a different assay.";
+    const result = annotateCitingContext(ctx, "2021", "Marlowe et al., 2021");
+    expect(result).toMatch(
+      /▶\s*Marlowe et al\. \(2021\) reported three marker classes in mouse Norel\.\s*◀/,
+    );
+    expect(assessCitationScopeAnnotation(result).ok).toBe(true);
   });
 
   it("returns unchanged text for a single sentence", () => {
@@ -55,5 +70,11 @@ describe("annotateCitingContext", () => {
     // All sentences contain "2009" — annotation would wrap everything, so skip.
     expect(result).not.toContain("▶");
     expect(result).toBe(ctx);
+  });
+
+  it("fails closed on punctuation-only scope markers", () => {
+    expect(
+      assessCitationScopeAnnotation("Prior work. ▶ 2021). ◀ Later work."),
+    ).toMatchObject({ ok: false });
   });
 });

@@ -5,7 +5,9 @@
  * (to show the judge the relevant sentence instead of a truncated paragraph).
  */
 
-const SENTENCE_RE = /[^.!?]*[.!?]+/g;
+/** Common abbreviations whose internal periods must not end a sentence. */
+const ABBREVIATION_RE =
+  /\b(?:et\s+al|e\.g|i\.e|vs|cf|fig|figs|eq|eqs|no|nos|dr|mr|mrs|ms|prof|approx|ca|ed|eds|vol|vols|pp)\./gi;
 
 /**
  * Annotates the citing context by wrapping the sentence(s) that contain the
@@ -101,6 +103,61 @@ export function annotateCitingContext(
 }
 
 /**
+ * Fail-closed check for adjudicate packet citing-context annotation.
+ * Markers must wrap claim-bearing text; unmarked multi-sentence windows are
+ * rejected because the attributed sentence could not be disambiguated.
+ */
+export function assessCitationScopeAnnotation(markedCitingContext: string): {
+  ok: boolean;
+  reason: string;
+} {
+  const inners = [...markedCitingContext.matchAll(/▶\s*([\s\S]*?)\s*◀/g)].map(
+    (match) => match[1] ?? "",
+  );
+  if (inners.length > 0) {
+    if (inners.some((inner) => hasClaimBearingText(inner))) {
+      return {
+        ok: true,
+        reason: "Citation scope markers wrap claim-bearing text",
+      };
+    }
+    return {
+      ok: false,
+      reason:
+        "Citation scope markers wrap non-substantive text and are reserved for manual review",
+    };
+  }
+
+  const sentences = splitSentences(markedCitingContext);
+  if (sentences.length <= 1 && hasClaimBearingText(markedCitingContext)) {
+    return {
+      ok: true,
+      reason: "Single-sentence citing context needs no scope markers",
+    };
+  }
+  return {
+    ok: false,
+    reason:
+      "Citation scope could not be disambiguated in multi-sentence citing context",
+  };
+}
+
+function hasClaimBearingText(text: string): boolean {
+  const withoutCitations = text
+    .replace(/\((?:[^()]*\d{4}[^()]*)\)/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = withoutCitations
+    .split(" ")
+    .filter((token) => token.length > 0 && !/^\d+$/.test(token));
+  // Need at least a few alphabetic tokens beyond citation debris.
+  const alphaTokens = tokens.filter((token) => /\p{L}{2,}/u.test(token));
+  return alphaTokens.length >= 3;
+}
+
+/**
  * Returns ~1-3 sentences surrounding the citation marker within rawContext.
  * Falls back to a character-based window if sentence splitting fails.
  */
@@ -158,26 +215,38 @@ function findMarkerPosition(text: string, marker: string): number {
 
 type SentenceSpan = { text: string; start: number; end: number };
 
-function splitSentences(text: string): SentenceSpan[] {
+/**
+ * Split on terminal punctuation, protecting abbreviation periods (et al., Fig.,
+ * etc.) so author–year citations stay inside their sentence.
+ */
+export function splitSentences(text: string): SentenceSpan[] {
+  if (text.length === 0) return [];
+
+  const protectedText = text.replace(ABBREVIATION_RE, (match) =>
+    match.replace(/\./g, "\u0000"),
+  );
+
   const spans: SentenceSpan[] = [];
+  const boundaryRe = /[.!?]+(?:["')\]]+)?(?:\s+|$)/g;
+  let cursor = 0;
   let match: RegExpExecArray | null;
-  SENTENCE_RE.lastIndex = 0;
-
-  while ((match = SENTENCE_RE.exec(text)) !== null) {
-    spans.push({
-      text: match[0],
-      start: match.index,
-      end: match.index + match[0].length,
-    });
+  while ((match = boundaryRe.exec(protectedText)) !== null) {
+    const end = match.index + match[0].length;
+    const slice = text.slice(cursor, end);
+    if (slice.trim().length > 0) {
+      spans.push({ text: slice, start: cursor, end });
+    }
+    cursor = end;
   }
-
-  // Capture any trailing fragment without terminal punctuation.
-  const lastEnd = spans.length > 0 ? spans[spans.length - 1]!.end : 0;
-  const remainder = text.substring(lastEnd).trim();
-  if (remainder.length > 20) {
-    spans.push({ text: remainder, start: lastEnd, end: text.length });
+  if (cursor < text.length) {
+    const remainder = text.slice(cursor);
+    if (remainder.trim().length > 0) {
+      spans.push({ text: remainder, start: cursor, end: text.length });
+    }
   }
-
+  if (spans.length === 0 && text.trim().length > 0) {
+    spans.push({ text, start: 0, end: text.length });
+  }
   return spans;
 }
 
