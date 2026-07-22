@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   annotateClaimCandidate,
+  classifyClaimShape,
   extractFidelityMarkers,
   selectAdaptivePortfolio,
   adaptivePortfolioPolicySchema,
@@ -97,9 +98,9 @@ function candidate(input: {
 }
 
 describe("adaptive portfolio candidate selection", () => {
-  it("defaults to balanced prevalence and novelty weights under v2 policy", () => {
+  it("defaults to balanced prevalence and novelty weights under v3 policy", () => {
     expect(defaultAdaptivePortfolioPolicy.policyVersion).toBe(
-      "adaptive-portfolio-v2",
+      "adaptive-portfolio-v3",
     );
     expect(defaultAdaptivePortfolioPolicy.prevalenceWeight).toBe(0.25);
     expect(defaultAdaptivePortfolioPolicy.noveltyWeight).toBe(0.25);
@@ -326,5 +327,187 @@ describe("adaptive portfolio candidate selection", () => {
       entry.candidateId.startsWith("cand_gaba_"),
     ).length;
     expect(gabaSelected).toBeLessThan(selected.length);
+  });
+
+  it("classifies methods, compound, and citing-meta claim shapes", () => {
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "mice were anesthetized with avertin before perfusion for immunohistochemistry.",
+        memberMentions: [],
+      }),
+    ).toBe("methods_protocol");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "pvalb neurons increase gamma power; nxph1 marks a distinct vrn population.",
+        memberMentions: [],
+      }),
+    ).toBe("compound");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "prior studies previously estimated that the seed paper described this circuit.",
+        memberMentions: [],
+      }),
+    ).toBe("citing_meta");
+    expect(
+      classifyClaimShape({
+        normalizedClaim:
+          "pvalb+ fast-spiking interneurons increase gamma power after 40 hz stimulation.",
+        memberMentions: [],
+      }),
+    ).toBe("atomic");
+  });
+
+  it("demotes avertin-style methods claims below atomic Pvalb/Nxph1 under a tight maxFamilies", () => {
+    const methodsMention = mention({
+      id: "m_avertin",
+      paperId: "p-methods",
+      group: 0,
+      context:
+        "Mice were anesthetized with Avertin before perfusion for immunohistochemistry.",
+    });
+    const pvalbMention = mention({
+      id: "m_pvalb",
+      paperId: "p-pvalb",
+      group: 0,
+      context:
+        "Pvalb+ fast-spiking interneurons increase gamma power after 40 Hz stimulation.",
+    });
+    const nxph1Mention = mention({
+      id: "m_nxph1",
+      paperId: "p-nxph1",
+      group: 0,
+      context: "Nxph1 marks a distinct VRN neuronal population.",
+    });
+    const methodsClaim = claim({
+      id: "c_avertin",
+      mentionId: "m_avertin",
+      text: "Mice were anesthetized with Avertin before perfusion for immunohistochemistry.",
+      confidence: "high",
+    });
+    const pvalbClaim = claim({
+      id: "c_pvalb",
+      mentionId: "m_pvalb",
+      text: "Pvalb+ fast-spiking interneurons increase gamma power after 40 Hz stimulation.",
+      confidence: "high",
+    });
+    const nxph1Claim = claim({
+      id: "c_nxph1",
+      mentionId: "m_nxph1",
+      text: "Nxph1 marks a distinct VRN neuronal population.",
+      confidence: "high",
+    });
+    const methodsCandidate = candidate({
+      id: "cand_avertin",
+      text: "Mice were anesthetized with Avertin before perfusion for immunohistochemistry.",
+      mentionIds: ["m_avertin"],
+      claimIds: ["c_avertin"],
+    });
+    const pvalbCandidate = candidate({
+      id: "cand_pvalb",
+      text: "Pvalb+ fast-spiking interneurons increase gamma power after 40 Hz stimulation.",
+      mentionIds: ["m_pvalb"],
+      claimIds: ["c_pvalb"],
+    });
+    const nxph1Candidate = candidate({
+      id: "cand_nxph1",
+      text: "Nxph1 marks a distinct VRN neuronal population.",
+      mentionIds: ["m_nxph1"],
+      claimIds: ["c_nxph1"],
+    });
+
+    const dispositions = selectAdaptivePortfolio({
+      candidates: [methodsCandidate, pvalbCandidate, nxph1Candidate],
+      mentions: [
+        methodsMention as never,
+        pvalbMention as never,
+        nxph1Mention as never,
+      ],
+      claims: [
+        methodsClaim as never,
+        pvalbClaim as never,
+        nxph1Claim as never,
+      ],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 1,
+        maxFamilies: 2,
+        maxPreparedRecords: 20,
+        minMarginalNovelty: 0.05,
+      }),
+    });
+
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    expect(selected.map((entry) => entry.candidateId).sort()).toEqual([
+      "cand_nxph1",
+      "cand_pvalb",
+    ]);
+    expect(
+      dispositions.find((entry) => entry.candidateId === "cand_avertin")
+        ?.annotation.claimShape,
+    ).toBe("methods_protocol");
+  });
+
+  it("prefers an atomic claim over a compound multi-part sibling under a tight budget", () => {
+    const atomicMention = mention({
+      id: "m_atomic",
+      paperId: "p-atomic",
+      group: 0,
+      context: "Pvalb neurons increase gamma power after 40 Hz stimulation.",
+    });
+    const compoundMention = mention({
+      id: "m_compound",
+      paperId: "p-compound",
+      group: 0,
+      context:
+        "Pvalb neurons increase gamma power; Nxph1 marks a distinct VRN population.",
+    });
+    const atomicClaim = claim({
+      id: "c_atomic",
+      mentionId: "m_atomic",
+      text: "Pvalb neurons increase gamma power after 40 Hz stimulation.",
+      confidence: "high",
+    });
+    const compoundClaim = claim({
+      id: "c_compound",
+      mentionId: "m_compound",
+      text: "Pvalb neurons increase gamma power; Nxph1 marks a distinct VRN population.",
+      confidence: "high",
+    });
+    const atomicCandidate = candidate({
+      id: "cand_atomic",
+      text: "Pvalb neurons increase gamma power after 40 Hz stimulation.",
+      mentionIds: ["m_atomic"],
+      claimIds: ["c_atomic"],
+    });
+    const compoundCandidate = candidate({
+      id: "cand_compound",
+      text: "Pvalb neurons increase gamma power; Nxph1 marks a distinct VRN population.",
+      mentionIds: ["m_compound"],
+      claimIds: ["c_compound"],
+    });
+
+    const dispositions = selectAdaptivePortfolio({
+      candidates: [atomicCandidate, compoundCandidate],
+      mentions: [atomicMention as never, compoundMention as never],
+      claims: [atomicClaim as never, compoundClaim as never],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 1,
+        maxFamilies: 1,
+        maxPreparedRecords: 20,
+        minMarginalNovelty: 0.05,
+      }),
+    });
+
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.candidateId).toBe("cand_atomic");
+    expect(
+      dispositions.find((entry) => entry.candidateId === "cand_compound")
+        ?.annotation.claimShape,
+    ).toBe("compound");
   });
 });

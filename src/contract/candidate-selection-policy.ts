@@ -5,6 +5,7 @@ import type {
   DiscoverCitationOccurrence,
   DiscoverClaimCandidate,
 } from "./lean-artifacts.js";
+import { METHODS_SECTION_PATTERNS } from "../domain/section-patterns.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
 import {
   CANDIDATE_SELECTION_POLICY_VERSION,
@@ -93,6 +94,33 @@ const GENERIC_PHRASES = [
   "cells",
 ];
 
+export const claimShapeValues = [
+  "atomic",
+  "methods_protocol",
+  "compound",
+  "citing_meta",
+] as const;
+
+export const claimShapeSchema = z.enum(claimShapeValues);
+export type ClaimShape = z.infer<typeof claimShapeSchema>;
+
+/** Fixed utility multipliers — not CLI-configurable. */
+const CLAIM_SHAPE_UTILITY_MULTIPLIER: Record<ClaimShape, number> = {
+  atomic: 1,
+  methods_protocol: 0.55,
+  compound: 0.7,
+  citing_meta: 0.65,
+};
+
+const METHODS_PROTOCOL_CLAIM_RE =
+  /\b(?:anesthesia|anaesthesia|avertin|tribromoethanol|perfusion|immunohistochemistr|protocol|cryostat|paraformaldehyde|biological\s+replicates?|sections?\s+per\s+animal)\b/i;
+
+const CITING_META_CLAIM_RE =
+  /\b(?:prior\s+studies|previous\s+studies|previously\s+estimated|seed\s+paper\s+described|the\s+seed\s+paper\s+(?:described|provides|is\s+cited))\b/i;
+
+const COMPOUND_CLAIM_RE =
+  /;|\band\s+that\b|\b(?:as\s+well\s+as|along\s+with)\b.+\b(?:and|while|whereas)\b/i;
+
 export const candidateSelectionAnnotationSchema = z
   .object({
     policyVersion: z.literal(CANDIDATE_SELECTION_POLICY_VERSION),
@@ -108,6 +136,7 @@ export const candidateSelectionAnnotationSchema = z
     comparisonCount: z.number().int().nonnegative(),
     conditionCount: z.number().int().nonnegative(),
     genericLanguagePenalty: z.number().min(0).max(1),
+    claimShape: claimShapeSchema,
     lexicalFingerprint: z
       .object({
         wordShingleHash: z.string().min(1),
@@ -268,7 +297,7 @@ export function extractFidelityMarkers(claimText: string): string[] {
   for (const group of FIDELITY_MARKER_GROUPS) {
     group.pattern.lastIndex = 0;
     for (const match of normalized.matchAll(group.pattern)) {
-      const token = match[0]!.replace(/\s+/g, " ").trim();
+      const token = match[0].replace(/\s+/g, " ").trim();
       if (token.length > 0) {
         markers.add(`${group.kind}:${token}`);
       }
@@ -276,7 +305,7 @@ export function extractFidelityMarkers(claimText: string): string[] {
   }
   FIDELITY_QUANTITY_PATTERN.lastIndex = 0;
   for (const match of normalized.matchAll(FIDELITY_QUANTITY_PATTERN)) {
-    markers.add(`quantity:${match[0]!}`);
+    markers.add(`quantity:${match[0]}`);
   }
   return [...markers].sort(compareCodeUnits);
 }
@@ -365,6 +394,56 @@ function computeSpecificity(normalizedClaim: string): {
   };
 }
 
+export function classifyClaimShape(input: {
+  normalizedClaim: string;
+  memberMentions: readonly DiscoverCitationOccurrence[];
+}): ClaimShape {
+  const claim = input.normalizedClaim;
+  if (METHODS_PROTOCOL_CLAIM_RE.test(claim)) {
+    return "methods_protocol";
+  }
+  const titled = input.memberMentions.filter((mention) => mention.sectionTitle);
+  if (titled.length > 0) {
+    const methodsMentions = titled.filter((mention) =>
+      METHODS_SECTION_PATTERNS.some((re) => re.test(mention.sectionTitle ?? "")),
+    ).length;
+    if (methodsMentions * 2 >= titled.length) {
+      return "methods_protocol";
+    }
+  }
+  if (CITING_META_CLAIM_RE.test(claim)) {
+    return "citing_meta";
+  }
+  if (COMPOUND_CLAIM_RE.test(claim)) {
+    return "compound";
+  }
+  // Multi-clause heuristic: two+ sentence-like assertive segments.
+  const clauses = claim
+    .split(/(?<=[.!?])\s+|\s+,\s+(?:and|while|whereas)\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 24);
+  if (clauses.length >= 2) {
+    return "compound";
+  }
+  return "atomic";
+}
+
+function portfolioUtility(input: {
+  prevalence: number;
+  specificity: number;
+  confidence: number;
+  novelty: number;
+  claimShape: ClaimShape;
+  policy: AdaptivePortfolioPolicy;
+}): number {
+  const base =
+    input.prevalence * input.policy.prevalenceWeight +
+    input.specificity * input.policy.specificityWeight +
+    input.confidence * input.policy.confidenceWeight +
+    input.novelty * input.policy.noveltyWeight;
+  return base * CLAIM_SHAPE_UTILITY_MULTIPLIER[input.claimShape];
+}
+
 /**
  * Deterministic annotations for an atomic claim candidate. Near-paraphrases
  * remain separate candidates; a later equivalence consolidator can consume
@@ -377,9 +456,11 @@ export function annotateClaimCandidate(input: {
 }): CandidateSelectionAnnotation {
   const papers = new Set<string>();
   const groups = new Set<string>();
+  const memberMentions: DiscoverCitationOccurrence[] = [];
   for (const mentionId of input.candidate.memberMentionIds) {
     const mention = input.mentionsById.get(mentionId);
     if (!mention) continue;
+    memberMentions.push(mention);
     papers.add(mention.citingPaperId);
     const groupKey = `${mention.citingPaperId}:${String(mention.citationGroupOrdinal ?? mention.mentionIndex)}`;
     groups.add(groupKey);
@@ -412,6 +493,10 @@ export function annotateClaimCandidate(input: {
     comparisonCount: specificity.comparisonCount,
     conditionCount: specificity.conditionCount,
     genericLanguagePenalty: specificity.genericLanguagePenalty,
+    claimShape: classifyClaimShape({
+      normalizedClaim: input.candidate.normalizedClaim,
+      memberMentions,
+    }),
     lexicalFingerprint: {
       wordShingleHash: canonicalSha256(wordShingles),
       charShingleHash: canonicalSha256(char),
@@ -548,11 +633,14 @@ export function selectAdaptivePortfolio(input: {
         }
         const redundancy = maxRedundancy(item.entry, selected);
         const novelty = 1 - redundancy;
-        const utility =
-          item.prevalence * input.policy.prevalenceWeight +
-          item.specificity * input.policy.specificityWeight +
-          item.confidence * input.policy.confidenceWeight +
-          novelty * input.policy.noveltyWeight;
+        const utility = portfolioUtility({
+          prevalence: item.prevalence,
+          specificity: item.specificity,
+          confidence: item.confidence,
+          novelty,
+          claimShape: item.entry.annotation.claimShape,
+          policy: input.policy,
+        });
         const marginal = utility;
         if (
           selected.length >= input.policy.minFamilies &&
@@ -604,16 +692,22 @@ export function selectAdaptivePortfolio(input: {
       .sort((left, right) => {
         const leftNovelty = 1 - maxRedundancy(left.entry, selected);
         const rightNovelty = 1 - maxRedundancy(right.entry, selected);
-        const leftUtility =
-          left.prevalence * input.policy.prevalenceWeight +
-          left.specificity * input.policy.specificityWeight +
-          left.confidence * input.policy.confidenceWeight +
-          leftNovelty * input.policy.noveltyWeight;
-        const rightUtility =
-          right.prevalence * input.policy.prevalenceWeight +
-          right.specificity * input.policy.specificityWeight +
-          right.confidence * input.policy.confidenceWeight +
-          rightNovelty * input.policy.noveltyWeight;
+        const leftUtility = portfolioUtility({
+          prevalence: left.prevalence,
+          specificity: left.specificity,
+          confidence: left.confidence,
+          novelty: leftNovelty,
+          claimShape: left.entry.annotation.claimShape,
+          policy: input.policy,
+        });
+        const rightUtility = portfolioUtility({
+          prevalence: right.prevalence,
+          specificity: right.specificity,
+          confidence: right.confidence,
+          novelty: rightNovelty,
+          claimShape: right.entry.annotation.claimShape,
+          policy: input.policy,
+        });
         if (rightUtility !== leftUtility) return rightUtility - leftUtility;
         return compareCodeUnits(
           left.entry.candidate.candidateId,
@@ -625,11 +719,14 @@ export function selectAdaptivePortfolio(input: {
     for (const item of deferred) {
       rank += 1;
       const novelty = 1 - maxRedundancy(item.entry, selected);
-      const utility =
-        item.prevalence * input.policy.prevalenceWeight +
-        item.specificity * input.policy.specificityWeight +
-        item.confidence * input.policy.confidenceWeight +
-        novelty * input.policy.noveltyWeight;
+      const utility = portfolioUtility({
+        prevalence: item.prevalence,
+        specificity: item.specificity,
+        confidence: item.confidence,
+        novelty,
+        claimShape: item.entry.annotation.claimShape,
+        policy: input.policy,
+      });
       let bindingConstraint: CandidateSelectionDisposition["bindingConstraint"] =
         "exhausted";
       if (selected.length >= input.policy.maxFamilies) {

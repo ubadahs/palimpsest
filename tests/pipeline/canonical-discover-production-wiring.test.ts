@@ -167,7 +167,11 @@ function mockedFullTextAdapters(jatsXml: string): FullTextFetchAdapters {
 function mockedLlmClient(): LLMClient {
   return {
     generateText: (params: GenerateTextParams) => {
-      const wantsPvalb = params.prompt.toLowerCase().includes("pvalb");
+      const promptText =
+        typeof params.prompt === "string"
+          ? params.prompt
+          : (params.promptPrefix ?? "");
+      const wantsPvalb = promptText.toLowerCase().includes("pvalb");
       const text = JSON.stringify({
         claims: wantsPvalb
           ? [
@@ -317,7 +321,7 @@ describe("canonical Discover production wiring", () => {
         confidenceWeight: 0.15,
         noveltyWeight: 0.25,
         minMarginalNovelty: 0.08,
-        policyVersion: "adaptive-portfolio-v2" as const,
+        policyVersion: "adaptive-portfolio-v3" as const,
       },
       recordedAt: "2026-07-19T18:00:00.000Z",
     };

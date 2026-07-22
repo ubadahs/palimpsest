@@ -38,7 +38,8 @@ describe("shared model execution schema", () => {
 
   it("requires kind model and rejects near-duplicate shapes missing kind", () => {
     expect(modelExecutionSchema.parse(sample)).toEqual(sample);
-    const { kind: _kind, ...withoutKind } = sample;
+    const withoutKind = { ...sample };
+    delete (withoutKind as { kind?: string }).kind;
     expect(modelExecutionSchema.safeParse(withoutKind).success).toBe(false);
   });
 });

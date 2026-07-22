@@ -988,9 +988,10 @@ describe("canonical Prepare", () => {
 
     const unclear = classifyPrepareOccurrenceDeterministically(
       occurrence({
+        // Author–year without Results/Discussion or narrative frames stays unclear.
         rawContext:
           "Additional related observations appear near Belicova et al., 2021 without a decisive claim verb.",
-        sectionTitle: "Discussion",
+        sectionTitle: "Supplementary Note",
       }),
     );
     expect(unclear).toMatchObject({

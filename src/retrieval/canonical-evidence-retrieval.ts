@@ -210,6 +210,75 @@ export function retrieveEvidenceByBm25(input: {
   });
 }
 
+/**
+ * Chunks whose character ranges overlap any Scope verified grounding span.
+ * Deterministic pin set for final evidence selection.
+ */
+export function chunksOverlappingVerifiedSpans(
+  family: ScopedFamily,
+  corpus: EvidenceChunkCorpus,
+): string[] {
+  if (
+    family.grounding.status !== "grounded" &&
+    family.grounding.status !== "ambiguous"
+  ) {
+    return [];
+  }
+  const spans = family.grounding.evidenceSpans;
+  if (spans.length === 0) return [];
+  const overlapping = corpus.chunks.filter((chunk) =>
+    spans.some(
+      (span) =>
+        chunk.charOffsetStart < span.charOffsetEnd &&
+        chunk.charOffsetEnd > span.charOffsetStart,
+    ),
+  );
+  return overlapping
+    .map((chunk) => chunk.chunkId)
+    .sort(compareCodeUnits);
+}
+
+/**
+ * Pin Scope-verified chunks first, then fill from BM25 order up to limit.
+ */
+export function selectEvidenceChunkIds(input: {
+  family: ScopedFamily;
+  corpus: EvidenceChunkCorpus;
+  bm25Candidates: readonly { chunkId: string }[];
+  selectionLimit: number;
+}): {
+  selectedChunkIds: string[];
+  pinnedChunkIds: string[];
+  rankingSource: "bm25" | "bm25_with_scope_pins";
+} {
+  const pinnedChunkIds = chunksOverlappingVerifiedSpans(
+    input.family,
+    input.corpus,
+  ).slice(0, input.selectionLimit);
+  if (pinnedChunkIds.length === 0) {
+    return {
+      selectedChunkIds: input.bm25Candidates
+        .slice(0, input.selectionLimit)
+        .map((candidate) => candidate.chunkId),
+      pinnedChunkIds: [],
+      rankingSource: "bm25",
+    };
+  }
+  const selected: string[] = [...pinnedChunkIds];
+  const selectedSet = new Set(selected);
+  for (const candidate of input.bm25Candidates) {
+    if (selected.length >= input.selectionLimit) break;
+    if (selectedSet.has(candidate.chunkId)) continue;
+    selected.push(candidate.chunkId);
+    selectedSet.add(candidate.chunkId);
+  }
+  return {
+    selectedChunkIds: selected,
+    pinnedChunkIds,
+    rankingSource: "bm25_with_scope_pins",
+  };
+}
+
 export function unionBm25Candidates(
   runs: readonly EvidenceBm25Run[],
 ): EvidenceBm25Run["candidates"] {

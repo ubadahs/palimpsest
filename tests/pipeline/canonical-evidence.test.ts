@@ -1027,7 +1027,9 @@ describe("canonical Evidence", () => {
         ),
       ).toBe(true);
       const selection = result.payload.selections[0]!;
-      expect(selection.rankingSource).toBe("bm25");
+      expect(["bm25", "bm25_with_scope_pins"]).toContain(
+        selection.rankingSource,
+      );
       expect(selection.rerankRunId).toBeUndefined();
       expect(selection.selectedChunkIds.length).toBeGreaterThan(0);
       if (rerankVariant === "empty") {
@@ -1050,7 +1052,9 @@ describe("canonical Evidence", () => {
         reason: "Fixture reranker timed out.",
       },
     });
-    expect(nonfatal.result.payload.selections[0]!.rankingSource).toBe("bm25");
+    expect(["bm25", "bm25_with_scope_pins"]).toContain(
+      nonfatal.result.payload.selections[0]!.rankingSource,
+    );
     expect(
       nonfatal.result.payload.bm25Runs[0]!.candidates.length,
     ).toBeGreaterThan(0);
@@ -1174,22 +1178,22 @@ describe("canonical Evidence", () => {
     const reranked = await runEvidenceFixture({ rerankEnabled: true });
     const assertSelection = (
       fixture: Awaited<ReturnType<typeof runEvidenceFixture>>,
-      source: "bm25" | "reranked",
+      sources: ReadonlyArray<"bm25" | "bm25_with_scope_pins" | "reranked">,
     ) => {
       const chunks = fixture.result.payload.corpora[0]!.chunks;
       for (const outcome of fixture.result.payload.records) {
         const selection = fixture.result.payload.selections.find(
           (entry) => entry.selectionId === outcome.finalSelectionId,
         )!;
-        expect(selection.rankingSource).toBe(source);
+        expect(sources).toContain(selection.rankingSource);
         expect(selection.selectedChunkIds.length).toBeGreaterThan(0);
         for (const chunkId of selection.selectedChunkIds) {
           expect(chunks.some((chunk) => chunk.chunkId === chunkId)).toBe(true);
         }
       }
     };
-    assertSelection(bm25, "bm25");
-    assertSelection(reranked, "reranked");
+    assertSelection(bm25, ["bm25", "bm25_with_scope_pins"]);
+    assertSelection(reranked, ["reranked"]);
   });
 
   it("rejects missing, duplicate, dangling, mutated, and inconsistent payload data", async () => {

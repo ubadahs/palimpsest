@@ -80,11 +80,27 @@ describe("classifyCitationFunction", () => {
 
   it("returns unclear when no signals fire", () => {
     const m = mention({
-      sectionTitle: "Results",
-      rawContext:
-        "We also looked at other proteins alongside Belicova et al., 2021 data.",
+      sectionTitle: "Supplementary Note",
+      citationMarker: "[12]",
+      rawContext: "We also looked at other proteins alongside [12] data.",
     });
     expect(classifyCitationFunction(m, false).citationRole).toBe("unclear");
+  });
+
+  it("treats author-year cites in Results as substantive for bundled fidelity use", () => {
+    const m = mention({
+      sectionTitle: "Results",
+      citationMarker: "Marlowe et al., 2020",
+      rawContext:
+        "LP neurons receive input from many areas (Marlowe et al., 2020; Jones 2019).",
+      isBundledCitation: true,
+      bundleSize: 2,
+      contextLength: 120,
+      confidence: "medium",
+    });
+    const result = classifyCitationFunction(m, false);
+    expect(result.citationRole).toBe("substantive_attribution");
+    expect(result.modifiers.isBundled).toBe(true);
   });
 
   it("sets isReviewMediated from citing paper type", () => {
@@ -121,17 +137,29 @@ describe("classifyCitationFunction", () => {
     expect(result.modifiers.isBundled).toBe(true);
   });
 
-  it("keeps genuinely signal-free occurrence text as unclear for manual review", () => {
+  it("keeps genuinely signal-free numeric cites as unclear for manual review", () => {
     const m = mention({
-      sectionTitle: "Discussion",
-      citationMarker: "Belicova et al., 2021",
+      sectionTitle: "Supplementary Note",
+      citationMarker: "[12]",
       rawContext:
-        "Additional related observations appear near Belicova et al., 2021 without a decisive claim verb.",
+        "Additional related observations appear near [12] without a decisive claim verb.",
       isBundledCitation: false,
       bundleSize: 1,
       contextLength: 120,
       confidence: "medium",
     });
     expect(classifyCitationFunction(m, false).citationRole).toBe("unclear");
+  });
+
+  it("keeps thin see-also author-year acknowledgments as low-information", () => {
+    const m = mention({
+      citationMarker: "Belicova et al., 2021",
+      rawContext: "See also Belicova et al., 2021.",
+      contextLength: 30,
+      confidence: "low",
+    });
+    expect(classifyCitationFunction(m, false).citationRole).toBe(
+      "acknowledgment_or_low_information",
+    );
   });
 });
