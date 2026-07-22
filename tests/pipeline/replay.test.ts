@@ -240,7 +240,10 @@ function buildReplayAdapters(): CanonicalDiscoverAdapters {
         claims: [
           {
             text,
-            supportSpanText: text.slice(0, 24),
+            supportSpanText: mention.rawContext.slice(
+              0,
+              Math.min(48, mention.rawContext.length),
+            ),
             confidence: "high",
           },
         ],

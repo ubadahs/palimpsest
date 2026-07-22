@@ -862,6 +862,36 @@ export type DiscoverClaimExtractionObservation = z.infer<
   typeof discoverClaimExtractionObservationSchema
 >;
 
+export const discoverClaimSupportSpanSchema = z
+  .object({
+    text: z.string().min(1),
+    charOffsetStart: z.number().int().nonnegative(),
+    charOffsetEnd: z.number().int().positive(),
+    verificationStatus: z.literal("verified_exact"),
+  })
+  .strict()
+  .superRefine((span, context) => {
+    if (span.charOffsetEnd <= span.charOffsetStart) {
+      context.addIssue({
+        code: "custom",
+        path: ["charOffsetEnd"],
+        message:
+          "supportSpan charOffsetEnd must be greater than charOffsetStart",
+      });
+    }
+    if (span.charOffsetEnd - span.charOffsetStart !== span.text.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["text"],
+        message:
+          "supportSpan text length must equal charOffsetEnd - charOffsetStart",
+      });
+    }
+  });
+export type DiscoverClaimSupportSpan = z.infer<
+  typeof discoverClaimSupportSpanSchema
+>;
+
 export const discoverAttributedClaimRecordSchema = z
   .object({
     claimRecordId: stableIdentifierSchema,
@@ -873,7 +903,11 @@ export const discoverAttributedClaimRecordSchema = z
     /** Order-independent discriminator among equal normalized claim texts. */
     duplicateOrdinal: z.number().int().nonnegative(),
     extractedClaimText: z.string().min(1),
-    supportSpanText: z.string().min(1).optional(),
+    /**
+     * Exact-verified citing-side support span with offsets into the occurrence
+     * rawContext. Absent when extraction omitted a span or verification failed.
+     */
+    supportSpan: discoverClaimSupportSpanSchema.optional(),
     confidence: z.enum(["high", "medium", "low"]).optional(),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
   })
@@ -2539,7 +2573,8 @@ export const evidenceSelectionSchema = z
     }
     if (
       selection.rankingSource === "bm25_with_scope_pins" &&
-      (selection.pinnedChunkIds == null || selection.pinnedChunkIds.length === 0)
+      (selection.pinnedChunkIds == null ||
+        selection.pinnedChunkIds.length === 0)
     ) {
       context.addIssue({
         code: "custom",
@@ -3203,6 +3238,18 @@ function validateDiscoverLedger(
         ["attributedClaimRecords", index, "mentionId"],
         "Attributed claim record and mention belong to different seeds",
       );
+    } else if (record.supportSpan) {
+      const slice = mention.rawContext.slice(
+        record.supportSpan.charOffsetStart,
+        record.supportSpan.charOffsetEnd,
+      );
+      if (slice !== record.supportSpan.text) {
+        addDiscoverLedgerIssue(
+          context,
+          ["attributedClaimRecords", index, "supportSpan"],
+          "supportSpan text must exactly equal the occurrence rawContext slice at the stored offsets",
+        );
+      }
     }
     if (!extraction?.claimRecordIds.includes(record.claimRecordId)) {
       addDiscoverLedgerIssue(
@@ -4201,7 +4248,8 @@ function validateEvidencePayload(
       if (
         !corpus ||
         [...pinSet].some(
-          (chunkId) => !corpus.chunks.some((chunk) => chunk.chunkId === chunkId),
+          (chunkId) =>
+            !corpus.chunks.some((chunk) => chunk.chunkId === chunkId),
         )
       ) {
         addEvidenceIssue(

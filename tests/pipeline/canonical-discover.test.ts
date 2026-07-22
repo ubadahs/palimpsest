@@ -216,7 +216,7 @@ function buildFixtureAdapters(
                   offset: firstOffset,
                   citationMarker: "[4–6]",
                   rawContext:
-                    "The seed paper showed an effect and changed another outcome [4–6].",
+                    "The seed paper showed an effect and changed another outcome and newly added distinct result [4–6].",
                   isBundledCitation: true,
                   bundleSize: 3,
                   bundleRefIds: ["ref-4", "seed-ref", "ref-6"],
@@ -381,7 +381,10 @@ function buildFixtureAdapters(
               paper.paperId === "paper-b1"
                 ? "THE SEED PAPER SHOWED A MEASURABLE EFFECT."
                 : "  The seed paper showed a measurable effect.  ",
-            supportSpanText: "showed a measurable effect",
+            supportSpanText:
+              paper.paperId === "paper-b1"
+                ? "showed a measurable effect"
+                : "measurable effect",
             confidence: "high",
           },
         ],
@@ -959,7 +962,7 @@ describe("canonical Discover", () => {
         "Tampered scientific context";
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
       expect(() => loadCanonicalDiscoverArtifact(artifactPath)).toThrow(
-        /mentionId|contentHash/,
+        /mentionId|contentHash|supportSpan/,
       );
 
       expect(() =>
