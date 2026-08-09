@@ -12,7 +12,6 @@ export {
   compareStageKeys,
   getPreviousStageKey,
   getNextStageKey,
-  rejectedLegacyStageNames,
   type StageArtifactRole,
   type StageDefinition,
 } from "./stages.js";

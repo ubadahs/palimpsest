@@ -1,12 +1,20 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
+  acquireFullText,
   classifyAcquisitionAttemptFailure,
   classifyHttpAcquisitionFailure,
   fetchFullText,
   type FullTextFetchResponse,
 } from "../../src/retrieval/fulltext-fetch.js";
+import { openDatabase } from "../../src/storage/database.js";
+import { runMigrations } from "../../src/storage/migration-service.js";
+import { upsertRawPaper } from "../../src/storage/paper-cache.js";
 
 const PMC_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <article>
@@ -321,5 +329,56 @@ describe("fetchFullText acquisition policy", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.acquisition.accessChannel).toBe("open_access");
+  });
+
+  it("does not fabricate acquisition provenance for pre-provenance cache rows", async () => {
+    const tempDirectory = mkdtempSync(join(tmpdir(), "palimpsest-ft-"));
+    const database = openDatabase(join(tempDirectory, "cache.sqlite"));
+    try {
+      runMigrations(database);
+      const paper = makePaper({
+        pmcid: "PMC1234567",
+        fullTextHints: {
+          providerAvailability: "available",
+          providerSourceHint: "pmc_xml",
+        },
+      });
+      upsertRawPaper(database, {
+        paperId: paper.id,
+        doi: paper.doi,
+        title: paper.title,
+        accessStatus: "open",
+        rawFullText: PMC_XML,
+        fullTextFormat: "jats_xml",
+        fetchSourceUrl: "https://example.com/legacy.xml",
+        fetchStatus: "ok",
+        fetchedAt: new Date().toISOString(),
+      });
+
+      const fetchUrl = vi.fn(async (url: string) =>
+        Promise.resolve({ ok: true as const, data: makeXmlResponse(url) }),
+      );
+      const result = await acquireFullText(
+        paper,
+        "https://api.biorxiv.org",
+        {
+          fetchUrl,
+          processPdfWithGrobid: async () =>
+            Promise.resolve({ ok: true as const, data: "<tei />" }),
+          email: undefined,
+          institutionalProxyUrl: undefined,
+        },
+        { db: database, cachePolicy: "prefer_cache" },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(fetchUrl).toHaveBeenCalled();
+      expect(result.data.acquisition.materializationSource).toBe("network");
+      expect(result.data.acquisition.selectedUrl).not.toBe("legacy-cache");
+    } finally {
+      database.close();
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
   });
 });

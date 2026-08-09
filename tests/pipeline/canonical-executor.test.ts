@@ -1614,19 +1614,19 @@ describe("canonical executor cutover", () => {
     failed.database.close();
   });
 
-  it("rejects old stage names and shortlist config in CLI parser", () => {
+  it("treats unknown stages and flags as ordinary invalid CLI input", () => {
     expect(() =>
       parseCanonicalPipelineArgs(["--stop-after", "screen"]),
-    ).toThrow(/legacy|rejects|Canonical/i);
+    ).toThrow(/Invalid --stop-after stage/i);
     expect(() => parseCanonicalPipelineArgs(["--shortlist", "x.json"])).toThrow(
-      /unsupported|canonical/i,
+      /Unknown pipeline flag/i,
     );
     expect(() => parseCanonicalPipelineArgs(["--advisor"])).toThrow(
-      /unsupported|canonical/i,
+      /Unknown pipeline flag/i,
     );
     expect(() =>
       parseCanonicalPipelineArgs(["--stop-after", "curate"]),
-    ).toThrow();
+    ).toThrow(/Invalid --stop-after stage/i);
     const parsed = parseCanonicalPipelineArgs([
       "--input",
       "dois.json",
@@ -1644,7 +1644,7 @@ describe("canonical executor cutover", () => {
     expect(parsed.evidenceSelectionLimit).toBe(4);
   });
 
-  it("rejects trackedClaim / shortlist bridges in run config defaults", () => {
+  it("rejects unknown run-config fields and stage names via schema", () => {
     const config = analysisRunConfigSchema.parse({});
     expect(config.stopAfterStage).toBe("report");
     expect(config.evidence.rerankEnabled).toBe(false);

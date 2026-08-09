@@ -41,36 +41,15 @@ export type AnthropicTokenCostUsage = {
 };
 
 /**
- * Rough USD cost from token usage (unknown models default to Sonnet-like rates).
- *
- * Supports both the legacy `(model, inputTokens, outputTokens)` call shape and a
- * richer Anthropic-aware token breakdown with cache and reasoning fields.
+ * Rough USD cost from Anthropic token usage (unknown models default to
+ * Sonnet-like rates). Accepts cache and reasoning breakdown fields.
  */
 export function estimateAnthropicUsd(
   model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number;
-export function estimateAnthropicUsd(
-  model: string,
   usage: AnthropicTokenCostUsage,
-): number;
-
-export function estimateAnthropicUsd(
-  model: string,
-  inputTokensOrUsage: number | AnthropicTokenCostUsage,
-  outputTokens = 0,
 ): number {
   const price = PRICING_USD_PER_MILLION[model] ?? { input: 3, output: 15 };
 
-  if (typeof inputTokensOrUsage === "number") {
-    return (
-      (inputTokensOrUsage * price.input + outputTokens * price.output) /
-      1_000_000
-    );
-  }
-
-  const usage = inputTokensOrUsage;
   const reasoningTokens = usage.reasoningTokens ?? 0;
   const cacheReadTokens = usage.cacheReadTokens ?? 0;
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0;

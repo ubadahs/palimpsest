@@ -100,6 +100,16 @@ const JATS_XML = `<?xml version="1.0"?>
 </article>`;
 
 describe("parseParsedPaperDocument", () => {
+  it("rejects unsupported full-text formats instead of legacy PDF fallback", () => {
+    const result = parseParsedPaperDocument(
+      "Paragraph one.\n\nParagraph two that is long enough to look like body text.",
+      "pdf_text" as never,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/Unsupported full-text format/i);
+  });
+
   it("parses GROBID TEI references, mentions, section titles, and captions", () => {
     const result = parseParsedPaperDocument(GROBID_TEI, "grobid_tei_xml");
 

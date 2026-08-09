@@ -184,7 +184,8 @@ function mockedLlmClient(): LLMClient {
           : [
               {
                 text: "Calmic interneurons play an important role in the brain.",
-                supportSpanText: "Calmic interneurons play an important role",
+                supportSpanText:
+                  "Calmic interneurons play an important role",
                 confidence: "medium",
               },
             ],

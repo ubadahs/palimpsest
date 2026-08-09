@@ -897,7 +897,11 @@ function buildAttributedClaimRecords(input: {
   }
 
   return indexedClaims.map(
-    ({ claim, supportSpan, sourceClaimIndex }): DiscoverAttributedClaimRecord => {
+    ({
+      claim,
+      supportSpan,
+      sourceClaimIndex,
+    }): DiscoverAttributedClaimRecord => {
       const duplicateOrdinal =
         duplicateOrdinalBySourceIndex.get(sourceClaimIndex);
       if (duplicateOrdinal == null) {

@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
+import {
+  analysisRunConfigSchema,
+  CANONICAL_RUN_CONFIG_DEFAULTS,
+} from "../../src/contract/run-types.js";
 
 describe("analysis run config", () => {
   it("defaults the canonical nested stage configuration", () => {
     const config = analysisRunConfigSchema.parse({});
 
-    expect(config.stopAfterStage).toBe("report");
-    expect(config.discover.neighborhoodProvider).toBe("openalex");
-    expect(config.scope.groundingModel).toBe("claude-sonnet-4-6");
-    expect(config.prepare.classifier).toBe("deterministic");
+    expect(config).toStrictEqual(CANONICAL_RUN_CONFIG_DEFAULTS);
+    expect(config.discover.extractionModel).toBe("claude-haiku-4-5");
+    expect(config.discover.probeBudget).toBe(100);
     expect(config.evidence.rerankEnabled).toBe(false);
-    expect(config.adjudicate.model).toBe("claude-opus-4-6");
   });
 
   it("accepts nested canonical stage overrides", () => {

@@ -2,20 +2,12 @@ import { z } from "zod";
 
 import { undefinedable } from "./common.js";
 
-const fullTextFormatValues = [
-  "jats_xml",
-  "grobid_tei_xml",
-  "pdf_text",
-] as const;
+const fullTextFormatValues = ["jats_xml", "grobid_tei_xml"] as const;
 
 const fullTextFormatSchema = z.enum(fullTextFormatValues);
 export type FullTextFormat = z.infer<typeof fullTextFormatSchema>;
 
-const parsedPaperParserKindValues = [
-  "jats",
-  "grobid_tei",
-  "legacy_pdf_text",
-] as const;
+const parsedPaperParserKindValues = ["jats", "grobid_tei"] as const;
 
 const parsedPaperParserKindSchema = z.enum(parsedPaperParserKindValues);
 export type ParsedPaperParserKind = z.infer<typeof parsedPaperParserKindSchema>;
@@ -108,7 +100,7 @@ const parsedCitationMentionSchema = z
       "single",
       "unknown",
     ]),
-    sourceType: z.enum(["jats_xml", "grobid_tei", "pdf_text"]),
+    sourceType: z.enum(["jats_xml", "grobid_tei"]),
     parser: z.string().min(1),
   })
   .passthrough();

@@ -26,7 +26,6 @@ import {
   compareStageKeys,
   getNextStageKey,
   getStageDefinition,
-  rejectedLegacyStageNames,
   stageDefinitions,
   stageKeySchema,
 } from "../contract/stages.js";
@@ -56,7 +55,7 @@ import {
 } from "../storage/analysis-runs.js";
 import { runMigrations } from "../storage/migration-service.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
-import { createStageReporter, log } from "../cli/stage-reporter.js";
+import { createStageReporter, log } from "./stage-reporter.js";
 import { getStageWorkflowDefinition } from "../contract/workflow.js";
 import {
   buildCanonicalDiscoverArtifact,
@@ -184,14 +183,6 @@ const doiInputSchema = z
 const STAGE_ORDER = stageDefinitions.map((stage) => stage.key);
 
 function assertCanonicalStageKey(value: string, label: string): StageKey {
-  if (
-    (rejectedLegacyStageNames as readonly string[]).includes(value) ||
-    value.includes("_m")
-  ) {
-    throw new CanonicalExecutorError(
-      `Rejected legacy stage name "${value}" for ${label}. Canonical stages: ${STAGE_ORDER.join(", ")}.`,
-    );
-  }
   const parsed = stageKeySchema.safeParse(value);
   if (!parsed.success) {
     throw new CanonicalExecutorError(

@@ -24,7 +24,7 @@ The input is a JSON object with a nonempty DOI array:
 { "dois": ["10.0000/example"] }
 ```
 
-`--shortlist`, legacy strategy, target-size/advisor/vector flags, and legacy stage names are rejected. A resumed run loads and validates the saved canonical artifact chain before continuing.
+Unknown flags and stage names are ordinary invalid input (no legacy aliases). A resumed run loads and validates the saved canonical artifact chain before continuing.
 
 ## Stages
 

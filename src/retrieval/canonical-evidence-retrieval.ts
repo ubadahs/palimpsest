@@ -233,9 +233,7 @@ export function chunksOverlappingVerifiedSpans(
         chunk.charOffsetEnd > span.charOffsetStart,
     ),
   );
-  return overlapping
-    .map((chunk) => chunk.chunkId)
-    .sort(compareCodeUnits);
+  return overlapping.map((chunk) => chunk.chunkId).sort(compareCodeUnits);
 }
 
 /**
