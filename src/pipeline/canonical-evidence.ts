@@ -13,7 +13,6 @@ import {
   evidenceBm25RunSchema,
   evidenceRerankFailureCodeSchema,
   evidenceRerankFatalFailureCodeSchema,
-  evidenceRerankModelExecutionSchema,
   evidenceRerankNonfatalFailureCodeSchema,
   evidenceRerankOutputSchema,
   evidenceRerankRunSchema,
@@ -33,7 +32,6 @@ import {
   type EvidenceLineage,
   type EvidenceQuery,
   type EvidenceRecordOutcome,
-  type EvidenceRerankModelExecution,
   type EvidenceRerankRun,
   type EvidenceRerankStatus,
   type EvidenceSelection,
@@ -44,6 +42,10 @@ import {
   type ScopeSeedMaterialization,
   type ScopedFamily,
 } from "../contract/lean-artifacts.js";
+import {
+  modelExecutionSchema,
+  type ModelExecution,
+} from "../contract/model-execution.js";
 import {
   buildOccurrenceLocalEvidenceQuery,
   buildScopedFamilyEvidenceQuery,
@@ -87,7 +89,7 @@ const canonicalEvidenceRerankerResultSchema = z.discriminatedUnion("status", [
     .object({
       status: z.literal("completed"),
       rawOutput: z.unknown(),
-      execution: evidenceRerankModelExecutionSchema,
+      execution: modelExecutionSchema,
     })
     .strict(),
   z
@@ -95,7 +97,7 @@ const canonicalEvidenceRerankerResultSchema = z.discriminatedUnion("status", [
       status: z.literal("failed"),
       reasonCode: evidenceRerankFailureCodeSchema,
       reason: z.string().min(1),
-      execution: evidenceRerankModelExecutionSchema,
+      execution: modelExecutionSchema,
     })
     .strict(),
 ]);
@@ -783,7 +785,7 @@ function failedRerankRun(input: {
   query: EvidenceQuery;
   candidateChunkIds: string[];
   topN: number;
-  execution: EvidenceRerankModelExecution;
+  execution: ModelExecution;
   code: z.infer<typeof evidenceRerankNonfatalFailureCodeSchema>;
   reason: string;
 }): EvidenceRerankRun {

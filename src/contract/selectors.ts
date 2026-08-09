@@ -10,7 +10,11 @@ import { loadCanonicalScopeArtifact } from "../pipeline/canonical-scope-artifact
 import { manifestPathForArtifact } from "../shared/artifact-io.js";
 import type {
   BuildStageInspectorOptions,
+  MutationFamilyView,
+  MutationFamilyVerdictCounts,
   ReportInspectorEvidencePassage,
+  ReportInspectorGroundingSpan,
+  ReportInspectorOccurrenceClaim,
   ReportInspectorRecordRow,
   StageArtifactMap,
   StageInspectorPayload,
@@ -543,6 +547,162 @@ function buildEvidencePassages(input: {
   });
 }
 
+function resolveSeedDisplay(
+  seed: StageArtifactMap["prepare"]["payload"]["records"][number]["seed"],
+): {
+  seedId: string;
+  seedTitle: string;
+  seedDoi?: string;
+} {
+  if (seed.resolution.status === "resolved") {
+    return {
+      seedId: seed.seedId,
+      seedTitle: seed.resolution.paper.title,
+      ...(seed.resolution.paper.doi
+        ? { seedDoi: seed.resolution.paper.doi }
+        : seed.doi
+          ? { seedDoi: seed.doi }
+          : {}),
+    };
+  }
+  return {
+    seedId: seed.seedId,
+    seedTitle: seed.doi,
+    seedDoi: seed.doi,
+  };
+}
+
+function buildVerifiedGroundingSpans(
+  family: StageArtifactMap["prepare"]["payload"]["records"][number]["family"],
+): ReportInspectorGroundingSpan[] {
+  return family.grounding.evidenceSpans.map((span) => ({
+    text: span.text,
+    blockId: span.blockId,
+    blockKind: span.blockKind,
+    ...(span.sectionTitle ? { sectionTitle: span.sectionTitle } : {}),
+    charOffsetStart: span.charOffsetStart,
+    charOffsetEnd: span.charOffsetEnd,
+  }));
+}
+
+function buildOccurrenceClaims(
+  prepareRecord: StageArtifactMap["prepare"]["payload"]["records"][number],
+): ReportInspectorOccurrenceClaim[] {
+  return prepareRecord.occurrenceSourceClaimRecords.map((claim) => {
+    const row: ReportInspectorOccurrenceClaim = {
+      claimRecordId: claim.claimRecordId,
+      extractedClaimText: claim.extractedClaimText,
+    };
+    if (claim.supportSpan) {
+      row.supportSpan = {
+        text: claim.supportSpan.text,
+        charOffsetStart: claim.supportSpan.charOffsetStart,
+        charOffsetEnd: claim.supportSpan.charOffsetEnd,
+      };
+    }
+    return row;
+  });
+}
+
+function compareStableText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareMutationRecords(
+  left: ReportInspectorRecordRow,
+  right: ReportInspectorRecordRow,
+): number {
+  const leftYear = left.citingPaperYear ?? Number.POSITIVE_INFINITY;
+  const rightYear = right.citingPaperYear ?? Number.POSITIVE_INFINITY;
+  if (leftYear !== rightYear) {
+    return leftYear - rightYear;
+  }
+  const titleCmp = compareStableText(
+    left.citingPaperTitle,
+    right.citingPaperTitle,
+  );
+  if (titleCmp !== 0) {
+    return titleCmp;
+  }
+  return compareStableText(left.recordId, right.recordId);
+}
+
+function emptyVerdictCounts(): MutationFamilyVerdictCounts {
+  return {
+    F: 0,
+    D: 0,
+    E: 0,
+    U: 0,
+    not_adjudicated: 0,
+    failed: 0,
+  };
+}
+
+function tallyVerdict(
+  counts: MutationFamilyVerdictCounts,
+  record: ReportInspectorRecordRow,
+): void {
+  if (record.adjudicationStatus === "adjudicated" && record.verdict) {
+    counts[record.verdict] += 1;
+    return;
+  }
+  if (record.adjudicationStatus === "not_adjudicated") {
+    counts.not_adjudicated += 1;
+    return;
+  }
+  counts.failed += 1;
+}
+
+/**
+ * Group enriched report inspector records into family-centered mutation views.
+ * Ordering within each family is chronological (year → title → recordId).
+ */
+export function buildReportInspectorFamilies(
+  records: readonly ReportInspectorRecordRow[],
+): MutationFamilyView[] {
+  const byFamily = new Map<string, ReportInspectorRecordRow[]>();
+  for (const record of records) {
+    const group = byFamily.get(record.familyId) ?? [];
+    group.push(record);
+    byFamily.set(record.familyId, group);
+  }
+
+  const families = [...byFamily.entries()].map(([familyId, group]) => {
+    const sorted = [...group].sort(compareMutationRecords);
+    const head = sorted[0]!;
+    const verdictCounts = emptyVerdictCounts();
+    for (const record of sorted) {
+      tallyVerdict(verdictCounts, record);
+    }
+    const family: MutationFamilyView = {
+      familyId,
+      seedId: head.seedId,
+      trackedClaim: head.trackedClaim,
+      seedTitle: head.seedTitle,
+      verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
+      recordCount: sorted.length,
+      verdictCounts,
+      records: sorted,
+    };
+    if (head.seedDoi) {
+      family.seedDoi = head.seedDoi;
+    }
+    if (head.groundingStatus) {
+      family.groundingStatus = head.groundingStatus;
+    }
+    return family;
+  });
+
+  families.sort((left, right) => {
+    const claimCmp = compareStableText(left.trackedClaim, right.trackedClaim);
+    if (claimCmp !== 0) {
+      return claimCmp;
+    }
+    return compareStableText(left.familyId, right.familyId);
+  });
+  return families;
+}
+
 function buildReportInspectorRecordRow(input: {
   prepareRecord: StageArtifactMap["prepare"]["payload"]["records"][number];
   evidenceRecord: StageArtifactMap["evidence"]["payload"]["records"][number];
@@ -560,6 +720,7 @@ function buildReportInspectorRecordRow(input: {
   const paper = prepareRecord.citingPaper.paper;
   const occurrence = prepareRecord.citationOccurrence;
   const classification = prepareRecord.classification;
+  const seed = resolveSeedDisplay(prepareRecord.seed);
   const modelCitedChunkIds =
     adjudicateRecord.status === "adjudicated"
       ? adjudicateRecord.modelCitedChunkIds
@@ -582,16 +743,23 @@ function buildReportInspectorRecordRow(input: {
     citationOccurrenceId: prepareRecord.citationOccurrenceId,
     trackedClaim: prepareRecord.family.trackedClaim,
     evaluatedClaimText,
+    seedId: seed.seedId,
+    seedTitle: seed.seedTitle,
     citingPaperTitle: paper.title,
     citationContext: prepareRecord.context.verbatim.text,
     classificationStatus: classification.status,
     groundingStatus: prepareRecord.family.grounding.status,
+    verifiedSeedGroundingSpans: buildVerifiedGroundingSpans(
+      prepareRecord.family,
+    ),
+    occurrenceClaims: buildOccurrenceClaims(prepareRecord),
     retrievalStatus: evidenceRecord.retrievalStatus,
     rerankStatus: evidenceRecord.rerankStatus,
     evidencePassages,
     adjudicationStatus: adjudicateRecord.status,
   };
 
+  if (seed.seedDoi) row.seedDoi = seed.seedDoi;
   if (paper.doi) row.citingPaperDoi = paper.doi;
   if (paper.publicationYear != null)
     row.citingPaperYear = paper.publicationYear;
@@ -608,6 +776,10 @@ function buildReportInspectorRecordRow(input: {
     row.confidence = adjudicateRecord.confidence;
     row.comparison = adjudicateRecord.comparison;
     row.rationale = adjudicateRecord.rationale;
+    row.evidenceSufficiency = adjudicateRecord.evidenceSufficiency;
+    if (adjudicateRecord.evidenceLimitation) {
+      row.evidenceLimitation = adjudicateRecord.evidenceLimitation;
+    }
   } else if (adjudicateRecord.status === "not_adjudicated") {
     row.gateCode = adjudicateRecord.gateCode;
     row.operationalReason = adjudicateRecord.reason;
@@ -738,6 +910,7 @@ function buildReportInspectorPayload(
     evidence,
     adjudicate,
   });
+  const families = buildReportInspectorFamilies(records);
 
   return {
     stageKey: "report",
@@ -752,6 +925,7 @@ function buildReportInspectorPayload(
       decisionSummaries: artifact.payload.decisionSummaries,
       exclusionSummaries: artifact.payload.exclusionSummaries,
       records,
+      families,
     },
     ...(options?.markdownPath ? { markdownPath: options.markdownPath } : {}),
   };

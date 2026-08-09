@@ -13,7 +13,6 @@ import {
   adjudicateArtifactSchema,
   adjudicateFailureCodeSchema,
   adjudicateFatalFailureCodeSchema,
-  adjudicateModelExecutionSchema,
   buildAdjudicationResultId,
   canonicalAdjudicateMethod,
   canonicalAdjudicateModelOutputSchema,
@@ -29,7 +28,6 @@ import {
   type AdjudicateArtifactPayload,
   type AdjudicateGateCode,
   type AdjudicateLineage,
-  type AdjudicateModelExecution,
   type AdjudicateNonfatalFailureCode,
   type AdjudicateRecordOutcome,
   type AppendOnlyDecision,
@@ -43,6 +41,10 @@ import {
   type PrepareArtifact,
   type PreparedCitationInstance,
 } from "../contract/lean-artifacts.js";
+import {
+  modelExecutionSchema,
+  type ModelExecution,
+} from "../contract/model-execution.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
 const canonicalAdjudicateOptionsSchema = z
@@ -61,7 +63,7 @@ const canonicalAdjudicateAdapterResultSchema = z.discriminatedUnion("status", [
     .object({
       status: z.literal("completed"),
       rawOutput: z.unknown(),
-      execution: adjudicateModelExecutionSchema,
+      execution: modelExecutionSchema,
     })
     .strict(),
   z
@@ -69,7 +71,7 @@ const canonicalAdjudicateAdapterResultSchema = z.discriminatedUnion("status", [
       status: z.literal("failed"),
       reasonCode: adjudicateFailureCodeSchema,
       reason: z.string().min(1),
-      execution: adjudicateModelExecutionSchema,
+      execution: modelExecutionSchema,
     })
     .strict(),
 ]);
@@ -433,7 +435,7 @@ export function buildCanonicalAdjudicateArtifact(input: {
 
 function verifyAdapterExecution(input: {
   recordId: string;
-  execution: AdjudicateModelExecution;
+  execution: ModelExecution;
   promptContentHash: string;
   expectedRequestHash: string;
 }): void {
@@ -718,7 +720,7 @@ function buildAdjudicatedOutcome(input: {
   prepareRecord: PreparedCitationInstance;
   output: z.infer<typeof canonicalAdjudicateModelOutputSchema>;
   selectedChunkIds: readonly string[];
-  execution: AdjudicateModelExecution;
+  execution: ModelExecution;
   packet: ReturnType<typeof buildCanonicalAdjudicatePacket>;
 }): AdjudicateRecordOutcome {
   const evaluatedClaimRecordIds =
@@ -782,7 +784,7 @@ function buildFailedOutcome(input: {
   prepareRecord: PreparedCitationInstance;
   failureCode: AdjudicateNonfatalFailureCode;
   reason: string;
-  execution: AdjudicateModelExecution;
+  execution: ModelExecution;
 }): AdjudicateRecordOutcome {
   const draft = {
     recordId: input.prepareRecord.recordId,
@@ -802,7 +804,7 @@ function buildFailedOutcome(input: {
 function buildInvalidOutputOutcome(input: {
   prepareRecord: PreparedCitationInstance;
   reason: string;
-  execution: AdjudicateModelExecution;
+  execution: ModelExecution;
 }): AdjudicateRecordOutcome {
   const draft = {
     recordId: input.prepareRecord.recordId,
