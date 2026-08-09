@@ -4,7 +4,10 @@ import {
   chunksOverlappingVerifiedSpans,
   selectEvidenceChunkIds,
 } from "../../src/retrieval/canonical-evidence-retrieval.js";
-import { buildStableId, canonicalSha256 } from "../../src/shared/stable-identity.js";
+import {
+  buildStableId,
+  canonicalSha256,
+} from "../../src/shared/stable-identity.js";
 
 function artifact(role: string) {
   return {
@@ -124,19 +127,16 @@ describe("scope-span evidence pinning", () => {
   };
 
   it("finds chunks overlapping verified spans", () => {
-    expect(chunksOverlappingVerifiedSpans(groundedFamily as never, corpus as never)).toEqual([
-      "chunk_hit",
-    ]);
+    expect(
+      chunksOverlappingVerifiedSpans(groundedFamily as never, corpus as never),
+    ).toEqual(["chunk_hit"]);
   });
 
   it("pins overlapping chunks ahead of BM25 order", () => {
     const selected = selectEvidenceChunkIds({
       family: groundedFamily as never,
       corpus: corpus as never,
-      bm25Candidates: [
-        { chunkId: "chunk_far" },
-        { chunkId: "chunk_hit" },
-      ],
+      bm25Candidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
       selectionLimit: 2,
     });
     expect(selected.rankingSource).toBe("bm25_with_scope_pins");
@@ -160,10 +160,7 @@ describe("scope-span evidence pinning", () => {
     const selected = selectEvidenceChunkIds({
       family: notFound as never,
       corpus: corpus as never,
-      bm25Candidates: [
-        { chunkId: "chunk_far" },
-        { chunkId: "chunk_hit" },
-      ],
+      bm25Candidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
       selectionLimit: 2,
     });
     expect(selected.rankingSource).toBe("bm25");

@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
-import { adaptivePortfolioPolicySchema } from "./adaptive-portfolio-policy.js";
+import {
+  adaptivePortfolioPolicySchema,
+  defaultAdaptivePortfolioPolicy,
+} from "./adaptive-portfolio-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeyValues } from "./stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
@@ -38,91 +41,156 @@ export type AnalysisRunStageStatus = z.infer<
 >;
 
 /**
+ * Single source of truth for canonical run-config defaults.
+ * Schema field defaults, UI form defaults, and CLI empty-config parse all
+ * consume this object (directly or via analysisRunConfigSchema.parse({})).
+ */
+export const CANONICAL_RUN_CONFIG_DEFAULTS = {
+  stopAfterStage: "report" as const satisfies StageKey,
+  forceRefresh: false,
+  discover: {
+    neighborhoodProvider: "openalex",
+    neighborhoodQuery: "works-citing-seed",
+    neighborhoodLimit: 200,
+    probeBudget: 100,
+    candidateSelection: defaultAdaptivePortfolioPolicy,
+    extractionModel: "claude-haiku-4-5",
+    extractionThinking: false,
+  },
+  scope: {
+    groundingModel: "claude-sonnet-4-6",
+    groundingThinking: true,
+  },
+  prepare: {
+    classifier: "deterministic" as const,
+  },
+  evidence: {
+    rerankEnabled: false,
+    rerankModel: "claude-haiku-4-5",
+    rerankTopN: 5,
+    bm25CandidateLimit: 20,
+    selectionLimit: 5,
+  },
+  adjudicate: {
+    model: "claude-opus-4-6",
+    thinking: true,
+  },
+};
+
+/**
  * Minimal canonical run config. Grouped by stage where practical.
- * Old seven-stage fields (screen/curate/advisor/vector/shortlist) are rejected.
+ * Unknown fields are rejected by .strict() (no legacy aliases).
  */
 export const analysisRunConfigSchema = z
   .object({
-    stopAfterStage: stageKeySchema.default("report"),
-    forceRefresh: z.boolean().default(false),
+    stopAfterStage: stageKeySchema.default(
+      CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
+    ),
+    forceRefresh: z
+      .boolean()
+      .default(CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh),
 
     discover: z
       .object({
-        neighborhoodProvider: z.string().min(1).default("openalex"),
-        neighborhoodQuery: z.string().min(1).default("works-citing-seed"),
-        neighborhoodLimit: z.number().int().positive().default(200),
-        probeBudget: z.number().int().nonnegative().default(100),
-        candidateSelection: adaptivePortfolioPolicySchema.default(() =>
-          adaptivePortfolioPolicySchema.parse({ mode: "adaptive_portfolio" }),
+        neighborhoodProvider: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodProvider),
+        neighborhoodQuery: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodQuery),
+        neighborhoodLimit: z
+          .number()
+          .int()
+          .positive()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit),
+        probeBudget: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget),
+        candidateSelection: adaptivePortfolioPolicySchema.default(
+          () => CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection,
         ),
         fromYear: z.number().int().positive().optional(),
         toYear: z.number().int().positive().optional(),
-        extractionModel: z.string().min(1).default("claude-haiku-4-5"),
-        extractionThinking: z.boolean().default(false),
+        extractionModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel),
+        extractionThinking: z
+          .boolean()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking),
       })
       .strict()
-      .default(() => ({
-        neighborhoodProvider: "openalex",
-        neighborhoodQuery: "works-citing-seed",
-        neighborhoodLimit: 200,
-        probeBudget: 100,
-        candidateSelection: adaptivePortfolioPolicySchema.parse({
-          mode: "adaptive_portfolio",
-        }),
-        extractionModel: "claude-haiku-4-5",
-        extractionThinking: false,
-      })),
+      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.discover })),
 
     scope: z
       .object({
-        groundingModel: z.string().min(1).default("claude-sonnet-4-6"),
-        groundingThinking: z.boolean().default(true),
+        groundingModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel),
+        groundingThinking: z
+          .boolean()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking),
         /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
         seedPdfPath: z.string().min(1).optional(),
       })
       .strict()
-      .default(() => ({
-        groundingModel: "claude-sonnet-4-6",
-        groundingThinking: true,
-      })),
+      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.scope })),
 
     prepare: z
       .object({
-        classifier: z.literal("deterministic").default("deterministic"),
+        classifier: z
+          .literal("deterministic")
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.classifier),
       })
       .strict()
-      .default(() => ({
-        classifier: "deterministic" as const,
-      })),
+      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare })),
 
     evidence: z
       .object({
         /** Relevance-only LLM rerank; disabled by default. */
-        rerankEnabled: z.boolean().default(false),
-        rerankModel: z.string().min(1).default("claude-haiku-4-5"),
-        rerankTopN: z.number().int().positive().default(5),
-        bm25CandidateLimit: z.number().int().positive().default(20),
-        selectionLimit: z.number().int().positive().default(5),
+        rerankEnabled: z
+          .boolean()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled),
+        rerankModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel),
+        rerankTopN: z
+          .number()
+          .int()
+          .positive()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankTopN),
+        bm25CandidateLimit: z
+          .number()
+          .int()
+          .positive()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit),
+        selectionLimit: z
+          .number()
+          .int()
+          .positive()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.selectionLimit),
       })
       .strict()
-      .default(() => ({
-        rerankEnabled: false,
-        rerankModel: "claude-haiku-4-5",
-        rerankTopN: 5,
-        bm25CandidateLimit: 20,
-        selectionLimit: 5,
-      })),
+      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.evidence })),
 
     adjudicate: z
       .object({
-        model: z.string().min(1).default("claude-opus-4-6"),
-        thinking: z.boolean().default(true),
+        model: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model),
+        thinking: z
+          .boolean()
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking),
       })
       .strict()
-      .default(() => ({
-        model: "claude-opus-4-6",
-        thinking: true,
-      })),
+      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate })),
   })
   .strict()
   .superRefine((config, context) => {

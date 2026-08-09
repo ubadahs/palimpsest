@@ -6,7 +6,8 @@ describe("assessEvidenceLimitation", () => {
   it("marks figure-only support when chunks omit the cited figure", () => {
     const result = assessEvidenceLimitation({
       claimTexts: ["Pvalb cells increase caudally (Figure 5)."],
-      citingContext: "▶ Density rises caudally (Figure 5; Marlowe et al., 2021). ◀",
+      citingContext:
+        "▶ Density rises caudally (Figure 5; Marlowe et al., 2021). ◀",
       selectedChunkTexts: [
         "Immunohistochemistry was performed on coronal sections.",
       ],

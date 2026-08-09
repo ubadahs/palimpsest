@@ -184,7 +184,8 @@ function mockedLlmClient(): LLMClient {
           : [
               {
                 text: "GABAergic interneurons play an important role in the brain.",
-                supportSpanText: "GABAergic interneurons play an important role",
+                supportSpanText:
+                  "GABAergic interneurons play an important role",
                 confidence: "medium",
               },
             ],

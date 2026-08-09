@@ -40,10 +40,19 @@ describe("runMigrations", () => {
       expect(firstRun.appliedMigrations.map(({ name }) => name)).toContain(
         "0011_purge_pre_canonical_runs.sql",
       );
+      expect(firstRun.appliedMigrations.map(({ name }) => name)).toContain(
+        "0012_drop_orphan_papers_citations.sql",
+      );
       expect(secondRun.appliedMigrations).toHaveLength(0);
       expect(tableNames).toEqual(
-        expect.arrayContaining(["citations", "papers", "schema_migrations"]),
+        expect.arrayContaining([
+          "paper_cache",
+          "paper_parsed",
+          "schema_migrations",
+        ]),
       );
+      expect(tableNames).not.toContain("papers");
+      expect(tableNames).not.toContain("citations");
     } finally {
       database.close();
     }

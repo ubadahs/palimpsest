@@ -30,4 +30,6 @@ Eligible Anthropic calls can use provider prompt caching to reduce repeated-inpu
 
 ## Provenance and cutover
 
-Cache hits and misses remain visible in run telemetry and artifact provenance. Old local database rows or run directories from the seven-stage executor are unsupported and may be deleted/recreated; do not rely on them as reusable canonical stage state.
+Cache hits and misses remain visible in run telemetry and artifact provenance. Paper-cache reuse requires stored acquisition provenance and a supported full-text format (`jats_xml` or `grobid_tei_xml`); pre-provenance or unsupported-format rows are treated as cache misses and re-acquired. Old local database rows or run directories from the seven-stage executor are unsupported and may be deleted/recreated; do not rely on them as reusable canonical stage state.
+
+`db:gc` can evict stale `llm_result_cache` rows and aged analysis-run registry rows. It does not delete paper-cache rows or on-disk artifact directories.

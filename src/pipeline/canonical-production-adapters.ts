@@ -63,21 +63,28 @@ import {
   type CanonicalProvenanceStore,
 } from "./canonical-provenance-store.js";
 import {
-  createFullTextAdapters,
-  type CitingYearRange,
-} from "../cli/paper-adapters.js";
-import {
   inferFirstAuthorSurname,
   matchReferenceByMetadata,
   materializeLocalPdf,
   materializeParsedPaper,
   PARSED_PAPER_PARSER_VERSION,
 } from "../retrieval/parsed-paper.js";
-import type {
-  FullTextAcquisitionFailureCode,
-  FullTextFetchAdapters,
+import {
+  createDefaultAdapters,
+  type FullTextAcquisitionFailureCode,
+  type FullTextFetchAdapters,
 } from "../retrieval/fulltext-fetch.js";
 import type { ParsedPaperCacheOptions } from "../retrieval/parsed-paper.js";
+
+type CitingYearRange = { fromYear?: number; toYear?: number };
+
+function createFullTextAdapters(config: AppConfig): FullTextFetchAdapters {
+  return createDefaultAdapters({
+    grobidBaseUrl: config.providerBaseUrls.grobid,
+    email: config.openAlexEmail,
+    institutionalProxyUrl: config.institutionalProxyUrl,
+  });
+}
 import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
 

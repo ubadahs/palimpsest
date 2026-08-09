@@ -63,7 +63,7 @@ export type FullTextAcquisition = {
   selectedMethod?: FullTextAcquisitionMethod | undefined;
   selectedLocatorKind?: FullTextAcquisitionSelectedLocatorKind | undefined;
   selectedUrl?: string | undefined;
-  fullTextFormat?: "jats_xml" | "grobid_tei_xml" | "pdf_text" | undefined;
+  fullTextFormat?: "jats_xml" | "grobid_tei_xml" | undefined;
   failureReason?: string | undefined;
   accessChannel?:
     | "open_access"

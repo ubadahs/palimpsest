@@ -35,7 +35,10 @@ describe("verifyClaimSupportSpan", () => {
 
   it("returns undefined when the proposed span is absent", () => {
     expect(
-      verifyClaimSupportSpan("Context without the claim.", "missing claim text"),
+      verifyClaimSupportSpan(
+        "Context without the claim.",
+        "missing claim text",
+      ),
     ).toBeUndefined();
   });
 });
