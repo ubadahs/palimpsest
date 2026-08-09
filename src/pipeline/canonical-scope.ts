@@ -11,7 +11,6 @@ import {
   scopeArtifactSchema,
   scopeFailureCodeSchema,
   scopeFatalFailureCodeSchema,
-  scopeGroundingModelExecutionSchema,
   scopeNonfatalFailureCodeSchema,
   scopeSeedMaterializationSchema,
   type AppendOnlyDecision,
@@ -25,11 +24,14 @@ import {
   type ScopeArtifactPayload,
   type ScopeCandidateDecision,
   type ScopeGrounding,
-  type ScopeGroundingModelExecution,
   type ScopeNonfatalFailureCode,
   type ScopeSeedMaterialization,
   type ScopeVerifiedEvidenceSpan,
 } from "../contract/lean-artifacts.js";
+import {
+  modelExecutionSchema,
+  type ModelExecution,
+} from "../contract/model-execution.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
 const canonicalScopeOptionsSchema = z
@@ -87,7 +89,7 @@ const canonicalScopeGroundingResultSchema = z
       .object({
         status: z.literal("completed"),
         rawOutput: z.unknown(),
-        execution: scopeGroundingModelExecutionSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
     z
@@ -95,7 +97,7 @@ const canonicalScopeGroundingResultSchema = z
         status: z.literal("failed"),
         reasonCode: scopeFailureCodeSchema,
         reason: z.string().min(1),
-        execution: scopeGroundingModelExecutionSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
   ])
@@ -480,7 +482,7 @@ function buildFamilyConstructions(discoverArtifact: DiscoverArtifact): {
 
 function mapGroundingOutput(
   rawOutput: unknown,
-  execution: ScopeGroundingModelExecution,
+  execution: ModelExecution,
   materialization: ScopeSeedMaterialization & { status: "materialized" },
 ): ScopeGrounding {
   const parsed = canonicalScopeGroundingOutputSchema.safeParse(rawOutput);
@@ -575,7 +577,7 @@ function mapGroundingOutput(
 }
 
 function invalidGrounding(
-  execution: ScopeGroundingModelExecution,
+  execution: ModelExecution,
   detailReason: string,
 ): ScopeGrounding {
   return {
@@ -591,7 +593,7 @@ function invalidGrounding(
 }
 
 function failedGrounding(
-  execution: ScopeGroundingModelExecution,
+  execution: ModelExecution,
   code: ScopeNonfatalFailureCode,
   reason: string,
 ): ScopeGrounding {
@@ -612,7 +614,7 @@ function failedGrounding(
 }
 
 function recordModelExecution(
-  execution: ScopeGroundingModelExecution,
+  execution: ModelExecution,
   prompts: LeanArtifactProvenance["prompts"],
   models: LeanArtifactProvenance["models"],
   responseArtifacts: ArtifactReference[],

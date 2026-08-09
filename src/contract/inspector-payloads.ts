@@ -37,6 +37,27 @@ export type ReportInspectorEvidencePassage = {
   modelCited: boolean;
 };
 
+/** Verified seed-side grounding span for mutation / review display. */
+export type ReportInspectorGroundingSpan = {
+  text: string;
+  blockId: string;
+  blockKind: string;
+  sectionTitle?: string;
+  charOffsetStart: number;
+  charOffsetEnd: number;
+};
+
+/** Occurrence-local attributed claim used for citing-span review. */
+export type ReportInspectorOccurrenceClaim = {
+  claimRecordId: string;
+  extractedClaimText: string;
+  supportSpan?: {
+    text: string;
+    charOffsetStart: number;
+    charOffsetEnd: number;
+  };
+};
+
 /**
  * Lean, client-safe row for one Prepare × Evidence × Adjudicate record.
  * Joined from upstream artifacts using the report `recordTraces` spine.
@@ -47,6 +68,9 @@ export type ReportInspectorRecordRow = {
   citationOccurrenceId: string;
   trackedClaim: string;
   evaluatedClaimText: string;
+  seedId: string;
+  seedTitle: string;
+  seedDoi?: string;
   citingPaperTitle: string;
   citingPaperDoi?: string;
   citingPaperYear?: number;
@@ -57,6 +81,8 @@ export type ReportInspectorRecordRow = {
   citationRole?: string;
   evaluationMode?: string;
   groundingStatus?: string;
+  verifiedSeedGroundingSpans: ReportInspectorGroundingSpan[];
+  occurrenceClaims: ReportInspectorOccurrenceClaim[];
   retrievalStatus: string;
   rerankStatus: string;
   rankingSource?: string;
@@ -70,9 +96,38 @@ export type ReportInspectorRecordRow = {
   confidence?: string;
   comparison?: string;
   rationale?: string;
+  evidenceSufficiency?: "sufficient" | "limited";
+  evidenceLimitation?: "figure_only_support";
   gateCode?: string;
   failureCode?: string;
   operationalReason?: string;
+};
+
+export type MutationFamilyVerdictCounts = {
+  F: number;
+  D: number;
+  E: number;
+  U: number;
+  not_adjudicated: number;
+  failed: number;
+};
+
+/**
+ * Family-centered mutation projection for the Report Families tab.
+ * Deterministic inspector view only — never mutates canonical Report JSON.
+ */
+export type MutationFamilyView = {
+  familyId: string;
+  seedId: string;
+  trackedClaim: string;
+  seedTitle: string;
+  seedDoi?: string;
+  groundingStatus?: string;
+  verifiedSeedGroundingSpans: ReportInspectorGroundingSpan[];
+  recordCount: number;
+  verdictCounts: MutationFamilyVerdictCounts;
+  /** Chronological citing-paper restatements (year → title → recordId). */
+  records: ReportInspectorRecordRow[];
 };
 
 export type ReportInspectorSummary = {
@@ -85,6 +140,7 @@ export type ReportInspectorSummary = {
   decisionSummaries: ReportArtifact["payload"]["decisionSummaries"];
   exclusionSummaries: ReportArtifact["payload"]["exclusionSummaries"];
   records: ReportInspectorRecordRow[];
+  families: MutationFamilyView[];
 };
 
 export type StageInspectorPayloadMap = {

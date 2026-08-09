@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
+  MutationFamilyView,
   ReportInspectorRecordRow,
   StageInspectorPayload,
 } from "palimpsest/contract";
@@ -10,6 +11,10 @@ import { formatRateValue } from "../lib/report-format";
 
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/");
 });
 
 type CountUnit =
@@ -66,6 +71,9 @@ function record(
     citationOccurrenceId: "mention_1",
     trackedClaim: "Tracked claim about retinal input",
     evaluatedClaimText: "Several GABAergic types receive retinal input",
+    seedId: "seed_1",
+    seedTitle: "Seed paper on retinal input",
+    seedDoi: "10.1000/seed-example",
     citingPaperTitle: "Atlas of ventral visual thalamus",
     citingPaperDoi: "10.1111/example",
     citingPaperYear: 2026,
@@ -76,6 +84,27 @@ function record(
     citationRole: "substantive_attribution",
     evaluationMode: "fidelity_specific_claim",
     groundingStatus: "grounded",
+    verifiedSeedGroundingSpans: [
+      {
+        text: "GABAergic neurons receive direct retinal input.",
+        blockId: "block_1",
+        blockKind: "body_paragraph",
+        sectionTitle: "Results",
+        charOffsetStart: 0,
+        charOffsetEnd: 47,
+      },
+    ],
+    occurrenceClaims: [
+      {
+        claimRecordId: "claim_1",
+        extractedClaimText: "Several GABAergic types receive retinal input",
+        supportSpan: {
+          text: "retinal input to vRN neurons",
+          charOffsetStart: 25,
+          charOffsetEnd: 54,
+        },
+      },
+    ],
     retrievalStatus: "retrieved",
     rerankStatus: "disabled",
     rankingSource: "bm25",
@@ -98,6 +127,8 @@ function buildPayload(): StageInspectorPayload<"report"> {
     stageKey: "report" as const,
     markdownPath: "/tmp/report.md",
     rawArtifact: {
+      artifactId: `artifact_${"d".repeat(64)}`,
+      contentHash: "e".repeat(64),
       payload: {
         interpretationWarning:
           "F/D/E/U labels are uncalibrated research outputs and have not been validated against blinded human labels. Do not treat verdict rates as calibrated faithfulness rates.",
@@ -395,37 +426,61 @@ function buildPayload(): StageInspectorPayload<"report"> {
         },
       ],
       exclusionSummaries: [],
-      records: [
-        record({
-          recordId: "record_f",
-          adjudicationStatus: "adjudicated",
-          verdict: "F",
-          confidence: "high",
-          comparison: "The attribution matches the seed findings.",
-          rationale: "Direct support across multiple cited chunks.",
-        }),
-        record({
-          recordId: "record_d",
-          adjudicationStatus: "adjudicated",
-          verdict: "D",
-          confidence: "high",
-          evaluatedClaimText: "Four inhibitory neuron types were identified",
-          citingPaperTitle: "Circuit paper with distortion",
-          comparison: "The seed reported sublaminae, not total types.",
-          rationale: "The count was materially narrowed.",
-        }),
-        record({
-          recordId: "record_gated",
-          adjudicationStatus: "not_adjudicated",
-          gateCode: "manual_review_role_ambiguous",
-          operationalReason: "Ambiguous citation role stays gated.",
-          evaluatedClaimText: "Ambiguous role claim",
-          citingPaperTitle: "Review-like paper",
-          evidencePassages: [],
-        }),
-      ],
+      records: [] as ReportInspectorRecordRow[],
+      families: [] as MutationFamilyView[],
     },
   };
+  const records = [
+    record({
+      recordId: "record_f",
+      adjudicationStatus: "adjudicated",
+      verdict: "F",
+      confidence: "high",
+      comparison: "The attribution matches the seed findings.",
+      rationale: "Direct support across multiple cited chunks.",
+    }),
+    record({
+      recordId: "record_d",
+      adjudicationStatus: "adjudicated",
+      verdict: "D",
+      confidence: "high",
+      evaluatedClaimText: "Four inhibitory neuron types were identified",
+      citingPaperTitle: "Circuit paper with distortion",
+      comparison: "The seed reported sublaminae, not total types.",
+      rationale: "The count was materially narrowed.",
+    }),
+    record({
+      recordId: "record_gated",
+      adjudicationStatus: "not_adjudicated",
+      gateCode: "manual_review_role_ambiguous",
+      operationalReason: "Ambiguous citation role stays gated.",
+      evaluatedClaimText: "Ambiguous role claim",
+      citingPaperTitle: "Review-like paper",
+      evidencePassages: [],
+    }),
+  ];
+  const head = records[0]!;
+  const family: MutationFamilyView = {
+    familyId: head.familyId,
+    seedId: head.seedId,
+    trackedClaim: head.trackedClaim,
+    seedTitle: head.seedTitle,
+    verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
+    recordCount: records.length,
+    verdictCounts: {
+      F: 1,
+      D: 1,
+      E: 0,
+      U: 0,
+      not_adjudicated: 1,
+      failed: 0,
+    },
+    records,
+  };
+  if (head.seedDoi) family.seedDoi = head.seedDoi;
+  if (head.groundingStatus) family.groundingStatus = head.groundingStatus;
+  payload.summary.records = records;
+  payload.summary.families = [family];
   return payload as unknown as StageInspectorPayload<"report">;
 }
 
@@ -448,7 +503,9 @@ describe("report inspector", () => {
     ).toBeTruthy();
     expect(screen.getByText("Not estimable")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Overview" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Families (1)" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Records (3)" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Review" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Audit trail" })).toBeTruthy();
   });
 
@@ -479,5 +536,50 @@ describe("report inspector", () => {
     expect(details).toBeTruthy();
     details!.setAttribute("open", "");
     expect(screen.getByText("The count was materially narrowed.")).toBeTruthy();
+  });
+
+  it("renders family mutation chronology and seed grounding", () => {
+    render(
+      <ReportInspector
+        defaultTab="families"
+        payload={buildPayload()}
+        runId="run-report-ui"
+      />,
+    );
+
+    expect(screen.getByText("Seed claim family")).toBeTruthy();
+    expect(screen.getByText("Seed paper on retinal input")).toBeTruthy();
+    expect(
+      screen.getByText("GABAergic neurons receive direct retinal input."),
+    ).toBeTruthy();
+    expect(screen.getByText(/Chronological citing restatements/i)).toBeTruthy();
+  });
+
+  it("honors deep-link query params for families tab", () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/runs/run-report-ui/stages/report?tab=families&family=family_1&record=record_d",
+    );
+
+    render(<ReportInspector payload={buildPayload()} runId="run-report-ui" />);
+
+    expect(
+      screen
+        .getByRole("tab", { name: "Families (1)" })
+        .getAttribute("data-state"),
+    ).toBe("active");
+    expect(screen.getByText("Seed claim family")).toBeTruthy();
+    expect(
+      screen.getByText("Four inhibitory neuron types were identified"),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Tracked claim about retinal input.*3 records/i,
+      }),
+    );
+    expect(window.location.search).toContain("family=family_1");
+    expect(window.location.search).not.toContain("record=");
   });
 });

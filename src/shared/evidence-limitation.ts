@@ -7,8 +7,8 @@
 const FIGURE_REF_RE =
   /\b(?:fig(?:ure)?s?\.?\s*\d+[a-z]?|figures?\s+\d+[a-z]?)\b/i;
 
-export type EvidenceLimitation = "figure_only_support";
-export type EvidenceSufficiency = "sufficient" | "limited";
+type EvidenceLimitation = "figure_only_support";
+type EvidenceSufficiency = "sufficient" | "limited";
 
 export type EvidenceLimitationAssessment = {
   evidenceSufficiency: EvidenceSufficiency;

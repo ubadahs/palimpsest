@@ -13,13 +13,8 @@ import {
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
 import {
-  adjudicateModelExecutionSchema,
-  type AdjudicateModelExecution,
-} from "./model-execution.js";
-
-export {
-  adjudicateModelExecutionSchema,
-  type AdjudicateModelExecution,
+  modelExecutionSchema,
+  type ModelExecution,
 } from "./model-execution.js";
 
 /**
@@ -132,10 +127,8 @@ export type CanonicalAdjudicateModelOutput = z.infer<
   typeof canonicalAdjudicateModelOutputSchema
 >;
 
-export const evidenceLimitationSchema = z.enum(["figure_only_support"]);
-export type EvidenceLimitationCode = z.infer<typeof evidenceLimitationSchema>;
-export const evidenceSufficiencySchema = z.enum(["sufficient", "limited"]);
-export type EvidenceSufficiencyCode = z.infer<typeof evidenceSufficiencySchema>;
+const evidenceLimitationSchema = z.enum(["figure_only_support"]);
+const evidenceSufficiencySchema = z.enum(["sufficient", "limited"]);
 
 const adjudicatedOutcomeFields = {
   status: z.literal("adjudicated"),
@@ -153,7 +146,7 @@ const adjudicatedOutcomeFields = {
    */
   evidenceSufficiency: evidenceSufficiencySchema,
   evidenceLimitation: evidenceLimitationSchema.optional(),
-  execution: adjudicateModelExecutionSchema,
+  execution: modelExecutionSchema,
 } as const;
 
 export const adjudicateRecordOutcomeSchema = z
@@ -187,7 +180,7 @@ export const adjudicateRecordOutcomeSchema = z
         status: z.literal("adjudication_failed"),
         failureCode: adjudicateNonfatalFailureCodeSchema,
         reason: z.string().min(1),
-        execution: adjudicateModelExecutionSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
     z
@@ -198,7 +191,7 @@ export const adjudicateRecordOutcomeSchema = z
         adjudicationResultId: stableIdentifierSchema,
         status: z.literal("invalid_output"),
         reason: z.string().min(1),
-        execution: adjudicateModelExecutionSchema,
+        execution: modelExecutionSchema,
       })
       .strict(),
   ])
@@ -266,7 +259,7 @@ export function buildAdjudicationResultId(
   });
 }
 
-function executionIdentity(execution: AdjudicateModelExecution) {
+function executionIdentity(execution: ModelExecution) {
   return {
     provider: execution.provider,
     model: execution.model,
@@ -706,7 +699,7 @@ function modelProvenanceMatchesExecution(
     requestArtifact: ArtifactReference;
     responseArtifact: ArtifactReference;
   },
-  execution: AdjudicateModelExecution,
+  execution: ModelExecution,
 ): boolean {
   return (
     model.provider === execution.provider &&

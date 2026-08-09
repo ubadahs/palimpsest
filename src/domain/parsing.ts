@@ -54,12 +54,7 @@ const citationLocationQualityValues = [
   "missing",
 ] as const;
 
-export const citationLocationQualitySchema = z.enum(
-  citationLocationQualityValues,
-);
-export type CitationLocationQuality = z.infer<
-  typeof citationLocationQualitySchema
->;
+const citationLocationQualitySchema = z.enum(citationLocationQualityValues);
 
 const citationSourceLocatorSchema = z
   .object({
