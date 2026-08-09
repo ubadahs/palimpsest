@@ -49,18 +49,14 @@ export type FullTextFetchAdapters = {
  * (per-paper unavailable at the adapter boundary). Provider credential denial
  * for OpenAlex/Anthropic stays outside this surface.
  */
-export const fullTextAcquisitionFailureCodes = [
-  "not_found",
-  "paywall",
-  "authentication",
-  "authorization",
-  "rate_limited",
-  "invalid_content",
-  "transport",
-] as const;
-
 export type FullTextAcquisitionFailureCode =
-  (typeof fullTextAcquisitionFailureCodes)[number];
+  | "not_found"
+  | "paywall"
+  | "authentication"
+  | "authorization"
+  | "rate_limited"
+  | "invalid_content"
+  | "transport";
 
 type FullTextAcquisitionSuccess = {
   ok: true;

@@ -53,6 +53,16 @@ Artifact readers validate JSON shape, stable IDs, internal references, content h
 
 Old local SQLite rows and `data/runs/` directories created by the seven-stage executor are unsupported. Delete or recreate them before running the canonical pipeline. Keep scientific raw inputs and provenance where useful, but do not bridge old operational artifact formats into the canonical chain.
 
+## Human review sidecar
+
+Human calibration labels are **not** a seventh pipeline stage and never overwrite canonical machine artifacts. After Report succeeds, the local UI may append review events under:
+
+```text
+data/runs/<runId>/review/<reportArtifactId>/events.json
+```
+
+The event log is bound to the Report `artifactId` + `contentHash`. A rerun that produces a new Report artifact starts a new review lineage while preserving older review directories. Writes are atomic (temp file + rename) and reject stale concurrent heads via `expectedHeadEventId`. Exports (JSON bundle with event history, or flat CSV) include machine record snapshots plus current human labels.
+
 ## Interpretation
 
-Canonical Report is the authoritative accounting artifact. Canonical Adjudicate is runnable but **uncalibrated**: its `F`/`D`/`E`/`U` outputs require blinded human calibration before they support validation or trust claims.
+Canonical Report is the authoritative accounting artifact. Canonical Adjudicate is runnable but **uncalibrated**: its `F`/`D`/`E`/`U` outputs require blinded human calibration before they support validation or trust claims. Human review sidecars are the calibration input; they do not rewrite Report JSON.

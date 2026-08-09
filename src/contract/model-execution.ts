@@ -24,14 +24,3 @@ export const modelExecutionSchema = z
   .strict();
 
 export type ModelExecution = z.infer<typeof modelExecutionSchema>;
-
-/** Stage-named aliases — same schema, distinct import sites. */
-export const discoverModelExecutionSchema = modelExecutionSchema;
-export const scopeGroundingModelExecutionSchema = modelExecutionSchema;
-export const evidenceRerankModelExecutionSchema = modelExecutionSchema;
-export const adjudicateModelExecutionSchema = modelExecutionSchema;
-
-export type DiscoverModelExecution = ModelExecution;
-export type ScopeGroundingModelExecution = ModelExecution;
-export type EvidenceRerankModelExecution = ModelExecution;
-export type AdjudicateModelExecution = ModelExecution;

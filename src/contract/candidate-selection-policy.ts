@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import type {
   DiscoverAttributedClaimRecord,
   DiscoverCitationOccurrence,
@@ -13,9 +11,7 @@ import {
 } from "./adaptive-portfolio-policy.js";
 
 export {
-  CANDIDATE_SELECTION_POLICY_VERSION,
   adaptivePortfolioPolicySchema,
-  defaultAdaptivePortfolioPolicy,
   type AdaptivePortfolioPolicy,
 } from "./adaptive-portfolio-policy.js";
 
@@ -94,15 +90,11 @@ const GENERIC_PHRASES = [
   "cells",
 ];
 
-export const claimShapeValues = [
-  "atomic",
-  "methods_protocol",
-  "compound",
-  "citing_meta",
-] as const;
-
-export const claimShapeSchema = z.enum(claimShapeValues);
-export type ClaimShape = z.infer<typeof claimShapeSchema>;
+export type ClaimShape =
+  | "atomic"
+  | "methods_protocol"
+  | "compound"
+  | "citing_meta";
 
 /** Fixed utility multipliers — not CLI-configurable. */
 const CLAIM_SHAPE_UTILITY_MULTIPLIER: Record<ClaimShape, number> = {
@@ -121,71 +113,51 @@ const CITING_META_CLAIM_RE =
 const COMPOUND_CLAIM_RE =
   /;|\band\s+that\b|\b(?:as\s+well\s+as|along\s+with)\b.+\b(?:and|while|whereas)\b/i;
 
-export const candidateSelectionAnnotationSchema = z
-  .object({
-    policyVersion: z.literal(CANDIDATE_SELECTION_POLICY_VERSION),
-    uniqueCitingPaperCount: z.number().int().nonnegative(),
-    uniqueCitationGroupCount: z.number().int().nonnegative(),
-    sourceRecordCount: z.number().int().positive(),
-    mentionCount: z.number().int().positive(),
-    confidenceAggregate: z.number().min(0).max(1),
-    specificityScore: z.number().min(0).max(1),
-    informativeTokenCount: z.number().int().nonnegative(),
-    namedOrAlphanumericTermCount: z.number().int().nonnegative(),
-    quantityCount: z.number().int().nonnegative(),
-    comparisonCount: z.number().int().nonnegative(),
-    conditionCount: z.number().int().nonnegative(),
-    genericLanguagePenalty: z.number().min(0).max(1),
-    claimShape: claimShapeSchema,
-    lexicalFingerprint: z
-      .object({
-        wordShingleHash: z.string().min(1),
-        charShingleHash: z.string().min(1),
-        wordShingles: z.array(z.string()),
-      })
-      .strict(),
-  })
-  .strict();
+export type CandidateSelectionAnnotation = {
+  policyVersion: typeof CANDIDATE_SELECTION_POLICY_VERSION;
+  uniqueCitingPaperCount: number;
+  uniqueCitationGroupCount: number;
+  sourceRecordCount: number;
+  mentionCount: number;
+  confidenceAggregate: number;
+  specificityScore: number;
+  informativeTokenCount: number;
+  namedOrAlphanumericTermCount: number;
+  quantityCount: number;
+  comparisonCount: number;
+  conditionCount: number;
+  genericLanguagePenalty: number;
+  claimShape: ClaimShape;
+  lexicalFingerprint: {
+    wordShingleHash: string;
+    charShingleHash: string;
+    wordShingles: string[];
+  };
+};
 
-export type CandidateSelectionAnnotation = z.infer<
-  typeof candidateSelectionAnnotationSchema
->;
-
-export const candidateSelectionDispositionSchema = z
-  .object({
-    candidateId: z.string().min(1),
-    selectedForScope: z.boolean(),
-    rank: z.number().int().positive(),
-    reason: z.string().min(1),
-    annotation: candidateSelectionAnnotationSchema,
-    selectionStep: z.number().int().nonnegative().optional(),
-    componentScores: z
-      .object({
-        prevalence: z.number(),
-        specificity: z.number(),
-        confidence: z.number(),
-        novelty: z.number(),
-        utility: z.number(),
-      })
-      .strict()
-      .optional(),
-    marginalUtility: z.number().optional(),
-    projectedRecordCost: z.number().int().nonnegative().optional(),
-    bindingConstraint: z
-      .enum([
-        "selected",
-        "max_families",
-        "max_prepared_records",
-        "min_marginal_novelty",
-        "exhausted",
-      ])
-      .optional(),
-  })
-  .strict();
-
-export type CandidateSelectionDisposition = z.infer<
-  typeof candidateSelectionDispositionSchema
->;
+export type CandidateSelectionDisposition = {
+  candidateId: string;
+  selectedForScope: boolean;
+  rank: number;
+  reason: string;
+  annotation: CandidateSelectionAnnotation;
+  selectionStep?: number;
+  componentScores?: {
+    prevalence: number;
+    specificity: number;
+    confidence: number;
+    novelty: number;
+    utility: number;
+  };
+  marginalUtility?: number;
+  projectedRecordCost?: number;
+  bindingConstraint?:
+    | "selected"
+    | "max_families"
+    | "max_prepared_records"
+    | "min_marginal_novelty"
+    | "exhausted";
+};
 
 type AnnotatedCandidate = {
   candidate: DiscoverClaimCandidate;

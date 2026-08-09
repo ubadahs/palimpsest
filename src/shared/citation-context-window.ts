@@ -219,7 +219,7 @@ type SentenceSpan = { text: string; start: number; end: number };
  * Split on terminal punctuation, protecting abbreviation periods (et al., Fig.,
  * etc.) so author–year citations stay inside their sentence.
  */
-export function splitSentences(text: string): SentenceSpan[] {
+function splitSentences(text: string): SentenceSpan[] {
   if (text.length === 0) return [];
 
   const protectedText = text.replace(ABBREVIATION_RE, (match) =>

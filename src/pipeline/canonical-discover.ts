@@ -21,7 +21,6 @@ import {
   discoverArtifactSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
-  modelExecutionSchema,
   normalizeDiscoverClaimText,
   sha256DigestSchema,
   type AppendOnlyDecision,
@@ -35,6 +34,7 @@ import {
   type DiscoverClaimCandidate,
   type LeanArtifactProvenance,
 } from "../contract/lean-artifacts.js";
+import { modelExecutionSchema } from "../contract/model-execution.js";
 import { verifyClaimSupportSpan } from "../shared/claim-support-span.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 

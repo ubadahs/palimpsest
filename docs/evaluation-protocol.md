@@ -87,11 +87,16 @@ Each reviewed case should record:
 - reviewer name
 - eligible for adjudication yes or no
 - in-scope yes or no
-- citing span valid yes or no
-- cited span valid yes or no
+- citing span valid yes or no (with exact offset-bound correction into the citation context when no)
+- cited span valid yes or no (with corrected Evidence chunk IDs when no)
 - evidence sufficiency sufficient or limited
-- top-level label correct yes or no or not applicable
+- top-level label correct yes or no or not applicable (with overridden `F`/`D`/`E`/`U` when no)
 - free-text notes
+- draft vs final review status
+
+### Local review workspace
+
+The Report explorer **Review** tab implements this form against an append-only, report-hash-bound sidecar (`data/runs/<runId>/review/<reportArtifactId>/events.json`). Use **Families** to inspect claim mutation chronologies before or during review. Export JSON/CSV from the Review tab for offline calibration metrics. Machine artifacts remain immutable; human overrides live only in the sidecar.
 
 ## Metrics
 

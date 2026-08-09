@@ -137,6 +137,15 @@ describe("canonical selectors", () => {
     expect(first.evaluatedClaimText.length).toBeGreaterThan(0);
     expect(first.citationContext.length).toBeGreaterThan(0);
     expect(first.evidencePassages.length).toBeGreaterThan(0);
+    expect(first.seedTitle.length).toBeGreaterThan(0);
+    expect(first.occurrenceClaims.length).toBeGreaterThan(0);
+    expect(payload.summary.families.length).toBeGreaterThan(0);
+    expect(
+      payload.summary.families.reduce(
+        (total, family) => total + family.recordCount,
+        0,
+      ),
+    ).toBe(payload.summary.records.length);
 
     const nullishRate = payload.summary.rates.find(
       (rate) => rate.denominator === 0,

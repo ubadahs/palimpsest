@@ -32,23 +32,10 @@ import {
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
 import {
-  discoverModelExecutionSchema,
-  evidenceRerankModelExecutionSchema,
-  scopeGroundingModelExecutionSchema,
-  type EvidenceRerankModelExecution,
+  modelExecutionSchema,
+  type ModelExecution,
 } from "./model-execution.js";
 import type { CanonicalStageKey } from "./lean-stages.js";
-
-export {
-  discoverModelExecutionSchema,
-  evidenceRerankModelExecutionSchema,
-  modelExecutionSchema,
-  scopeGroundingModelExecutionSchema,
-  type DiscoverModelExecution,
-  type EvidenceRerankModelExecution,
-  type ModelExecution,
-  type ScopeGroundingModelExecution,
-} from "./model-execution.js";
 
 export {
   artifactReferenceSchema,
@@ -63,7 +50,6 @@ export {
   adjudicateFatalFailureCodeSchema,
   adjudicateGateCodeSchema,
   adjudicateLineageSchema,
-  adjudicateModelExecutionSchema,
   adjudicateNonfatalFailureCodeSchema,
   adjudicateRecordOutcomeSchema,
   buildAdjudicationResultId,
@@ -78,7 +64,6 @@ export {
   type AdjudicateFatalFailureCode,
   type AdjudicateGateCode,
   type AdjudicateLineage,
-  type AdjudicateModelExecution,
   type AdjudicateNonfatalFailureCode,
   type AdjudicateRecordOutcome,
   type CanonicalAdjudicateMethod,
@@ -817,7 +802,7 @@ export const discoverClaimExtractionObservationSchema = z
           implementation: z.string().min(1),
         })
         .strict(),
-      discoverModelExecutionSchema,
+      modelExecutionSchema,
     ]),
   })
   .strict()
@@ -1262,7 +1247,7 @@ export const scopeGroundingSchema = z
     detailReason: z.string().min(1),
     evidenceSpans: z.array(scopeVerifiedEvidenceSpanSchema),
     quoteVerification: scopeQuoteVerificationSchema,
-    modelExecution: scopeGroundingModelExecutionSchema.optional(),
+    modelExecution: modelExecutionSchema.optional(),
     failure: z
       .object({
         code: scopeNonfatalFailureCodeSchema,
@@ -2358,7 +2343,7 @@ export type EvidenceRerankRunIdentityInputs = {
   bm25RunId: string;
   candidateChunkIds: readonly string[];
   topN: number;
-  execution: EvidenceRerankModelExecution;
+  execution: ModelExecution;
   outcomeContentHash: string;
 };
 
@@ -2391,7 +2376,7 @@ const evidenceRerankRunBaseShape = {
   queryText: z.string().min(1),
   candidateChunkIds: z.array(stableIdentifierSchema).min(1),
   topN: z.number().int().positive(),
-  execution: evidenceRerankModelExecutionSchema,
+  execution: modelExecutionSchema,
 };
 
 export const evidenceRerankRunSchema = z

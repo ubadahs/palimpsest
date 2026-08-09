@@ -50,7 +50,9 @@ The physical SQLite column `analysis_run_stages.family_index` remains because it
 
 `apps/ui` is a local-only launcher and inspector for the canonical pipeline. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, presents the six canonical logical stages, and reads typed inspector payloads. It is not a hosted product.
 
-The Report stage explorer joins Prepare/Evidence/Adjudicate onto the canonical report spine for Overview, Records, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
+The Report stage explorer joins Prepare/Evidence/Adjudicate onto the canonical report spine for Overview, Families (mutation view), Records, Review, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
+
+Human review is a post-report sidecar, not a seventh stage. Reviews append under `data/runs/<runId>/review/<reportArtifactId>/events.json`, bound to the current Report artifact ID/content hash, and never overwrite canonical machine artifacts. The Review tab exports JSON/CSV calibration datasets from that lineage.
 
 ## Cross-cutting implementation
 

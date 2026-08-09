@@ -11,7 +11,8 @@
     "./shared": "./src/shared/index.ts",
     "./storage": "./src/storage/index.ts",
     "./contract": "./src/contract/index.ts",
-    "./contract/server": "./src/contract/server.ts"
+    "./contract/server": "./src/contract/server.ts",
+    "./review": "./src/review/index.ts"
   },
   "scripts": {
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
