@@ -20,6 +20,7 @@
     "dev": "tsx src/cli/index.ts",
     "doctor": "tsx src/cli/index.ts doctor",
     "db:migrate": "tsx src/cli/index.ts db:migrate",
+    "db:gc": "tsx src/cli/index.ts db:gc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
     "lint:all": "npm run lint && npm --workspace @palimpsest/ui run lint",

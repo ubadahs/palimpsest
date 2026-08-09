@@ -425,11 +425,7 @@ describe("adaptive portfolio candidate selection", () => {
         lornMention as never,
         nexilMention as never,
       ],
-      claims: [
-        methodsClaim as never,
-        lornClaim as never,
-        nexilClaim as never,
-      ],
+      claims: [methodsClaim as never, lornClaim as never, nexilClaim as never],
       policy: adaptivePortfolioPolicySchema.parse({
         mode: "adaptive_portfolio",
         minFamilies: 1,

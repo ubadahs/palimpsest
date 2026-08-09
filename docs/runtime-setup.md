@@ -6,7 +6,7 @@ This guide covers dependencies for the runnable canonical pipeline:
 discover → scope → prepare → evidence → adjudicate → report
 ```
 
-Fresh runs are DOI-first. The public CLI does not accept a shortlist/manual-claim entry point or legacy stage vocabulary.
+Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`, and `pipeline` only.
 
 ## What you need
 
@@ -46,8 +46,11 @@ Run:
 ```bash
 npm run dev -- doctor
 npm run dev -- db:migrate
+npm run dev -- db:gc --dry-run
 npm run dev -- pipeline --input path/to/dois.json
 ```
+
+`db:gc` deletes aged analysis-run and LLM-cache SQLite rows only. It does not delete on-disk run artifact directories under `data/runs/`.
 
 Canonical Adjudicate is **uncalibrated**. Runtime availability does not establish scientific validity or support trust claims.
 

@@ -1,65 +1,76 @@
 /**
  * Guards against form defaults drifting from schema defaults.
  *
- * The schema in analysisRunConfigSchema is the single source of truth for
- * config defaults. The UI form has its own defaultState for rendering, which
- * must stay in sync. This test parses an empty config through the schema and
- * asserts the form would produce the same values.
+ * CANONICAL_RUN_CONFIG_DEFAULTS / analysisRunConfigSchema is the single source
+ * of truth. The UI form builds defaultState from that object.
  */
 
 import { describe, expect, it } from "vitest";
-import { analysisRunConfigSchema } from "palimpsest/contract";
-
-/**
- * Form defaults extracted from new-run-form.tsx's defaultState + flattenConfig.
- * If this test fails, either the schema default changed (update the form) or
- * the form default drifted (fix it back).
- */
-const formDefaults = {
-  stopAfterStage: "report",
-  forceRefresh: false,
-  discover: {
-    neighborhoodProvider: "openalex",
-    neighborhoodQuery: "works-citing-seed",
-    neighborhoodLimit: 200,
-    probeBudget: 100,
-    candidateSelection: {
-      mode: "adaptive_portfolio",
-      minFamilies: 15,
-      maxFamilies: 25,
-      maxPreparedRecords: 100,
-      prevalenceWeight: 0.25,
-      specificityWeight: 0.35,
-      confidenceWeight: 0.15,
-      noveltyWeight: 0.25,
-      minMarginalNovelty: 0.08,
-      policyVersion: "adaptive-portfolio-v3",
-    },
-    extractionModel: "claude-haiku-4-5",
-    extractionThinking: false,
-  },
-  scope: { groundingModel: "claude-sonnet-4-6", groundingThinking: true },
-  prepare: { classifier: "deterministic" },
-  evidence: {
-    rerankEnabled: false,
-    rerankModel: "claude-haiku-4-5",
-    rerankTopN: 5,
-    bm25CandidateLimit: 20,
-    selectionLimit: 5,
-  },
-  adjudicate: { model: "claude-opus-4-6", thinking: true },
-};
+import {
+  analysisRunConfigSchema,
+  CANONICAL_RUN_CONFIG_DEFAULTS,
+} from "palimpsest/contract";
 
 describe("config defaults contract", () => {
-  it("schema defaults match UI form defaults", () => {
-    const schemaDefaults = analysisRunConfigSchema.parse({});
+  it("exported defaults match schema parse of empty config", () => {
+    expect(analysisRunConfigSchema.parse({})).toStrictEqual(
+      CANONICAL_RUN_CONFIG_DEFAULTS,
+    );
+  });
 
-    for (const [key, formValue] of Object.entries(formDefaults)) {
-      const schemaValue = schemaDefaults[key as keyof typeof schemaDefaults];
-      expect(
-        schemaValue,
-        `schema default for "${key}" should match form`,
-      ).toStrictEqual(formValue);
-    }
+  it("schema defaults match UI form flatten of CANONICAL_RUN_CONFIG_DEFAULTS", () => {
+    const schemaDefaults = analysisRunConfigSchema.parse({});
+    const formFlattened = {
+      stopAfterStage: CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
+      forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
+      discover: {
+        neighborhoodProvider:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodProvider,
+        neighborhoodQuery:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodQuery,
+        neighborhoodLimit:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
+        probeBudget: CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget,
+        candidateSelection: {
+          mode: "adaptive_portfolio" as const,
+          minFamilies:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .minFamilies,
+          maxFamilies:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .maxFamilies,
+          maxPreparedRecords:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .maxPreparedRecords,
+          prevalenceWeight:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .prevalenceWeight,
+          specificityWeight:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .specificityWeight,
+          confidenceWeight:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .confidenceWeight,
+          noveltyWeight:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .noveltyWeight,
+          minMarginalNovelty:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .minMarginalNovelty,
+          policyVersion:
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+              .policyVersion,
+        },
+        extractionModel: CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
+        extractionThinking:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking,
+      },
+      scope: { ...CANONICAL_RUN_CONFIG_DEFAULTS.scope },
+      prepare: { ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare },
+      evidence: { ...CANONICAL_RUN_CONFIG_DEFAULTS.evidence },
+      adjudicate: { ...CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate },
+    };
+
+    expect(schemaDefaults).toStrictEqual(formFlattened);
   });
 });

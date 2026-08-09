@@ -310,10 +310,7 @@ export function extractFidelityMarkers(claimText: string): string[] {
   return [...markers].sort(compareCodeUnits);
 }
 
-function fidelityMarkersDiffer(
-  leftClaim: string,
-  rightClaim: string,
-): boolean {
+function fidelityMarkersDiffer(leftClaim: string, rightClaim: string): boolean {
   const left = extractFidelityMarkers(leftClaim);
   const right = extractFidelityMarkers(rightClaim);
   if (left.length !== right.length) return true;
@@ -405,7 +402,9 @@ export function classifyClaimShape(input: {
   const titled = input.memberMentions.filter((mention) => mention.sectionTitle);
   if (titled.length > 0) {
     const methodsMentions = titled.filter((mention) =>
-      METHODS_SECTION_PATTERNS.some((re) => re.test(mention.sectionTitle ?? "")),
+      METHODS_SECTION_PATTERNS.some((re) =>
+        re.test(mention.sectionTitle ?? ""),
+      ),
     ).length;
     if (methodsMentions * 2 >= titled.length) {
       return "methods_protocol";

@@ -1081,39 +1081,8 @@ async function executeXmlUrlCandidate(
   };
 }
 
-function deriveLegacyAcquisition(
-  fetchSourceUrl: string | undefined,
-  format: FullTextFormat,
-): FullTextAcquisition {
-  const normalizedUrl = fetchSourceUrl ?? "legacy-cache";
-  const isBiorxiv = /biorxiv/i.test(normalizedUrl);
-  const isPmc = /pmc|ncbi|pubmed/i.test(normalizedUrl);
-  const selectedMethod: FullTextAcquisitionMethod =
-    format === "grobid_tei_xml"
-      ? "direct_pdf_grobid"
-      : isBiorxiv
-        ? "biorxiv_xml"
-        : isPmc
-          ? "pmc_xml"
-          : "landing_page_xml";
-  const selectedLocatorKind: FullTextAcquisitionSelectedLocatorKind =
-    format === "grobid_tei_xml"
-      ? "direct_pdf_url"
-      : isPmc
-        ? "doi_resolved"
-        : isBiorxiv
-          ? "doi_resolved"
-          : "meta_xml_url";
-
-  return {
-    materializationSource: "raw_cache",
-    attempts: [],
-    selectedMethod,
-    selectedLocatorKind,
-    selectedUrl: normalizedUrl,
-    fullTextFormat: format,
-    failureReason: undefined,
-  };
+function isSupportedFullTextFormat(format: string): format is FullTextFormat {
+  return format === "jats_xml" || format === "grobid_tei_xml";
 }
 
 function decodeCachedAcquisition(
@@ -1121,9 +1090,7 @@ function decodeCachedAcquisition(
   fullTextFormat: FullTextFormat,
 ): FullTextAcquisition | undefined {
   if (!cached?.acquisitionProvenanceJson) {
-    return cached?.fetchSourceUrl
-      ? deriveLegacyAcquisition(cached.fetchSourceUrl, fullTextFormat)
-      : undefined;
+    return undefined;
   }
   try {
     const parsed = JSON.parse(
@@ -1135,9 +1102,7 @@ function decodeCachedAcquisition(
       fullTextFormat,
     };
   } catch {
-    return cached.fetchSourceUrl
-      ? deriveLegacyAcquisition(cached.fetchSourceUrl, fullTextFormat)
-      : undefined;
+    return undefined;
   }
 }
 
@@ -1365,23 +1330,27 @@ export async function acquireFullText(
 ): Promise<FullTextAcquisitionResult> {
   if (cache && cache.cachePolicy !== "force_refresh") {
     const cached = getCachedPaper(cache.db, paper.id, cache.cachePolicy);
-    if (cached?.rawFullText && cached.fullTextFormat) {
-      return {
-        ok: true,
-        data: {
-          content: cached.rawFullText,
-          format: cached.fullTextFormat as FullTextContent["format"],
-          acquisition:
-            decodeCachedAcquisition(
-              cached,
-              cached.fullTextFormat as FullTextContent["format"],
-            ) ??
-            deriveLegacyAcquisition(
-              cached.fetchSourceUrl,
-              cached.fullTextFormat as FullTextContent["format"],
-            ),
-        },
-      };
+    if (
+      cached?.rawFullText &&
+      cached.fullTextFormat &&
+      isSupportedFullTextFormat(cached.fullTextFormat)
+    ) {
+      const acquisition = decodeCachedAcquisition(
+        cached,
+        cached.fullTextFormat,
+      );
+      // Missing or invalid provenance is treated as a cache miss so we do not
+      // fabricate acquisition metadata for pre-provenance rows.
+      if (acquisition) {
+        return {
+          ok: true,
+          data: {
+            content: cached.rawFullText,
+            format: cached.fullTextFormat,
+            acquisition,
+          },
+        };
+      }
     }
   }
 

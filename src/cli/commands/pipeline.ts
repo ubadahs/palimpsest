@@ -1,18 +1,12 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
+import { CANONICAL_RUN_CONFIG_DEFAULTS } from "../../contract/run-types.js";
 import { compareStageKeys, stageKeyValues } from "../../contract/stages.js";
 import type { StageKey } from "../../contract/run-types.js";
 import type { CanonicalPipelineCliOverrides } from "../../pipeline/canonical-executor.js";
 import { openDatabase } from "../../storage/database.js";
 
 const canonicalStages = new Set<string>(stageKeyValues);
-const removedStageNames = new Set([
-  "screen",
-  "extract",
-  "classify",
-  "curate",
-  "pre-screen",
-]);
 
 function fail(message: string): never {
   console.error(message);
@@ -56,23 +50,12 @@ function readCanonicalStage(
   flag: string,
 ): StageKey {
   const value = readValue(argv, index, flag);
-  if (removedStageNames.has(value) || value.includes("_m")) {
-    fail(
-      `${flag} rejects legacy stage "${value}". Canonical stages: ${stageKeyValues.join(", ")}.`,
-    );
-  }
   if (!canonicalStages.has(value)) {
     fail(
       `Invalid ${flag} stage "${value}". Canonical stages: ${stageKeyValues.join(", ")}.`,
     );
   }
   return value as StageKey;
-}
-
-function rejectLegacyFlag(flag: string): never {
-  return fail(
-    `${flag} is unsupported by the canonical pipeline. Use only canonical pipeline flags.`,
-  );
 }
 
 export function parseCanonicalPipelineArgs(
@@ -105,22 +88,6 @@ export function parseCanonicalPipelineArgs(
 
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index]!;
-
-    if (
-      flag === "--shortlist" ||
-      flag === "--strategy" ||
-      flag === "--target-size" ||
-      flag === "--advisor" ||
-      flag === "--no-advisor" ||
-      flag === "--adjudication-mode" ||
-      flag === "--adjudicationMode" ||
-      flag === "adjudicationMode" ||
-      flag.startsWith("--screen-") ||
-      flag.startsWith("--fidelity-vector") ||
-      flag.startsWith("--vector-first")
-    ) {
-      rejectLegacyFlag(flag);
-    }
 
     switch (flag) {
       case "--input":
@@ -300,10 +267,10 @@ Options:
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
   --neighborhood-limit <n>          Total citing-work observation cap (across paginated requests)
-  --probe-budget <n>                Discover citing-paper probe budget
-  --min-families <n>                Adaptive portfolio minimum families (default 15)
-  --max-families <n>                Adaptive portfolio maximum families (default 25)
-  --max-prepared-records <n>        Prepared-record budget for portfolio (default 100)
+  --probe-budget <n>                Discover citing-paper probe budget (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget})
+  --min-families <n>                Adaptive portfolio minimum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})
+  --max-families <n>                Adaptive portfolio maximum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies})
+  --max-prepared-records <n>        Prepared-record budget for portfolio (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords})
   --from-year <year>                Earliest citing-paper year
   --to-year <year>                  Latest citing-paper year
   --extraction-model <model>        Discover attributed-claim extraction model

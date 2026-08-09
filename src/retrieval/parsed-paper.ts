@@ -919,40 +919,24 @@ function parseGrobidDocument(fullText: string): ParsedPaperDocument {
   };
 }
 
-function parseLegacyPdfDocument(fullText: string): ParsedPaperDocument {
-  const blocks: ParsedPaperBlock[] = [];
-  const paragraphs = fullText
-    .split(/\n{2,}/)
-    .map(normalizeText)
-    .filter((paragraph) => paragraph.length >= 30);
-  const offsetState: OffsetState = { value: 0 };
-
-  for (const paragraph of paragraphs) {
-    appendBlock(blocks, paragraph, undefined, "body_paragraph", offsetState);
-  }
-
-  return {
-    parserKind: "legacy_pdf_text",
-    parserVersion: PARSED_PAPER_PARSER_VERSION,
-    fullTextFormat: "pdf_text",
-    blocks,
-    references: [],
-    mentions: [],
-  };
-}
-
 export function parseParsedPaperDocument(
   fullText: string,
   format: FullTextFormat,
 ): Result<ParsedPaperDocument> {
   try {
-    const parsed =
-      format === "jats_xml"
-        ? parseJatsDocument(fullText)
-        : format === "grobid_tei_xml"
-          ? parseGrobidDocument(fullText)
-          : parseLegacyPdfDocument(fullText);
-    return { ok: true, data: parsed };
+    switch (format) {
+      case "jats_xml":
+        return { ok: true, data: parseJatsDocument(fullText) };
+      case "grobid_tei_xml":
+        return { ok: true, data: parseGrobidDocument(fullText) };
+      default: {
+        const _exhaustive: never = format;
+        return {
+          ok: false,
+          error: `Unsupported full-text format: ${String(_exhaustive)}`,
+        };
+      }
+    }
   } catch (error) {
     return {
       ok: false,

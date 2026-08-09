@@ -110,13 +110,3 @@ export function getNextStageKey(stageKey: StageKey): StageKey | undefined {
 
   return next?.key;
 }
-
-/** Rejected legacy stage names — never accepted as aliases. */
-export const rejectedLegacyStageNames = [
-  "screen",
-  "extract",
-  "classify",
-  "curate",
-  "pre-screen",
-  "pre_screen",
-] as const;

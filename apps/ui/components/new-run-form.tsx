@@ -3,6 +3,7 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
+  CANONICAL_RUN_CONFIG_DEFAULTS,
   stageDefinitions,
   type RunDetail,
   type StageKey,
@@ -70,34 +71,40 @@ async function encodeFileAsBase64(file: File): Promise<string> {
 
 const defaultState: FormState = {
   seedDoisText: "",
-  targetStage: "report",
+  targetStage: CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
   discover: {
-    neighborhoodLimit: 200,
-    probeBudget: 100,
-    minFamilies: 15,
-    maxFamilies: 25,
-    maxPreparedRecords: 100,
+    neighborhoodLimit: CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
+    probeBudget: CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget,
+    minFamilies:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies,
+    maxFamilies:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies,
+    maxPreparedRecords:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
+        .maxPreparedRecords,
     fromYear: "",
     toYear: "",
-    extractionModel: "claude-haiku-4-5",
-    extractionThinking: false,
+    extractionModel: CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
+    extractionThinking:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking,
   },
   scope: {
-    groundingModel: "claude-sonnet-4-6",
-    groundingThinking: true,
+    groundingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
+    groundingThinking: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking,
   },
   evidence: {
-    rerankEnabled: false,
-    rerankModel: "claude-haiku-4-5",
-    rerankTopN: 5,
-    bm25CandidateLimit: 20,
-    selectionLimit: 5,
+    rerankEnabled: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled,
+    rerankModel: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel,
+    rerankTopN: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankTopN,
+    bm25CandidateLimit:
+      CANONICAL_RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit,
+    selectionLimit: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.selectionLimit,
   },
   adjudicate: {
-    model: "claude-opus-4-6",
-    thinking: true,
+    model: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
+    thinking: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking,
   },
-  forceRefresh: false,
+  forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
 };
 
 function flattenConfig(s: FormState) {
