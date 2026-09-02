@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { fidelityTopLabelSchema } from "../domain/taxonomy.js";
+import {
+  fidelityTopLabelSchema,
+  mutationKindSchema,
+} from "../domain/taxonomy.js";
 import {
   buildStableId,
   canonicalSerialize,
@@ -8,7 +11,6 @@ import {
 import {
   adjudicateGateCodeSchema,
   mutationDirectionSchema,
-  mutationKindSchema,
   adjudicateNonfatalFailureCodeSchema,
 } from "./canonical-adjudicate.js";
 import {

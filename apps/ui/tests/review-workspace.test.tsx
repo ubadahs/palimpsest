@@ -29,6 +29,7 @@ function record(
     evaluatedClaimText: "Evaluated claim text",
     seedId: "seed_1",
     seedTitle: "Seed",
+    citingPaperId: "citing_paper_1",
     citingPaperTitle: "Citing paper",
     citingPaperYear: 2024,
     citationContext: "Context with a citing claim span here.",
@@ -149,10 +150,13 @@ describe("review workspace", () => {
       expect(screen.getByText(/2 unreviewed of 2/i)).toBeTruthy();
     });
 
+    // Blinded by default: no verdict filter and no machine badge is offered.
+    expect(screen.getByText("blinded")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^D$/i })).toBeNull();
+
     fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
     expect(screen.queryByText("Unsaved changes")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^D$/i })).toBeNull();
-    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    expect(screen.getByText("not blinded")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /^D$/i }));
     expect(screen.getByText("Distortion paper")).toBeTruthy();
@@ -181,7 +185,7 @@ describe("review workspace", () => {
     expect(posted["knownCitedChunkIds"]).toBeUndefined();
   });
 
-  it("marks a verdict override final", async () => {
+  it("records a blinded human verdict as final", async () => {
     render(
       <ReviewWorkspace
         onSelectRecord={() => undefined}
@@ -204,7 +208,6 @@ describe("review workspace", () => {
     fireEvent.change(screen.getByLabelText("Reviewer"), {
       target: { value: "ubadah" },
     });
-    fireEvent.click(screen.getByRole("radio", { name: "Override" }));
     fireEvent.click(screen.getByRole("radio", { name: "E" }));
     fireEvent.click(screen.getByRole("button", { name: "Mark final" }));
 
@@ -216,13 +219,58 @@ describe("review workspace", () => {
       .mock.calls.find(([input]) => String(input).endsWith("/review/events"));
     const posted = JSON.parse(String(eventCall?.[1]?.body)) as {
       status: string;
-      assessment: { verdictAgreement: string; overriddenVerdict?: string };
+      assessment: { humanVerdict: string; blinded: boolean };
     };
     expect(posted.status).toBe("final");
+    // The machine's F was never shown, so the label is usable for calibration.
     expect(posted.assessment).toMatchObject({
-      verdictAgreement: "no",
-      overriddenVerdict: "E",
+      humanVerdict: "E",
+      blinded: true,
+      mutationKinds: [],
     });
+  });
+
+  it("marks a review not blinded once the machine verdict is revealed", async () => {
+    render(
+      <ReviewWorkspace
+        onSelectRecord={() => undefined}
+        records={[
+          record({
+            recordId: "record_f",
+            adjudicationStatus: "adjudicated",
+            verdict: "F",
+          }),
+        ]}
+        reportArtifactId={`artifact_${"a".repeat(64)}`}
+        reportContentHash={"b".repeat(64)}
+        runId="run_1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/2 unreviewed of 2/i)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    // Re-hiding does not un-see it.
+    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    expect(screen.getByText("not blinded")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Reviewer"), {
+      target: { value: "ubadah" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "F" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mark final" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 final/i)).toBeTruthy();
+    });
+    const eventCall = vi
+      .mocked(fetch)
+      .mock.calls.find(([input]) => String(input).endsWith("/review/events"));
+    const posted = JSON.parse(String(eventCall?.[1]?.body)) as {
+      assessment: { blinded: boolean };
+    };
+    expect(posted.assessment.blinded).toBe(false);
   });
 
   it("surfaces stale report messaging from a lineage mismatch", async () => {

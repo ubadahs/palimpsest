@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { buildClaimUnitKey } from "../contract/claim-unit.js";
+
 import {
   adjudicateArtifactSchema,
   buildCitationGroupKey,
@@ -13,7 +15,6 @@ import {
   evidenceArtifactSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
-  normalizeDiscoverClaimText,
   prepareArtifactSchema,
   canonicalReportMethodId,
   REPORT_INTERPRETATION_WARNING,
@@ -726,15 +727,13 @@ function buildFunnelCounts(input: {
   for (const outcome of adjudicateRecords) {
     const prepareRecord = prepareById.get(outcome.recordId);
     if (!prepareRecord) continue;
-    const claimKey = prepareRecord.occurrenceSourceClaimRecords
-      .map((claim) => normalizeDiscoverClaimText(claim.extractedClaimText))
-      .sort(compareCodeUnits)
-      .join("\u0001");
-    const unitKey = [
-      prepareRecord.familyId,
-      prepareRecord.citingPaper.paper.paperId,
-      claimKey,
-    ].join("\u0000");
+    const unitKey = buildClaimUnitKey({
+      familyId: prepareRecord.familyId,
+      citingPaperId: prepareRecord.citingPaper.paper.paperId,
+      claimTexts: prepareRecord.occurrenceSourceClaimRecords.map(
+        (claim) => claim.extractedClaimText,
+      ),
+    });
     uniqueClaimUnitKeys.add(unitKey);
     if (outcome.status === "adjudicated") {
       uniqueAdjudicatedClaimUnitKeys.add(unitKey);
@@ -1623,13 +1622,11 @@ function buildFamilyMutations(input: {
     };
     entry.rows.push(row);
     entry.unitKeys.add(
-      [
-        paper.paperId,
-        claims
-          .map((claim) => normalizeDiscoverClaimText(claim.extractedClaimText))
-          .sort(compareCodeUnits)
-          .join(""),
-      ].join(" "),
+      buildClaimUnitKey({
+        familyId: prepareRecord.familyId,
+        citingPaperId: paper.paperId,
+        claimTexts: claims.map((claim) => claim.extractedClaimText),
+      }),
     );
     byFamily.set(prepareRecord.familyId, entry);
   }

@@ -5,6 +5,7 @@ import type {
   HumanAssessment,
   ReportInspectorRecordRow,
 } from "palimpsest/contract";
+import { mutationKindValues } from "palimpsest/contract";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -25,8 +26,8 @@ export type ReviewFormState = {
   citedEvidenceValid: HumanAssessment["citedEvidenceValid"];
   correctedCitedChunkIds: string[];
   evidenceSufficiency: HumanAssessment["evidenceSufficiency"];
-  verdictAgreement: HumanAssessment["verdictAgreement"];
-  overriddenVerdict: NonNullable<HumanAssessment["overriddenVerdict"]> | "";
+  humanVerdict: HumanAssessment["humanVerdict"] | "";
+  mutationKinds: HumanAssessment["mutationKinds"];
   notes: string;
 };
 
@@ -42,8 +43,8 @@ export function emptyReviewForm(reviewer = ""): ReviewFormState {
     citedEvidenceValid: "yes",
     correctedCitedChunkIds: [],
     evidenceSufficiency: "sufficient",
-    verdictAgreement: "yes",
-    overriddenVerdict: "",
+    humanVerdict: "",
+    mutationKinds: [],
     notes: "",
   };
 }
@@ -69,20 +70,26 @@ export function reviewFormFromAssessment(
     citedEvidenceValid: assessment.citedEvidenceValid,
     correctedCitedChunkIds: assessment.correctedCitedChunkIds ?? [],
     evidenceSufficiency: assessment.evidenceSufficiency,
-    verdictAgreement: assessment.verdictAgreement,
-    overriddenVerdict: assessment.overriddenVerdict ?? "",
+    humanVerdict: assessment.humanVerdict,
+    mutationKinds: assessment.mutationKinds,
     notes: assessment.notes,
   };
 }
 
-export function buildHumanAssessment(form: ReviewFormState): HumanAssessment {
+export function buildHumanAssessment(
+  form: ReviewFormState,
+  blinded: boolean,
+): HumanAssessment {
   const assessment: HumanAssessment = {
     eligibleForAdjudication: form.eligibleForAdjudication,
     inScope: form.inScope,
     citingSpanValid: form.citingSpanValid,
     citedEvidenceValid: form.citedEvidenceValid,
     evidenceSufficiency: form.evidenceSufficiency,
-    verdictAgreement: form.verdictAgreement,
+    humanVerdict:
+      form.humanVerdict === "" ? "not_adjudicable" : form.humanVerdict,
+    blinded,
+    mutationKinds: form.humanVerdict === "D" ? form.mutationKinds : [],
     notes: form.notes,
   };
   if (form.citingSpanValid === "no") {
@@ -94,9 +101,6 @@ export function buildHumanAssessment(form: ReviewFormState): HumanAssessment {
   }
   if (form.citedEvidenceValid === "no") {
     assessment.correctedCitedChunkIds = form.correctedCitedChunkIds;
-  }
-  if (form.verdictAgreement === "no" && form.overriddenVerdict) {
-    assessment.overriddenVerdict = form.overriddenVerdict;
   }
   return assessment;
 }
@@ -228,6 +232,63 @@ export function HumanReviewForm({
         {form.citingSpanValid === "no" ? (
           <div className="grid gap-3 md:grid-cols-3">
             <div className="space-y-2 md:col-span-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                Machine span, for reference
+              </p>
+              {activeRecord.occurrenceClaims.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)]">
+                  No verified support span was recorded for this record.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {activeRecord.occurrenceClaims.map((claim) => (
+                    <li
+                      className="rounded-[14px] border border-[var(--border)] bg-white/60 px-3 py-2 text-xs leading-6"
+                      key={claim.claimRecordId}
+                    >
+                      {claim.supportSpan ? (
+                        <>
+                          <button
+                            className="mr-2 rounded-full border border-[var(--border)] px-2 py-0.5 font-semibold text-[var(--accent)]"
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                correctedCitingSpanText:
+                                  claim.supportSpan!.text,
+                                correctedCitingSpanStart: String(
+                                  claim.supportSpan!.charOffsetStart,
+                                ),
+                                correctedCitingSpanEnd: String(
+                                  claim.supportSpan!.charOffsetEnd,
+                                ),
+                              }))
+                            }
+                            type="button"
+                          >
+                            copy
+                          </button>
+                          <span className="font-mono">
+                            [{String(claim.supportSpan.charOffsetStart)}–
+                            {String(claim.supportSpan.charOffsetEnd)}]
+                          </span>{" "}
+                          {claim.supportSpan.text}
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-mono">[no verified span]</span>{" "}
+                          {claim.extractedClaimText}
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-[var(--text-muted)]">
+                The correction is rejected unless the text matches the citation
+                context exactly at these offsets.
+              </p>
+            </div>
+            <div className="space-y-2 md:col-span-3">
               <Label htmlFor="corrected-span-text">
                 Corrected citing span text
               </Label>
@@ -341,45 +402,67 @@ export function HumanReviewForm({
           value={form.evidenceSufficiency}
         />
         <RadioRow
-          label="Verdict agreement"
-          name="verdictAgreement"
+          label="Your verdict"
+          name="humanVerdict"
           onChange={(value) =>
             setForm((current) => ({
               ...current,
-              verdictAgreement: value,
-              overriddenVerdict:
-                value === "no"
-                  ? current.overriddenVerdict || activeRecord.verdict || "F"
-                  : "",
+              humanVerdict: value,
+              mutationKinds: value === "D" ? current.mutationKinds : [],
             }))
           }
           options={[
-            { value: "yes", label: "Agree" },
-            { value: "no", label: "Override" },
-            { value: "not_applicable", label: "N/A" },
-          ]}
-          value={form.verdictAgreement}
-        />
-        {form.verdictAgreement === "no" ? (
-          <RadioRow
-            label="Overridden verdict"
-            name="overriddenVerdict"
-            onChange={(value) =>
-              setForm((current) => ({
-                ...current,
-                overriddenVerdict: value,
-              }))
-            }
-            options={VERDICT_ORDER.map((verdict) => ({
-              value: verdict,
+            ...VERDICT_ORDER.map((verdict) => ({
+              value: verdict as HumanAssessment["humanVerdict"],
               label: verdict,
-            }))}
-            value={
-              form.overriddenVerdict as NonNullable<
-                HumanAssessment["overriddenVerdict"]
-              >
-            }
-          />
+            })),
+            {
+              value: "not_adjudicable" as HumanAssessment["humanVerdict"],
+              label: "Not adjudicable",
+            },
+          ]}
+          value={form.humanVerdict as HumanAssessment["humanVerdict"]}
+        />
+        {form.humanVerdict === "D" ? (
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+              Which dimensions moved
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {mutationKindValues.map((kind) => {
+                const checked = form.mutationKinds.includes(kind);
+                const atLimit = form.mutationKinds.length >= 3;
+                return (
+                  <label
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                      checked
+                        ? "border-[var(--border-strong)] bg-[var(--text)] text-white"
+                        : "border-[var(--border)] bg-white/70 text-[var(--text-muted)] hover:bg-white",
+                      !checked && atLimit && "cursor-not-allowed opacity-50",
+                    )}
+                    key={kind}
+                  >
+                    <input
+                      checked={checked}
+                      className="sr-only"
+                      disabled={!checked && atLimit}
+                      onChange={() =>
+                        setForm((current) => ({
+                          ...current,
+                          mutationKinds: checked
+                            ? current.mutationKinds.filter((k) => k !== kind)
+                            : [...current.mutationKinds, kind],
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    {kind}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
         ) : null}
 
         <div className="space-y-2">

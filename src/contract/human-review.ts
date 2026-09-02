@@ -1,10 +1,17 @@
 import { z } from "zod";
 
-import { fidelityTopLabelSchema } from "../domain/taxonomy.js";
+import {
+  fidelityTopLabelSchema,
+  mutationKindSchema,
+  mutationKindValues,
+} from "../domain/taxonomy.js";
 import {
   leanArtifactIdSchema,
   sha256DigestSchema,
 } from "./lean-artifact-primitives.js";
+
+/** Re-exported so the review form and the adjudicator cannot drift apart. */
+export { mutationKindValues };
 
 export const humanReviewStatusValues = ["draft", "final"] as const;
 export const humanReviewStatusSchema = z.enum(humanReviewStatusValues);
@@ -15,6 +22,17 @@ export type HumanYesNo = z.infer<typeof humanYesNoSchema>;
 
 export const humanYesNoNaSchema = z.enum(["yes", "no", "not_applicable"]);
 export type HumanYesNoNa = z.infer<typeof humanYesNoNaSchema>;
+
+/**
+ * The reviewer's own label. `not_adjudicable` is the human counterpart of an
+ * operational non-verdict: the record should not have been judged at all. It
+ * is never a fidelity outcome, so it stays out of `FidelityTopLabel`.
+ */
+export const humanVerdictSchema = z.enum([
+  ...fidelityTopLabelSchema.options,
+  "not_adjudicable",
+]);
+export type HumanVerdict = z.infer<typeof humanVerdictSchema>;
 
 export const humanEvidenceSufficiencySchema = z.enum(["sufficient", "limited"]);
 export type HumanEvidenceSufficiency = z.infer<
@@ -55,8 +73,21 @@ export const humanAssessmentSchema = z
     citedEvidenceValid: humanYesNoSchema,
     correctedCitedChunkIds: z.array(z.string().min(1)).optional(),
     evidenceSufficiency: humanEvidenceSufficiencySchema,
-    verdictAgreement: humanYesNoNaSchema,
-    overriddenVerdict: fidelityTopLabelSchema.optional(),
+    /**
+     * The reviewer's label, given without being told the model's. Agreement is
+     * derived from this at export time, never typed by the reviewer: a form
+     * that asks "do you agree?" cannot produce a calibration label.
+     */
+    humanVerdict: humanVerdictSchema,
+    /**
+     * True when the model's verdict was hidden for the whole of this review.
+     * A single reveal makes the label unusable for calibration, so the flag is
+     * recorded rather than assumed.
+     */
+    blinded: z.boolean(),
+    /** Dimensions the reviewer saw move; same vocabulary as the adjudicator. */
+    mutationKinds: z.array(mutationKindSchema).max(3),
+
     notes: z.string(),
   })
   .strict()
@@ -99,19 +130,16 @@ export const humanAssessmentSchema = z
       });
     }
 
-    if (assessment.verdictAgreement === "no") {
-      if (assessment.overriddenVerdict == null) {
-        context.addIssue({
-          code: "custom",
-          path: ["overriddenVerdict"],
-          message: "overriddenVerdict is required when verdictAgreement=no",
-        });
-      }
-    } else if (assessment.overriddenVerdict != null) {
+    // Mutation kinds name how a distortion moved, so they only mean something
+    // on a D. The adjudicator is held to the same rule.
+    if (
+      assessment.humanVerdict !== "D" &&
+      assessment.mutationKinds.length > 0
+    ) {
       context.addIssue({
         code: "custom",
-        path: ["overriddenVerdict"],
-        message: "overriddenVerdict is only allowed when verdictAgreement=no",
+        path: ["mutationKinds"],
+        message: "mutationKinds are only allowed when humanVerdict=D",
       });
     }
   });
@@ -146,7 +174,7 @@ export type HumanReviewLineage = z.infer<typeof humanReviewLineageSchema>;
 
 export const humanReviewEventLogSchema = z
   .object({
-    schemaVersion: z.literal("human-review-events-v1"),
+    schemaVersion: z.literal("human-review-events-v2"),
     lineage: humanReviewLineageSchema,
     events: z.array(humanReviewEventSchema),
   })
@@ -352,6 +380,22 @@ export function projectHumanReviewRecords(
           ? 1
           : 0,
     );
+}
+
+/**
+ * Agreement is a comparison, not an opinion: the reviewer supplies a label and
+ * this derives whether it matches. `not_applicable` covers the cases where
+ * there is nothing to compare — the machine returned an operational
+ * non-verdict, or the human judged the record not adjudicable.
+ */
+export function deriveVerdictAgreement(input: {
+  humanVerdict: HumanVerdict;
+  machineVerdict?: string | undefined;
+}): HumanYesNo | "not_applicable" {
+  const machine = input.machineVerdict;
+  if (machine == null || machine.length === 0) return "not_applicable";
+  if (input.humanVerdict === "not_adjudicable") return "not_applicable";
+  return input.humanVerdict === machine ? "yes" : "no";
 }
 
 export function computeHumanReviewProgress(input: {

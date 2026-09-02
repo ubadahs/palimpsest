@@ -781,6 +781,7 @@ function buildReportInspectorRecordRow(input: {
     evaluatedClaimText,
     seedId: seed.seedId,
     seedTitle: seed.seedTitle,
+    citingPaperId: paper.paperId,
     citingPaperTitle: paper.title,
     citationContext: prepareRecord.context.verbatim.text,
     classificationStatus: classification.status,

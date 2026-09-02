@@ -31,6 +31,7 @@ import {
   stableIdentifierSchema,
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
+import { normalizeDiscoverClaimText } from "./claim-unit.js";
 import {
   modelExecutionSchema,
   type ModelExecution,
@@ -788,14 +789,6 @@ export function buildAttributedClaimRecordId(
     normalizedClaimText: normalizeDiscoverClaimText(input.extractedClaimText),
     duplicateOrdinal: input.duplicateOrdinal,
   });
-}
-
-export function normalizeDiscoverClaimText(value: string): string {
-  return value
-    .normalize("NFKC")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("en-US");
 }
 
 export type ClaimExtractionObservationIdentityInputs = {

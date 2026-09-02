@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 import { confidenceSchema } from "../domain/classification.js";
-import { fidelityTopLabelSchema } from "../domain/taxonomy.js";
+import {
+  fidelityTopLabelSchema,
+  mutationKindSchema,
+  type MutationKind,
+} from "../domain/taxonomy.js";
 import {
   buildStableId,
   canonicalSerialize,
@@ -114,19 +118,6 @@ export type AdjudicateFailureCode = z.infer<typeof adjudicateFailureCodeSchema>;
  * dimension and direction of a mutation so drift can be aggregated across
  * citers and hops; they never route the verdict.
  */
-export const mutationKindSchema = z.enum([
-  "scope_broadened",
-  "scope_narrowed",
-  "population_shifted",
-  "certainty_strengthened",
-  "certainty_weakened",
-  "correlation_to_causation",
-  "conditions_dropped",
-  "endpoint_substituted",
-  "generality_increased",
-  "entity_substituted",
-]);
-export type MutationKind = z.infer<typeof mutationKindSchema>;
 
 export const mutationDirectionSchema = z.enum([
   "strengthened",

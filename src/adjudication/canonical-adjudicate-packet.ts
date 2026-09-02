@@ -1,3 +1,4 @@
+import { mutationKindSchema } from "../domain/taxonomy.js";
 import type {
   EvidenceChunk,
   EvidenceSelection,
@@ -10,10 +11,7 @@ import {
 } from "../shared/citation-context-window.js";
 import { assessEvidenceLimitation } from "../shared/evidence-limitation.js";
 import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
-import {
-  mutationDirectionSchema,
-  mutationKindSchema,
-} from "../contract/canonical-adjudicate.js";
+import { mutationDirectionSchema } from "../contract/canonical-adjudicate.js";
 
 export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
