@@ -419,6 +419,24 @@ export function buildCanonicalPrepareArtifact(input: {
   );
 }
 
+const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
+
+function weakestClaimConfidence(
+  claims: PreparedCitationInstance["occurrenceSourceClaimRecords"],
+): "low" | "medium" | "high" {
+  let weakest: "low" | "medium" | "high" | undefined;
+  for (const claim of claims) {
+    if (!claim.confidence) continue;
+    if (
+      !weakest ||
+      CONFIDENCE_RANK[claim.confidence] < CONFIDENCE_RANK[weakest]
+    ) {
+      weakest = claim.confidence;
+    }
+  }
+  return weakest ?? "medium";
+}
+
 /**
  * Production-neutral deterministic baseline built from the existing pure role
  * and evaluation-mode helpers. Model/external adapters may replace it without
@@ -431,8 +449,11 @@ export function classifyPrepareOccurrenceDeterministically(
     occurrenceSourceClaimRecords?: PreparedCitationInstance["occurrenceSourceClaimRecords"];
   } = {},
 ): PrepareClassification {
-  const confidence = "medium" as const;
   const occurrenceClaims = options.occurrenceSourceClaimRecords ?? [];
+  // The extractor reports a confidence per claim; the weakest one governs the
+  // occurrence so low-information citations reach the low-information gate
+  // instead of the manual-review queue.
+  const confidence = weakestClaimConfidence(occurrenceClaims);
   const missingVerifiedSpan =
     occurrenceClaims.length > 0 &&
     occurrenceClaims.some((claim) => claim.supportSpan == null);

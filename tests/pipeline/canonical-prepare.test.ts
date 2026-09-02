@@ -1019,6 +1019,109 @@ describe("canonical Prepare", () => {
     });
   });
 
+  it("keeps review-mediated occurrences with missing spans in manual review instead of throwing", () => {
+    const occurrence = {
+      mentionId: "mention-review",
+      seedId: "seed-1",
+      citingPaperRecordId: "citing-review",
+      citingPaperId: "paper-review",
+      citedPaperId: "seed-paper",
+      mentionIndex: 0,
+      targetRefIds: ["ref-seed"],
+      identityStrength: "weak_context_fallback",
+      citationMarker: "Belicova et al., 2021",
+      rawContext:
+        "Reviews summarize that VRN neurons express Pvalb (Belicova et al., 2021).",
+      isBundledCitation: false,
+      bundleSize: 1,
+      bundleRefIds: ["ref-seed"],
+      bundlePattern: "single",
+      observationProvenance: {
+        sourceType: "fixture",
+        parser: "fixture",
+        artifacts: [artifactReference("parsed-paper", "fixture")],
+      },
+    } as DiscoverCitationOccurrence;
+    const missingSpanClaim = {
+      claimRecordId: "claim-review",
+      extractedClaimText: "VRN neurons express Pvalb.",
+      confidence: "high",
+    } as never;
+
+    const classification = classifyPrepareOccurrenceDeterministically(
+      occurrence,
+      {
+        isReviewMediated: true,
+        occurrenceSourceClaimRecords: [missingSpanClaim],
+      },
+    );
+    expect(classification).toMatchObject({
+      status: "ambiguous",
+      citationRole: "unclear",
+      evaluationMode: "manual_review_extraction_limited",
+      modifiers: { isReviewMediated: true },
+    });
+  });
+
+  it("uses the weakest extraction confidence so low-information citations are gated, not queued", () => {
+    const occurrence = {
+      mentionId: "mention-low",
+      seedId: "seed-1",
+      citingPaperRecordId: "citing-low",
+      citingPaperId: "paper-low",
+      citedPaperId: "seed-paper",
+      mentionIndex: 0,
+      targetRefIds: ["ref-seed"],
+      identityStrength: "weak_context_fallback",
+      citationMarker: "[12]",
+      rawContext: "See also related work [12].",
+      isBundledCitation: false,
+      bundleSize: 1,
+      bundleRefIds: ["ref-seed"],
+      bundlePattern: "single",
+      observationProvenance: {
+        sourceType: "fixture",
+        parser: "fixture",
+        artifacts: [artifactReference("parsed-paper", "fixture")],
+      },
+    } as DiscoverCitationOccurrence;
+    const rawContext = occurrence.rawContext;
+    const claims = [
+      {
+        claimRecordId: "claim-a",
+        extractedClaimText: "Related work exists.",
+        confidence: "high",
+        supportSpan: {
+          text: "See also related work",
+          charOffsetStart: 0,
+          charOffsetEnd: rawContext.indexOf(" [12]"),
+          verificationStatus: "verified_exact",
+        },
+      },
+      {
+        claimRecordId: "claim-b",
+        extractedClaimText: "Related work exists.",
+        confidence: "low",
+        supportSpan: {
+          text: "See also related work",
+          charOffsetStart: 0,
+          charOffsetEnd: rawContext.indexOf(" [12]"),
+          verificationStatus: "verified_exact",
+        },
+      },
+    ] as never[];
+
+    const classification = classifyPrepareOccurrenceDeterministically(
+      occurrence,
+      { occurrenceSourceClaimRecords: claims },
+    );
+    expect(classification).toMatchObject({
+      status: "classified",
+      confidence: "low",
+      evaluationMode: "skip_low_information",
+    });
+  });
+
   it("fails the stage on fatal classifier failures", async () => {
     const discover = await buildDiscoverArtifact();
     const scope = await buildScopeArtifact(discover);

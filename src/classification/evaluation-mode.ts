@@ -23,16 +23,17 @@ export function deriveEvaluationMode(
   modifiers: TransmissionModifiers,
   extractionConfidence?: Confidence,
 ): EvaluationMode {
-  if (modifiers.isReviewMediated) return "review_transmission";
-
-  if (modifiers.isBundled && BUNDLED_ELIGIBLE_ROLES.has(role)) {
-    return "fidelity_bundled_use";
-  }
-
+  // An unclear role cannot be adjudicated regardless of transmission path.
   if (role === "unclear") {
     return extractionConfidence === "low"
       ? "manual_review_extraction_limited"
       : "manual_review_role_ambiguous";
+  }
+
+  if (modifiers.isReviewMediated) return "review_transmission";
+
+  if (modifiers.isBundled && BUNDLED_ELIGIBLE_ROLES.has(role)) {
+    return "fidelity_bundled_use";
   }
 
   return ROLE_TO_MODE[role];
