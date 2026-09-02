@@ -67,7 +67,7 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
     classifier: "deterministic" as const,
   },
   evidence: {
-    rerankEnabled: false,
+    rerankEnabled: true,
     rerankModel: "claude-haiku-4-5",
     rerankTopN: 5,
     bm25CandidateLimit: 20,

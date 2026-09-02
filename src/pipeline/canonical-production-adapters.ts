@@ -29,6 +29,7 @@ import {
 } from "../contract/lean-artifacts.js";
 import type { ResolvedPaper } from "../domain/common.js";
 import { isReviewPaperType } from "../domain/attribution-signal.js";
+import { classifySectionRole } from "../domain/section-patterns.js";
 import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
@@ -1282,6 +1283,13 @@ export function buildCanonicalScopeAdapters(
           text: block.text,
           ...(block.sectionTitle ? { sectionTitle: block.sectionTitle } : {}),
           blockKind: block.blockKind,
+          sectionRole: classifySectionRole(block.blockKind, block.sectionTitle),
+          // The seed's own in-text citations per block: the signal that lets
+          // downstream stages separate the seed's results from its summary of
+          // prior work.
+          citationMentionCount: doc.mentions.filter(
+            (mention) => mention.blockId === block.blockId,
+          ).length,
           charOffsetStart: block.charOffsetStart,
           charOffsetEnd: block.charOffsetEnd,
         })),
@@ -1939,7 +1947,11 @@ function buildRelevanceRerankPrompt(
       const section = candidate.sourceSectionTitle
         ? `, section="${candidate.sourceSectionTitle}"`
         : "";
-      return `${String(index + 1)}. chunkId=${candidate.chunkId} (${candidate.sourceBlockKind}${section})\n${candidate.text}`;
+      const role = candidate.sourceSectionRole
+        ? `, role=${candidate.sourceSectionRole}`
+        : "";
+      const cites = candidate.sourceCitesOtherWork ? ", cites other work" : "";
+      return `${String(index + 1)}. chunkId=${candidate.chunkId} (${candidate.sourceBlockKind}${role}${section}${cites})\n${candidate.text}`;
     })
     .join("\n\n");
 
@@ -1947,7 +1959,7 @@ function buildRelevanceRerankPrompt(
 
 Query: "${input.query.text}"
 
-Return the top ${String(input.topN)} most relevant chunks. Relevance only — ignore citation fidelity judgments. Prefer chunks that report the cited paper's own results over chunks where it summarizes prior work; candidate order carries no information.
+Return the top ${String(input.topN)} most relevant chunks. Relevance only — ignore citation fidelity judgments. Prefer chunks with role=results, figure, or table, and prefer chunks that do not cite other work: a passage marked "cites other work" is likely the cited paper summarizing prior findings rather than reporting its own. Candidate order carries no information.
 
 Candidates:
 ${candidates}

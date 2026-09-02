@@ -120,6 +120,10 @@ export type CanonicalEvidenceRerankerInput = {
     sourceBlockId: string;
     sourceBlockKind: EvidenceChunkCorpus["chunks"][number]["sourceBlockKind"];
     sourceSectionTitle?: string | undefined;
+    sourceSectionRole?:
+      | EvidenceChunkCorpus["chunks"][number]["sourceSectionRole"]
+      | undefined;
+    sourceCitesOtherWork?: boolean | undefined;
     charOffsetStart: number;
     charOffsetEnd: number;
     bm25Score: number;
@@ -595,6 +599,12 @@ async function retrieveRecordEvidence(input: {
           ...(chunk.sourceSectionTitle
             ? { sourceSectionTitle: chunk.sourceSectionTitle }
             : {}),
+          ...(chunk.sourceSectionRole
+            ? { sourceSectionRole: chunk.sourceSectionRole }
+            : {}),
+          ...(chunk.sourceCitesOtherWork != null
+            ? { sourceCitesOtherWork: chunk.sourceCitesOtherWork }
+            : {}),
           charOffsetStart: chunk.charOffsetStart,
           charOffsetEnd: chunk.charOffsetEnd,
           bm25Score: candidate.rawScore,
@@ -823,30 +833,40 @@ function buildFinalSelection(
   family: ScopedFamily,
   corpus: EvidenceChunkCorpus,
 ): EvidenceSelection {
+  // Scope grounding pins apply in both branches so that turning reranking on
+  // changes one variable, not two.
   const usesRerank = rerankRun?.status === "completed";
   if (usesRerank) {
-    const selectedChunkIds = rerankRun.results
-      .slice(0, selectionLimit)
-      .map((result) => result.chunkId);
+    const selected = selectEvidenceChunkIds({
+      family,
+      corpus,
+      rankedCandidates: rerankRun.results,
+      baseSource: "reranked",
+      selectionLimit,
+    });
     const identity = {
       bm25RunId: bm25Run.bm25RunId,
       rerankRunId: rerankRun.rerankRunId,
-      rankingSource: "reranked" as const,
+      rankingSource: selected.rankingSource,
       rankingId: rerankRun.rerankRunId,
       selectionLimit,
-      selectedChunkIds,
+      selectedChunkIds: selected.selectedChunkIds,
+      ...(selected.pinnedChunkIds.length > 0
+        ? { pinnedChunkIds: selected.pinnedChunkIds }
+        : {}),
     };
     return evidenceSelectionSchema.parse({
       selectionId: buildEvidenceSelectionId(identity),
       ...identity,
-      selectionContentHash: canonicalSha256(selectedChunkIds),
+      selectionContentHash: canonicalSha256(selected.selectedChunkIds),
     });
   }
 
   const selected = selectEvidenceChunkIds({
     family,
     corpus,
-    bm25Candidates: bm25Run.candidates,
+    rankedCandidates: bm25Run.candidates,
+    baseSource: "bm25",
     selectionLimit,
   });
   const identity = {

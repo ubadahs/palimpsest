@@ -109,6 +109,27 @@ describe("canonical adjudicate prompt contract", () => {
     );
   });
 
+  it("labels chunk section roles and third-party citations for the judge", () => {
+    const prompt = buildCanonicalAdjudicatePrompt(
+      basePacket({
+        selectedChunks: [
+          {
+            chunkId: "chunk_intro",
+            text: "Prior studies identified four types (Smith 2001).",
+            sourceBlockKind: "body_paragraph",
+            sourceSectionRole: "introduction",
+            sourceCitesOtherWork: true,
+            charOffsetStart: 0,
+            charOffsetEnd: 50,
+          },
+        ],
+      }),
+    );
+    expect(prompt).toMatch(/role=introduction/);
+    expect(prompt).toMatch(/cites other work/);
+    expect(prompt).toMatch(/only role=results, figure, table, or abstract/);
+  });
+
   it("accepts a window where every sentence is attributed to the seed", () => {
     const result = assessAdjudicatePacketQuality(
       basePacket({

@@ -1118,12 +1118,32 @@ export const scopeGroundingStatusSchema = z.enum([
 ]);
 export type ScopeGroundingStatus = z.infer<typeof scopeGroundingStatusSchema>;
 
+export const seedSectionRoleSchema = z.enum([
+  "abstract",
+  "introduction",
+  "methods",
+  "results",
+  "discussion",
+  "figure",
+  "table",
+  "other",
+]);
+export type SeedSectionRole = z.infer<typeof seedSectionRoleSchema>;
+
 export const scopeSeedTextBlockSchema = z
   .object({
     blockId: z.string().min(1),
     text: z.string().min(1),
     sectionTitle: z.string().min(1).optional(),
     blockKind: parsedBlockKindSchema,
+    /** Coarse role derived from block kind and section title. */
+    sectionRole: seedSectionRoleSchema.optional(),
+    /**
+     * In-text citations the seed itself makes inside this block. A block that
+     * cites other work is more likely to be summarizing prior findings than
+     * reporting its own.
+     */
+    citationMentionCount: z.number().int().nonnegative().optional(),
     charOffsetStart: z.number().int().nonnegative(),
     charOffsetEnd: z.number().int().positive(),
   })
@@ -1877,6 +1897,9 @@ export const evidenceChunkSchema = z
     sourceBlockId: z.string().min(1),
     sourceBlockKind: parsedBlockKindSchema,
     sourceSectionTitle: z.string().min(1).optional(),
+    sourceSectionRole: seedSectionRoleSchema.optional(),
+    /** True when the source block contains the seed's own citations to other work. */
+    sourceCitesOtherWork: z.boolean().optional(),
     sourceBlockCharOffsetStart: z.number().int().nonnegative(),
     sourceBlockCharOffsetEnd: z.number().int().positive(),
     charOffsetStart: z.number().int().nonnegative(),
@@ -2525,10 +2548,27 @@ export type EvidenceRerankingPolicy = z.infer<
   typeof evidenceRerankingPolicySchema
 >;
 
+/**
+ * Which ranking produced the final selection. Scope grounding pins, when
+ * present, are placed first in either branch and named in the source so
+ * Report can stratify verdicts by evidence regime.
+ */
+export const evidenceRankingSourceSchema = z.enum([
+  "bm25",
+  "reranked",
+  "bm25_with_scope_pins",
+  "reranked_with_scope_pins",
+]);
+export type EvidenceRankingSource = z.infer<typeof evidenceRankingSourceSchema>;
+
 export type EvidenceSelectionIdentityInputs = {
   bm25RunId: string;
   rerankRunId?: string | undefined;
-  rankingSource: "bm25" | "reranked" | "bm25_with_scope_pins";
+  rankingSource:
+    | "bm25"
+    | "reranked"
+    | "bm25_with_scope_pins"
+    | "reranked_with_scope_pins";
   rankingId: string;
   selectionLimit: number;
   selectedChunkIds: readonly string[];
@@ -2557,7 +2597,7 @@ export const evidenceSelectionSchema = z
     selectionId: stableIdentifierSchema,
     bm25RunId: stableIdentifierSchema,
     rerankRunId: stableIdentifierSchema.optional(),
-    rankingSource: z.enum(["bm25", "reranked", "bm25_with_scope_pins"]),
+    rankingSource: evidenceRankingSourceSchema,
     rankingId: stableIdentifierSchema,
     selectionLimit: z.number().int().positive(),
     selectedChunkIds: z.array(stableIdentifierSchema).min(1),
@@ -2597,30 +2637,26 @@ export const evidenceSelectionSchema = z
         message: "BM25 selection must point only to its immutable BM25 run",
       });
     }
-    if (
-      selection.rankingSource === "bm25_with_scope_pins" &&
-      (selection.pinnedChunkIds == null ||
-        selection.pinnedChunkIds.length === 0)
-    ) {
+    const declaresPins = selection.rankingSource.endsWith("_with_scope_pins");
+    const hasPins =
+      selection.pinnedChunkIds != null && selection.pinnedChunkIds.length > 0;
+    if (declaresPins && !hasPins) {
       context.addIssue({
         code: "custom",
         path: ["pinnedChunkIds"],
-        message: "Scope-pinned BM25 selection requires pinned chunk IDs",
+        message: "Scope-pinned selection requires pinned chunk IDs",
       });
     }
-    if (
-      selection.rankingSource === "bm25" &&
-      selection.pinnedChunkIds != null &&
-      selection.pinnedChunkIds.length > 0
-    ) {
+    if (!declaresPins && hasPins) {
       context.addIssue({
         code: "custom",
         path: ["pinnedChunkIds"],
-        message: "Pure BM25 selection cannot declare scope pins",
+        message: "Unpinned selection cannot declare scope pins",
       });
     }
     if (
-      selection.rankingSource === "reranked" &&
+      (selection.rankingSource === "reranked" ||
+        selection.rankingSource === "reranked_with_scope_pins") &&
       (selection.rerankRunId == null ||
         selection.rankingId !== selection.rerankRunId)
     ) {
@@ -4227,40 +4263,36 @@ function validateEvidencePayload(
       );
       continue;
     }
-    const expectedChunkIds =
-      selection.rankingSource === "bm25"
-        ? bm25Run.candidates
-            .slice(0, selection.selectionLimit)
-            .map((candidate) => candidate.chunkId)
-        : selection.rankingSource === "bm25_with_scope_pins"
-          ? (() => {
-              const pins = selection.pinnedChunkIds ?? [];
-              if (pins.length === 0) return undefined;
-              const selected: string[] = [...pins];
-              const seen = new Set(selected);
-              for (const candidate of bm25Run.candidates) {
-                if (selected.length >= selection.selectionLimit) break;
-                if (seen.has(candidate.chunkId)) continue;
-                selected.push(candidate.chunkId);
-                seen.add(candidate.chunkId);
-              }
-              return selected;
-            })()
-          : (() => {
-              const rerankRun = selection.rerankRunId
-                ? rerankRunsById.get(selection.rerankRunId)
-                : undefined;
-              if (
-                !rerankRun ||
-                rerankRun.status !== "completed" ||
-                rerankRun.bm25RunId !== bm25Run.bm25RunId
-              ) {
-                return undefined;
-              }
-              return rerankRun.results
-                .slice(0, selection.selectionLimit)
-                .map((result) => result.chunkId);
-            })();
+    const rerankRun = selection.rerankRunId
+      ? rerankRunsById.get(selection.rerankRunId)
+      : undefined;
+    const usesRerank =
+      selection.rankingSource === "reranked" ||
+      selection.rankingSource === "reranked_with_scope_pins";
+    const rankedChunkIds = usesRerank
+      ? rerankRun &&
+        rerankRun.status === "completed" &&
+        rerankRun.bm25RunId === bm25Run.bm25RunId
+        ? rerankRun.results.map((result) => result.chunkId)
+        : undefined
+      : bm25Run.candidates.map((candidate) => candidate.chunkId);
+    const pins = selection.pinnedChunkIds ?? [];
+    const expectedChunkIds = (() => {
+      if (!rankedChunkIds) return undefined;
+      if (selection.rankingSource.endsWith("_with_scope_pins")) {
+        if (pins.length === 0) return undefined;
+        const selected: string[] = [...pins];
+        const seen = new Set(selected);
+        for (const chunkId of rankedChunkIds) {
+          if (selected.length >= selection.selectionLimit) break;
+          if (seen.has(chunkId)) continue;
+          selected.push(chunkId);
+          seen.add(chunkId);
+        }
+        return selected;
+      }
+      return rankedChunkIds.slice(0, selection.selectionLimit);
+    })();
     if (
       !expectedChunkIds ||
       !sameIdentifierSequence(selection.selectedChunkIds, expectedChunkIds)
@@ -4271,7 +4303,7 @@ function validateEvidencePayload(
         `Selection does not preserve the top entries of its declared ranking: ${selection.selectionId}`,
       );
     }
-    if (selection.rankingSource === "bm25_with_scope_pins") {
+    if (selection.rankingSource.endsWith("_with_scope_pins")) {
       const corpus = corporaById.get(bm25Run.corpusId);
       const pinSet = new Set(selection.pinnedChunkIds ?? []);
       if (
@@ -4542,7 +4574,8 @@ function validateEvidenceOutcomeReferences(
       if (
         !rerankRun ||
         rerankRun.status !== "completed" ||
-        selection?.rankingSource !== "reranked" ||
+        (selection?.rankingSource !== "reranked" &&
+          selection?.rankingSource !== "reranked_with_scope_pins") ||
         selection.rerankRunId !== rerankRun.rerankRunId
       ) {
         addEvidenceIssue(

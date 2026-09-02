@@ -25,6 +25,8 @@ type CanonicalAdjudicatePacketChunk = {
   text: string;
   sourceBlockKind: EvidenceChunk["sourceBlockKind"];
   sourceSectionTitle?: string | undefined;
+  sourceSectionRole?: EvidenceChunk["sourceSectionRole"] | undefined;
+  sourceCitesOtherWork?: boolean | undefined;
   charOffsetStart: number;
   charOffsetEnd: number;
 };
@@ -107,6 +109,12 @@ export function buildCanonicalAdjudicatePacket(
       sourceBlockKind: chunk.sourceBlockKind,
       ...(chunk.sourceSectionTitle
         ? { sourceSectionTitle: chunk.sourceSectionTitle }
+        : {}),
+      ...(chunk.sourceSectionRole
+        ? { sourceSectionRole: chunk.sourceSectionRole }
+        : {}),
+      ...(chunk.sourceCitesOtherWork != null
+        ? { sourceCitesOtherWork: chunk.sourceCitesOtherWork }
         : {}),
       charOffsetStart: chunk.charOffsetStart,
       charOffsetEnd: chunk.charOffsetEnd,
@@ -207,7 +215,13 @@ function renderCanonicalAdjudicatePacket(
       const section = chunk.sourceSectionTitle
         ? `, section="${chunk.sourceSectionTitle}"`
         : "";
-      return `${String(index + 1)}. chunkId=${chunk.chunkId} (${chunk.sourceBlockKind}${section}, offsets ${String(chunk.charOffsetStart)}-${String(chunk.charOffsetEnd)})\n"${chunk.text}"`;
+      const role = chunk.sourceSectionRole
+        ? `, role=${chunk.sourceSectionRole}`
+        : "";
+      const cites = chunk.sourceCitesOtherWork
+        ? ", cites other work: may summarize prior findings rather than report the seed's own"
+        : "";
+      return `${String(index + 1)}. chunkId=${chunk.chunkId} (${chunk.sourceBlockKind}${role}${section}${cites}, offsets ${String(chunk.charOffsetStart)}-${String(chunk.charOffsetEnd)})\n"${chunk.text}"`;
     })
     .join("\n\n");
 
@@ -233,7 +247,7 @@ ${claimsBlock}
 
 ## Selected cited-paper chunks
 
-Chunk order is presentation order only. It is not a judgment of support or truth. Use only these chunkId values in citedChunkIds. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
+Chunk order is presentation order only. It is not a judgment of support or truth. Each chunk names its section role; only role=results, figure, table, or abstract can establish what the seed itself found, and a chunk that cites other work may be the seed summarizing prior literature. Use only these chunkId values in citedChunkIds. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
 
 ${chunksBlock}`;
 }
