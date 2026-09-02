@@ -647,12 +647,12 @@ export function buildCanonicalDiscoverAdapters(
         session.citingPapersByProviderId.set(paper.id, paper);
         const pageResponseArtifact = responseArtifactByPaperIndex[paperIndex];
         const provenanceArtifacts = [
-          store.persist({
-            role: "normalized-citing-paper",
-            body: { role: "normalized-citing-paper", paper },
-            canonicalStage: "discover",
-          }),
-          ...(pageResponseArtifact ? [pageResponseArtifact] : []),
+          pageResponseArtifact ??
+            store.persist({
+              role: "normalized-citing-paper",
+              body: { role: "normalized-citing-paper", paper },
+              canonicalStage: "discover",
+            }),
         ];
         return {
           ...paperToCanonical(paper),
@@ -764,20 +764,22 @@ export function buildCanonicalDiscoverAdapters(
         };
       }
 
-      const materializationArtifacts = [
-        store.persist({
-          role: "citing-paper-materialization",
-          body: {
-            citingPaperId: citing.id,
-            acquisition: materializeResult.data.acquisition,
-            parserKind: materializeResult.data.parsedDocument.parserKind,
-            parserVersion: materializeResult.data.parsedDocument.parserVersion,
-            blockCount: materializeResult.data.parsedDocument.blocks.length,
-            mentionCount: materializeResult.data.parsedDocument.mentions.length,
-          },
-          canonicalStage: "discover",
-        }),
-      ];
+      // The one blob a citing paper earns: which bytes were parsed, from
+      // where, and with what. Every occurrence harvested from this paper
+      // points at it, so the ledger stays traceable without a file per mention.
+      const parseArtifact = store.persist({
+        role: "citing-paper-parse",
+        body: {
+          citingPaperId: citing.id,
+          acquisition: materializeResult.data.acquisition,
+          parserKind: materializeResult.data.parsedDocument.parserKind,
+          parserVersion: materializeResult.data.parsedDocument.parserVersion,
+          blockCount: materializeResult.data.parsedDocument.blocks.length,
+          mentionCount: materializeResult.data.parsedDocument.mentions.length,
+        },
+        canonicalStage: "discover",
+      });
+      const materializationArtifacts = [parseArtifact];
 
       const refs = materializeResult.data.parsedDocument.references;
       const firstAuthorSurname = inferFirstAuthorSurname(seedPaper.authors[0]);
@@ -790,17 +792,6 @@ export function buildCanonicalDiscoverAdapters(
         ...(firstAuthorSurname ? { firstAuthorSurname } : {}),
       });
       if (!seedMatch) {
-        const harvestArtifacts = [
-          store.persist({
-            role: "mention-harvest-no-reference",
-            body: {
-              citingPaperId: citing.id,
-              referenceCount: refs.length,
-              matchMethod: null,
-            },
-            canonicalStage: "discover",
-          }),
-        ];
         return {
           materialization: {
             status: "succeeded" as const,
@@ -810,7 +801,7 @@ export function buildCanonicalDiscoverAdapters(
           harvest: {
             status: "no_mentions" as const,
             reason: "Seed paper not found in citing bibliography.",
-            provenanceArtifacts: harvestArtifacts,
+            provenanceArtifacts: [parseArtifact],
           },
           mentions: [],
         };
@@ -822,17 +813,6 @@ export function buildCanonicalDiscoverAdapters(
         seedRef.refId,
       );
       if (rawMentions.length === 0) {
-        const harvestArtifacts = [
-          store.persist({
-            role: "mention-harvest-empty",
-            body: {
-              citingPaperId: citing.id,
-              seedRefId: seedRef.refId,
-              matchMethod: seedMatch.method,
-            },
-            canonicalStage: "discover",
-          }),
-        ];
         return {
           materialization: {
             status: "succeeded" as const,
@@ -843,25 +823,13 @@ export function buildCanonicalDiscoverAdapters(
             status: "no_mentions" as const,
             reason:
               "Seed bibliography entry found but no in-text citation mentions.",
-            provenanceArtifacts: harvestArtifacts,
+            provenanceArtifacts: [parseArtifact],
           },
           mentions: [],
         };
       }
 
       const seedRefLabel = buildAuthorYearLabel(seedRef);
-      const harvestArtifacts = [
-        store.persist({
-          role: "mention-harvest",
-          body: {
-            citingPaperId: citing.id,
-            seedRefId: seedRef.refId,
-            matchMethod: seedMatch.method,
-            mentionCount: rawMentions.length,
-          },
-          canonicalStage: "discover",
-        }),
-      ];
 
       return {
         materialization: {
@@ -872,7 +840,7 @@ export function buildCanonicalDiscoverAdapters(
         harvest: {
           status: "succeeded" as const,
           reason: `Harvested ${String(rawMentions.length)} citation occurrence(s).`,
-          provenanceArtifacts: harvestArtifacts,
+          provenanceArtifacts: [parseArtifact],
         },
         mentions: rawMentions.map((mention) => ({
           mentionIndex: mention.mentionIndex,
@@ -905,21 +873,7 @@ export function buildCanonicalDiscoverAdapters(
           sourceType: mention.sourceType,
           parser: mention.parser,
           parserVersion: materializeResult.data.parsedDocument.parserVersion,
-          provenanceArtifacts: [
-            store.persist({
-              role: "citation-occurrence-source",
-              body: {
-                citingPaperId: citing.id,
-                mentionIndex: mention.mentionIndex,
-                targetRefIds: mention.targetRefIds,
-                citationGroupOrdinal: mention.citationGroupOrdinal,
-                sourceLocator: mention.sourceLocator,
-                citationMarker: mention.citationMarker,
-                rawContext: mention.rawContext,
-              },
-              canonicalStage: "discover",
-            }),
-          ],
+          provenanceArtifacts: [parseArtifact],
         })),
       };
     },
@@ -939,6 +893,7 @@ export function buildCanonicalDiscoverAdapters(
       );
       const requestBody = {
         mentionId: mention.mentionId,
+        promptText: prompt,
         llm: llmRequestProvenanceFields({
           purpose: "attributed-claim-extraction",
           model,
@@ -1045,6 +1000,7 @@ export function buildCanonicalDiscoverAdapters(
       const requestBody = {
         seedId: seed.paper.paperId,
         claimRecordIds: claims.map((claim) => claim.claimRecordId),
+        promptText: prompt,
         llm: llmRequestProvenanceFields({
           purpose: "claim-canonicalization",
           model,
@@ -1378,6 +1334,7 @@ export function buildCanonicalScopeAdapters(
       );
       const requestBody = {
         familyId: family.familyId,
+        promptText: prompt,
         llm: llmRequestProvenanceFields({
           purpose: "seed-grounding",
           model,
@@ -1588,6 +1545,7 @@ function buildCanonicalEvidenceAdapters(
         bm25RunId: input.bm25RunId,
         topN: input.topN,
         candidateChunkIds: input.candidates.map((c) => c.chunkId),
+        promptText: prompt,
         llm: llmRequestProvenanceFields({
           purpose: "evidence-rerank",
           model,
@@ -1687,7 +1645,6 @@ export function buildCanonicalAdjudicateAdapters(
         promptId: input.promptId,
         promptVersion: input.promptVersion,
         promptText,
-        packet: input.packet,
         llm: llmRequestProvenanceFields({
           purpose: "adjudication",
           model,

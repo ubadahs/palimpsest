@@ -378,8 +378,12 @@ describe("canonical production adapter seams", () => {
     const openAlexPapers = (
       openAlex as { papers: { provenanceArtifacts: unknown[] }[] }
     ).papers;
-    // Each returned paper carries its owning page's response artifact.
-    expect(openAlexPapers[0]?.provenanceArtifacts.length).toBeGreaterThan(1);
+    // A returned paper's provenance is the provider page it came from, and
+    // nothing else: its own fields are already on the Discover record.
+    expect(openAlexPapers[0]?.provenanceArtifacts).toHaveLength(1);
+    expect(openAlexPageArtifacts).toContainEqual(
+      openAlexPapers[0]!.provenanceArtifacts[0],
+    );
     expect(getCitingWorks).toHaveBeenCalledWith(
       "https://openalex.org/W123",
       expect.any(String),
