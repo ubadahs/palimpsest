@@ -17,10 +17,39 @@ import {
 } from "../contract/lean-artifacts.js";
 import {
   BM25_DEFAULT_SCORING_CONFIGURATION,
-  rankDocumentsByBm25Detailed,
+  buildBm25Index,
+  rankBm25Index,
   tokenizeBm25Text,
+  type Bm25Index,
 } from "./bm25.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
+
+/**
+ * One tokenized index per corpus object. Corpora are built once per seed and
+ * queried once or twice per record, so indexing per query was the dominant
+ * retrieval cost.
+ */
+const bm25IndexByCorpus = new WeakMap<
+  EvidenceChunkCorpus,
+  Bm25Index<EvidenceChunkCorpus["chunks"][number]>
+>();
+
+function indexForCorpus(
+  corpus: EvidenceChunkCorpus,
+): Bm25Index<EvidenceChunkCorpus["chunks"][number]> {
+  const cached = bm25IndexByCorpus.get(corpus);
+  if (cached) return cached;
+  const index = buildBm25Index(
+    corpus.chunks,
+    (chunk) => chunk.text,
+    BM25_DEFAULT_SCORING_CONFIGURATION,
+  );
+  bm25IndexByCorpus.set(corpus, index);
+  return index;
+}
+
+/** Reciprocal-rank-fusion constant; the standard value from Cormack et al. */
+const RRF_K = 60;
 
 export const canonicalEvidenceChunkConfiguration: EvidenceChunkConfiguration = {
   version: "canonical-evidence-chunking-v1",
@@ -166,27 +195,21 @@ export function retrieveEvidenceByBm25(input: {
   candidateLimit: number;
 }): EvidenceBm25Run {
   const configuration = buildBm25Configuration(input.candidateLimit);
-  const scoringConfiguration = {
-    ...BM25_DEFAULT_SCORING_CONFIGURATION,
-    tokenizer: {
-      ...BM25_DEFAULT_SCORING_CONFIGURATION.tokenizer,
-      stopWords: configuration.tokenizer.stopWords,
-    },
-  };
-  const ranked = rankDocumentsByBm25Detailed(
+  const ranked = rankBm25Index(
+    indexForCorpus(input.corpus),
     input.query.text,
-    input.corpus.chunks,
-    (chunk) => chunk.text,
     (chunk) => chunk.chunkId,
     input.candidateLimit,
-    scoringConfiguration,
   );
   const candidates = ranked.map((entry) => ({
     chunkId: entry.document.chunkId,
     rawScore: entry.score,
     rank: entry.rank,
   }));
-  const queryTerms = tokenizeBm25Text(input.query.text, scoringConfiguration);
+  const queryTerms = tokenizeBm25Text(
+    input.query.text,
+    BM25_DEFAULT_SCORING_CONFIGURATION,
+  );
   const corpusChunkIds = input.corpus.chunks.map((chunk) => chunk.chunkId);
   const rankingContentHash = canonicalSha256({ queryTerms, candidates });
   return evidenceBm25RunSchema.parse({
@@ -277,23 +300,32 @@ export function selectEvidenceChunkIds(input: {
   };
 }
 
+/**
+ * Fuse component rankings by reciprocal rank. Raw BM25 scores are not
+ * comparable across queries of different length, so a longer occurrence-local
+ * query would otherwise dominate the family-claim fallback on every contested
+ * chunk. The fused `rawScore` is the RRF sum, not a BM25 score.
+ */
 export function unionBm25Candidates(
   runs: readonly EvidenceBm25Run[],
+  limit: number = Number.POSITIVE_INFINITY,
 ): EvidenceBm25Run["candidates"] {
-  const bestByChunkId = new Map<string, number>();
+  const fusedByChunkId = new Map<string, number>();
   for (const run of runs) {
     for (const candidate of run.candidates) {
-      const current = bestByChunkId.get(candidate.chunkId);
-      if (current == null || candidate.rawScore > current) {
-        bestByChunkId.set(candidate.chunkId, candidate.rawScore);
-      }
+      const contribution = 1 / (RRF_K + candidate.rank);
+      fusedByChunkId.set(
+        candidate.chunkId,
+        (fusedByChunkId.get(candidate.chunkId) ?? 0) + contribution,
+      );
     }
   }
-  return [...bestByChunkId.entries()]
+  return [...fusedByChunkId.entries()]
     .sort(
       ([leftId, leftScore], [rightId, rightScore]) =>
         rightScore - leftScore || compareCodeUnits(leftId, rightId),
     )
+    .slice(0, limit)
     .map(([chunkId, rawScore], index) => ({
       chunkId,
       rawScore,

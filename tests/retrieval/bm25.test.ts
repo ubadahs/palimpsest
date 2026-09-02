@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildRetrievalQuery,
-  rankDocumentsByBm25,
+  buildBm25Index,
+  rankBm25Index,
   rankDocumentsByBm25Detailed,
+  tokenizeBm25Text,
 } from "../../src/retrieval/bm25.js";
 
 type TestDocument = {
@@ -11,160 +12,65 @@ type TestDocument = {
   text: string;
 };
 
-const LEGACY_STOP_WORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "and",
-  "or",
-  "but",
-  "in",
-  "on",
-  "at",
-  "to",
-  "for",
-  "of",
-  "with",
-  "by",
-  "from",
-  "is",
-  "are",
-  "was",
-  "were",
-  "be",
-  "been",
-  "being",
-  "have",
-  "has",
-  "had",
-  "do",
-  "does",
-  "did",
-  "will",
-  "would",
-  "could",
-  "should",
-  "may",
-  "might",
-  "shall",
-  "can",
-  "this",
-  "that",
-  "these",
-  "those",
-  "it",
-  "its",
-  "we",
-  "our",
-  "they",
-  "their",
-  "not",
-  "also",
-  "et",
-  "al",
-  "fig",
-  "figure",
-  "table",
-  "as",
-  "such",
-]);
-
-function legacyExtractKeyTerms(text: string): string[] {
-  const words = text.toLowerCase().match(/\b[a-z][a-z0-9-]{2,}\b/g) ?? [];
-  return [
-    ...new Set(words.filter((word) => !LEGACY_STOP_WORDS.has(word))),
-  ].slice(0, 30);
-}
-
-function legacyExtractEntities(text: string): string[] {
-  const entities: string[] = [];
-
-  const geneProtein = text.match(
-    /\b(?:Rab\d+|ACAP\d*|Par\d+[a-z]?|HNF4[αα]|Sox\d+|MARK\d+|Rab35|ICAM-\d+)\b/gi,
-  );
-  if (geneProtein) {
-    entities.push(...geneProtein.map((entity) => entity.toLowerCase()));
-  }
-
-  const structures = text.match(
-    /\b(?:bile\s+canalicul[ia]|apical\s+bulkhead|lumen|cyst|hepatocyte|hepatoblast|epithelial|polarity)\b/gi,
-  );
-  if (structures) {
-    entities.push(...structures.map((entity) => entity.toLowerCase()));
-  }
-
-  return [...new Set(entities)];
-}
-
-function legacyHeuristicScore(query: string, text: string): number {
-  const keyTerms = legacyExtractKeyTerms(query);
-  const entities = legacyExtractEntities(query);
-  const textLower = text.toLowerCase();
-
-  let entityHits = 0;
-  for (const entity of entities) {
-    if (textLower.includes(entity)) {
-      entityHits++;
-    }
-  }
-
-  let keywordHits = 0;
-  for (const keyTerm of keyTerms) {
-    if (textLower.includes(keyTerm)) {
-      keywordHits++;
-    }
-  }
-
-  if (entityHits >= 2 && keywordHits >= 3) {
-    return entityHits * 3 + keywordHits;
-  }
-  if (keywordHits >= 4) {
-    return keywordHits;
-  }
-  if (entityHits >= 1 && keywordHits >= 2) {
-    return entityHits * 2 + keywordHits;
-  }
-
-  return 0;
-}
-
-describe("rankDocumentsByBm25", () => {
-  it("beats the old entity-gated heuristic on a paraphrase-style fixture", () => {
-    const query = buildRetrievalQuery([
-      "junction failure altered tubular anisotropy",
+describe("tokenizeBm25Text", () => {
+  it("keeps greek letters and hyphenated compounds intact", () => {
+    expect(tokenizeBm25Text("β-catenin and γ-catenin")).toEqual([
+      "β-catenin",
+      "γ-catenin",
     ]);
-    const documents: TestDocument[] = [
-      {
-        id: "legacy-top",
-        text: "General discussion of imaging controls and collagen concentration.",
-      },
-      {
-        id: "bm25-top",
-        text: "Collapse of epithelial bridges altered anisotropy in developing ducts.",
-      },
-      {
-        id: "weak",
-        text: "Anisotropy measurements were reported for several tissues.",
-      },
-    ];
-
-    const legacyTop = [...documents].sort(
-      (left, right) =>
-        legacyHeuristicScore(query, right.text) -
-        legacyHeuristicScore(query, left.text),
-    )[0];
-    const bm25Top = rankDocumentsByBm25(
-      query,
-      documents,
-      (document) => document.text,
-      3,
-    )[0];
-
-    expect(legacyTop?.id).toBe("legacy-top");
-    expect(bm25Top?.document.id).toBe("bm25-top");
+    expect(tokenizeBm25Text("10 μM")).toEqual(["10", "μm"]);
   });
 
-  it("retains raw scores and breaks exact ties by semantic document ID", () => {
+  it("keeps decimals, short numbers, and figure references", () => {
+    expect(
+      tokenizeBm25Text("A 2.3-fold increase (p < 0.05) at day 7, Fig. 3C"),
+    ).toEqual(["2.3-fold", "increase", "p", "0.05", "day", "7", "fig", "3c"]);
+    expect(tokenizeBm25Text("the 5 mM treatment")).toEqual([
+      "5",
+      "mm",
+      "treatment",
+    ]);
+  });
+
+  it("folds simple plurals without touching -ss, -us, -is, or numerics", () => {
+    expect(tokenizeBm25Text("neurons neuron cells cell")).toEqual([
+      "neuron",
+      "neuron",
+      "cell",
+      "cell",
+    ]);
+    expect(tokenizeBm25Text("class nucleus axis 3c")).toEqual([
+      "class",
+      "nucleus",
+      "axis",
+      "3c",
+    ]);
+  });
+});
+
+describe("rankDocumentsByBm25Detailed", () => {
+  it("matches a numeric, greek-lettered claim to the passage that states it", () => {
+    const documents: TestDocument[] = [
+      {
+        id: "intro",
+        text: "Catenin family proteins regulate adhesion in many tissues.",
+      },
+      {
+        id: "result",
+        text: "β-catenin levels rose 2.3-fold after 10 μM treatment (Fig. 3C).",
+      },
+    ];
+    const ranked = rankDocumentsByBm25Detailed(
+      "β-catenin increased 2.3-fold at 10 μM",
+      documents,
+      (document) => document.text,
+      (document) => document.id,
+      2,
+    );
+    expect(ranked[0]?.document.id).toBe("result");
+  });
+
+  it("retains raw scores and breaks exact ties by document ID", () => {
     const documents: TestDocument[] = [
       { id: "chunk-z", text: "shared lexical evidence passage" },
       { id: "chunk-a", text: "shared lexical evidence passage" },
@@ -183,5 +89,28 @@ describe("rankDocumentsByBm25", () => {
     ]);
     expect(ranked[0]!.score).toBeGreaterThan(0);
     expect(ranked[1]!.score).toBe(ranked[0]!.score);
+  });
+
+  it("ranks identically from a prebuilt index", () => {
+    const documents: TestDocument[] = [
+      { id: "a", text: "Pvalb neurons in the ventral relay" },
+      { id: "b", text: "Calb1 neurons in the interrelay leaflet" },
+    ];
+    const index = buildBm25Index(documents, (document) => document.text);
+    const fromIndex = rankBm25Index(
+      index,
+      "Pvalb relay",
+      (document) => document.id,
+      2,
+    );
+    const direct = rankDocumentsByBm25Detailed(
+      "Pvalb relay",
+      documents,
+      (document) => document.text,
+      (document) => document.id,
+      2,
+    );
+    expect(fromIndex).toEqual(direct);
+    expect(fromIndex[0]?.document.id).toBe("a");
   });
 });

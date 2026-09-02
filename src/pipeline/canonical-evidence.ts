@@ -666,17 +666,16 @@ function buildUnionBm25Run(input: {
   const cacheKey = canonicalSerialize(componentBm25RunIds);
   const cached = input.unionRunsByComponents.get(cacheKey);
   if (cached) return cached;
-  const candidates = unionBm25Candidates(input.componentRuns);
+  // The fused union honors the configured candidate limit so the reranker
+  // never receives more candidates than the run asked for.
+  const configuration = input.componentRuns[0]!.configuration;
+  const candidates = unionBm25Candidates(
+    input.componentRuns,
+    configuration.candidateLimit,
+  );
   const queryTerms = uniqueSorted(
     input.componentRuns.flatMap((run) => run.queryTerms),
   );
-  const configuration = {
-    ...input.componentRuns[0]!.configuration,
-    candidateLimit: Math.max(
-      input.componentRuns[0]!.configuration.candidateLimit,
-      candidates.length,
-    ),
-  };
   const rankingContentHash = canonicalSha256({
     queryTerms,
     candidates,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   chunksOverlappingVerifiedSpans,
   selectEvidenceChunkIds,
+  unionBm25Candidates,
 } from "../../src/retrieval/canonical-evidence-retrieval.js";
 import {
   buildStableId,
@@ -166,5 +167,62 @@ describe("scope-span evidence pinning", () => {
     expect(selected.rankingSource).toBe("bm25");
     expect(selected.pinnedChunkIds).toEqual([]);
     expect(selected.selectedChunkIds).toEqual(["chunk_far", "chunk_hit"]);
+  });
+});
+
+describe("unionBm25Candidates", () => {
+  function run(candidates: Array<[string, number]>) {
+    return {
+      candidates: candidates.map(([chunkId, rawScore], index) => ({
+        chunkId,
+        rawScore,
+        rank: index + 1,
+      })),
+    } as never;
+  }
+
+  it("fuses by reciprocal rank so a long query cannot dominate on raw score", () => {
+    // The occurrence-local query is longer and scores every chunk higher.
+    const local = run([
+      ["chunk_a", 9.1],
+      ["chunk_b", 8.7],
+      ["chunk_c", 8.2],
+    ]);
+    const fallback = run([
+      ["chunk_c", 2.1],
+      ["chunk_d", 1.9],
+    ]);
+    const fused = unionBm25Candidates([local, fallback]);
+    // chunk_c is ranked by both runs and should outrank chunk_b, which only
+    // the local run returned; under max-raw-score it would have lost.
+    expect(fused.map((candidate) => candidate.chunkId)).toEqual([
+      "chunk_c",
+      "chunk_a",
+      "chunk_b",
+      "chunk_d",
+    ]);
+    expect(fused.map((candidate) => candidate.rank)).toEqual([1, 2, 3, 4]);
+    for (let index = 1; index < fused.length; index++) {
+      expect(fused[index]!.rawScore).toBeLessThanOrEqual(
+        fused[index - 1]!.rawScore,
+      );
+    }
+  });
+
+  it("honors the candidate limit", () => {
+    const fused = unionBm25Candidates(
+      [
+        run([
+          ["a", 3],
+          ["b", 2],
+        ]),
+        run([
+          ["c", 3],
+          ["d", 2],
+        ]),
+      ],
+      3,
+    );
+    expect(fused).toHaveLength(3);
   });
 });

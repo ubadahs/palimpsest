@@ -2165,7 +2165,7 @@ export const evidenceBm25ConfigurationSchema = z
     b: z.number().min(0).max(1),
     tokenizer: z
       .object({
-        version: z.literal("unicode-alphanumeric-hyphen-stopwords-v1"),
+        version: z.literal("unicode-token-plural-fold-stopwords-v2"),
         tokenPattern: z.string().min(1),
         lowercase: z.literal(true),
         stopWords: z.array(z.string().min(1)),
