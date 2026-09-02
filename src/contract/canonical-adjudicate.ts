@@ -24,7 +24,7 @@ import {
  */
 
 export const canonicalAdjudicateMethodId =
-  "canonical-categorical-adjudicate-v1" as const;
+  "canonical-categorical-adjudicate-v2" as const;
 
 export const canonicalAdjudicateMethodSchema = z
   .object({
@@ -332,6 +332,13 @@ export function buildAdjudicationResultId(
   });
 }
 
+/**
+ * What was asked and what came back — not how it was served. The request
+ * artifact is deliberately excluded: its body carries `cachePolicy` and
+ * `promptCachePolicy`, so hashing it made the same verdict on the same prompt
+ * produce a different `adjudicationResultId` on a cached re-run. `requestHash`
+ * covers the request semantically, and `promptContentHash` covers the prompt.
+ */
 function executionIdentity(execution: ModelExecution) {
   return {
     provider: execution.provider,
@@ -340,15 +347,6 @@ function executionIdentity(execution: ModelExecution) {
     promptVersion: execution.promptVersion,
     promptContentHash: execution.promptContentHash,
     requestHash: execution.requestHash,
-    requestArtifact: semanticArtifactIdentity(execution.requestArtifact),
-    responseArtifact: semanticArtifactIdentity(execution.responseArtifact),
-  };
-}
-
-function semanticArtifactIdentity(reference: ArtifactReference) {
-  return {
-    artifactId: reference.artifactId,
-    contentHash: reference.contentHash,
   };
 }
 

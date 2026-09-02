@@ -221,6 +221,8 @@ function mockedLlmClient(): LLMClient {
       totalFailedCalls: 0,
       totalBillableCalls: 0,
       totalExactCacheHits: 0,
+      totalCacheReadTokens: 0,
+      totalCacheWriteTokens: 0,
       totalEstimatedCostUsd: 0,
       byPurpose: {},
       calls: [],

@@ -295,6 +295,78 @@ describe("provider options and telemetry through generateText", () => {
     expect(result.record.thinkingEffort).toBeUndefined();
   });
 
+  it("sums prompt-cache reads and writes into the ledger", async () => {
+    generateTextMock.mockReset();
+    generateTextMock.mockResolvedValue({
+      text: "ok",
+      finishReason: "stop",
+      response: { modelId: "claude-sonnet-4-6-20260214" },
+      usage: {
+        inputTokens: 1_200,
+        outputTokens: 40,
+        totalTokens: 1_240,
+        inputTokenDetails: {
+          noCacheTokens: 200,
+          cacheReadTokens: 900,
+          cacheWriteTokens: 100,
+        },
+      },
+      providerMetadata: {
+        anthropic: {
+          usage: { cache_read_input_tokens: 900 },
+        },
+      },
+    } as never);
+
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-sonnet-4-6",
+    });
+    await client.generateText({
+      purpose: "seed-grounding",
+      prompt: "x".repeat(5_000),
+    });
+    await client.generateText({
+      purpose: "seed-grounding",
+      prompt: "x".repeat(5_000),
+    });
+
+    const ledger = client.getLedger();
+    expect(ledger.totalCacheReadTokens).toBe(1_800);
+    expect(ledger.totalCacheWriteTokens).toBe(200);
+    expect(ledger.byPurpose["seed-grounding"]).toMatchObject({
+      attempted: 2,
+      cacheReadTokens: 1_800,
+      cacheWriteTokens: 200,
+    });
+    // A cache read must not be billed as a fresh input token.
+    expect(ledger.byPurpose["seed-grounding"]!.estimatedCostUsd).toBeLessThan(
+      ledger.byPurpose["seed-grounding"]!.inputTokens * 2 * 3e-6,
+    );
+  });
+
+  it("records the served model snapshot alongside the requested alias", async () => {
+    generateTextMock.mockReset();
+    generateTextMock.mockResolvedValue({
+      text: "ok",
+      finishReason: "stop",
+      response: { modelId: "claude-opus-4-6-20260214" },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    } as never);
+
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-opus-4-6",
+    });
+    const result = await client.generateText({
+      purpose: "adjudication",
+      prompt: "short",
+    });
+
+    expect(result.record.model).toBe("claude-opus-4-6");
+    expect(result.record.servedModel).toBe("claude-opus-4-6-20260214");
+  });
+
   it("includes thinking mode in exact-cache key material", async () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");

@@ -63,9 +63,12 @@ export type ThinkingConfig =
   | { type: "adaptive"; effort: ThinkingEffort }
   | { type: "enabled"; budgetTokens: number };
 
-type LLMCallRecord = {
+export type LLMCallRecord = {
   purpose: LLMPurpose;
+  /** Model the call asked for. */
   model: string;
+  /** Model the provider says answered; differs when an alias resolves. */
+  servedModel?: string;
   stageKey?: StageKey;
   attempted: true;
   successful: boolean;
@@ -106,6 +109,9 @@ type LLMPurposeSummary = {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  /** Prompt-cache reads and writes: the only way to check a caching claim. */
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   estimatedCostUsd: number;
 };
 
@@ -116,6 +122,8 @@ export type LLMRunLedger = {
   totalFailedCalls: number;
   totalBillableCalls: number;
   totalExactCacheHits: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
   totalEstimatedCostUsd: number;
   byPurpose: Partial<Record<LLMPurpose, LLMPurposeSummary>>;
   calls: LLMCallRecord[];
@@ -659,6 +667,8 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
   let totalFailed = 0;
   let totalBillable = 0;
   let totalExactCacheHits = 0;
+  let totalCacheReadTokens = 0;
+  let totalCacheWriteTokens = 0;
 
   for (const call of calls) {
     totalCost += call.estimatedCostUsd;
@@ -675,6 +685,8 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
     if (call.exactCacheHit) {
       totalExactCacheHits += 1;
     }
+    totalCacheReadTokens += call.cacheReadTokens ?? 0;
+    totalCacheWriteTokens += call.cacheWriteTokens ?? 0;
 
     const existing = byPurpose[call.purpose];
     if (existing) {
@@ -694,6 +706,8 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
       existing.inputTokens += call.inputTokens;
       existing.outputTokens += call.outputTokens;
       existing.reasoningTokens += call.reasoningTokens ?? 0;
+      existing.cacheReadTokens += call.cacheReadTokens ?? 0;
+      existing.cacheWriteTokens += call.cacheWriteTokens ?? 0;
       existing.estimatedCostUsd += call.estimatedCostUsd;
     } else {
       byPurpose[call.purpose] = {
@@ -705,6 +719,8 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
         inputTokens: call.inputTokens,
         outputTokens: call.outputTokens,
         reasoningTokens: call.reasoningTokens ?? 0,
+        cacheReadTokens: call.cacheReadTokens ?? 0,
+        cacheWriteTokens: call.cacheWriteTokens ?? 0,
         estimatedCostUsd: call.estimatedCostUsd,
       };
     }
@@ -717,6 +733,8 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
     totalFailedCalls: totalFailed,
     totalBillableCalls: totalBillable,
     totalExactCacheHits,
+    totalCacheReadTokens,
+    totalCacheWriteTokens,
     totalEstimatedCostUsd: totalCost,
     byPurpose,
     calls: [...calls],
@@ -839,6 +857,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     purpose: LLMPurpose,
     modelId: string,
     context: LLMCallContext,
+    servedModel: string | undefined,
     usage: {
       inputTokens?: number | undefined;
       outputTokens?: number | undefined;
@@ -869,6 +888,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     const record: LLMCallRecord = {
       purpose,
       model: modelId,
+      ...(servedModel != null && servedModel.length > 0 ? { servedModel } : {}),
       ...(context.stageKey != null ? { stageKey: context.stageKey } : {}),
       attempted: true,
       successful: true,
@@ -1010,6 +1030,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           params.purpose,
           modelId,
           context,
+          result.response?.modelId,
           result.usage,
           Date.now() - startMs,
           result.finishReason,
@@ -1123,6 +1144,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           params.purpose,
           modelId,
           context,
+          result.response?.modelId,
           result.usage,
           Date.now() - startMs,
           result.finishReason,

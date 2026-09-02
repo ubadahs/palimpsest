@@ -1301,18 +1301,53 @@ describe("canonical Adjudicate", () => {
         failureCode: "transport",
       }),
     ).not.toBe(failedRecord.adjudicationResultId);
+    // The stored request body carries cachePolicy and promptCachePolicy, so a
+    // cached re-run rewrites its digest without changing what was asked.
     expect(
       buildAdjudicationResultId({
         ...failedRecord,
         execution: {
           ...failedRecord.execution,
+          requestArtifact: {
+            ...failedRecord.execution.requestArtifact,
+            contentHash: canonicalSha256("same request, bypassed cache"),
+          },
           responseArtifact: {
             ...failedRecord.execution.responseArtifact,
-            contentHash: canonicalSha256("different response content"),
+            contentHash: canonicalSha256("differently worded provider error"),
           },
         },
       }),
+    ).toBe(failedRecord.adjudicationResultId);
+    expect(
+      buildAdjudicationResultId({
+        ...failedRecord,
+        execution: {
+          ...failedRecord.execution,
+          requestHash: canonicalSha256("a different packet"),
+        },
+      }),
     ).not.toBe(failedRecord.adjudicationResultId);
+    expect(
+      buildAdjudicationResultId({
+        ...failedRecord,
+        execution: {
+          ...failedRecord.execution,
+          promptContentHash: canonicalSha256("a different prompt"),
+        },
+      }),
+    ).not.toBe(failedRecord.adjudicationResultId);
+    // Telemetry describes how a call was served, never what it decided.
+    expect(
+      buildAdjudicationResultId({
+        ...failedRecord,
+        execution: {
+          ...failedRecord.execution,
+          servedModel: "claude-opus-4-6-20260101",
+          exactCacheHit: true,
+        },
+      }),
+    ).toBe(failedRecord.adjudicationResultId);
 
     const invalid = await runAdjudicateFixture({ variant: "malformed" });
     const invalidRecord = invalid.result.payload.records[0]!;
