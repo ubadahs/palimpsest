@@ -139,10 +139,15 @@ export type LLMTelemetryCollector = {
 // ---------------------------------------------------------------------------
 
 export type LLMClient = {
-  /** Free-form text generation. */
+  /**
+   * Free-form text generation. No canonical purpose uses it: every one moved
+   * to provider-enforced structured output. It is kept deliberately as the
+   * documented fallback, because that move is not yet proven on a run — if
+   * adjudication reasons worse through a tool schema, this is the way back.
+   */
   generateText: (params: GenerateTextParams) => Promise<GenerateTextResult>;
 
-  /** Structured JSON output via a Zod schema. */
+  /** Structured JSON output via a Zod schema; the path every stage uses. */
   generateObject: <T extends z.ZodType>(
     params: GenerateObjectParams<T>,
   ) => Promise<GenerateObjectResult<z.infer<T>>>;

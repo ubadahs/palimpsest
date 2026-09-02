@@ -20,6 +20,7 @@ import {
 } from "../lean-artifact-primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import {
+  addIssue,
   addSortedUniqueIdentifierIssue,
   findDuplicate,
   sameArtifactReference,
@@ -283,7 +284,7 @@ function validatePreparedRecordReferences(
       (candidate) => candidate.seedId !== record.family.seedId,
     )
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["sourceCandidates"],
       "Prepared source candidates must exactly preserve the Scope family candidate references",
@@ -298,7 +299,7 @@ function validatePreparedRecordReferences(
       (sourceClaim) => sourceClaim.seedId !== record.family.seedId,
     )
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["sourceClaimRecords"],
       "Prepared source claims must exactly preserve the Scope family claim provenance",
@@ -314,7 +315,7 @@ function validatePreparedRecordReferences(
     canonicalSerialize(record.occurrenceSourceCandidates) !==
     canonicalSerialize(expectedOccurrenceSourceCandidates)
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["occurrenceSourceCandidates"],
       "Occurrence-local candidates must be the exact ordered family subset containing this occurrence",
@@ -324,7 +325,7 @@ function validatePreparedRecordReferences(
     canonicalSerialize(record.occurrenceSourceClaimRecords) !==
     canonicalSerialize(expectedOccurrenceSourceClaimRecords)
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["occurrenceSourceClaimRecords"],
       "Occurrence-local claims must be the exact ordered family subset attributed at this occurrence",
@@ -346,7 +347,7 @@ function validatePreparedRecordReferences(
         ),
     )
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["occurrenceSourceClaimRecords"],
       "Occurrence-local candidates and claims must reference each other within this family",
@@ -355,7 +356,7 @@ function validatePreparedRecordReferences(
   if (
     !record.family.includedCitationOccurrenceIds.includes(occurrence.mentionId)
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["family", "includedCitationOccurrenceIds"],
       "Prepared occurrence is not a member of its Scope family",
@@ -365,7 +366,7 @@ function validatePreparedRecordReferences(
     record.family.seedId !== record.seed.seedId ||
     occurrence.seedId !== record.seed.seedId
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["seed", "seedId"],
       "Prepared family, occurrence, and seed must share one seed identity",
@@ -376,20 +377,20 @@ function validatePreparedRecordReferences(
     occurrence.citingPaperId !== record.citingPaper.paper.paperId ||
     occurrence.seedId !== record.citingPaper.seedId
   ) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["citingPaper"],
       "Prepared occurrence does not match its Discover citing-paper record",
     );
   }
   if (record.seed.resolution.status !== "resolved") {
-    addPrepareIssue(
+    addIssue(
       context,
       ["seed", "resolution"],
       "A prepared citation occurrence requires a resolved Discover seed paper",
     );
   } else if (occurrence.citedPaperId !== record.seed.resolution.paper.paperId) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["citationOccurrence", "citedPaperId"],
       "Prepared occurrence does not cite its resolved Discover seed paper",
@@ -401,7 +402,7 @@ function validatePreparedRecordReferences(
         occurrence.isBundledCitation ||
       record.classification.modifiers.bundleSize !== occurrence.bundleSize
     ) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["classification", "modifiers"],
         "Classification bundle modifiers must preserve the Discover occurrence",
@@ -433,7 +434,7 @@ function validatePreparePayload(
   );
   const duplicatePair = findDuplicate(pairKeys);
   if (duplicatePair) {
-    addPrepareIssue(
+    addIssue(
       context,
       ["records"],
       `Duplicate prepared family × occurrence pair: ${duplicatePair}`,
@@ -456,7 +457,7 @@ function validatePreparePayload(
   const actualPairKeys = new Set(pairKeys);
   for (const pairKey of expectedPairKeys) {
     if (!actualPairKeys.has(pairKey)) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["records"],
         `Missing Prepare outcome for scoped pair: ${pairKey}`,
@@ -465,7 +466,7 @@ function validatePreparePayload(
   }
   for (const pairKey of actualPairKeys) {
     if (!expectedPairKeys.has(pairKey)) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["records"],
         `Prepare record is outside frozen Scope membership: ${pairKey}`,
@@ -476,7 +477,7 @@ function validatePreparePayload(
   for (const [index, record] of payload.records.entries()) {
     const family = familiesById.get(record.familyId);
     if (!family) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["records", index, "familyId"],
         "Prepare record references an unknown Scope family",
@@ -484,7 +485,7 @@ function validatePreparePayload(
     } else if (
       canonicalSerialize(record.family) !== canonicalSerialize(family)
     ) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["records", index, "family"],
         "Prepare record does not preserve its exact Scope family",
@@ -501,21 +502,13 @@ function validatePreparePayload(
       ) ||
       record.lineage.runId !== payload.lineage.runId
     ) {
-      addPrepareIssue(
+      addIssue(
         context,
         ["records", index, "lineage"],
         "Prepare record lineage differs from the payload lineage",
       );
     }
   }
-}
-
-function addPrepareIssue(
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  message: string,
-): void {
-  context.addIssue({ code: "custom", path, message });
 }
 
 function expectedPrepareEvaluationMode(

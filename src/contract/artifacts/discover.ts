@@ -15,6 +15,7 @@ import {
 import { modelExecutionSchema } from "../model-execution.js";
 import {
   addDuplicateIdentifierIssue,
+  addIssue,
   findDuplicate,
   normalizeDoi,
   normalizeWhitespace,
@@ -886,7 +887,7 @@ function validateDiscoverLedger(
       (query) => query.seedId === seed.seedId,
     ).length;
     if (queryCount !== 1) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["neighborhoodQueries"],
         `Seed must have exactly one declared neighborhood boundary: ${seed.seedId}`,
@@ -896,7 +897,7 @@ function validateDiscoverLedger(
 
   payload.neighborhoodQueries.forEach((query, index) => {
     if (!seedsById.has(query.seedId)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["neighborhoodQueries", index, "seedId"],
         "Neighborhood query references an unknown seed",
@@ -906,7 +907,7 @@ function validateDiscoverLedger(
       (paper) => paper.neighborhoodId === query.neighborhoodId,
     );
     if (returnedPapers.length !== query.returnedCount) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["neighborhoodQueries", index, "returnedCount"],
         "Neighborhood returnedCount does not match its citing-paper ledger",
@@ -916,7 +917,7 @@ function validateDiscoverLedger(
       returnedPapers.map((paper) => String(paper.providerPosition)),
     );
     if (duplicatePosition) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers"],
         `Duplicate provider position in neighborhood ${query.neighborhoodId}: ${duplicatePosition}`,
@@ -927,14 +928,14 @@ function validateDiscoverLedger(
   payload.citingPapers.forEach((paper, index) => {
     const neighborhood = neighborhoodsById.get(paper.neighborhoodId);
     if (!seedsById.has(paper.seedId)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers", index, "seedId"],
         "Citing-paper observation references an unknown seed",
       );
     }
     if (!neighborhood) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers", index, "neighborhoodId"],
         "Citing-paper observation references an unknown neighborhood",
@@ -943,7 +944,7 @@ function validateDiscoverLedger(
       neighborhood.seedId !== paper.seedId ||
       neighborhood.provider !== paper.provider
     ) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers", index, "neighborhoodId"],
         "Citing paper and neighborhood have inconsistent seed/provider identity",
@@ -953,14 +954,14 @@ function validateDiscoverLedger(
       (mention) => mention.citingPaperRecordId === paper.citingPaperRecordId,
     ).length;
     if (observedMentionCount !== paper.harvest.observedMentionCount) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers", index, "harvest", "observedMentionCount"],
         "Harvest mention count does not match citation occurrence records",
       );
     }
     if (paper.harvest.status === "succeeded" && observedMentionCount === 0) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citingPapers", index, "harvest", "status"],
         "A successful harvest must preserve at least one occurrence",
@@ -972,14 +973,14 @@ function validateDiscoverLedger(
     const seed = seedsById.get(mention.seedId);
     const citingPaper = citingPapersById.get(mention.citingPaperRecordId);
     if (!seed) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citationMentions", index, "seedId"],
         "Citation occurrence references an unknown seed",
       );
     }
     if (!citingPaper) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citationMentions", index, "citingPaperRecordId"],
         "Citation occurrence references an unknown citing-paper observation",
@@ -988,7 +989,7 @@ function validateDiscoverLedger(
       citingPaper.seedId !== mention.seedId ||
       citingPaper.paper.paperId !== mention.citingPaperId
     ) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citationMentions", index, "citingPaperRecordId"],
         "Citation occurrence and citing-paper observation are inconsistent",
@@ -998,7 +999,7 @@ function validateDiscoverLedger(
       seed?.resolution.status === "resolved" &&
       seed.resolution.paper.paperId !== mention.citedPaperId
     ) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["citationMentions", index, "citedPaperId"],
         "Citation occurrence does not reference its resolved seed paper",
@@ -1008,7 +1009,7 @@ function validateDiscoverLedger(
       (observation) => observation.mentionId === mention.mentionId,
     ).length;
     if (extractionCount !== 1) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimExtractionObservations"],
         `Citation occurrence must have exactly one extraction outcome: ${mention.mentionId}`,
@@ -1019,13 +1020,13 @@ function validateDiscoverLedger(
   payload.claimExtractionObservations.forEach((observation, index) => {
     const mention = mentionsById.get(observation.mentionId);
     if (!mention) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimExtractionObservations", index, "mentionId"],
         "Extraction observation references an unknown mention",
       );
     } else if (mention.seedId !== observation.seedId) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimExtractionObservations", index, "mentionId"],
         "Extraction observation and mention belong to different seeds",
@@ -1034,7 +1035,7 @@ function validateDiscoverLedger(
     for (const claimRecordId of observation.claimRecordIds) {
       const record = claimRecordsById.get(claimRecordId);
       if (!record) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimExtractionObservations", index, "claimRecordIds"],
           `Extraction references an unknown claim record: ${claimRecordId}`,
@@ -1044,7 +1045,7 @@ function validateDiscoverLedger(
         record.mentionId !== observation.mentionId ||
         record.seedId !== observation.seedId
       ) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimExtractionObservations", index, "claimRecordIds"],
           `Extraction and claim record are inconsistent: ${claimRecordId}`,
@@ -1065,13 +1066,13 @@ function validateDiscoverLedger(
     extractionRecords.push(record);
     claimRecordsByExtraction.set(record.extractionId, extractionRecords);
     if (!mention) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["attributedClaimRecords", index, "mentionId"],
         "Attributed claim record references an unknown mention",
       );
     } else if (mention.seedId !== record.seedId) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["attributedClaimRecords", index, "mentionId"],
         "Attributed claim record and mention belong to different seeds",
@@ -1082,7 +1083,7 @@ function validateDiscoverLedger(
         record.supportSpan.charOffsetEnd,
       );
       if (slice !== record.supportSpan.text) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["attributedClaimRecords", index, "supportSpan"],
           "supportSpan text must exactly equal the occurrence rawContext slice at the stored offsets",
@@ -1090,7 +1091,7 @@ function validateDiscoverLedger(
       }
     }
     if (!extraction?.claimRecordIds.includes(record.claimRecordId)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["attributedClaimRecords", index, "extractionId"],
         "Attributed claim record is not owned by its extraction observation",
@@ -1102,7 +1103,7 @@ function validateDiscoverLedger(
       .map((record) => record.sourceClaimIndex)
       .sort((left, right) => left - right);
     if (sourceIndexes.some((sourceIndex, index) => sourceIndex !== index)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["attributedClaimRecords"],
         `Source claim indexes must be unique and contiguous within extraction: ${extractionId}`,
@@ -1127,7 +1128,7 @@ function validateDiscoverLedger(
         .map((record) => record.duplicateOrdinal)
         .sort((left, right) => left - right);
       if (ordinals.some((ordinal, index) => ordinal !== index)) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["attributedClaimRecords"],
           `Duplicate ordinals must be unique and contiguous for extraction ${extractionId} and claim ${normalizedClaim}`,
@@ -1139,7 +1140,7 @@ function validateDiscoverLedger(
   const claimCandidateMembershipCount = new Map<string, number>();
   payload.claimCandidates.forEach((candidate, index) => {
     if (!seedsById.has(candidate.seedId)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimCandidates", index, "seedId"],
         "Claim candidate references an unknown seed",
@@ -1153,13 +1154,13 @@ function validateDiscoverLedger(
         (claimCandidateMembershipCount.get(claimRecordId) ?? 0) + 1,
       );
       if (!claimRecord) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimCandidates", index, "sourceClaimRecordIds"],
           `Claim candidate references unknown attributed claim record: ${claimRecordId}`,
         );
       } else if (claimRecord.seedId !== candidate.seedId) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimCandidates", index, "sourceClaimRecordIds"],
           `Claim candidate source record belongs to another seed: ${claimRecordId}`,
@@ -1175,7 +1176,7 @@ function validateDiscoverLedger(
         (mentionId) => !actualMentionIds.has(mentionId),
       )
     ) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimCandidates", index, "memberMentionIds"],
         "Candidate mention membership must exactly cover its source claim records",
@@ -1184,13 +1185,13 @@ function validateDiscoverLedger(
     for (const mentionId of candidate.memberMentionIds) {
       const mention = mentionsById.get(mentionId);
       if (!mention) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimCandidates", index, "memberMentionIds"],
           `Claim candidate references unknown mention: ${mentionId}`,
         );
       } else if (mention.seedId !== candidate.seedId) {
-        addDiscoverLedgerIssue(
+        addIssue(
           context,
           ["claimCandidates", index, "memberMentionIds"],
           `Claim candidate mention belongs to another seed: ${mentionId}`,
@@ -1198,7 +1199,7 @@ function validateDiscoverLedger(
       }
     }
     if (!dispositionIds.has(candidate.candidateId)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["candidateDispositions"],
         `Missing disposition for candidate: ${candidate.candidateId}`,
@@ -1208,7 +1209,7 @@ function validateDiscoverLedger(
 
   for (const record of payload.attributedClaimRecords) {
     if (claimCandidateMembershipCount.get(record.claimRecordId) !== 1) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["claimCandidates"],
         `Attributed claim record must belong to exactly one candidate: ${record.claimRecordId}`,
@@ -1220,7 +1221,7 @@ function validateDiscoverLedger(
   payload.candidateDispositions.forEach((disposition, index) => {
     const candidate = candidatesById.get(disposition.candidateId);
     if (!candidate) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["candidateDispositions", index, "candidateId"],
         "Disposition references an unknown claim candidate",
@@ -1234,21 +1235,13 @@ function validateDiscoverLedger(
   for (const [seedId, ranks] of ranksBySeed) {
     const sortedRanks = [...ranks].sort((left, right) => left - right);
     if (sortedRanks.some((rank, index) => rank !== index + 1)) {
-      addDiscoverLedgerIssue(
+      addIssue(
         context,
         ["candidateDispositions"],
         `Candidate ranks must be unique and contiguous within seed: ${seedId}`,
       );
     }
   }
-}
-
-function addDiscoverLedgerIssue(
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  message: string,
-): void {
-  context.addIssue({ code: "custom", path, message });
 }
 
 function buildCitationSourceLocation(input: {

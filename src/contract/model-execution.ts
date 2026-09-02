@@ -6,7 +6,7 @@ import {
 } from "./lean-artifact-primitives.js";
 
 /** Mirrors the client's `ThinkingConfig` so a call can be reproduced exactly. */
-export const modelExecutionThinkingSchema = z.discriminatedUnion("type", [
+const modelExecutionThinkingSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("adaptive"),
