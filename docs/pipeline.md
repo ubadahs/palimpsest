@@ -44,7 +44,7 @@ Prepare consumes Scope and its exact Discover ancestor. It emits exactly one sta
 
 ### Evidence
 
-Evidence consumes Prepare and Scope. It retrieves only from immutable Scope seed text and emits one outcome per Prepare record. BM25 queries are built from occurrence-local atomic claims, with the Scope family claim as a declared fallback/secondary query. Candidate union and optional relevance reranking remain separate immutable rankings; content-hash reuse may share work across records without collapsing them. `bm25CandidateLimit` and `selectionLimit` are exposed in CLI/UI.
+Evidence consumes Prepare and Scope. It retrieves only from immutable Scope seed text and emits one outcome per Prepare record. BM25 queries are built from occurrence-local atomic claims, with the Scope family claim as a declared fallback/secondary query. The two rankings are fused by reciprocal rank (raw BM25 scores are not comparable across queries) and capped at `bm25CandidateLimit`; optional relevance reranking remains a separate immutable ranking, and content-hash reuse may share work across records without collapsing them. The tokenizer is Unicode-aware, keeps decimals and single-character numbers, and folds simple plurals. `bm25CandidateLimit` and `selectionLimit` are exposed in CLI/UI.
 
 ### Adjudicate
 
