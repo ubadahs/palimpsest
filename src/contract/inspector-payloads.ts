@@ -94,7 +94,13 @@ export type ReportInspectorRecordRow = {
     | "invalid_output";
   verdict?: "F" | "D" | "E" | "U";
   confidence?: string;
-  comparison?: string;
+  /** What the citing paper asserts, in the adjudicator's words. */
+  citingAssertion?: string;
+  /** What the selected seed chunks actually say, in the adjudicator's words. */
+  sourceStatement?: string;
+  /** Named dimensions that moved; non-empty only for D. */
+  mutationKinds?: string[];
+  direction?: "strengthened" | "weakened" | "shifted" | "none";
   rationale?: string;
   evidenceSufficiency?: "sufficient" | "limited";
   evidenceLimitation?: "figure_only_support";

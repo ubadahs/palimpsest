@@ -72,9 +72,11 @@ export function annotateCitingContext(
     }
   }
 
-  if (markerSentences.size === 0 || markerSentences.size === sentences.length) {
+  if (markerSentences.size === 0) {
     return rawContext;
   }
+  // When every sentence is attributed to the seed the whole window is wrapped;
+  // leaving it unmarked would make the packet gate reject the richest cases.
 
   // Rebuild with ▶ / ◀ around attributed sentences.
   const parts: string[] = [];
@@ -165,12 +167,20 @@ export function extractCitingWindow(
   rawContext: string,
   citationMarker: string,
   maxChars: number = 600,
+  alternateMarkers: readonly string[] = [],
 ): string {
   if (rawContext.length <= maxChars) {
     return rawContext;
   }
 
-  const markerPos = findMarkerPosition(rawContext, citationMarker);
+  const markerPos = [citationMarker, ...alternateMarkers]
+    .map((marker) => findMarkerPosition(rawContext, marker))
+    .find((position) => position >= 0);
+  if (markerPos == null) {
+    // No marker located: return the full context rather than an arbitrary
+    // midpoint window that may exclude the citing sentence entirely.
+    return rawContext;
+  }
 
   // Try sentence-based extraction first.
   const sentences = splitSentences(rawContext);
@@ -188,8 +198,9 @@ export function extractCitingWindow(
   return rawContext.substring(start, end).trim();
 }
 
+/** Offset of the marker in `text`, or -1 when no pattern matches. */
 function findMarkerPosition(text: string, marker: string): number {
-  if (marker.length === 0) return Math.floor(text.length / 2);
+  if (marker.length === 0) return -1;
 
   // Try exact match first.
   const exact = text.indexOf(marker);
@@ -210,7 +221,7 @@ function findMarkerPosition(text: string, marker: string): number {
     if (ayPos >= 0) return ayPos;
   }
 
-  return Math.floor(text.length / 2);
+  return -1;
 }
 
 type SentenceSpan = { text: string; start: number; end: number };

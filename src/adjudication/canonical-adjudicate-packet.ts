@@ -9,10 +9,16 @@ import {
   extractCitingWindow,
 } from "../shared/citation-context-window.js";
 import { assessEvidenceLimitation } from "../shared/evidence-limitation.js";
+import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+import {
+  mutationDirectionSchema,
+  mutationKindSchema,
+} from "../contract/canonical-adjudicate.js";
 
 export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
-export const CANONICAL_ADJUDICATE_PROMPT_VERSION = "v2" as const;
+export const CANONICAL_ADJUDICATE_PROMPT_VERSION =
+  LLM_PROMPT_VERSIONS.adjudication;
 
 type CanonicalAdjudicatePacketChunk = {
   chunkId: string;
@@ -69,13 +75,15 @@ export function buildCanonicalAdjudicatePacket(
     );
   }
 
-  const marker =
-    prepareRecord.citationOccurrence.seedRefLabel ??
-    prepareRecord.citationOccurrence.citationMarker;
+  // Prefer the resolved author-year label; fall back to the raw marker so
+  // numeric-marker journals still center the window on the citing sentence.
+  const seedRefLabel = prepareRecord.citationOccurrence.seedRefLabel;
+  const rawMarker = prepareRecord.citationOccurrence.citationMarker;
   const window = extractCitingWindow(
     prepareRecord.context.verbatim.text,
-    marker,
+    seedRefLabel ?? rawMarker,
     800,
+    seedRefLabel ? [rawMarker] : [],
   );
   const markedCitingContext = annotateCitingContext(
     window,
@@ -183,13 +191,14 @@ function renderCanonicalAdjudicatePacket(
     ? `\nSeed reference label: ${packet.seedRefLabel}`
     : "";
 
+  // Offsets are omitted: they index the full paragraph, not the window shown.
   const claimsBlock = packet.occurrenceClaims
     .map((claim, index) => {
       const span =
         claim.supportSpanText != null
-          ? `\n   supportSpan: "${claim.supportSpanText}" (offsets ${String(claim.supportSpanCharOffsetStart)}-${String(claim.supportSpanCharOffsetEnd)})`
+          ? `\n   supportSpan: "${claim.supportSpanText}"`
           : "";
-      return `${String(index + 1)}. claimRecordId=${claim.claimRecordId}\n   "${claim.claimText}"${span}`;
+      return `${String(index + 1)}. "${claim.claimText}"${span}`;
     })
     .join("\n");
 
@@ -205,11 +214,10 @@ function renderCanonicalAdjudicatePacket(
   return `## Citation unit
 
 Record ID: ${packet.recordId}
-Citation role: ${packet.citationRole}
-Evaluation mode: ${packet.evaluationMode}
+Citation role: ${packet.citationRole} (${describeCitationRole(packet.citationRole)})
+Evaluation mode: ${packet.evaluationMode} (${describeEvaluationMode(packet.evaluationMode)})
 Citing paper: "${packet.citingPaperTitle}"
-Cited/seed paper: "${packet.citedPaperTitle}"
-Family tracked claim (analyst anchor only): "${packet.familyTrackedClaim}"${seedLabel}${bundleWarning}
+Cited/seed paper: "${packet.citedPaperTitle}"${seedLabel}${bundleWarning}
 
 ## Citing context
 
@@ -217,9 +225,9 @@ Sentences attributed to the seed are marked with ▶ ... ◀ when disambiguation
 
 ${packet.markedCitingContext}
 
-## Occurrence-local attributed claims
+## Attributed claims in this citation
 
-Use only these claimRecordId values in evaluatedClaimRecordIds. Verified supportSpan text is the exact citing-side attribution span:
+Each verified supportSpan is the exact citing-side text the claim was extracted from. Judge all of them together as one attribution:
 
 ${claimsBlock}
 
@@ -240,16 +248,50 @@ export function buildCanonicalAdjudicatePrompt(
 Compare the citing paper's attribution to the selected cited-paper chunks.
 
 Return JSON with:
-- comparison: two concise sentences — (1) what the citing paper attributes to the seed, (2) what the selected cited chunks actually say
+- citingAssertion: one concise sentence stating what the citing paper attributes to the seed
+- sourceStatement: one concise sentence stating what the selected cited chunks actually say
 - verdict: one of F, D, E, U using these definitions only:
   - F (faithful): the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel
   - D (distortion): a real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered
   - E (error): the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel
   - U (uncertain): exact cited evidence is present, but genuine scientific or attribution ambiguity prevents a defensible F/D/E judgment. Do not use U for missing evidence or tool failure.
+- mutationKinds: for D only, one to three of ${mutationKindSchema.options.join(" | ")}; an empty array for F, E, and U
+- direction: one of ${mutationDirectionSchema.options.join(" | ")} — how the citing version moved relative to the source (strengthened = stronger, broader, or more certain; weakened = hedged or narrowed; shifted = changed entity, endpoint, or population). Use none for F.
 - rationale: 2-3 sentences explaining the comparison without advocacy
 - confidence: low | medium | high (does not change the verdict path)
-- evaluatedClaimRecordIds: every occurrence-local claimRecordId supplied above, exactly once; no omissions, unknowns, or duplicates
 - citedChunkIds: one or more selected chunkId values supplied above; no unknowns or duplicates
 
-Judge only from the packet. Do not invent evidence outside the selected chunks. Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs.`;
+Judge only from the packet. Do not invent evidence outside the selected chunks. Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs. If a chunk is the seed paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the seed's finding.`;
+}
+
+function describeCitationRole(role: string): string {
+  switch (role) {
+    case "substantive_attribution":
+      return "the citing text attributes a specific finding to the seed";
+    case "background_context":
+      return "the seed is cited as general background for a framing statement";
+    case "methods_materials":
+      return "the seed is cited for a method, reagent, or protocol";
+    case "acknowledgment_or_low_information":
+      return "the seed is acknowledged without a substantive claim";
+    default:
+      return "role as classified by the deterministic citation-role rules";
+  }
+}
+
+function describeEvaluationMode(mode: string): string {
+  switch (mode) {
+    case "fidelity_specific_claim":
+      return "judge the specific attributed claim strictly";
+    case "fidelity_background_framing":
+      return "judge whether the framing is a fair generalization of the seed";
+    case "fidelity_methods_use":
+      return "judge whether the method or material is attributed correctly";
+    case "fidelity_bundled_use":
+      return "judge only the kernel the seed contributes to a shared citation";
+    case "review_transmission":
+      return "the citing paper is a review; note that its restatement may itself be transmitted onward";
+    default:
+      return "evaluation mode as classified by the deterministic rules";
+  }
 }

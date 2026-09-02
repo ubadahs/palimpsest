@@ -108,18 +108,43 @@ function RecordDetails({
 
       <EvidencePassages record={record} />
 
-      {record.comparison || record.rationale || record.operationalReason ? (
+      {record.citingAssertion ||
+      record.rationale ||
+      record.operationalReason ? (
         <section className="space-y-3">
           <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
             Adjudication
           </h4>
-          {record.comparison ? (
+          {record.citingAssertion ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold text-[var(--text-muted)]">
+                  Citing paper asserts
+                </p>
+                <p className="mt-1 text-sm leading-7 text-[var(--text)]">
+                  {record.citingAssertion}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-[var(--text-muted)]">
+                  Seed evidence says
+                </p>
+                <p className="mt-1 text-sm leading-7 text-[var(--text)]">
+                  {record.sourceStatement}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {record.mutationKinds && record.mutationKinds.length > 0 ? (
             <div>
               <p className="text-xs font-semibold text-[var(--text-muted)]">
-                Comparison
+                Mutation
               </p>
               <p className="mt-1 text-sm leading-7 text-[var(--text)]">
-                {record.comparison}
+                {record.direction ? `${record.direction}: ` : ""}
+                {record.mutationKinds
+                  .map((kind) => kind.replace(/_/g, " "))
+                  .join(", ")}
               </p>
             </div>
           ) : null}

@@ -316,13 +316,13 @@ function productionPathAdjudicateAdapters(): CanonicalAdjudicateAdapters {
       return Promise.resolve({
         status: "completed",
         rawOutput: {
-          comparison: "Citing claim matches seed result.",
+          citingAssertion: "Citing claim matches seed result.",
+          sourceStatement: "The seed reports the same result.",
           verdict: "F",
+          mutationKinds: [],
+          direction: "none",
           rationale: "Exact phenotype match in selected chunks.",
           confidence: "high",
-          evaluatedClaimRecordIds: input.packet.occurrenceClaims.map(
-            (claim) => claim.claimRecordId,
-          ),
           citedChunkIds: input.packet.selectedChunks
             .slice(0, 1)
             .map((chunk) => chunk.chunkId),

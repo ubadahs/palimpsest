@@ -110,19 +110,88 @@ export const adjudicateFailureCodeSchema = z.union([
 export type AdjudicateFailureCode = z.infer<typeof adjudicateFailureCodeSchema>;
 
 /**
- * Strict model JSON crossing the adapter boundary. Claim/chunk IDs are checked
- * against the supplied packet after parse.
+ * Categorical kinds of alteration a `D` verdict can name. These record the
+ * dimension and direction of a mutation so drift can be aggregated across
+ * citers and hops; they never route the verdict.
+ */
+export const mutationKindSchema = z.enum([
+  "scope_broadened",
+  "scope_narrowed",
+  "population_shifted",
+  "certainty_strengthened",
+  "certainty_weakened",
+  "correlation_to_causation",
+  "conditions_dropped",
+  "endpoint_substituted",
+  "generality_increased",
+  "entity_substituted",
+]);
+export type MutationKind = z.infer<typeof mutationKindSchema>;
+
+export const mutationDirectionSchema = z.enum([
+  "strengthened",
+  "weakened",
+  "shifted",
+  "none",
+]);
+export type MutationDirection = z.infer<typeof mutationDirectionSchema>;
+
+function addMutationConsistencyIssues(
+  output: {
+    verdict: z.infer<typeof fidelityTopLabelSchema>;
+    mutationKinds: MutationKind[];
+    direction: MutationDirection;
+  },
+  context: z.RefinementCtx,
+): void {
+  if (output.verdict === "D" && output.mutationKinds.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["mutationKinds"],
+      message: "A D verdict must name at least one mutation kind",
+    });
+  }
+  if (output.verdict !== "D" && output.mutationKinds.length > 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["mutationKinds"],
+      message: "Only D verdicts may name mutation kinds",
+    });
+  }
+  if (output.verdict === "F" && output.direction !== "none") {
+    context.addIssue({
+      code: "custom",
+      path: ["direction"],
+      message: "A faithful attribution has no mutation direction",
+    });
+  }
+  if (new Set(output.mutationKinds).size !== output.mutationKinds.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["mutationKinds"],
+      message: "Mutation kinds must be unique",
+    });
+  }
+}
+
+/**
+ * Strict model JSON crossing the adapter boundary. Chunk IDs are checked
+ * against the supplied packet after parse. The occurrence-local claim set is
+ * fixed by the Prepare record and is not echoed by the model.
  */
 export const canonicalAdjudicateModelOutputSchema = z
   .object({
-    comparison: z.string().min(1),
+    citingAssertion: z.string().min(1),
+    sourceStatement: z.string().min(1),
     verdict: fidelityTopLabelSchema,
+    mutationKinds: z.array(mutationKindSchema).max(3),
+    direction: mutationDirectionSchema,
     rationale: z.string().min(1),
     confidence: confidenceSchema,
-    evaluatedClaimRecordIds: z.array(stableIdentifierSchema).min(1),
     citedChunkIds: z.array(stableIdentifierSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine(addMutationConsistencyIssues);
 export type CanonicalAdjudicateModelOutput = z.infer<
   typeof canonicalAdjudicateModelOutputSchema
 >;
@@ -133,7 +202,10 @@ const evidenceSufficiencySchema = z.enum(["sufficient", "limited"]);
 const adjudicatedOutcomeFields = {
   status: z.literal("adjudicated"),
   verdict: fidelityTopLabelSchema,
-  comparison: z.string().min(1),
+  citingAssertion: z.string().min(1),
+  sourceStatement: z.string().min(1),
+  mutationKinds: z.array(mutationKindSchema).max(3),
+  direction: mutationDirectionSchema,
   rationale: z.string().min(1),
   confidence: confidenceSchema,
   evaluatedCitingClaimText: z.string().min(1),
@@ -197,6 +269,7 @@ export const adjudicateRecordOutcomeSchema = z
   ])
   .superRefine((outcome, context) => {
     if (outcome.status === "adjudicated") {
+      addMutationConsistencyIssues(outcome, context);
       addDuplicateIdentifierIssue(
         outcome.evaluatedClaimRecordIds,
         ["evaluatedClaimRecordIds"],
@@ -285,7 +358,10 @@ function immutableOutcomeForIdentity(
   if (outcome.status === "adjudicated") {
     return {
       verdict: outcome.verdict,
-      comparison: outcome.comparison,
+      citingAssertion: outcome.citingAssertion,
+      sourceStatement: outcome.sourceStatement,
+      mutationKinds: outcome.mutationKinds,
+      direction: outcome.direction,
       rationale: outcome.rationale,
       confidence: outcome.confidence,
       evaluatedCitingClaimText: outcome.evaluatedCitingClaimText,
