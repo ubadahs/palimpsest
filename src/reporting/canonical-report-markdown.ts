@@ -192,6 +192,23 @@ export function renderCanonicalReportMarkdown(
   }
   lines.push("");
 
+  lines.push("### By evidence regime");
+  lines.push("");
+  lines.push(
+    "Adjudicated verdicts split by how the evidence was selected. Scope-pinned records saw grounding-chosen passages first; compare them with unpinned records before pooling.",
+  );
+  lines.push("");
+  if (payload.funnel.adjudicate.verdictCountsByRankingSource.length === 0) {
+    lines.push("- No adjudicated records.");
+  } else {
+    for (const row of payload.funnel.adjudicate.verdictCountsByRankingSource) {
+      lines.push(
+        `- \`${row.rankingSource}\`: F ${String(row.F)}, D ${String(row.D)}, E ${String(row.E)}, U ${String(row.U)}`,
+      );
+    }
+  }
+  lines.push("");
+
   lines.push("## Mutation kinds (D verdicts only)");
   lines.push("");
   lines.push(

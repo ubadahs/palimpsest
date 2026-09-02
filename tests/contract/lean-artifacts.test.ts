@@ -1052,6 +1052,7 @@ function buildAllStageArtifacts() {
           failureCodeCounts: [],
           mutationKindCounts: [],
           mutationDirectionCounts: [],
+          verdictCountsByRankingSource: [],
           verdictCounts: {
             F: zeroFamilyOccurrence("adjudicate.verdict_F", "Verdict F"),
             D: zeroFamilyOccurrence("adjudicate.verdict_D", "Verdict D"),

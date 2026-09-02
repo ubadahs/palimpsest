@@ -1646,7 +1646,7 @@ describe("canonical executor cutover", () => {
   it("rejects unknown run-config fields and stage names via schema", () => {
     const config = analysisRunConfigSchema.parse({});
     expect(config.stopAfterStage).toBe("report");
-    expect(config.evidence.rerankEnabled).toBe(false);
+    expect(config.evidence.rerankEnabled).toBe(true);
     expect(
       analysisRunConfigSchema.safeParse({
         stopAfterStage: "curate",

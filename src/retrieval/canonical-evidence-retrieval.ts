@@ -11,6 +11,7 @@ import {
   type EvidenceChunkConfiguration,
   type EvidenceChunkCorpus,
   type EvidenceQuery,
+  type EvidenceRankingSource,
   type PreparedCitationInstance,
   type ScopeSeedMaterialization,
   type ScopedFamily,
@@ -97,6 +98,10 @@ export function chunkScopeSeedText(
         sourceBlockKind: block.blockKind,
         ...(block.sectionTitle
           ? { sourceSectionTitle: block.sectionTitle }
+          : {}),
+        ...(block.sectionRole ? { sourceSectionRole: block.sectionRole } : {}),
+        ...(block.citationMentionCount != null
+          ? { sourceCitesOtherWork: block.citationMentionCount > 0 }
           : {}),
         sourceBlockCharOffsetStart: block.charOffsetStart,
         sourceBlockCharOffsetEnd: block.charOffsetEnd,
@@ -249,6 +254,9 @@ export function chunksOverlappingVerifiedSpans(
   }
   const spans = family.grounding.evidenceSpans;
   if (spans.length === 0) return [];
+  // Document order, not hash order: when more chunks overlap than the
+  // selection limit admits, the earliest passages win and the adjudicator
+  // reads them in the order the seed wrote them.
   const overlapping = corpus.chunks.filter((chunk) =>
     spans.some(
       (span) =>
@@ -256,7 +264,13 @@ export function chunksOverlappingVerifiedSpans(
         chunk.charOffsetEnd > span.charOffsetStart,
     ),
   );
-  return overlapping.map((chunk) => chunk.chunkId).sort(compareCodeUnits);
+  return overlapping
+    .sort(
+      (left, right) =>
+        left.charOffsetStart - right.charOffsetStart ||
+        compareCodeUnits(left.chunkId, right.chunkId),
+    )
+    .map((chunk) => chunk.chunkId);
 }
 
 /**
@@ -265,12 +279,13 @@ export function chunksOverlappingVerifiedSpans(
 export function selectEvidenceChunkIds(input: {
   family: ScopedFamily;
   corpus: EvidenceChunkCorpus;
-  bm25Candidates: readonly { chunkId: string }[];
+  rankedCandidates: readonly { chunkId: string }[];
+  baseSource: "bm25" | "reranked";
   selectionLimit: number;
 }): {
   selectedChunkIds: string[];
   pinnedChunkIds: string[];
-  rankingSource: "bm25" | "bm25_with_scope_pins";
+  rankingSource: EvidenceRankingSource;
 } {
   const pinnedChunkIds = chunksOverlappingVerifiedSpans(
     input.family,
@@ -278,16 +293,16 @@ export function selectEvidenceChunkIds(input: {
   ).slice(0, input.selectionLimit);
   if (pinnedChunkIds.length === 0) {
     return {
-      selectedChunkIds: input.bm25Candidates
+      selectedChunkIds: input.rankedCandidates
         .slice(0, input.selectionLimit)
         .map((candidate) => candidate.chunkId),
       pinnedChunkIds: [],
-      rankingSource: "bm25",
+      rankingSource: input.baseSource,
     };
   }
   const selected: string[] = [...pinnedChunkIds];
   const selectedSet = new Set(selected);
-  for (const candidate of input.bm25Candidates) {
+  for (const candidate of input.rankedCandidates) {
     if (selected.length >= input.selectionLimit) break;
     if (selectedSet.has(candidate.chunkId)) continue;
     selected.push(candidate.chunkId);
@@ -296,7 +311,7 @@ export function selectEvidenceChunkIds(input: {
   return {
     selectedChunkIds: selected,
     pinnedChunkIds,
-    rankingSource: "bm25_with_scope_pins",
+    rankingSource: `${input.baseSource}_with_scope_pins`,
   };
 }
 

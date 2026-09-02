@@ -12,7 +12,7 @@ describe("analysis run config", () => {
     expect(config).toStrictEqual(CANONICAL_RUN_CONFIG_DEFAULTS);
     expect(config.discover.extractionModel).toBe("claude-haiku-4-5");
     expect(config.discover.probeBudget).toBe(100);
-    expect(config.evidence.rerankEnabled).toBe(false);
+    expect(config.evidence.rerankEnabled).toBe(true);
   });
 
   it("accepts nested canonical stage overrides", () => {

@@ -585,7 +585,9 @@ function buildFunnelCounts(input: {
   );
   const uniqueFinalSelectionsReranked = countBy(
     evidenceArtifact.payload.selections,
-    (selection) => selection.rankingSource === "reranked",
+    (selection) =>
+      selection.rankingSource === "reranked" ||
+      selection.rankingSource === "reranked_with_scope_pins",
   );
   const selectionById = new Map(
     evidenceArtifact.payload.selections.map((selection) => [
@@ -608,7 +610,10 @@ function buildFunnelCounts(input: {
       selection.rankingSource === "bm25_with_scope_pins"
     ) {
       recordSelectionBm25 += 1;
-    } else if (selection.rankingSource === "reranked") {
+    } else if (
+      selection.rankingSource === "reranked" ||
+      selection.rankingSource === "reranked_with_scope_pins"
+    ) {
       recordSelectionReranked += 1;
     }
   }
@@ -648,6 +653,39 @@ function buildFunnelCounts(input: {
     adjudicated.filter(
       (record) => record.status === "adjudicated" && record.verdict === label,
     ).length;
+  const selectionSourceById = new Map(
+    evidenceArtifact.payload.selections.map((selection) => [
+      selection.selectionId,
+      selection.rankingSource,
+    ]),
+  );
+  const rankingSourceByRecordId = new Map(
+    evidenceArtifact.payload.records.flatMap((record) =>
+      record.finalSelectionId != null
+        ? [
+            [
+              record.recordId,
+              selectionSourceById.get(record.finalSelectionId),
+            ] as const,
+          ]
+        : [],
+    ),
+  );
+  const verdictsBySource = new Map<
+    EvidenceArtifact["payload"]["selections"][number]["rankingSource"],
+    { F: number; D: number; E: number; U: number }
+  >();
+  for (const record of adjudicated) {
+    if (record.status !== "adjudicated") continue;
+    const source = rankingSourceByRecordId.get(record.recordId);
+    if (!source) continue;
+    const bucket = verdictsBySource.get(source) ?? { F: 0, D: 0, E: 0, U: 0 };
+    bucket[record.verdict] += 1;
+    verdictsBySource.set(source, bucket);
+  }
+  const verdictCountsByRankingSource = [...verdictsBySource.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([rankingSource, counts]) => ({ rankingSource, ...counts }));
 
   const prepareById = new Map(
     preparedRecords.map((record) => [record.recordId, record]),
@@ -1048,6 +1086,7 @@ function buildFunnelCounts(input: {
       failureCodeCounts,
       mutationKindCounts,
       mutationDirectionCounts,
+      verdictCountsByRankingSource,
       verdictCounts: {
         F: count(
           "adjudicate.verdict_F",
