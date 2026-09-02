@@ -1628,23 +1628,9 @@ const prepareExternalClassificationExecutionSchema = z
   })
   .strict();
 
-export const prepareModelClassificationExecutionSchema = z
-  .object({
-    kind: z.literal("model"),
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    promptId: z.string().min(1),
-    promptVersion: z.string().min(1),
-    promptContentHash: sha256DigestSchema,
-    requestHash: sha256DigestSchema,
-    requestArtifact: artifactReferenceSchema,
-    responseArtifact: artifactReferenceSchema,
-  })
-  .strict();
-
 export const prepareClassificationFailureExecutionSchema = z.union([
   prepareExternalClassificationExecutionSchema,
-  prepareModelClassificationExecutionSchema,
+  modelExecutionSchema,
 ]);
 export type PrepareClassificationFailureExecution = z.infer<
   typeof prepareClassificationFailureExecutionSchema
@@ -4010,11 +3996,7 @@ function validatePrepareArtifactLineage(
   const modelExecutions = classifications
     .map((classification) => classification.execution)
     .filter(
-      (
-        execution,
-      ): execution is z.infer<
-        typeof prepareModelClassificationExecutionSchema
-      > => execution.kind === "model",
+      (execution): execution is ModelExecution => execution.kind === "model",
     );
   const externalExecutions = classifications
     .map((classification) => classification.execution)

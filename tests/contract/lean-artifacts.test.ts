@@ -657,7 +657,7 @@ function buildAllStageArtifacts() {
         ),
       },
       method: {
-        methodId: "canonical-categorical-adjudicate-v1",
+        methodId: "canonical-categorical-adjudicate-v2",
         strategy: "single_categorical",
         calibrationStatus: "uncalibrated",
         routing: "none",
@@ -1475,7 +1475,7 @@ describe("lean stage artifact contracts", () => {
             ),
           },
           method: {
-            methodId: "canonical-categorical-adjudicate-v1",
+            methodId: "canonical-categorical-adjudicate-v2",
             strategy: "single_categorical",
             calibrationStatus: "uncalibrated",
             routing: "none",
