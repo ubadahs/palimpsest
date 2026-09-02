@@ -80,14 +80,17 @@ export function buildHumanAssessment(
   form: ReviewFormState,
   blinded: boolean,
 ): HumanAssessment {
+  if (form.humanVerdict === "") {
+    // The save buttons stay disabled until a verdict is chosen.
+    throw new Error("A human verdict is required before saving a review.");
+  }
   const assessment: HumanAssessment = {
     eligibleForAdjudication: form.eligibleForAdjudication,
     inScope: form.inScope,
     citingSpanValid: form.citingSpanValid,
     citedEvidenceValid: form.citedEvidenceValid,
     evidenceSufficiency: form.evidenceSufficiency,
-    humanVerdict:
-      form.humanVerdict === "" ? "not_adjudicable" : form.humanVerdict,
+    humanVerdict: form.humanVerdict,
     blinded,
     mutationKinds: form.humanVerdict === "D" ? form.mutationKinds : [],
     notes: form.notes,
@@ -489,7 +492,10 @@ export function HumanReviewForm({
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={
-              saving || form.reviewer.trim().length === 0 || staleReport
+              saving ||
+              form.reviewer.trim().length === 0 ||
+              form.humanVerdict === "" ||
+              staleReport
             }
             onClick={() => onSave("draft")}
             type="button"
@@ -499,7 +505,10 @@ export function HumanReviewForm({
           </Button>
           <Button
             disabled={
-              saving || form.reviewer.trim().length === 0 || staleReport
+              saving ||
+              form.reviewer.trim().length === 0 ||
+              form.humanVerdict === "" ||
+              staleReport
             }
             onClick={() => onSave("final")}
             type="button"

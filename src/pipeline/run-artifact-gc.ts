@@ -76,6 +76,10 @@ export function findOrphanedRunArtifacts(
       ),
     );
 
+    // A saved human review is bound to the report artifact it was written
+    // against; that report stays even when a later attempt superseded it.
+    const reviewBoundArtifactIds = listReviewBoundArtifactIds(run.runRoot);
+
     const stageFiles: string[] = [];
     const liveArtifactPaths: string[] = [];
     for (const definition of stageDefinitions) {
@@ -85,7 +89,12 @@ export function findOrphanedRunArtifacts(
         const path = resolve(directory, entry);
         const stem = attemptStemOf(entry, definition);
         if (stem == null) continue;
-        if (liveStems.has(stem)) {
+        const reviewBound =
+          definition.key === "report" &&
+          reviewBoundArtifactIds.some((artifactId) =>
+            stem.includes(artifactId),
+          );
+        if (liveStems.has(stem) || reviewBound) {
           if (entry.endsWith(definition.artifactGlobs.primarySuffix)) {
             liveArtifactPaths.push(path);
           }
@@ -168,4 +177,13 @@ function findUnreferencedProvenance(
       return /^prov_[0-9a-f]{64}$/.test(id) && !referenced.has(id);
     })
     .map((entry) => resolve(provenanceRoot, entry));
+}
+
+/** Report artifact ids that have a human-review sidecar under `<runRoot>/review/`. */
+function listReviewBoundArtifactIds(runRoot: string): string[] {
+  const reviewRoot = resolve(runRoot, "review");
+  if (!existsSync(reviewRoot)) return [];
+  return readdirSync(reviewRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
 }

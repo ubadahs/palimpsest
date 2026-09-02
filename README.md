@@ -10,7 +10,7 @@ The CLI and artifacts are the source of truth. SQLite stores local run state. Th
 
 - Node.js 22+
 - `GROBID_BASE_URL` for validated PDF parsing
-- `ANTHROPIC_API_KEY` for model-backed canonical pipeline work, including attributed-claim extraction, grounding, optional reranking, and eligible-record adjudication.
+- `ANTHROPIC_API_KEY` for model-backed canonical pipeline work, including attributed-claim extraction, grounding, evidence reranking (on by default), and eligible-record adjudication.
 
 See [docs/runtime-setup.md](docs/runtime-setup.md) for environment variables, GROBID setup, and optional providers.
 
@@ -65,7 +65,7 @@ The runnable production pipeline is `discover → scope → prepare → evidence
 ## Where To Read
 
 - [docs/pipeline.md](docs/pipeline.md) — stage-by-stage workflow guide
-- [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests, benchmark outputs
+- [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests
 - [docs/runtime-setup.md](docs/runtime-setup.md) — environment variables, required services, failure and fallback behavior
 - [docs/status.md](docs/status.md) — what is implemented in the repo today
 - [docs/ui-setup.md](docs/ui-setup.md) — running the local UI
@@ -82,6 +82,9 @@ The runnable production pipeline is `discover → scope → prepare → evidence
 | `npm run test:live-smoke` | Optional live dual-DOI smoke (`PALIMPSEST_LIVE_SMOKE=1`; non-CI) |
 | `npm run lint` | Run ESLint over `src/` and `tests/` |
 | `npm run lint:all` | Run root lint plus UI workspace lint |
+| `npm run typecheck:all` | Typecheck root and the UI workspace |
+| `npm run db:gc -- --days 90 [--dry-run]` | Delete aged run-registry rows and stale LLM cache rows |
+| `npm run runs:gc -- [--run-id <uuid>] [--dry-run]` | Delete superseded stage attempts and the provenance only they referenced |
 | `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |
 | `npm --workspace @palimpsest/ui run test` | Run UI workspace tests |
 

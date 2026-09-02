@@ -133,7 +133,6 @@ function spawnPipeline(run: AnalysisRun): void {
         updateStageStatus(database, run.id, currentRun.currentStage, "failed", {
           errorMessage: `Pipeline process exited with code ${String(exitCode)}.`,
           finishedAt: new Date().toISOString(),
-          exitCode,
         });
         setRunStatus(database, run.id, "failed", currentRun.currentStage);
       }

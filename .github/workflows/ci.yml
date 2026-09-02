@@ -16,7 +16,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
+      - run: npm run typecheck:all
       - run: npm run lint:all
       - run: npm run test
       - run: npm --workspace @palimpsest/ui run test

@@ -363,9 +363,6 @@ function roleClassifierLlmClient(): LLMClient {
           estimatedCostUsd: 0,
         },
       }),
-    generateText: () => {
-      throw new Error("canonical adapters use structured outputs");
-    },
     getLedger: () => {
       throw new Error("not used");
     },

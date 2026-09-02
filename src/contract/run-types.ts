@@ -171,7 +171,7 @@ export const analysisRunConfigSchema = z
 
     evidence: z
       .object({
-        /** Relevance-only LLM rerank; disabled by default. */
+        /** Relevance-only LLM rerank of BM25 candidates; on by default. */
         rerankEnabled: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled),
@@ -273,7 +273,6 @@ export const analysisRunStageSchema = z
     stageKey: stageKeySchema,
     stageOrder: z.number().int().nonnegative(),
     status: analysisRunStageStatusSchema,
-    inputArtifactPath: undefinedable(z.string()),
     primaryArtifactPath: undefinedable(z.string()),
     reportArtifactPath: undefinedable(z.string()),
     manifestPath: undefinedable(z.string()),
@@ -282,7 +281,6 @@ export const analysisRunStageSchema = z
     errorMessage: undefinedable(z.string()),
     startedAt: undefinedable(z.string()),
     finishedAt: undefinedable(z.string()),
-    exitCode: undefinedable(z.number().int()),
     processId: undefinedable(z.number().int()),
   })
   .passthrough();
@@ -302,7 +300,6 @@ export const analysisRunSchema = z
     id: z.string().min(1),
     seedDoi: z.string().min(1),
     /** Always absent for canonical DOI-first runs; column may be null in SQLite. */
-    trackedClaim: undefinedable(z.string().min(1)),
     targetStage: stageKeySchema,
     status: analysisRunStatusSchema,
     currentStage: undefinedable(stageKeySchema),
