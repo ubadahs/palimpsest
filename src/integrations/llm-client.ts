@@ -9,7 +9,12 @@
 
 import { createHash } from "node:crypto";
 
-import { generateObject, generateText, jsonSchema, type JSONSchema7 } from "ai";
+import {
+  generateObject,
+  jsonSchema,
+  NoObjectGeneratedError,
+  type JSONSchema7,
+} from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
@@ -42,6 +47,7 @@ export type LLMProviderErrorClass =
   | "network_or_transport"
   /** The request itself was rejected (bad schema, bad parameter); retrying cannot help. */
   | "invalid_request"
+  | "malformed_output"
   | "unknown";
 
 type LLMCallContext = {
@@ -147,7 +153,6 @@ export type LLMClient = {
    * documented fallback, because that move is not yet proven on a run — if
    * adjudication reasons worse through a tool schema, this is the way back.
    */
-  generateText: (params: GenerateTextParams) => Promise<GenerateTextResult>;
 
   /** Structured JSON output via a Zod schema; the path every stage uses. */
   generateObject: <T extends z.ZodType>(
@@ -181,50 +186,12 @@ type ExactCacheConfig = {
   keyVersion: string;
 };
 
-export type GenerateTextParams =
-  | {
-      purpose: LLMPurpose;
-      model?: string;
-      prompt: string;
-      promptPrefix?: never;
-      promptSuffix?: never;
-      thinking?: ThinkingConfig;
-      context?: LLMCallContext;
-      /** Opt in to persistent exact-result caching. */
-      exactCache?: ExactCacheConfig;
-      /** Hard cap on generated tokens (thinking included); defaults to 16k. */
-      maxOutputTokens?: number;
-    }
-  | {
-      purpose: LLMPurpose;
-      model?: string;
-      prompt?: never;
-      /**
-       * Shared prompt prefix that can be cached independently from the
-       * request-specific suffix.
-       */
-      promptPrefix: string;
-      /** Request-specific tail appended after the cached prefix. */
-      promptSuffix: string;
-      thinking?: ThinkingConfig;
-      context?: LLMCallContext;
-      /** Opt in to persistent exact-result caching. */
-      exactCache?: ExactCacheConfig;
-      /** Hard cap on generated tokens (thinking included); defaults to 16k. */
-      maxOutputTokens?: number;
-    };
-
 /**
  * Every canonical purpose returns a few hundred visible tokens plus thinking.
  * The SDK default for Opus is 128k on a non-streaming request, which invites
  * HTTP timeouts and unbounded spend on a runaway completion.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
-
-type GenerateTextResult = {
-  text: string;
-  record: LLMCallRecord;
-};
 
 export type GenerateObjectParams<T extends z.ZodType = z.ZodType> = (
   | { prompt: string; promptPrefix?: never; promptSuffix?: never }
@@ -233,11 +200,6 @@ export type GenerateObjectParams<T extends z.ZodType = z.ZodType> = (
   purpose: LLMPurpose;
   model?: string;
   schema: T;
-  /**
-   * Structured output is enforced by the provider, so temperature is safe to
-   * set: a lower value cannot produce an unparseable reply any more.
-   */
-  temperature?: number;
   thinking?: ThinkingConfig;
   context?: LLMCallContext;
   /** Opt in to persistent exact-result caching. */
@@ -268,22 +230,43 @@ export type CreateLLMClientOptions = {
   forceRefresh?: boolean;
 };
 
-class LLMProviderError extends Error {
+export class LLMProviderError extends Error {
   readonly provider = "anthropic";
   readonly classification: LLMProviderErrorClass;
   readonly fatal: boolean;
+  /** Raw model text when the provider answered but the reply was unusable. */
+  readonly responseText: string | undefined;
+  /** True when the reply was cut off at the output-token cap. */
+  readonly truncated: boolean;
 
   constructor(
     message: string,
     classification: LLMProviderErrorClass,
     fatal: boolean,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; responseText?: string; truncated?: boolean },
   ) {
-    super(message, options);
+    super(
+      message,
+      options?.cause !== undefined ? { cause: options.cause } : {},
+    );
     this.name = "LLMProviderError";
     this.classification = classification;
     this.fatal = fatal;
+    this.responseText = options?.responseText;
+    this.truncated = options?.truncated ?? false;
   }
+}
+
+/**
+ * The provider answered, but the reply could not be turned into an object:
+ * a schema mismatch, or a completion cut off at the token cap. Identical
+ * requests are retried at full price for no gain, so these are never retried.
+ */
+function describeMalformedOutput(error: NoObjectGeneratedError): string {
+  if (error.finishReason === "length") {
+    return "Model output was truncated at the output-token cap before a complete object was produced";
+  }
+  return error.message;
 }
 
 /**
@@ -358,11 +341,27 @@ export function schemaFingerprint(schema: z.ZodType): string {
   }
 }
 
+function parseJsonOrUndefined(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 export function classifyProviderError(error: unknown): {
   classification: LLMProviderErrorClass;
   fatal: boolean;
   message: string;
 } {
+  if (NoObjectGeneratedError.isInstance(error)) {
+    return {
+      classification: "malformed_output",
+      fatal: false,
+      message: describeMalformedOutput(error),
+    };
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
 
@@ -424,9 +423,11 @@ export function classifyProviderError(error: unknown): {
       normalized,
     )
   ) {
+    // The request itself is wrong (a schema the provider rejects, a bad
+    // parameter): every record in the stage would fail the same way.
     return {
       classification: "invalid_request",
-      fatal: false,
+      fatal: true,
       message,
     };
   }
@@ -898,7 +899,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         const classification = classifyProviderError(error);
         if (
           classification.fatal ||
-          classification.classification === "invalid_request"
+          classification.classification === "malformed_output"
         ) {
           throw error;
         }
@@ -945,38 +946,74 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     return record;
   }
 
+  type ProviderUsage = {
+    inputTokens?: number | undefined;
+    outputTokens?: number | undefined;
+    totalTokens?: number | undefined;
+    inputTokenDetails?:
+      | {
+          noCacheTokens?: number | undefined;
+          cacheReadTokens?: number | undefined;
+          cacheWriteTokens?: number | undefined;
+        }
+      | undefined;
+    outputTokenDetails?: { reasoningTokens?: number | undefined } | undefined;
+    raw?: unknown;
+  };
+
+  /** Token counts and cost as the provider billed them, success or not. */
+  function usageFields(
+    modelId: string,
+    usage: ProviderUsage | undefined,
+  ): Pick<
+    LLMCallRecord,
+    | "billable"
+    | "inputTokens"
+    | "outputTokens"
+    | "totalTokens"
+    | "estimatedCostUsd"
+    | "reasoningTokens"
+    | "cacheReadTokens"
+    | "cacheWriteTokens"
+  > {
+    const inputTokens = usage?.inputTokens ?? 0;
+    const outputTokens = usage?.outputTokens ?? 0;
+    const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens;
+    const noCacheInputTokens = usage?.inputTokenDetails?.noCacheTokens;
+    const cacheReadTokens = usage?.inputTokenDetails?.cacheReadTokens;
+    const cacheWriteTokens = usage?.inputTokenDetails?.cacheWriteTokens;
+    const cacheCreation = extractCacheCreationFromRawUsage(usage?.raw);
+    const totalBillableTokens = inputTokens + outputTokens;
+    return {
+      billable: totalBillableTokens > 0,
+      inputTokens,
+      outputTokens,
+      totalTokens: usage?.totalTokens ?? totalBillableTokens,
+      estimatedCostUsd: estimateAnthropicUsd(modelId, {
+        inputTokens,
+        ...(noCacheInputTokens != null ? { noCacheInputTokens } : {}),
+        outputTokens,
+        reasoningTokens: reasoningTokens ?? 0,
+        cacheReadTokens: cacheReadTokens ?? 0,
+        cacheWriteTokens: cacheWriteTokens ?? 0,
+        ...(cacheCreation ? { cacheCreation } : {}),
+      }),
+      ...(reasoningTokens != null ? { reasoningTokens } : {}),
+      ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
+      ...(cacheWriteTokens != null ? { cacheWriteTokens } : {}),
+    };
+  }
+
   function buildRecord(
     purpose: LLMPurpose,
     modelId: string,
     context: LLMCallContext,
     servedModel: string | undefined,
-    usage: {
-      inputTokens?: number | undefined;
-      outputTokens?: number | undefined;
-      totalTokens?: number | undefined;
-      inputTokenDetails?:
-        | {
-            noCacheTokens?: number | undefined;
-            cacheReadTokens?: number | undefined;
-            cacheWriteTokens?: number | undefined;
-          }
-        | undefined;
-      outputTokenDetails?: { reasoningTokens?: number | undefined } | undefined;
-      raw?: unknown;
-    },
+    usage: ProviderUsage,
     latencyMs: number,
     finishReason: string,
     thinking?: ThinkingConfig,
   ): LLMCallRecord {
-    const inputTokens = usage.inputTokens ?? 0;
-    const outputTokens = usage.outputTokens ?? 0;
-    const reasoningTokens = usage.outputTokenDetails?.reasoningTokens ?? 0;
-    const noCacheInputTokens = usage.inputTokenDetails?.noCacheTokens;
-    const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? 0;
-    const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
-    const cacheCreation = extractCacheCreationFromRawUsage(usage.raw);
-    const totalBillableTokens = inputTokens + outputTokens;
-    const thinkingFields = thinkingTelemetryFields(thinking);
     const record: LLMCallRecord = {
       purpose,
       model: modelId,
@@ -985,34 +1022,13 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       attempted: true,
       successful: true,
       failed: false,
-      billable: totalBillableTokens > 0,
-      ...thinkingFields,
-      inputTokens,
-      outputTokens,
-      totalTokens: usage.totalTokens ?? totalBillableTokens,
+      ...thinkingTelemetryFields(thinking),
+      ...usageFields(modelId, usage),
       latencyMs,
       finishReason,
       ...(finishReason === "length" ? { truncated: true } : {}),
       timestamp: new Date().toISOString(),
-      estimatedCostUsd: estimateAnthropicUsd(modelId, {
-        inputTokens,
-        ...(noCacheInputTokens != null ? { noCacheInputTokens } : {}),
-        outputTokens,
-        reasoningTokens,
-        cacheReadTokens,
-        cacheWriteTokens,
-        ...(cacheCreation ? { cacheCreation } : {}),
-      }),
     };
-    if (usage.outputTokenDetails?.reasoningTokens != null) {
-      record.reasoningTokens = reasoningTokens;
-    }
-    if (usage.inputTokenDetails?.cacheReadTokens != null) {
-      record.cacheReadTokens = cacheReadTokens;
-    }
-    if (usage.inputTokenDetails?.cacheWriteTokens != null) {
-      record.cacheWriteTokens = cacheWriteTokens;
-    }
     registerRecord(record);
     return record;
   }
@@ -1026,25 +1042,28 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     error: unknown;
   }): LLMCallRecord {
     const provider = classifyProviderError(params.error);
-    const thinkingFields = thinkingTelemetryFields(params.thinking);
+    // A malformed reply was still generated and billed; record what it cost.
+    const generated = NoObjectGeneratedError.isInstance(params.error)
+      ? params.error
+      : undefined;
+    const servedModel = generated?.response?.modelId;
+    const finishReason = generated?.finishReason ?? "error";
     const record: LLMCallRecord = {
       purpose: params.purpose,
       model: params.modelId,
+      ...(servedModel != null && servedModel.length > 0 ? { servedModel } : {}),
       ...(params.context.stageKey != null
         ? { stageKey: params.context.stageKey }
         : {}),
       attempted: true,
       successful: false,
       failed: true,
-      billable: false,
-      ...thinkingFields,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
+      ...thinkingTelemetryFields(params.thinking),
+      ...usageFields(params.modelId, generated?.usage),
       latencyMs: params.latencyMs,
-      finishReason: "error",
+      finishReason,
+      ...(finishReason === "length" ? { truncated: true } : {}),
       timestamp: new Date().toISOString(),
-      estimatedCostUsd: 0,
       providerErrorClass: provider.classification,
       errorMessage: provider.message,
     };
@@ -1053,125 +1072,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   }
 
   return {
-    async generateText(params) {
-      const modelId = params.model ?? defaultModel;
-      const context = { ...options.defaultContext, ...params.context };
-
-      const promptInput = buildModelCallInput({
-        request: params,
-        promptCaching: options.promptCaching,
-      });
-      const promptCachePolicy = promptCachePolicyKey(promptInput.cacheControl);
-      const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
-        ? "bypass"
-        : "allow";
-
-      // --- Exact-result cache lookup ---
-      if (db && params.exactCache && !forceRefresh) {
-        const cacheKey = computeLLMCacheKey({
-          purpose: params.purpose,
-          model: modelId,
-          prompt: resolveFullPrompt(params),
-          thinkingConfig: thinkingConfigKey(params.thinking),
-          keyVersion: params.exactCache.keyVersion,
-          promptCachePolicy,
-          cachePolicy: cacheAccessPolicy,
-        });
-        const cached = getCachedLLMResult(db, cacheKey);
-        if (cached) {
-          const record = buildCacheHitRecord(
-            params.purpose,
-            modelId,
-            context,
-            params.thinking,
-          );
-          return { text: cached.responseText, record };
-        }
-      }
-
-      const startMs = Date.now();
-      const thinkingProviderOptions = buildAnthropicThinkingProviderOptions(
-        params.thinking,
-      );
-      const anthropicProviderOptions = {
-        ...thinkingProviderOptions,
-        ...(promptInput.cacheControl
-          ? { cacheControl: promptInput.cacheControl }
-          : {}),
-      };
-      const providerOptions =
-        Object.keys(anthropicProviderOptions).length > 0
-          ? { anthropic: anthropicProviderOptions }
-          : undefined;
-      try {
-        const result = await withRetry(
-          () =>
-            generateText({
-              model: anthropic(modelId),
-              maxOutputTokens:
-                params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-              ...(promptInput.prompt != null
-                ? { prompt: promptInput.prompt }
-                : { messages: promptInput.messages }),
-              ...(providerOptions ? { providerOptions } : {}),
-            }),
-          params.purpose,
-        );
-
-        const record = buildRecord(
-          params.purpose,
-          modelId,
-          context,
-          result.response?.modelId,
-          result.usage,
-          Date.now() - startMs,
-          result.finishReason,
-          params.thinking,
-        );
-
-        if (record.truncated) {
-          console.error(
-            `[llm-client] WARNING: ${params.purpose} response truncated (finish_reason=length, model=${modelId}). Output may be incomplete.`,
-          );
-        }
-
-        // --- Exact-result cache store ---
-        if (db && params.exactCache && !forceRefresh && !record.truncated) {
-          storeLLMResult(db, {
-            cacheKey: computeLLMCacheKey({
-              purpose: params.purpose,
-              model: modelId,
-              prompt: resolveFullPrompt(params),
-              thinkingConfig: thinkingConfigKey(params.thinking),
-              keyVersion: params.exactCache.keyVersion,
-              promptCachePolicy,
-              cachePolicy: cacheAccessPolicy,
-            }),
-            responseText: result.text,
-            createdAt: new Date().toISOString(),
-          });
-        }
-
-        return { text: result.text, record };
-      } catch (error) {
-        buildFailureRecord({
-          purpose: params.purpose,
-          modelId,
-          context,
-          latencyMs: Date.now() - startMs,
-          ...(params.thinking != null ? { thinking: params.thinking } : {}),
-          error,
-        });
-        const provider = classifyProviderError(error);
-        throw new LLMProviderError(
-          provider.message,
-          provider.classification,
-          provider.fatal,
-          { cause: error },
-        );
-      }
-    },
-
     async generateObject<T extends z.ZodType>(
       params: GenerateObjectParams<T>,
     ): Promise<GenerateObjectResult<z.infer<T>>> {
@@ -1204,15 +1104,19 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           db,
           computeLLMCacheKey(cacheKeyInput),
         );
-        if (cached) {
-          const parsed = JSON.parse(cached.responseText) as z.infer<T>;
+        // A row written under an older schema, or a corrupt one, must not
+        // pass as a fresh reply: re-validate and fall through on failure.
+        const parsed = cached
+          ? params.schema.safeParse(parseJsonOrUndefined(cached.responseText))
+          : undefined;
+        if (parsed?.success) {
           const record = buildCacheHitRecord(
             params.purpose,
             modelId,
             context,
             params.thinking,
           );
-          return { object: parsed, record };
+          return { object: parsed.data as z.infer<T>, record };
         }
       }
 
@@ -1251,9 +1155,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               ...(promptInput.prompt != null
                 ? { prompt: promptInput.prompt }
                 : { messages: promptInput.messages }),
-              ...(params.temperature != null
-                ? { temperature: params.temperature }
-                : {}),
               ...(providerOptions ? { providerOptions } : {}),
             }),
           params.purpose,
@@ -1296,11 +1197,20 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           error,
         });
         const provider = classifyProviderError(error);
+        const generated = NoObjectGeneratedError.isInstance(error)
+          ? error
+          : undefined;
         throw new LLMProviderError(
           provider.message,
           provider.classification,
           provider.fatal,
-          { cause: error },
+          {
+            cause: error,
+            ...(generated?.text != null
+              ? { responseText: generated.text }
+              : {}),
+            truncated: generated?.finishReason === "length",
+          },
         );
       }
     },

@@ -40,6 +40,7 @@ import {
   type LLMClient,
   type ThinkingConfig,
   type ThinkingEffort,
+  LLMProviderError,
 } from "../integrations/llm-client.js";
 import { resolvePaperByDoi } from "../integrations/paper-resolver.js";
 import * as openalex from "../integrations/openalex.js";
@@ -299,9 +300,25 @@ function mapLlmFailureCode(error: unknown): {
     | "transport"
     | "invalid_response";
   reason: string;
+  /** Raw model text, when the provider answered but the reply was unusable. */
+  responseText?: string;
 } {
   const classified = classifyProviderError(error);
   const reason = classified.message;
+  if (classified.classification === "invalid_request") {
+    // The request itself is malformed; every record would fail the same way,
+    // so the stage aborts instead of recording one typed failure per record.
+    throw error;
+  }
+  if (classified.classification === "malformed_output") {
+    const responseText =
+      error instanceof LLMProviderError ? error.responseText : undefined;
+    return {
+      reasonCode: "invalid_response",
+      reason,
+      ...(responseText != null ? { responseText } : {}),
+    };
+  }
   switch (classified.classification) {
     case "authentication":
       return { reasonCode: "authentication", reason };
@@ -319,8 +336,6 @@ function mapLlmFailureCode(error: unknown): {
         reasonCode: /timeout/i.test(reason) ? "timeout" : "transport",
         reason,
       };
-    case "invalid_request":
-      return { reasonCode: "invalid_response", reason };
     default:
       return { reasonCode: "invalid_response", reason };
   }
@@ -843,6 +858,7 @@ export function buildCanonicalDiscoverAdapters(
           },
           harvest: {
             status: "no_mentions" as const,
+            reasonCode: "no_in_text_mentions",
             reason:
               "Seed bibliography entry found but no in-text citation mentions.",
             provenanceArtifacts: [parseArtifact],
@@ -962,6 +978,9 @@ export function buildCanonicalDiscoverAdapters(
             responseBody: {
               role: "normalized-attributed-claim-extraction-failure",
               error: mapped.reason,
+              ...(mapped.responseText != null
+                ? { modelText: mapped.responseText }
+                : {}),
             },
             store,
             requestRole: "normalized-attributed-claim-extraction-request",
@@ -1072,6 +1091,9 @@ export function buildCanonicalDiscoverAdapters(
           execution: executionFor({
             role: "normalized-claim-canonicalization-failure",
             error: mapped.reason,
+            ...(mapped.responseText != null
+              ? { modelText: mapped.responseText }
+              : {}),
           }),
         };
       }
@@ -1388,6 +1410,9 @@ export function buildCanonicalScopeAdapters(
             responseBody: {
               role: "normalized-scope-grounding-failure",
               error: mapped.reason,
+              ...(mapped.responseText != null
+                ? { modelText: mapped.responseText }
+                : {}),
             },
             store,
             requestRole: "normalized-scope-grounding-request",
@@ -1503,6 +1528,9 @@ export function buildCanonicalPrepareAdapters(
           execution: modelExecution({
             role: "normalized-citation-role-failure",
             error: mapped.reason,
+            ...(mapped.responseText != null
+              ? { modelText: mapped.responseText }
+              : {}),
           }),
         });
       }
@@ -1578,6 +1606,9 @@ function buildCanonicalEvidenceAdapters(
             responseBody: {
               role: "normalized-evidence-rerank-failure",
               error: mapped.reason,
+              ...(mapped.responseText != null
+                ? { modelText: mapped.responseText }
+                : {}),
             },
             store,
             requestRole: "normalized-evidence-rerank-request",
@@ -1684,6 +1715,9 @@ export function buildCanonicalAdjudicateAdapters(
             responseBody: {
               role: "normalized-canonical-adjudicate-failure",
               error: mapped.reason,
+              ...(mapped.responseText != null
+                ? { modelText: mapped.responseText }
+                : {}),
             },
             store,
             requestRole: "normalized-canonical-adjudicate-request",

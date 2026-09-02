@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 
-vi.mock("ai", () => ({
-  generateText: vi.fn(),
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof AiModule>()),
   generateObject: vi.fn(),
   // Passthrough: the client wraps the provider schema and a local validator.
   jsonSchema: (schema: unknown, options?: { validate?: unknown }) => ({
@@ -15,7 +15,8 @@ vi.mock("@ai-sdk/anthropic", () => ({
   createAnthropic: () => (modelId: string) => ({ modelId }),
 }));
 
-import { generateObject, generateText } from "ai";
+import { generateObject, NoObjectGeneratedError } from "ai";
+import type * as AiModule from "ai";
 import { z } from "zod";
 import {
   buildAnthropicThinkingProviderOptions,
@@ -36,8 +37,10 @@ import {
   storeLLMResult,
 } from "../../src/storage/llm-result-cache.js";
 
-const generateTextMock = vi.mocked(generateText);
 const generateObjectMock = vi.mocked(generateObject);
+
+/** Minimal reply shape for tests that exercise transport, not the schema. */
+const anySchema = z.object({ ok: z.boolean() });
 
 describe("resolvePromptCacheControl", () => {
   it("enables default caching for large seed-grounding prompts", () => {
@@ -228,11 +231,11 @@ describe("adaptive vs legacy thinking helpers", () => {
   });
 });
 
-describe("provider options and telemetry through generateText", () => {
+describe("provider options and telemetry through generateObject", () => {
   beforeEach(() => {
-    generateTextMock.mockReset();
-    generateTextMock.mockResolvedValue({
-      text: "ok",
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { ok: true },
       finishReason: "stop",
       usage: {
         inputTokens: 10,
@@ -249,14 +252,15 @@ describe("provider options and telemetry through generateText", () => {
       defaultModel: "claude-sonnet-4-6",
     });
 
-    const result = await client.generateText({
+    const result = await client.generateObject({
+      schema: anySchema,
       purpose: "seed-grounding",
       prompt: "short",
       thinking: { type: "adaptive", effort: "high" },
     });
 
-    expect(generateTextMock).toHaveBeenCalledOnce();
-    const call = generateTextMock.mock.calls[0]![0] as {
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+    const call = generateObjectMock.mock.calls[0]![0] as {
       providerOptions?: {
         anthropic?: {
           thinking?: { type: string; budgetTokens?: number };
@@ -281,13 +285,14 @@ describe("provider options and telemetry through generateText", () => {
       defaultModel: "claude-haiku-4-5",
     });
 
-    const result = await client.generateText({
+    const result = await client.generateObject({
+      schema: anySchema,
       purpose: "attributed-claim-extraction",
       prompt: "short",
       thinking: { type: "enabled", budgetTokens: 8_000 },
     });
 
-    const call = generateTextMock.mock.calls[0]![0] as {
+    const call = generateObjectMock.mock.calls[0]![0] as {
       providerOptions?: {
         anthropic?: {
           thinking?: { type: string; budgetTokens?: number };
@@ -304,9 +309,9 @@ describe("provider options and telemetry through generateText", () => {
   });
 
   it("sums prompt-cache reads and writes into the ledger", async () => {
-    generateTextMock.mockReset();
-    generateTextMock.mockResolvedValue({
-      text: "ok",
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { ok: true },
       finishReason: "stop",
       response: { modelId: "claude-sonnet-4-6-20260214" },
       usage: {
@@ -330,11 +335,13 @@ describe("provider options and telemetry through generateText", () => {
       apiKey: "test-key",
       defaultModel: "claude-sonnet-4-6",
     });
-    await client.generateText({
+    await client.generateObject({
+      schema: anySchema,
       purpose: "seed-grounding",
       prompt: "x".repeat(5_000),
     });
-    await client.generateText({
+    await client.generateObject({
+      schema: anySchema,
       purpose: "seed-grounding",
       prompt: "x".repeat(5_000),
     });
@@ -354,9 +361,9 @@ describe("provider options and telemetry through generateText", () => {
   });
 
   it("records the served model snapshot alongside the requested alias", async () => {
-    generateTextMock.mockReset();
-    generateTextMock.mockResolvedValue({
-      text: "ok",
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { ok: true },
       finishReason: "stop",
       response: { modelId: "claude-opus-4-6-20260214" },
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
@@ -366,7 +373,8 @@ describe("provider options and telemetry through generateText", () => {
       apiKey: "test-key",
       defaultModel: "claude-opus-4-6",
     });
-    const result = await client.generateText({
+    const result = await client.generateObject({
+      schema: anySchema,
       purpose: "adjudication",
       prompt: "short",
     });
@@ -395,20 +403,17 @@ describe("provider options and telemetry through generateText", () => {
       promptSuffix: "which claim?",
       schema: z.object({ verdict: z.string() }),
       thinking: { type: "adaptive", effort: "medium" },
-      temperature: 0,
     });
 
     const call = generateObjectMock.mock.calls[0]![0] as {
       maxOutputTokens?: number;
-      temperature?: number;
       messages?: [{ content: { providerOptions?: unknown }[] }];
       providerOptions?: {
         anthropic?: { thinking?: { type: string }; effort?: string };
       };
     };
     expect(call.maxOutputTokens).toBe(16_000);
-    expect(call.temperature).toBe(0);
-    // The seed text stays a cacheable prefix, as it is for generateText.
+    // The seed text stays a cacheable prefix.
     expect(call.messages?.[0]?.content[0]?.providerOptions).toEqual({
       anthropic: { cacheControl: { type: "ephemeral", ttl: "5m" } },
     });
@@ -432,12 +437,13 @@ describe("provider options and telemetry through generateText", () => {
       prompt: "ground",
       thinkingConfig: "adaptive:high",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(anySchema),
       promptCachePolicy: "",
       cachePolicy: "allow",
     });
     storeLLMResult(db, {
       cacheKey: adaptiveKey,
-      responseText: "from-adaptive-cache",
+      responseText: '{"ok":true}',
       createdAt: "2026-07-17T00:00:00Z",
     });
 
@@ -447,25 +453,27 @@ describe("provider options and telemetry through generateText", () => {
       database: db,
     });
 
-    const hit = await client.generateText({
+    const hit = await client.generateObject({
+      schema: anySchema,
       purpose: "seed-grounding",
       prompt: "ground",
       thinking: { type: "adaptive", effort: "high" },
       exactCache: { keyVersion: "v1" },
     });
-    expect(hit.text).toBe("from-adaptive-cache");
+    expect(hit.object).toEqual({ ok: true });
     expect(hit.record.exactCacheHit).toBe(true);
     expect(hit.record.thinkingType).toBe("adaptive");
-    expect(generateTextMock).not.toHaveBeenCalled();
+    expect(generateObjectMock).not.toHaveBeenCalled();
 
     // Legacy budget must miss the adaptive entry and call the provider.
-    await client.generateText({
+    await client.generateObject({
+      schema: anySchema,
       purpose: "seed-grounding",
       prompt: "ground",
       thinking: { type: "enabled", budgetTokens: 10_000 },
       exactCache: { keyVersion: "v1" },
     });
-    expect(generateTextMock).toHaveBeenCalledOnce();
+    expect(generateObjectMock).toHaveBeenCalledOnce();
 
     db.close();
   });
@@ -479,46 +487,11 @@ describe("exact-result cache integration via LLM client", () => {
     db.pragma("foreign_keys = ON");
     db.pragma("journal_mode = WAL");
     runMigrations(db);
-    generateTextMock.mockReset();
+    generateObjectMock.mockReset();
   });
 
   afterEach(() => {
     db.close();
-  });
-
-  it("returns cached generateText response and records a non-billable cache hit", async () => {
-    // Pre-seed a cached result
-    const cacheKey = computeLLMCacheKey({
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      prompt: "test prompt",
-      thinkingConfig: "",
-      keyVersion: "v1",
-    });
-    storeLLMResult(db, {
-      cacheKey,
-      responseText: "cached response text",
-      createdAt: "2026-04-11T00:00:00Z",
-    });
-
-    const client = createLLMClient({
-      apiKey: "test-key-not-used",
-      defaultModel: "claude-haiku-4-5",
-      database: db,
-    });
-
-    const result = await client.generateText({
-      purpose: "evidence-rerank",
-      prompt: "test prompt",
-      exactCache: { keyVersion: "v1" },
-    });
-
-    expect(result.text).toBe("cached response text");
-    expect(result.record.exactCacheHit).toBe(true);
-    expect(result.record.billable).toBe(false);
-    expect(result.record.estimatedCostUsd).toBe(0);
-    expect(result.record.finishReason).toBe("cached");
-    expect(result.record.inputTokens).toBe(0);
   });
 
   it("returns cached generateObject response and records a non-billable cache hit", async () => {
@@ -578,15 +551,16 @@ describe("exact-result cache integration via LLM client", () => {
       prompt: "test prompt",
       thinkingConfig: "",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(anySchema),
     });
     storeLLMResult(db, {
       cacheKey,
-      responseText: "should not be returned",
+      responseText: '{"ok":true}',
       createdAt: "2026-04-11T00:00:00Z",
     });
 
     // Fatal auth errors skip retries; proves cache was bypassed.
-    generateTextMock.mockRejectedValue(
+    generateObjectMock.mockRejectedValue(
       new Error("Unauthorized: invalid API key"),
     );
 
@@ -598,13 +572,14 @@ describe("exact-result cache integration via LLM client", () => {
     });
 
     await expect(
-      client.generateText({
+      client.generateObject({
+        schema: anySchema,
         purpose: "evidence-rerank",
         prompt: "test prompt",
         exactCache: { keyVersion: "v1" },
       }),
     ).rejects.toThrow(/invalid API key/i);
-    expect(generateTextMock).toHaveBeenCalled();
+    expect(generateObjectMock).toHaveBeenCalled();
   });
 
   it("skips cache when no exactCache config is provided", async () => {
@@ -614,14 +589,15 @@ describe("exact-result cache integration via LLM client", () => {
       prompt: "test prompt",
       thinkingConfig: "",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(anySchema),
     });
     storeLLMResult(db, {
       cacheKey,
-      responseText: "should not be returned",
+      responseText: '{"ok":true}',
       createdAt: "2026-04-11T00:00:00Z",
     });
 
-    generateTextMock.mockRejectedValue(
+    generateObjectMock.mockRejectedValue(
       new Error("Unauthorized: invalid API key"),
     );
 
@@ -632,7 +608,8 @@ describe("exact-result cache integration via LLM client", () => {
     });
 
     await expect(
-      client.generateText({
+      client.generateObject({
+        schema: anySchema,
         purpose: "evidence-rerank",
         prompt: "test prompt",
       }),
@@ -646,10 +623,11 @@ describe("exact-result cache integration via LLM client", () => {
       prompt: "adjudication prompt",
       thinkingConfig: "",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(anySchema),
     });
     storeLLMResult(db, {
       cacheKey,
-      responseText: "cached",
+      responseText: '{"ok":true}',
       createdAt: "2026-04-11T00:00:00Z",
     });
 
@@ -659,7 +637,8 @@ describe("exact-result cache integration via LLM client", () => {
       database: db,
     });
 
-    await client.generateText({
+    await client.generateObject({
+      schema: anySchema,
       purpose: "adjudication",
       prompt: "adjudication prompt",
       exactCache: { keyVersion: "v1" },
@@ -679,14 +658,15 @@ describe("exact-result cache integration via LLM client", () => {
       prompt: "test prompt",
       thinkingConfig: "",
       keyVersion: "v1",
+      schemaFingerprint: schemaFingerprint(anySchema),
     });
     storeLLMResult(db, {
       cacheKey,
-      responseText: "old cached",
+      responseText: '{"ok":true}',
       createdAt: "2026-04-11T00:00:00Z",
     });
 
-    generateTextMock.mockRejectedValue(
+    generateObjectMock.mockRejectedValue(
       new Error("Unauthorized: invalid API key"),
     );
 
@@ -697,7 +677,8 @@ describe("exact-result cache integration via LLM client", () => {
     });
 
     await expect(
-      client.generateText({
+      client.generateObject({
+        schema: anySchema,
         purpose: "evidence-rerank",
         prompt: "test prompt",
         exactCache: { keyVersion: "v2" },
@@ -774,14 +755,133 @@ describe("toProviderJsonSchema", () => {
   });
 });
 
-describe("invalid requests are not retried", () => {
-  it("classifies a schema rejection as invalid_request and non-fatal", () => {
+describe("malformed requests and malformed replies", () => {
+  it("classifies a schema rejection as a fatal invalid request", () => {
     const result = classifyProviderError(
       new Error(
         "invalid_request_error: output_config.format.schema: For 'array' type, property 'maxItems' is not supported",
       ),
     );
     expect(result.classification).toBe("invalid_request");
-    expect(result.fatal).toBe(false);
+    // Every record in the stage would fail the same way.
+    expect(result.fatal).toBe(true);
+  });
+
+  function malformedReply(finishReason: "stop" | "length") {
+    return new NoObjectGeneratedError({
+      message: "No object generated: response did not match schema.",
+      text: '{"verdict":"maybe"}',
+      response: {
+        id: "msg_1",
+        modelId: "claude-opus-4-6-20260214",
+        timestamp: new Date(0),
+      },
+      usage: {
+        inputTokens: 900,
+        outputTokens: 40,
+        totalTokens: 940,
+        inputTokenDetails: {
+          noCacheTokens: 900,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        outputTokenDetails: { textTokens: 40, reasoningTokens: 0 },
+      },
+      finishReason,
+    });
+  }
+
+  it("does not retry a reply that fails the schema and records what it cost", async () => {
+    generateObjectMock.mockReset();
+    generateObjectMock.mockRejectedValue(malformedReply("stop"));
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-opus-4-6",
+    });
+
+    await expect(
+      client.generateObject({
+        purpose: "adjudication",
+        prompt: "judge",
+        schema: anySchema,
+      }),
+    ).rejects.toMatchObject({
+      classification: "malformed_output",
+      fatal: false,
+      responseText: '{"verdict":"maybe"}',
+      truncated: false,
+    });
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+
+    const purpose = client.getLedger().byPurpose["adjudication"]!;
+    expect(purpose.attempted).toBe(1);
+    expect(purpose.inputTokens).toBe(900);
+    expect(purpose.outputTokens).toBe(40);
+    expect(purpose.estimatedCostUsd).toBeGreaterThan(0);
+  });
+
+  it("names truncation when the reply hit the output-token cap", async () => {
+    generateObjectMock.mockReset();
+    generateObjectMock.mockRejectedValue(malformedReply("length"));
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-opus-4-6",
+    });
+
+    await expect(
+      client.generateObject({
+        purpose: "adjudication",
+        prompt: "judge",
+        schema: anySchema,
+      }),
+    ).rejects.toMatchObject({
+      classification: "malformed_output",
+      truncated: true,
+      message: expect.stringMatching(/truncated/i) as unknown,
+    });
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+  });
+
+  it("treats a cached row that no longer fits the schema as a miss", async () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+    storeLLMResult(db, {
+      cacheKey: computeLLMCacheKey({
+        purpose: "evidence-rerank",
+        model: "claude-haiku-4-5",
+        prompt: "rank",
+        thinkingConfig: "",
+        keyVersion: "v1",
+        schemaFingerprint: schemaFingerprint(anySchema),
+        promptCachePolicy: "",
+        cachePolicy: "allow",
+      }),
+      responseText: '{"ok":"not a boolean"}',
+      createdAt: "2026-04-11T00:00:00Z",
+    });
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { ok: true },
+      finishReason: "stop",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    } as never);
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-haiku-4-5",
+      database: db,
+    });
+
+    const result = await client.generateObject({
+      purpose: "evidence-rerank",
+      prompt: "rank",
+      schema: anySchema,
+      exactCache: { keyVersion: "v1" },
+    });
+
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+    expect(result.object).toEqual({ ok: true });
+    expect(result.record.exactCacheHit).toBeUndefined();
+    db.close();
   });
 });
