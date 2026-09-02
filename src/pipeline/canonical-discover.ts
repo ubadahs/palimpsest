@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizeDiscoverClaimText } from "../contract/claim-unit.js";
+
 import {
   adaptivePortfolioPolicySchema,
   selectAdaptivePortfolio,
@@ -21,7 +23,6 @@ import {
   discoverArtifactSchema,
   leanArtifactSchemaVersion,
   leanArtifactVersion,
-  normalizeDiscoverClaimText,
   sha256DigestSchema,
   type AppendOnlyDecision,
   type AppendOnlyExclusion,

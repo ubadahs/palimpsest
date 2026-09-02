@@ -55,6 +55,35 @@ The `F` sample matters disproportionately. False `F` labels are the highest-risk
 
 After the first claim family, the review load can be reduced, but `E` cases should still all be checked.
 
+## Blinding Rule
+
+The reviewer must not see the model's verdict before recording their own. The
+Review tab starts with machine judgment hidden — no verdict badge, no rationale,
+and no verdict queue filters — and the reviewer types a label from the same
+`F`/`D`/`E`/`U` vocabulary plus `not_adjudicable`. Agreement is then computed by
+comparing the two; the form never asks "do you agree?", because that question
+cannot produce a calibration label.
+
+Revealing the verdict is allowed — it is often the point of a second pass — but
+it is recorded. Each saved assessment carries `blinded`, false from the moment
+the verdict is shown for that record, and re-hiding it does not restore the
+flag. A claim unit counts as blinded only when every one of its reviews was.
+Only blinded labels may move `calibrationStatus` off `uncalibrated`.
+
+## Unit Of Analysis
+
+The unit is **one seed finding × one citing paper × one attributed claim set** —
+the same `family × citing-paper × claim` unit the Report counts as
+`uniqueClaimUnits`. It is not the packet: a citer that mentions the seed twice
+in one paragraph produces two machine records describing one restatement, and
+pooling them would double-count it.
+
+Reviews are still recorded per record, because a record is what a reviewer
+reads. The CSV export collapses them to one row per unit, showing every human
+and machine label the unit received. A unit's measure is the weakest of its
+records: one disagreement makes the unit disagree, and one unblinded review
+makes the unit unblinded.
+
 ## Human Reviewer Task
 
 For each reviewed citation instance, the reviewer should answer:
@@ -64,19 +93,26 @@ For each reviewed citation instance, the reviewer should answer:
 3. Is the extracted citing span the real claim-bearing span?
 4. Is the cited span real and relevant?
 5. Is the section label correct when present?
-6. Is the top-level label correct when adjudicated?
-7. Does the rationale match the evidence?
+6. What is the top-level label — `F`, `D`, `E`, `U`, or `not_adjudicable`? For a
+   `D`, which one to three dimensions moved?
+7. Does the rationale match the evidence (second pass only, after the label is
+   recorded and the verdict revealed)?
 8. Was selected text evidence sufficient for the judgment (for example, not figure-only)?
 
 If the cited span is wrong or not relevant, the judgment is invalid even if the final label appears plausible.
 
 Score these layers separately when summarizing calibration:
 
-- `labelAgreement` — human and model top-label match
+- `labelAgreement` — human and model top-label match; `not_applicable` when
+  there is no pair to compare (the machine returned an operational non-verdict,
+  or the human judged the record not adjudicable)
 - `evidenceSufficiency` — packet evidence could support the judgment
-- `endToEndValid` — `labelAgreement && evidenceSufficiency` and packet quality OK
+- `endToEndValid` — `labelAgreement && evidenceSufficiency` and packet quality
+  OK, where packet quality is in-scope, a valid citing span, and valid cited
+  evidence
 
-Do not invent new product verdict modes for these fields.
+All three are derived by the export, never typed by the reviewer. Do not invent
+new product verdict modes for these fields.
 
 ## Review Form Fields
 
@@ -90,13 +126,15 @@ Each reviewed case should record:
 - citing span valid yes or no (with exact offset-bound correction into the citation context when no)
 - cited span valid yes or no (with corrected Evidence chunk IDs when no)
 - evidence sufficiency sufficient or limited
-- top-level label correct yes or no or not applicable (with overridden `F`/`D`/`E`/`U` when no)
+- the reviewer's own label: `F`, `D`, `E`, `U`, or `not_adjudicable`
+- for a `D`, one to three mutation kinds from the adjudicator's vocabulary
+- whether the review was blinded
 - free-text notes
 - draft vs final review status
 
 ### Local review workspace
 
-The Report explorer **Review** tab implements this form against an append-only, report-hash-bound sidecar (`data/runs/<runId>/review/<reportArtifactId>/events.json`). Use **Families** to inspect claim mutation chronologies before or during review. Export JSON/CSV from the Review tab for offline calibration metrics. Machine artifacts remain immutable; human overrides live only in the sidecar.
+The Report explorer **Review** tab implements this form against an append-only, report-hash-bound sidecar (`data/runs/<runId>/review/<reportArtifactId>/events.json`). It opens blinded. When a citing span is marked invalid, the machine's verified support span is shown with its offsets next to the correction inputs, because the store rejects a correction that does not land exactly. Use **Families** to inspect claim mutation chronologies before or during review — after labelling, not before. Export JSON (per record, with derived calibration) or CSV (one row per claim unit) from the Review tab. Machine artifacts remain immutable; human labels live only in the sidecar.
 
 ## Metrics
 
@@ -126,8 +164,10 @@ Track the following metrics separately.
 
 ### Layer 4: judgment quality
 
-- top-level label agreement on cases with valid grounding
+- top-level label agreement on cases with valid grounding, over blinded reviews
+  and counted per claim unit
 - precision of flagged `D` and `E` cases
+- agreement on mutation kinds among units both sides called `D`
 
 ## Success Readout
 

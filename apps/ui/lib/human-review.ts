@@ -103,6 +103,10 @@ export function exportReviewForRun(
     machineRecords: context.records.map((record) => ({
       recordId: record.recordId,
       familyId: record.familyId,
+      citingPaperId: record.citingPaperId,
+      claimTexts: record.occurrenceClaims.map(
+        (claim) => claim.extractedClaimText,
+      ),
       snapshot: { ...record },
     })),
   });
@@ -111,7 +115,7 @@ export function exportReviewForRun(
     return {
       contentType: "text/csv; charset=utf-8",
       filename: `human-review-${runId}.csv`,
-      body: renderHumanReviewCsv(bundle.records),
+      body: renderHumanReviewCsv(bundle.units),
     };
   }
 

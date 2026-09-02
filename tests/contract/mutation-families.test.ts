@@ -17,6 +17,7 @@ function record(
     seedId: "seed_1",
     seedTitle: "Seed paper title",
     seedDoi: "10.1000/seed",
+    citingPaperId: "citing_paper_1",
     citingPaperTitle: "Citing paper",
     citingPaperYear: 2020,
     citationContext: "Context with a citing claim span.",
