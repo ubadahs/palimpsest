@@ -1582,11 +1582,17 @@ function buildSingleMentionExtractionPrompt(input: {
   citingTitle: string;
   mention: DiscoverCitationOccurrence;
 }): string {
+  const seedLabel = input.mention.seedRefLabel
+    ? `\nSeed reference as it appears in this paper: ${input.mention.seedRefLabel}`
+    : "";
+  const bundleNote = input.mention.isBundledCitation
+    ? `\nThis marker is shared with ${String(input.mention.bundleSize)} references. Attribute to the seed only what the sentence credits to the seed; a bundle-mate's finding is not the seed's.`
+    : "";
   return `You are a scientific attribution extraction agent for a metascience project that audits citation fidelity.
 
 ## Task
 
-Extract every distinct empirical claim that the citing paper attributes to the seed paper in this single mention. Return zero claims when there is no in-scope attribution; do not merge distinct claims.
+Extract every distinct empirical claim that the citing paper attributes to the seed paper in this single mention. Only the sentence(s) that carry the seed's citation marker count; neighbouring sentences that cite other work are out of scope even if they appear in the context. Return zero claims when there is no in-scope attribution; do not merge distinct claims.
 
 ## Seed paper
 
@@ -1600,7 +1606,7 @@ Title: ${input.citingTitle}
 ## Mention
 
 Section: ${input.mention.sectionTitle ?? "unknown"}
-Citation marker: ${input.mention.citationMarker}
+Citation marker: ${input.mention.citationMarker}${seedLabel}${bundleNote}
 Context:
 > ${input.mention.rawContext}
 
@@ -1618,7 +1624,7 @@ Respond with JSON (no markdown fences):
   "reason": "Brief extraction or exclusion reason"
 }
 
-Each claim must preserve its own source text, support span, and confidence. If no empirical claim is attributed to the seed, return an empty claims array.
+Each claim must preserve its own source text, support span, and confidence. The supportSpanText must be copied verbatim from the sentence that carries the seed's marker. Confidence is required: "high" when the sentence plainly credits the seed with the claim, "medium" when the attribution is implied, "low" when the mention is a bare acknowledgment or the claim is uncertain. If no empirical claim is attributed to the seed, return an empty claims array.
 
 Prompt template lineage: ${CANONICAL_EXTRACTION_PROMPT_ID}@${CANONICAL_EXTRACTION_PROMPT_VERSION}`;
 }
@@ -1783,18 +1789,23 @@ function parseScopeGroundingResponse(
 function buildRelevanceRerankPrompt(
   input: CanonicalEvidenceRerankerInput,
 ): string {
+  // The reranker is an independent ranking: BM25 scores and ranks are withheld
+  // so it cannot anchor on the ordering it exists to correct. Block kind and
+  // section let it prefer the seed's own results over its background prose.
   const candidates = input.candidates
-    .map(
-      (candidate, index) =>
-        `${String(index + 1)}. chunkId=${candidate.chunkId} (bm25Rank=${String(candidate.bm25Rank)}, bm25Score=${String(candidate.bm25Score)})\n${candidate.text}`,
-    )
+    .map((candidate, index) => {
+      const section = candidate.sourceSectionTitle
+        ? `, section="${candidate.sourceSectionTitle}"`
+        : "";
+      return `${String(index + 1)}. chunkId=${candidate.chunkId} (${candidate.sourceBlockKind}${section})\n${candidate.text}`;
+    })
     .join("\n\n");
 
   return `You are ranking cited-paper chunks by relevance to a claim query.
 
 Query: "${input.query.text}"
 
-Return the top ${String(input.topN)} most relevant chunks. Relevance only — ignore citation fidelity judgments.
+Return the top ${String(input.topN)} most relevant chunks. Relevance only — ignore citation fidelity judgments. Prefer chunks that report the cited paper's own results over chunks where it summarizes prior work; candidate order carries no information.
 
 Candidates:
 ${candidates}
