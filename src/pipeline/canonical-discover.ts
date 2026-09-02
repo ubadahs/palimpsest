@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
+
 import { normalizeDiscoverClaimText } from "../contract/claim-unit.js";
 
 import {
@@ -1490,22 +1493,6 @@ function parseAdapterOutput<T>(
   );
 }
 
-function uniqueSortedArtifactReferences(
-  references: readonly ArtifactReference[],
-): ArtifactReference[] {
-  return uniqueSorted(references);
-}
-
-function uniqueSorted<T>(values: readonly T[]): T[] {
-  const byCanonicalValue = new Map<string, T>();
-  for (const value of values) {
-    byCanonicalValue.set(canonicalSerialize(value), value);
-  }
-  return [...byCanonicalValue.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
-}
-
 function findDuplicate(values: readonly string[]): string | undefined {
   const seen = new Set<string>();
   for (const value of values) {
@@ -1513,8 +1500,4 @@ function findDuplicate(values: readonly string[]): string | undefined {
     seen.add(value);
   }
   return undefined;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

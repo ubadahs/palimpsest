@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { compareCodeUnits } from "../shared/order.js";
+
 import {
   confidenceSchema,
   evaluationModeSchema,
@@ -5093,8 +5095,4 @@ function decisionContentForHash(decision: AppendOnlyDecision) {
     evidenceArtifacts: sortedArtifactReferences(decision.evidenceArtifacts),
     supersedesDecisionId: decision.supersedesDecisionId,
   };
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

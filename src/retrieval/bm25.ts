@@ -1,3 +1,5 @@
+import { compareCodeUnits } from "../shared/order.js";
+
 export type RankedDocument<TDocument> = {
   document: TDocument;
   score: number;
@@ -253,8 +255,4 @@ export function rankBm25Index<TDocument>(
     }));
 
   return ranked;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

@@ -1,7 +1,14 @@
 import { z } from "zod";
 
+import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
 import {
-  artifactReferenceSchema,
+  compareCodeUnits,
+  uniqueSorted,
+  uniqueSortedById,
+} from "../shared/order.js";
+import { createBoundaryParser } from "../shared/boundary.js";
+
+import {
   buildEvidenceBm25RunId,
   buildEvidenceRerankRunId,
   buildEvidenceSelectionId,
@@ -1133,58 +1140,13 @@ function throwIfFatalRerankFailure(
   }
 }
 
-function parseBoundary<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  throw new CanonicalEvidenceBoundaryError(
-    formatZodFailure(`invalid ${label}`, parsed.error),
-  );
-}
-
-function formatZodFailure(label: string, error: z.ZodError): string {
-  const issue = error.issues[0];
-  return `${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? error.message}`;
-}
-
-function uniqueSortedArtifactReferences(
-  references: readonly ArtifactReference[],
-): ArtifactReference[] {
-  return uniqueSorted(
-    references.map((reference) => artifactReferenceSchema.parse(reference)),
-  );
-}
-
-function uniqueSorted<T>(values: readonly T[]): T[] {
-  const byCanonicalValue = new Map<string, T>();
-  for (const value of values) {
-    byCanonicalValue.set(canonicalSerialize(value), value);
-  }
-  return [...byCanonicalValue.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
-}
-
-function uniqueSortedById<T>(
-  values: readonly T[],
-  getId: (value: T) => string,
-): T[] {
-  const byId = new Map<string, T>();
-  for (const value of values) {
-    byId.set(getId(value), value);
-  }
-  return [...byId.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+const parseBoundary = createBoundaryParser(CanonicalEvidenceBoundaryError);
+
+function formatZodFailure(label: string, error: z.ZodError): string {
+  const issue = error.issues[0];
+  return `${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? error.message}`;
 }
