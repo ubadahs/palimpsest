@@ -30,6 +30,7 @@ import {
 import type { ResolvedPaper } from "../domain/common.js";
 import { isReviewPaperType } from "../domain/attribution-signal.js";
 import { inferSectionRoles } from "../domain/section-patterns.js";
+import { annotateCitingContext } from "../shared/citation-context-window.js";
 import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
@@ -54,8 +55,11 @@ import type {
   CanonicalAdjudicateAdapters,
 } from "./canonical-adjudicate.js";
 import {
+  applyPrepareModelRole,
   classifyPrepareOccurrenceDeterministically,
+  prepareRoleNeedsModelFallback,
   type CanonicalPrepareAdapters,
+  type CanonicalPrepareClassifierInput,
 } from "./canonical-prepare.js";
 import {
   canonicalScopeGroundingOutputSchema,
@@ -102,6 +106,10 @@ const CANONICAL_CANONICALIZATION_PROMPT_VERSION =
 const CANONICAL_SCOPE_GROUNDING_PROMPT_ID =
   "canonical-scope-grounding" as const;
 const CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION = LLM_PROMPT_VERSIONS.grounding;
+const CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID =
+  "canonical-citation-role-classification" as const;
+const CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION =
+  LLM_PROMPT_VERSIONS.roleClassification;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_ID =
   "canonical-evidence-relevance-rerank" as const;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v2" as const;
@@ -118,6 +126,7 @@ function llmRequestProvenanceFields(params: {
   purpose:
     | "attributed-claim-extraction"
     | "claim-canonicalization"
+    | "citation-role-classification"
     | "seed-grounding"
     | "evidence-rerank"
     | "adjudication";
@@ -1417,17 +1426,114 @@ export function buildCanonicalScopeAdapters(
   };
 }
 
-export function buildCanonicalPrepareAdapters(): CanonicalPrepareAdapters {
+/**
+ * Deterministic regex first, model second. The regex pass costs nothing and
+ * settles most occurrences; only the ones it calls `unclear` reach a small
+ * model, which is where the deterministic classifier lost the most records.
+ */
+export function buildCanonicalPrepareAdapters(
+  deps: CanonicalProductionAdapterDeps,
+): CanonicalPrepareAdapters {
+  const store = deps.provenanceStore;
+  const model = deps.runConfig.prepare.roleClassifierModel;
+
   return {
-    classifyCitation: (input) =>
-      Promise.resolve(
-        classifyPrepareOccurrenceDeterministically(input.citationOccurrence, {
+    classifyCitation: async (input) => {
+      const deterministic = classifyPrepareOccurrenceDeterministically(
+        input.citationOccurrence,
+        {
           isReviewMediated: isReviewPaperType(
             input.citingPaper.paper.paperType,
           ),
           occurrenceSourceClaimRecords: input.occurrenceSourceClaimRecords,
+        },
+      );
+      if (!prepareRoleNeedsModelFallback(deterministic)) {
+        return deterministic;
+      }
+
+      const prompt = buildCitationRolePrompt(input);
+      const requestBody = {
+        familyId: input.family.familyId,
+        citationOccurrenceId: input.citationOccurrence.mentionId,
+        promptText: prompt,
+        llm: llmRequestProvenanceFields({
+          purpose: "citation-role-classification",
+          model,
+          prompt,
+          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
+          exactCacheKeyVersion: LLM_CACHE_VERSIONS.roleClassification,
+          forceRefresh: deps.forceRefresh === true,
         }),
-      ),
+      };
+      try {
+        const result = await deps.llmClient.generateText({
+          purpose: "citation-role-classification",
+          model,
+          prompt,
+          context: { stageKey: "prepare" },
+          exactCache: { keyVersion: LLM_CACHE_VERSIONS.roleClassification },
+        });
+        const parsed = parseCitationRoleResponse(result.text);
+        const execution = contentAddressedModelExecution({
+          provider: "anthropic",
+          model: result.record.model,
+          promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
+          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
+          promptText: prompt,
+          requestBody,
+          responseBody: {
+            role: "normalized-citation-role-response",
+            text: result.text,
+            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+          },
+          store,
+          requestRole: "normalized-citation-role-request",
+          responseRole: "normalized-citation-role-response",
+          canonicalStage: "prepare",
+        });
+        if (!parsed.ok) {
+          // A malformed reply is not a fatal run failure: the record keeps the
+          // deterministic gate and the failed call stays in the provenance.
+          return applyPrepareModelRole(deterministic, {
+            citationRole: "unclear",
+            rationale: `Model role fallback returned an unusable response: ${parsed.error}`,
+            signals: ["model-role:invalid_response"],
+            execution,
+          });
+        }
+        return applyPrepareModelRole(deterministic, {
+          citationRole: parsed.data.citationRole,
+          rationale: parsed.data.rationale,
+          signals: [`model-role:${parsed.data.citationRole}`],
+          execution,
+        });
+      } catch (error) {
+        const mapped = mapLlmFailureCode(error);
+        const execution = contentAddressedModelExecution({
+          provider: "anthropic",
+          model,
+          promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
+          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
+          promptText: prompt,
+          requestBody,
+          responseBody: {
+            role: "normalized-citation-role-failure",
+            error: mapped.reason,
+          },
+          store,
+          requestRole: "normalized-citation-role-request",
+          responseRole: "normalized-citation-role-failure",
+          canonicalStage: "prepare",
+        });
+        return applyPrepareModelRole(deterministic, {
+          citationRole: "unclear",
+          rationale: `Model role fallback failed (${mapped.reasonCode}): ${mapped.reason}`,
+          signals: [`model-role:${mapped.reasonCode}`],
+          execution,
+        });
+      }
+    },
   };
 }
 
@@ -1658,7 +1764,7 @@ export function buildCanonicalProductionAdapters(
     session,
     discover: buildCanonicalDiscoverAdapters(withSession),
     scope: buildCanonicalScopeAdapters(withSession),
-    prepare: buildCanonicalPrepareAdapters(),
+    prepare: buildCanonicalPrepareAdapters(withSession),
     evidence: buildCanonicalEvidenceAdapters(withSession),
     adjudicate: buildCanonicalAdjudicateAdapters(withSession),
   };
@@ -1942,6 +2048,77 @@ function parseScopeGroundingResponse(
       error: error instanceof Error ? error.message : "JSON parse failed",
     };
   }
+}
+
+/**
+ * Asks for one citation role from the same five-value taxonomy the regex pass
+ * uses. Shows the verified support span (what the extractor bound to the seed),
+ * the marked sentences, and the section heading — nothing about the seed's own
+ * content, because the question is what this citer is doing with the seed, not
+ * whether it is right.
+ */
+function buildCitationRolePrompt(
+  input: CanonicalPrepareClassifierInput,
+): string {
+  const occurrence = input.citationOccurrence;
+  const section = occurrence.sectionTitle
+    ? `Section heading: ${occurrence.sectionTitle}`
+    : "Section heading: (not recorded)";
+  const refLabel = occurrence.seedRefLabel
+    ? `\nSeed reference as it appears in this paper: ${occurrence.seedRefLabel}`
+    : "";
+  const bundle = occurrence.isBundledCitation
+    ? `\nThis marker is shared with ${String(occurrence.bundleSize)} references.`
+    : "";
+  const spans = input.occurrenceSourceClaimRecords
+    .map((claim, index) => {
+      const span = claim.supportSpan?.text ?? claim.extractedClaimText;
+      return `${String(index + 1)}. ${span}`;
+    })
+    .join("\n");
+
+  return `You are classifying what a citing paper is doing with one cited reference.
+
+${section}${refLabel}${bundle}
+
+Citing context (sentences attributed to the cited reference are wrapped in ▶ ... ◀):
+${annotateCitingContext(occurrence.rawContext, occurrence.citationMarker, occurrence.seedRefLabel)}
+
+Text the extractor bound to the cited reference:
+${spans}
+
+Choose exactly one role:
+- substantive_attribution — the citing text credits a specific finding, result, or measurement to the cited work.
+- background_context — the citing text uses the cited work to establish general knowledge, motivation, or framing.
+- methods_materials — the citing text uses the cited work for a method, protocol, reagent, dataset, or tool.
+- acknowledgment_or_low_information — the citation carries no attributed content (a bare "see also", a list of examples).
+- unclear — the context genuinely does not say which of the above it is.
+
+Pick "unclear" only when the context is too thin to decide; a heading that does not match a familiar pattern is not by itself a reason.
+
+Respond with JSON (no markdown fences):
+{ "citationRole": "...", "rationale": "one sentence" }`;
+}
+
+const citationRoleResponseSchema = z
+  .object({
+    citationRole: z.enum([
+      "substantive_attribution",
+      "background_context",
+      "methods_materials",
+      "acknowledgment_or_low_information",
+      "unclear",
+    ]),
+    rationale: z.string().min(1),
+  })
+  .strict();
+
+function parseCitationRoleResponse(
+  rawText: string,
+):
+  | { ok: true; data: z.infer<typeof citationRoleResponseSchema> }
+  | { ok: false; error: string } {
+  return parseModelJson(rawText, citationRoleResponseSchema);
 }
 
 function buildRelevanceRerankPrompt(
