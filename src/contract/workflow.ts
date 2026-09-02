@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { stageKeyValues } from "./stages.js";
+import { stageKeyValues } from "./lean-stages.js";
 
 const stageKeySchema = z.enum(stageKeyValues);
 type StageKey = (typeof stageKeyValues)[number];

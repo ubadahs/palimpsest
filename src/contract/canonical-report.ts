@@ -22,7 +22,7 @@ import {
   stableIdentifierSchema,
   type ArtifactReference,
 } from "./lean-artifact-primitives.js";
-import { canonicalStageKeySchema } from "./lean-stages.js";
+import { stageKeySchema } from "./lean-stages.js";
 
 /**
  * Canonical Report contract (isolated stage module). Shared envelope
@@ -619,7 +619,7 @@ export type ReportRecordTrace = z.infer<typeof reportRecordTraceSchema>;
 
 const reportDecisionSummarySchema = z
   .object({
-    stage: canonicalStageKeySchema,
+    stage: stageKeySchema,
     decisionType: z.string().min(1),
     outcome: z.string().min(1),
     count: z.number().int().nonnegative(),
@@ -630,7 +630,7 @@ export type ReportDecisionSummary = z.infer<typeof reportDecisionSummarySchema>;
 
 const reportExclusionSummarySchema = z
   .object({
-    stage: canonicalStageKeySchema,
+    stage: stageKeySchema,
     reasonCode: z.string().min(1),
     count: z.number().int().nonnegative(),
     unit: z.literal("exclusions"),

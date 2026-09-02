@@ -14,7 +14,7 @@ export {
   getNextStageKey,
   type StageArtifactRole,
   type StageDefinition,
-} from "./stages.js";
+} from "./lean-stages.js";
 export * from "./run-types.js";
 export * from "./stage-groups.js";
 export * from "./inspector-payloads.js";

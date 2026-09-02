@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  canonicalStageDefinitions,
-  canonicalStageKeySchema,
-  canonicalStageKeyValues,
+  stageDefinitions,
+  stageKeySchema,
+  stageKeyValues,
 } from "../../src/contract/lean-stages.js";
 
 describe("lean stage contract", () => {
   it("defines the canonical six-stage order", () => {
-    expect(canonicalStageKeyValues).toEqual([
+    expect(stageKeyValues).toEqual([
       "discover",
       "scope",
       "prepare",
@@ -16,12 +16,11 @@ describe("lean stage contract", () => {
       "adjudicate",
       "report",
     ]);
-    expect(canonicalStageDefinitions.map((stage) => stage.order)).toEqual([
+    expect(stageDefinitions.map((stage) => stage.order)).toEqual([
       0, 1, 2, 3, 4, 5,
     ]);
     expect(
-      canonicalStageDefinitions.find((stage) => stage.key === "prepare")
-        ?.responsibility,
+      stageDefinitions.find((stage) => stage.key === "prepare")?.responsibility,
     ).toContain("sampling is excluded");
   });
 
@@ -38,9 +37,7 @@ describe("lean stage contract", () => {
       "m5-adjudicate",
       "m6-llm-judge",
     ]) {
-      expect(canonicalStageKeySchema.safeParse(oldStageName).success).toBe(
-        false,
-      );
+      expect(stageKeySchema.safeParse(oldStageName).success).toBe(false);
     }
   });
 });

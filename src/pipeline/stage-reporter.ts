@@ -1,8 +1,8 @@
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { stageDefinitions } from "../contract/stages.js";
-import type { StageKey } from "../contract/run-types.js";
+import { stageDefinitions } from "../contract/lean-stages.js";
+import type { StageKey } from "../contract/lean-stages.js";
 import type { StageProgressEvent } from "../contract/workflow.js";
 import { serializeProgressEvent } from "../contract/workflow.js";
 

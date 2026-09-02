@@ -1,8 +1,11 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { CANONICAL_RUN_CONFIG_DEFAULTS } from "../../contract/run-types.js";
-import { compareStageKeys, stageKeyValues } from "../../contract/stages.js";
-import type { StageKey } from "../../contract/run-types.js";
+import {
+  compareStageKeys,
+  stageKeyValues,
+} from "../../contract/lean-stages.js";
+import type { StageKey } from "../../contract/lean-stages.js";
 import type { CanonicalPipelineCliOverrides } from "../../pipeline/canonical-executor.js";
 import { openDatabase } from "../../storage/database.js";
 

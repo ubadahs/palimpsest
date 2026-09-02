@@ -6,7 +6,7 @@ import type {
   ReportArtifact,
   ScopeArtifact,
 } from "./lean-artifacts.js";
-import type { StageKey } from "./run-types.js";
+import type { StageKey } from "./lean-stages.js";
 
 export type StageArtifactMap = {
   discover: DiscoverArtifact;

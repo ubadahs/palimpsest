@@ -22,10 +22,6 @@ import {
   type CanonicalDiscoverOptions,
 } from "../../src/pipeline/canonical-discover.js";
 import {
-  loadCanonicalPrepareArtifact,
-  writeCanonicalPrepareArtifact,
-} from "../../src/pipeline/canonical-prepare-artifact.js";
-import {
   buildCanonicalPrepareArtifact,
   canonicalPrepareClassificationResultSchema,
   canonicalPrepareOptionsSchema,
@@ -47,6 +43,10 @@ import {
   canonicalSerialize,
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
+import {
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 
 type GroundingVariant =
   | "grounded"
@@ -1319,8 +1319,8 @@ describe("canonical Prepare", () => {
     const directory = mkdtempSync(join(tmpdir(), "palimpsest-prepare-"));
     const artifactPath = join(directory, "prepare.json");
     try {
-      writeCanonicalPrepareArtifact(artifactPath, artifact);
-      expect(loadCanonicalPrepareArtifact(artifactPath)).toEqual(artifact);
+      writeCanonicalArtifact("prepare", artifactPath, artifact);
+      expect(loadCanonicalArtifact("prepare", artifactPath)).toEqual(artifact);
 
       const tampered = structuredClone(artifact);
       const classification = tampered.payload.records[0]!.classification;
@@ -1328,12 +1328,12 @@ describe("canonical Prepare", () => {
         classification.rationale = "Tampered rationale";
       }
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
-      expect(() => loadCanonicalPrepareArtifact(artifactPath)).toThrow(
+      expect(() => loadCanonicalArtifact("prepare", artifactPath)).toThrow(
         /contentHash|artifactId/,
       );
 
       expect(() =>
-        writeCanonicalPrepareArtifact(artifactPath, {
+        writeCanonicalArtifact("prepare", artifactPath, {
           ...artifact,
           artifactVersion: 2,
         } as unknown as typeof artifact),
