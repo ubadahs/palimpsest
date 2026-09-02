@@ -1,7 +1,8 @@
-import type {
-  DiscoverAttributedClaimRecord,
-  DiscoverCitationOccurrence,
-  DiscoverClaimCandidate,
+import {
+  buildCitationGroupKey,
+  type DiscoverAttributedClaimRecord,
+  type DiscoverCitationOccurrence,
+  type DiscoverClaimCandidate,
 } from "./lean-artifacts.js";
 import { METHODS_SECTION_PATTERNS } from "../domain/section-patterns.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
@@ -433,8 +434,7 @@ export function annotateClaimCandidate(input: {
     if (!mention) continue;
     memberMentions.push(mention);
     papers.add(mention.citingPaperId);
-    const groupKey = `${mention.citingPaperId}:${String(mention.citationGroupOrdinal ?? mention.mentionIndex)}`;
-    groups.add(groupKey);
+    groups.add(buildCitationGroupKey(mention));
   }
   const confidenceScores = input.candidate.sourceClaimRecordIds
     .map((id) => confidenceToScore(input.claimsById.get(id)?.confidence))
@@ -533,10 +533,11 @@ export function selectAdaptivePortfolio(input: {
       mentionsById,
       claimsById,
     });
+    // Prepare emits one record per member occurrence, so that is the cost.
     return {
       candidate,
       annotation,
-      projectedRecordCost: Math.max(1, annotation.uniqueCitationGroupCount),
+      projectedRecordCost: Math.max(1, candidate.memberMentionIds.length),
     };
   });
 
@@ -577,33 +578,38 @@ export function selectAdaptivePortfolio(input: {
     let preparedCost = 0;
     let step = 0;
     const reasons = new Map<string, CandidateSelectionDisposition>();
+    // Why each candidate was last skipped inside the greedy loop. The record
+    // budget and novelty floor only bind once the family minimum is met.
+    const skipReasons = new Map<
+      string,
+      "max_prepared_records" | "min_marginal_novelty"
+    >();
 
     while (selected.length < input.policy.maxFamilies) {
+      const minimumReached = selected.length >= input.policy.minFamilies;
       let best:
         | {
             scored: (typeof scored)[number];
             novelty: number;
             utility: number;
-            marginal: number;
           }
         | undefined;
       for (const item of scored) {
-        if (selectedIds.has(item.entry.candidate.candidateId)) continue;
+        const candidateId = item.entry.candidate.candidateId;
+        if (selectedIds.has(candidateId)) continue;
         if (
+          minimumReached &&
           preparedCost + item.entry.projectedRecordCost >
-            input.policy.maxPreparedRecords &&
-          selected.length >= input.policy.minFamilies
+            input.policy.maxPreparedRecords
         ) {
+          skipReasons.set(candidateId, "max_prepared_records");
           continue;
         }
-        if (
-          preparedCost + item.entry.projectedRecordCost >
-          input.policy.maxPreparedRecords
-        ) {
+        const novelty = 1 - maxRedundancy(item.entry, selected);
+        if (minimumReached && novelty < input.policy.minMarginalNovelty) {
+          skipReasons.set(candidateId, "min_marginal_novelty");
           continue;
         }
-        const redundancy = maxRedundancy(item.entry, selected);
-        const novelty = 1 - redundancy;
         const utility = portfolioUtility({
           prevalence: item.prevalence,
           specificity: item.specificity,
@@ -612,23 +618,16 @@ export function selectAdaptivePortfolio(input: {
           claimShape: item.entry.annotation.claimShape,
           policy: input.policy,
         });
-        const marginal = utility;
-        if (
-          selected.length >= input.policy.minFamilies &&
-          novelty < input.policy.minMarginalNovelty
-        ) {
-          continue;
-        }
         if (
           !best ||
-          marginal > best.marginal + 1e-12 ||
-          (Math.abs(marginal - best.marginal) <= 1e-12 &&
+          utility > best.utility + 1e-12 ||
+          (Math.abs(utility - best.utility) <= 1e-12 &&
             compareCodeUnits(
-              item.entry.candidate.candidateId,
+              candidateId,
               best.scored.entry.candidate.candidateId,
             ) < 0)
         ) {
-          best = { scored: item, novelty, utility, marginal };
+          best = { scored: item, novelty, utility };
         }
       }
 
@@ -651,68 +650,44 @@ export function selectAdaptivePortfolio(input: {
           novelty: best.novelty,
           utility: best.utility,
         },
-        marginalUtility: best.marginal,
+        marginalUtility: best.utility,
         projectedRecordCost: best.scored.entry.projectedRecordCost,
         bindingConstraint: "selected",
       });
     }
 
     // Rank deferred candidates after selected, by unused utility then id.
+    // The binding constraint is the reason the loop actually skipped them;
+    // candidates never skipped were simply cut off by the family cap.
+    const familyCapReached = selected.length >= input.policy.maxFamilies;
     const deferred = scored
       .filter((item) => !selectedIds.has(item.entry.candidate.candidateId))
+      .map((item) => {
+        const novelty = 1 - maxRedundancy(item.entry, selected);
+        const utility = portfolioUtility({
+          prevalence: item.prevalence,
+          specificity: item.specificity,
+          confidence: item.confidence,
+          novelty,
+          claimShape: item.entry.annotation.claimShape,
+          policy: input.policy,
+        });
+        const bindingConstraint: CandidateSelectionDisposition["bindingConstraint"] =
+          skipReasons.get(item.entry.candidate.candidateId) ??
+          (familyCapReached ? "max_families" : "exhausted");
+        return { item, novelty, utility, bindingConstraint };
+      })
       .sort((left, right) => {
-        const leftNovelty = 1 - maxRedundancy(left.entry, selected);
-        const rightNovelty = 1 - maxRedundancy(right.entry, selected);
-        const leftUtility = portfolioUtility({
-          prevalence: left.prevalence,
-          specificity: left.specificity,
-          confidence: left.confidence,
-          novelty: leftNovelty,
-          claimShape: left.entry.annotation.claimShape,
-          policy: input.policy,
-        });
-        const rightUtility = portfolioUtility({
-          prevalence: right.prevalence,
-          specificity: right.specificity,
-          confidence: right.confidence,
-          novelty: rightNovelty,
-          claimShape: right.entry.annotation.claimShape,
-          policy: input.policy,
-        });
-        if (rightUtility !== leftUtility) return rightUtility - leftUtility;
+        if (right.utility !== left.utility) return right.utility - left.utility;
         return compareCodeUnits(
-          left.entry.candidate.candidateId,
-          right.entry.candidate.candidateId,
+          left.item.entry.candidate.candidateId,
+          right.item.entry.candidate.candidateId,
         );
       });
 
     let rank = selected.length;
-    for (const item of deferred) {
+    for (const { item, novelty, utility, bindingConstraint } of deferred) {
       rank += 1;
-      const novelty = 1 - maxRedundancy(item.entry, selected);
-      const utility = portfolioUtility({
-        prevalence: item.prevalence,
-        specificity: item.specificity,
-        confidence: item.confidence,
-        novelty,
-        claimShape: item.entry.annotation.claimShape,
-        policy: input.policy,
-      });
-      let bindingConstraint: CandidateSelectionDisposition["bindingConstraint"] =
-        "exhausted";
-      if (selected.length >= input.policy.maxFamilies) {
-        bindingConstraint = "max_families";
-      } else if (
-        preparedCost + item.entry.projectedRecordCost >
-        input.policy.maxPreparedRecords
-      ) {
-        bindingConstraint = "max_prepared_records";
-      } else if (
-        selected.length >= input.policy.minFamilies &&
-        novelty < input.policy.minMarginalNovelty
-      ) {
-        bindingConstraint = "min_marginal_novelty";
-      }
       reasons.set(item.entry.candidate.candidateId, {
         candidateId: item.entry.candidate.candidateId,
         selectedForScope: false,
@@ -735,7 +710,9 @@ export function selectAdaptivePortfolio(input: {
     // Contiguous ranks 1..n in selection order then deferred order.
     const ordered = [
       ...selected.map((entry) => reasons.get(entry.candidate.candidateId)!),
-      ...deferred.map((item) => reasons.get(item.entry.candidate.candidateId)!),
+      ...deferred.map(
+        ({ item }) => reasons.get(item.entry.candidate.candidateId)!,
+      ),
     ];
     ordered.forEach((disposition, index) => {
       dispositions.push({
@@ -745,13 +722,15 @@ export function selectAdaptivePortfolio(input: {
     });
   }
 
+  const seedByCandidateId = new Map(
+    input.candidates.map((candidate) => [
+      candidate.candidateId,
+      candidate.seedId,
+    ]),
+  );
   return dispositions.sort((left, right) => {
-    const seedLeft =
-      input.candidates.find((c) => c.candidateId === left.candidateId)
-        ?.seedId ?? "";
-    const seedRight =
-      input.candidates.find((c) => c.candidateId === right.candidateId)
-        ?.seedId ?? "";
+    const seedLeft = seedByCandidateId.get(left.candidateId) ?? "";
+    const seedRight = seedByCandidateId.get(right.candidateId) ?? "";
     if (seedLeft !== seedRight) return compareCodeUnits(seedLeft, seedRight);
     return left.rank - right.rank;
   });

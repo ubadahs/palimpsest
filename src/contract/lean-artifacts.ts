@@ -743,6 +743,23 @@ export type DiscoverCitationOccurrence = z.infer<
   typeof discoverCitationOccurrenceSchema
 >;
 
+/**
+ * Paper-scoped identity of one citation group. `citationGroupOrdinal` restarts
+ * at zero in every paragraph, so it is only unique together with the source
+ * locator; mentions without a locator fall back to a namespaced mention index.
+ */
+export function buildCitationGroupKey(
+  mention: Pick<
+    DiscoverCitationOccurrence,
+    "citingPaperId" | "sourceLocator" | "mentionIndex"
+  >,
+): string {
+  const group = mention.sourceLocator
+    ? `loc:${mention.sourceLocator.value}`
+    : `m:${String(mention.mentionIndex)}`;
+  return `${mention.citingPaperId}:${group}`;
+}
+
 export type AttributedClaimRecordIdentityInputs = {
   seedId: string;
   mentionId: string;
