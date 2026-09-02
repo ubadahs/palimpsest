@@ -69,6 +69,7 @@ function record(
   return {
     familyId: "family_1",
     citationOccurrenceId: "mention_1",
+    citingPaperId: "paper_1",
     trackedClaim: "Tracked claim about retinal input",
     evaluatedClaimText: "Several GABAergic types receive retinal input",
     seedId: "seed_1",
@@ -466,7 +467,6 @@ function buildPayload(): StageInspectorPayload<"report"> {
           unit: "decisions",
         },
       ],
-      exclusionSummaries: [],
       records: [] as ReportInspectorRecordRow[],
       families: [] as MutationFamilyView[],
     },

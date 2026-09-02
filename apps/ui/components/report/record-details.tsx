@@ -18,8 +18,11 @@ export function outcomeBadgeVariant(
 
 export function EvidencePassages({
   record,
+  hideMachineJudgment = false,
 }: {
   record: ReportInspectorRecordRow;
+  /** While blinded, hide which passages the adjudicator cited and how they were ranked. */
+  hideMachineJudgment?: boolean;
 }) {
   if (record.evidencePassages.length === 0) {
     return null;
@@ -28,7 +31,9 @@ export function EvidencePassages({
     <section className="space-y-3">
       <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
         Selected evidence
-        {record.rankingSource ? ` · ${humanizeCode(record.rankingSource)}` : ""}
+        {record.rankingSource && !hideMachineJudgment
+          ? ` · ${humanizeCode(record.rankingSource)}`
+          : ""}
       </h4>
       {record.evidencePassages.map((passage, index) => (
         <div
@@ -40,7 +45,7 @@ export function EvidencePassages({
               Passage {String(index + 1)}
             </span>
             {passage.pinned ? <Badge variant="neutral">Pinned</Badge> : null}
-            {passage.modelCited ? (
+            {passage.modelCited && !hideMachineJudgment ? (
               <Badge variant="running">Model cited</Badge>
             ) : null}
             {passage.sourceSectionTitle ? (

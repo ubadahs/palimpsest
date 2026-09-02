@@ -27,7 +27,7 @@ The Report stage (`/runs/[runId]/stages/report`) renders a typed report explorer
 - **Families** — family-centered mutation view: sticky seed claim/grounding panel plus chronological citing restatements with deep links `?tab=families&family=<id>&record=<id>`
 - **Records** — searchable/filterable per-record browser joined from Prepare, Evidence, and Adjudicate onto the report `recordTraces` spine (claims, citation context, evidence passages, comparison/rationale, operational gates)
 - **Review** — integrated human review queue/workspace against the current report lineage; Save draft / Mark final append immutable review events; export JSON/CSV
-- **Audit trail** — method/lineage hashes, decision/exclusion summaries, and links to authoritative JSON/Markdown/manifest artifacts
+- **Audit trail** — method/lineage hashes, decision summaries, and links to authoritative JSON/Markdown/manifest artifacts
 
 The completed-run overview links into this explorer with cautious “received F” wording. Canonical Report JSON remains authoritative; Markdown stays a derived technical artifact. Human reviews never mutate machine verdicts.
 

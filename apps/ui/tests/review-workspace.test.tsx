@@ -165,6 +165,12 @@ describe("review workspace", () => {
     fireEvent.change(screen.getByLabelText("Reviewer"), {
       target: { value: "ubadah" },
     });
+    // Nothing saves until the reviewer has recorded their own verdict.
+    expect(
+      (screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "F" }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => {
