@@ -10,7 +10,7 @@
  */
 export const LLM_CACHE_VERSIONS = {
   /** Seed-claim grounding via full-document LLM call (canonical Scope). */
-  grounding: "grounding-2026-07-17-v1",
+  grounding: "grounding-2026-09-02-v2",
   /** Attributed claim extraction from citing-paper mentions. */
   extraction: "extraction-2026-09-02-v4",
   /** LLM-based evidence reranking. */
@@ -21,7 +21,7 @@ export const LLM_CACHE_VERSIONS = {
 
 export const LLM_PROMPT_VERSIONS = {
   /** Seed-claim grounding prompt template (canonical Scope). */
-  grounding: "2026-07-17-v1",
+  grounding: "2026-09-02-v2",
   /** Attributed claim extraction prompt template. */
   extraction: "2026-09-02-v3",
   /** Categorical adjudication prompt template. */

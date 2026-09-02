@@ -694,6 +694,11 @@ describe("canonical production adapter seams", () => {
       thinking: { type: "adaptive", effort: "high" },
       exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
     });
+    // The seed text is the shared, cacheable prefix; only the claim varies.
+    const groundingCall = generateText.mock.calls[0]![0];
+    expect(groundingCall.promptPrefix).toMatch(/## Seed-text blocks/);
+    expect(groundingCall.promptPrefix).not.toMatch(/## Tracked claim/);
+    expect(groundingCall.promptSuffix).toMatch(/## Tracked claim/);
     expect(result.status).toBe("completed");
     expect(result.execution).toBeDefined();
     const request = store.load(result.execution!.requestArtifact);

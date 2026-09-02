@@ -50,22 +50,16 @@ describe("resolvePromptCacheControl", () => {
     expect(cacheControl).toBeUndefined();
   });
 
-  it("caches evidence reranking prompts over 2KB by default", () => {
-    const cacheControl = resolvePromptCacheControl({
-      purpose: "evidence-rerank",
-      prompt: "x".repeat(10_000),
-    });
-
-    expect(cacheControl).toBeDefined();
-  });
-
-  it("caches adjudication prompts over 5KB by default", () => {
-    const cacheControl = resolvePromptCacheControl({
-      purpose: "adjudication",
-      prompt: "x".repeat(10_000),
-    });
-
-    expect(cacheControl).toBeDefined();
+  it("does not cache per-record prompts that share no reusable prefix", () => {
+    for (const purpose of [
+      "evidence-rerank",
+      "adjudication",
+      "attributed-claim-extraction",
+    ] as const) {
+      expect(
+        resolvePromptCacheControl({ purpose, prompt: "x".repeat(10_000) }),
+      ).toBeUndefined();
+    }
   });
 
   it("respects custom per-purpose overrides", () => {

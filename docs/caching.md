@@ -26,7 +26,7 @@ The acquisition layer reuses raw and parsed paper materialization when valid. `-
 
 ## Provider prompt caching
 
-Eligible Anthropic calls can use provider prompt caching to reduce repeated-input cost. This is distinct from the persistent exact-result cache and is subject to provider behavior.
+Provider prompt caching is prefix-based and charges a write premium, so it is enabled only where a large prefix is genuinely shared: Scope grounding sends the seed text as a cached prefix and the per-family tracked claim as the suffix, so the seed paper is read from cache for every family after the first. Extraction, reranking, and adjudication prompts are unique per record and are not cached. This is distinct from the persistent exact-result cache and is subject to provider behavior.
 
 ## Provenance and cutover
 

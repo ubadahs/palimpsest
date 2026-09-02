@@ -56,7 +56,10 @@ import {
   classifyPrepareOccurrenceDeterministically,
   type CanonicalPrepareAdapters,
 } from "./canonical-prepare.js";
-import type { CanonicalScopeAdapters } from "./canonical-scope.js";
+import {
+  canonicalScopeGroundingOutputSchema,
+  type CanonicalScopeAdapters,
+} from "./canonical-scope.js";
 import {
   contentAddressedExternalExecution,
   contentAddressedModelExecution,
@@ -1213,7 +1216,7 @@ export function buildCanonicalScopeAdapters(
     },
 
     groundFamily: async ({ seed, family, seedText }) => {
-      const prompt = buildScopeGroundingPrompt({
+      const promptParts = buildScopeGroundingPrompt({
         trackedClaim: family.trackedClaim,
         seedTitle:
           seed.resolution.status === "resolved"
@@ -1221,6 +1224,7 @@ export function buildCanonicalScopeAdapters(
             : seed.doi,
         blocks: seedText.blocks,
       });
+      const prompt = `${promptParts.prefix}${promptParts.suffix}`;
       const model = deps.runConfig.scope.groundingModel;
       const thinking = mapLlmCallThinking(
         model,
@@ -1243,7 +1247,8 @@ export function buildCanonicalScopeAdapters(
         const result = await deps.llmClient.generateText({
           purpose: "seed-grounding",
           model,
-          prompt,
+          promptPrefix: promptParts.prefix,
+          promptSuffix: promptParts.suffix,
           context: { stageKey: "scope" },
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
@@ -1671,6 +1676,10 @@ export function parseCanonicalAttributedClaimExtractionResponse(
   }
 }
 
+/**
+ * The grounding prompt is split so the seed text (identical for every family
+ * of a seed) is a cacheable prefix and only the tracked claim varies.
+ */
 function buildScopeGroundingPrompt(input: {
   trackedClaim: string;
   seedTitle: string;
@@ -1680,7 +1689,7 @@ function buildScopeGroundingPrompt(input: {
     sectionTitle?: string | undefined;
     blockKind: string;
   }>;
-}): string {
+}): { prefix: string; suffix: string } {
   const blockText = input.blocks
     .map((block) => {
       const section = block.sectionTitle
@@ -1690,7 +1699,7 @@ function buildScopeGroundingPrompt(input: {
     })
     .join("\n\n");
 
-  return `You are assisting a metascience project that audits citation fidelity.
+  const prefix = `You are assisting a metascience project that audits citation fidelity.
 
 Ground the tracked claim against the immutable seed-text blocks below. Quotes must be exact contiguous substrings of the referenced block.
 
@@ -1698,13 +1707,14 @@ Ground the tracked claim against the immutable seed-text blocks below. Quotes mu
 
 Title: ${input.seedTitle}
 
-## Tracked claim
-
-"${input.trackedClaim}"
-
 ## Seed-text blocks
 
 ${blockText}
+
+`;
+  const suffix = `## Tracked claim
+
+"${input.trackedClaim}"
 
 ## Response format
 
@@ -1719,59 +1729,18 @@ Rules:
 - grounded/ambiguous require at least one supportSpan with an exact quote and correct blockId
 - not_found must use an empty supportSpans array
 - never invent blockIds`;
+  return { prefix, suffix };
 }
-
-const scopeGroundingResponseSchema = z.discriminatedUnion("status", [
-  z
-    .object({
-      status: z.literal("grounded"),
-      detailReason: z.string().min(1),
-      supportSpans: z
-        .array(
-          z
-            .object({
-              verbatimQuote: z.string().min(1),
-              blockId: z.string().min(1),
-            })
-            .strict(),
-        )
-        .min(1),
-    })
-    .strict(),
-  z
-    .object({
-      status: z.literal("ambiguous"),
-      detailReason: z.string().min(1),
-      supportSpans: z
-        .array(
-          z
-            .object({
-              verbatimQuote: z.string().min(1),
-              blockId: z.string().min(1),
-            })
-            .strict(),
-        )
-        .min(1),
-    })
-    .strict(),
-  z
-    .object({
-      status: z.literal("not_found"),
-      detailReason: z.string().min(1),
-      supportSpans: z.array(z.never()).length(0),
-    })
-    .strict(),
-]);
 
 function parseScopeGroundingResponse(
   rawText: string,
 ):
-  | { ok: true; data: z.infer<typeof scopeGroundingResponseSchema> }
+  | { ok: true; data: z.infer<typeof canonicalScopeGroundingOutputSchema> }
   | { ok: false; error: string } {
   try {
     const jsonSlice = extractJsonFromModelText(rawText);
     const parsed: unknown = JSON.parse(jsonSlice);
-    const result = scopeGroundingResponseSchema.safeParse(parsed);
+    const result = canonicalScopeGroundingOutputSchema.safeParse(parsed);
     if (result.success) return { ok: true, data: result.data };
     const issue = result.error.issues[0];
     return {
