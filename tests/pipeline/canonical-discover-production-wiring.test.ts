@@ -9,7 +9,7 @@ import type { AppConfig } from "../../src/config/app-config.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import type { ResolvedPaper } from "../../src/domain/common.js";
 import type {
-  GenerateTextParams,
+  GenerateObjectParams,
   LLMClient,
 } from "../../src/integrations/llm-client.js";
 import type { CitingWorksResult } from "../../src/integrations/openalex.js";
@@ -166,33 +166,37 @@ function mockedFullTextAdapters(jatsXml: string): FullTextFetchAdapters {
 
 function mockedLlmClient(): LLMClient {
   return {
-    generateText: (params: GenerateTextParams) => {
+    generateObject: (params: GenerateObjectParams) => {
       const promptText =
         typeof params.prompt === "string"
           ? params.prompt
           : (params.promptPrefix ?? "");
       const wantsPvalb = promptText.toLowerCase().includes("pvalb");
-      const text = JSON.stringify({
-        claims: wantsPvalb
-          ? [
-              {
-                text: PVALB_CLAIM,
-                supportSpanText: "Pvalb+ fast-spiking",
-                confidence: "high",
-              },
-            ]
-          : [
-              {
-                text: "GABAergic interneurons play an important role in the brain.",
-                supportSpanText:
-                  "GABAergic interneurons play an important role",
-                confidence: "medium",
-              },
-            ],
-        reason: "Fixture extraction from prompt context.",
-      });
+      const object = promptText.includes("clustering claims")
+        ? {
+            clusters: [{ canonicalClaim: PVALB_CLAIM, claims: [1] }],
+          }
+        : {
+            claims: wantsPvalb
+              ? [
+                  {
+                    text: PVALB_CLAIM,
+                    supportSpanText: "Pvalb+ fast-spiking",
+                    confidence: "high",
+                  },
+                ]
+              : [
+                  {
+                    text: "GABAergic interneurons play an important role in the brain.",
+                    supportSpanText:
+                      "GABAergic interneurons play an important role",
+                    confidence: "medium",
+                  },
+                ],
+            reason: "Fixture extraction from prompt context.",
+          };
       return Promise.resolve({
-        text,
+        object,
         record: {
           purpose: "attributed-claim-extraction",
           model: params.model,
@@ -211,8 +215,8 @@ function mockedLlmClient(): LLMClient {
         },
       });
     },
-    generateObject: () => {
-      throw new Error("generateObject unused");
+    generateText: () => {
+      throw new Error("canonical adapters use structured outputs");
     },
     getLedger: () => ({
       totalCalls: 0,

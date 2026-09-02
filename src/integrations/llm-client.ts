@@ -219,15 +219,24 @@ type GenerateTextResult = {
   record: LLMCallRecord;
 };
 
-type GenerateObjectParams<T extends z.ZodType> = {
+export type GenerateObjectParams<T extends z.ZodType = z.ZodType> = (
+  | { prompt: string; promptPrefix?: never; promptSuffix?: never }
+  | { prompt?: never; promptPrefix: string; promptSuffix: string }
+) & {
   purpose: LLMPurpose;
   model?: string;
-  prompt: string;
   schema: T;
+  /**
+   * Structured output is enforced by the provider, so temperature is safe to
+   * set: a lower value cannot produce an unparseable reply any more.
+   */
   temperature?: number;
+  thinking?: ThinkingConfig;
   context?: LLMCallContext;
   /** Opt in to persistent exact-result caching. */
   exactCache?: ExactCacheConfig;
+  /** Hard cap on generated tokens (thinking included); defaults to 16k. */
+  maxOutputTokens?: number;
 };
 
 type GenerateObjectResult<T> = {
@@ -588,17 +597,24 @@ type CachedPrefixTextPart = {
   };
 };
 
+type PromptShapedRequest = {
+  purpose: LLMPurpose;
+  prompt?: string | undefined;
+  promptPrefix?: string | undefined;
+  promptSuffix?: string | undefined;
+};
+
 function hasPromptPrefix(
-  request: GenerateTextParams,
-): request is Extract<
-  GenerateTextParams,
-  { promptPrefix: string; promptSuffix: string }
-> {
+  request: PromptShapedRequest,
+): request is PromptShapedRequest & {
+  promptPrefix: string;
+  promptSuffix: string;
+} {
   return typeof request.promptPrefix === "string";
 }
 
-function buildGenerateTextCallInput(params: {
-  request: GenerateTextParams;
+function buildModelCallInput(params: {
+  request: PromptShapedRequest;
   promptCaching?: PromptCachingOptions | undefined;
 }):
   | {
@@ -650,13 +666,16 @@ function buildGenerateTextCallInput(params: {
     };
   }
 
+  // Either shape is present by construction; the union that reaches here has
+  // already been narrowed by `hasPromptPrefix`.
+  const prompt = request.prompt ?? "";
   const cacheControl = resolvePromptCacheControl({
     purpose: request.purpose,
-    prompt: request.prompt,
+    prompt,
     options: params.promptCaching,
   });
 
-  return { prompt: request.prompt, cacheControl };
+  return { prompt, ...(cacheControl ? { cacheControl } : {}) };
 }
 
 function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
@@ -782,11 +801,11 @@ function extractCacheCreationFromRawUsage(rawUsage: unknown):
   };
 }
 
-function resolveFullPrompt(params: GenerateTextParams): string {
+function resolveFullPrompt(params: PromptShapedRequest): string {
   if (typeof params.promptPrefix === "string") {
-    return params.promptPrefix + params.promptSuffix;
+    return params.promptPrefix + (params.promptSuffix ?? "");
   }
-  return params.prompt;
+  return params.prompt ?? "";
 }
 
 export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
@@ -965,7 +984,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const modelId = params.model ?? defaultModel;
       const context = { ...options.defaultContext, ...params.context };
 
-      const promptInput = buildGenerateTextCallInput({
+      const promptInput = buildModelCallInput({
         request: params,
         promptCaching: options.promptCaching,
       });
@@ -1086,41 +1105,55 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const modelId = params.model ?? defaultModel;
       const context = { ...options.defaultContext, ...params.context };
 
-      // --- Exact-result cache lookup ---
       const sf = schemaFingerprint(params.schema);
-      const cacheControl = resolvePromptCacheControl({
-        purpose: params.purpose,
-        prompt: params.prompt,
-        options: options.promptCaching,
+      const promptInput = buildModelCallInput({
+        request: params,
+        promptCaching: options.promptCaching,
       });
-      const promptCachePolicy = promptCachePolicyKey(cacheControl);
+      const promptCachePolicy = promptCachePolicyKey(promptInput.cacheControl);
       const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
         ? "bypass"
         : "allow";
+      const cacheKeyInput = {
+        purpose: params.purpose,
+        model: modelId,
+        prompt: resolveFullPrompt(params),
+        thinkingConfig: thinkingConfigKey(params.thinking),
+        keyVersion: params.exactCache?.keyVersion ?? "",
+        schemaFingerprint: sf,
+        promptCachePolicy,
+        cachePolicy: cacheAccessPolicy,
+      };
 
+      // --- Exact-result cache lookup ---
       if (db && params.exactCache && !forceRefresh) {
-        const cacheKey = computeLLMCacheKey({
-          purpose: params.purpose,
-          model: modelId,
-          prompt: params.prompt,
-          thinkingConfig: "",
-          keyVersion: params.exactCache.keyVersion,
-          schemaFingerprint: sf,
-          promptCachePolicy,
-          cachePolicy: cacheAccessPolicy,
-        });
-        const cached = getCachedLLMResult(db, cacheKey);
+        const cached = getCachedLLMResult(
+          db,
+          computeLLMCacheKey(cacheKeyInput),
+        );
         if (cached) {
           const parsed = JSON.parse(cached.responseText) as z.infer<T>;
-          const record = buildCacheHitRecord(params.purpose, modelId, context);
+          const record = buildCacheHitRecord(
+            params.purpose,
+            modelId,
+            context,
+            params.thinking,
+          );
           return { object: parsed, record };
         }
       }
 
       const startMs = Date.now();
-      const providerOptions = cacheControl
-        ? { anthropic: { cacheControl } }
-        : undefined;
+      const anthropicProviderOptions = {
+        ...buildAnthropicThinkingProviderOptions(params.thinking),
+        ...(promptInput.cacheControl
+          ? { cacheControl: promptInput.cacheControl }
+          : {}),
+      };
+      const providerOptions =
+        Object.keys(anthropicProviderOptions).length > 0
+          ? { anthropic: anthropicProviderOptions }
+          : undefined;
 
       try {
         const result = await withRetry(
@@ -1128,7 +1161,11 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             generateObject({
               model: anthropic(modelId),
               schema: params.schema,
-              prompt: params.prompt,
+              maxOutputTokens:
+                params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+              ...(promptInput.prompt != null
+                ? { prompt: promptInput.prompt }
+                : { messages: promptInput.messages }),
               ...(params.temperature != null
                 ? { temperature: params.temperature }
                 : {}),
@@ -1145,6 +1182,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           result.usage,
           Date.now() - startMs,
           result.finishReason,
+          params.thinking,
         );
 
         if (record.truncated) {
@@ -1156,16 +1194,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         // --- Exact-result cache store (skip truncated responses) ---
         if (db && params.exactCache && !forceRefresh && !record.truncated) {
           storeLLMResult(db, {
-            cacheKey: computeLLMCacheKey({
-              purpose: params.purpose,
-              model: modelId,
-              prompt: params.prompt,
-              thinkingConfig: "",
-              keyVersion: params.exactCache.keyVersion,
-              schemaFingerprint: sf,
-              promptCachePolicy,
-              cachePolicy: cacheAccessPolicy,
-            }),
+            cacheKey: computeLLMCacheKey(cacheKeyInput),
             responseText: JSON.stringify(result.object),
             createdAt: new Date().toISOString(),
           });
@@ -1178,6 +1207,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           modelId,
           context,
           latencyMs: Date.now() - startMs,
+          ...(params.thinking != null ? { thinking: params.thinking } : {}),
           error,
         });
         const provider = classifyProviderError(error);

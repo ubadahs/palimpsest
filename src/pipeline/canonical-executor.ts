@@ -135,6 +135,7 @@ export type CanonicalPipelineCliOverrides = {
   evidenceSelectionLimit?: number | undefined;
   adjudicateModel: string | undefined;
   adjudicateThinking: boolean | undefined;
+  adjudicateEffort?: "low" | "medium" | "high" | "max" | undefined;
   /** Explicit stage to force-rerun (invalidates downstream). */
   rerunFromStage: StageKey | undefined;
 };
@@ -530,6 +531,9 @@ function buildConfigFromCli(
       ...(args.adjudicateModel != null ? { model: args.adjudicateModel } : {}),
       ...(args.adjudicateThinking != null
         ? { thinking: args.adjudicateThinking }
+        : {}),
+      ...(args.adjudicateEffort != null
+        ? { effort: args.adjudicateEffort }
         : {}),
     },
   });

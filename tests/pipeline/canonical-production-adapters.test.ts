@@ -8,7 +8,7 @@ import type { AppConfig } from "../../src/config/app-config.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import { LLM_CACHE_VERSIONS } from "../../src/config/llm-versions.js";
 import type {
-  GenerateTextParams,
+  GenerateObjectParams,
   LLMClient,
 } from "../../src/integrations/llm-client.js";
 import {
@@ -18,7 +18,7 @@ import {
   buildCanonicalScopeAdapters,
   mapFullTextAcquisitionFailure,
   openAlexNeighborhoodSeedId,
-  parseCanonicalAttributedClaimExtractionResponse,
+  canonicalAttributedClaimExtractionOutputSchema,
   selectSeedReferenceMentions,
 } from "../../src/pipeline/canonical-production-adapters.js";
 import { createCanonicalProvenanceStore } from "../../src/pipeline/canonical-provenance-store.js";
@@ -55,31 +55,30 @@ function appConfig(): AppConfig {
   };
 }
 
-function llmClientReturning(text: string): LLMClient {
+const FIXTURE_RECORD = {
+  purpose: "attributed-claim-extraction",
+  model: "fixture-model",
+  attempted: true,
+  successful: true,
+  failed: false,
+  billable: false,
+  thinkingEnabled: false,
+  inputTokens: 1,
+  outputTokens: 1,
+  totalTokens: 2,
+  latencyMs: 1,
+  finishReason: "stop",
+  timestamp: "2026-07-17T12:00:00.000Z",
+  estimatedCostUsd: 0,
+} as const;
+
+/** Answers structured-output calls with a fixed object. */
+function llmClientReturning(object: unknown): LLMClient {
   return {
-    generateText: () =>
-      Promise.resolve({
-        text,
-        record: {
-          purpose: "attributed-claim-extraction",
-          model: "fixture-model",
-          attempted: true,
-          successful: true,
-          failed: false,
-          billable: false,
-          thinkingEnabled: false,
-          inputTokens: 1,
-          outputTokens: 1,
-          totalTokens: 2,
-          latencyMs: 1,
-          finishReason: "stop",
-          timestamp: "2026-07-17T12:00:00.000Z",
-          estimatedCostUsd: 0,
-        },
-      }),
-    generateObject: () => {
-      throw new Error("not used");
+    generateText: () => {
+      throw new Error("canonical adapters use structured outputs");
     },
+    generateObject: () => Promise.resolve({ object, record: FIXTURE_RECORD }),
     getLedger: () => ({
       totalCalls: 0,
       totalAttemptedCalls: 0,
@@ -96,11 +95,11 @@ function llmClientReturning(text: string): LLMClient {
   } as LLMClient;
 }
 
-function discoverAdapterFor(text: string) {
+function discoverAdapterFor(object: unknown) {
   return buildCanonicalDiscoverAdapters({
     config: appConfig(),
     runConfig: analysisRunConfigSchema.parse({}),
-    llmClient: llmClientReturning(text),
+    llmClient: llmClientReturning(object),
     provenanceStore: makeStore(),
     fullTextAdapters: {
       fetchUrl: () => Promise.resolve({ ok: false, error: "not used" }),
@@ -185,9 +184,9 @@ const UNCLEAR_SUPPORT_SPAN =
   "the ventral relay receives input from several retinal cell classes";
 const UNCLEAR_CONTEXT = `In the mouse, ${UNCLEAR_SUPPORT_SPAN} [1]. That arrangement has occupied a good deal of the literature over the past decade.`;
 
-function roleClassifierReply(body: unknown) {
+function roleClassifierReply(object: unknown) {
   return {
-    text: typeof body === "string" ? body : JSON.stringify(body),
+    object,
     record: {
       purpose: "citation-role-classification" as const,
       model: "claude-haiku-4-5",
@@ -208,8 +207,8 @@ function roleClassifierReply(body: unknown) {
 }
 
 function prepareAdapterFor(
-  generateText: (params: GenerateTextParams) => Promise<{
-    text: string;
+  generateObject: (params: GenerateObjectParams) => Promise<{
+    object: unknown;
     record: ReturnType<typeof roleClassifierReply>["record"];
   }>,
 ) {
@@ -217,8 +216,8 @@ function prepareAdapterFor(
     config: appConfig(),
     runConfig: analysisRunConfigSchema.parse({}),
     llmClient: {
-      generateText,
-      generateObject: () => {
+      generateObject,
+      generateText: () => {
         throw new Error("not used");
       },
       getLedger: () => {
@@ -337,7 +336,7 @@ describe("canonical production adapter seams", () => {
     const adapter = buildCanonicalDiscoverAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({}),
-      llmClient: llmClientReturning("{}"),
+      llmClient: llmClientReturning({}),
       provenanceStore: makeStore(),
       fullTextAdapters: {
         fetchUrl: () => Promise.resolve({ ok: false, error: "not used" }),
@@ -407,7 +406,7 @@ describe("canonical production adapter seams", () => {
     const s2Adapter = buildCanonicalDiscoverAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({}),
-      llmClient: llmClientReturning("{}"),
+      llmClient: llmClientReturning({}),
       provenanceStore: s2Store,
       fullTextAdapters: {
         fetchUrl: () => Promise.resolve({ ok: false, error: "not used" }),
@@ -576,22 +575,18 @@ describe("canonical production adapter seams", () => {
   });
 
   it.each([
-    [
-      "zero",
-      JSON.stringify({ claims: [], reason: "No empirical attribution." }),
-      0,
-    ],
+    ["zero", { claims: [], reason: "No empirical attribution." }, 0],
     [
       "one",
-      JSON.stringify({
+      {
         claims: [{ text: "Claim A", confidence: "high" }],
         reason: "One claim.",
-      }),
+      },
       1,
     ],
     [
       "multiple",
-      JSON.stringify({
+      {
         claims: [
           {
             text: "Claim A",
@@ -605,41 +600,32 @@ describe("canonical production adapter seams", () => {
           },
         ],
         reason: "Two distinct claims.",
-      }),
+      },
       2,
     ],
-  ])("preserves %s extraction outputs", (_label, text, count) => {
-    const parsed = parseCanonicalAttributedClaimExtractionResponse(text);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.data.claims).toHaveLength(count);
+  ])("preserves %s extraction outputs", (_label, reply, count) => {
+    const parsed =
+      canonicalAttributedClaimExtractionOutputSchema.safeParse(reply);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.claims).toHaveLength(count);
   });
 
   it("rejects malformed extraction output", () => {
     expect(
-      parseCanonicalAttributedClaimExtractionResponse(
-        JSON.stringify({ claims: [{ text: "" }] }),
-      ).ok,
+      canonicalAttributedClaimExtractionOutputSchema.safeParse({
+        claims: [{ text: "" }],
+      }).success,
     ).toBe(false);
   });
 
   it("maps all extracted claims through the Discover adapter", async () => {
-    const adapter = discoverAdapterFor(
-      JSON.stringify({
-        claims: [
-          {
-            text: "Claim A",
-            supportSpanText: "claim A",
-            confidence: "high",
-          },
-          {
-            text: "Claim B",
-            supportSpanText: "claim B",
-            confidence: "medium",
-          },
-        ],
-        reason: "Two claims.",
-      }),
-    );
+    const adapter = discoverAdapterFor({
+      claims: [
+        { text: "Claim A", supportSpanText: "claim A", confidence: "high" },
+        { text: "Claim B", supportSpanText: "claim B", confidence: "medium" },
+      ],
+      reason: "Two claims.",
+    });
     const result = await adapter.extractAttributedClaims({
       seed,
       citingPaper,
@@ -684,7 +670,7 @@ describe("canonical production adapter seams", () => {
   });
 
   it("resolves a regex-unclear role from the model and records the call", async () => {
-    const generateText = vi.fn((_params: GenerateTextParams) =>
+    const generateObject = vi.fn((_params: GenerateObjectParams) =>
       Promise.resolve(
         roleClassifierReply({
           citationRole: "substantive_attribution",
@@ -693,11 +679,11 @@ describe("canonical production adapter seams", () => {
         }),
       ),
     );
-    const adapter = prepareAdapterFor(generateText);
+    const adapter = prepareAdapterFor(generateObject);
     const result = await adapter.classifyCitation(unclearRoleInput());
 
-    expect(generateText).toHaveBeenCalledTimes(1);
-    const prompt = generateText.mock.calls[0]![0].prompt!;
+    expect(generateObject).toHaveBeenCalledTimes(1);
+    const prompt = generateObject.mock.calls[0]![0].prompt!;
     expect(prompt).toContain("▶");
     expect(prompt).toContain(UNCLEAR_SUPPORT_SPAN);
     expect(prompt).toContain("Ventral relay connectivity");
@@ -766,13 +752,13 @@ describe("canonical production adapter seams", () => {
   });
 
   it("records adaptive thinking and cache provenance for Scope grounding", async () => {
-    const generateText = vi.fn((params: GenerateTextParams) =>
+    const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
-        text: JSON.stringify({
+        object: {
           status: "not_found",
           detailReason: "No support",
           supportSpans: [],
-        }),
+        },
         record: {
           purpose: "seed-grounding" as const,
           model: params.model ?? "claude-sonnet-4-6",
@@ -803,14 +789,14 @@ describe("canonical production adapter seams", () => {
         },
       }),
       llmClient: {
-        generateText,
-        generateObject: () => {
+        generateObject,
+        generateText: () => {
           throw new Error("not used");
         },
         getLedger: () => {
           throw new Error("not used");
         },
-      },
+      } as unknown as LLMClient,
       provenanceStore: store,
       forceRefresh: true,
     });
@@ -854,15 +840,15 @@ describe("canonical production adapter seams", () => {
       };
     };
 
-    expect(generateText).toHaveBeenCalledOnce();
-    expect(generateText.mock.calls[0]![0]).toMatchObject({
+    expect(generateObject).toHaveBeenCalledOnce();
+    expect(generateObject.mock.calls[0]![0]).toMatchObject({
       purpose: "seed-grounding",
       model: "claude-sonnet-4-6",
       thinking: { type: "adaptive", effort: "high" },
       exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
     });
     // The seed text is the shared, cacheable prefix; only the claim varies.
-    const groundingCall = generateText.mock.calls[0]![0];
+    const groundingCall = generateObject.mock.calls[0]![0];
     expect(groundingCall.promptPrefix).toMatch(/## Seed-text blocks/);
     expect(groundingCall.promptPrefix).not.toMatch(/## Tracked claim/);
     expect(groundingCall.promptSuffix).toMatch(/## Tracked claim/);
@@ -884,7 +870,7 @@ describe("canonical production adapter seams", () => {
   });
 
   it("uses legacy budget thinking for Haiku extraction when enabled", async () => {
-    const generateText = vi.fn((params: GenerateTextParams) =>
+    const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
         text: JSON.stringify({ claims: [], reason: "None." }),
         record: {
@@ -916,25 +902,25 @@ describe("canonical production adapter seams", () => {
         },
       }),
       llmClient: {
-        generateText,
-        generateObject: () => {
+        generateObject,
+        generateText: () => {
           throw new Error("not used");
         },
         getLedger: () => {
           throw new Error("not used");
         },
-      },
+      } as unknown as LLMClient,
       provenanceStore: makeStore(),
     });
 
     await adapter.extractAttributedClaims({ seed, citingPaper, mention });
-    expect(generateText.mock.calls[0]![0]).toMatchObject({
+    expect(generateObject.mock.calls[0]![0]).toMatchObject({
       thinking: { type: "enabled", budgetTokens: 8_000 },
     });
   });
 
   it("uses adaptive thinking for Opus adjudication when enabled", async () => {
-    const generateText = vi.fn((params: GenerateTextParams) =>
+    const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
         text: JSON.stringify({
           fidelityLabel: "F",
@@ -967,14 +953,14 @@ describe("canonical production adapter seams", () => {
         adjudicate: { model: "claude-opus-4-6", thinking: true },
       }),
       llmClient: {
-        generateText,
-        generateObject: () => {
+        generateObject,
+        generateText: () => {
           throw new Error("not used");
         },
         getLedger: () => {
           throw new Error("not used");
         },
-      },
+      } as unknown as LLMClient,
       provenanceStore: makeStore(),
     });
 
@@ -1002,7 +988,7 @@ describe("canonical production adapter seams", () => {
       },
     } as unknown as Parameters<NonNullable<typeof adapter.adjudicate>>[0]);
 
-    expect(generateText.mock.calls[0]![0]).toMatchObject({
+    expect(generateObject.mock.calls[0]![0]).toMatchObject({
       thinking: { type: "adaptive", effort: "high" },
     });
   });
