@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { compareCodeUnits } from "../shared/order.js";
+import {
+  addDuplicateIdentifierIssue,
+  sameArtifactReference,
+} from "./artifacts/checks.js";
 
 import { confidenceSchema } from "../domain/classification.js";
 import {
@@ -115,12 +119,7 @@ export const adjudicateFailureCodeSchema = z.union([
 ]);
 export type AdjudicateFailureCode = z.infer<typeof adjudicateFailureCodeSchema>;
 
-/**
- * Categorical kinds of alteration a `D` verdict can name. These record the
- * dimension and direction of a mutation so drift can be aggregated across
- * citers and hops; they never route the verdict.
- */
-
+/** Which way the citing version moved relative to the source; `none` for F. */
 export const mutationDirectionSchema = z.enum([
   "strengthened",
   "weakened",
@@ -490,15 +489,6 @@ export function validateAdjudicateArtifactLineage(
   // envelope. What remains here is specific to Adjudicate: a fully gated run
   // must not claim model provenance, and a modeled one must carry it.
   const { lineage } = artifact.payload;
-  if (artifact.decisions.length !== artifact.payload.records.length) {
-    context.addIssue({
-      code: "custom",
-      path: ["decisions"],
-      message:
-        "Adjudicate must record exactly one outcome decision per Evidence record",
-    });
-  }
-
   const modeledRecords = artifact.payload.records.filter(
     (record) =>
       record.status === "adjudicated" ||
@@ -507,21 +497,6 @@ export function validateAdjudicateArtifactLineage(
   );
   const hasModelOutcome = modeledRecords.length > 0;
   if (hasModelOutcome) {
-    if (artifact.execution.kind !== "model") {
-      context.addIssue({
-        code: "custom",
-        path: ["execution", "kind"],
-        message:
-          "Model adjudication requires non-deterministic model execution metadata",
-      });
-    }
-    if (artifact.execution.replayableFromInputs !== false) {
-      context.addIssue({
-        code: "custom",
-        path: ["execution", "replayableFromInputs"],
-        message: "Model adjudication cannot claim replayability from inputs",
-      });
-    }
     for (const record of modeledRecords) {
       const execution = record.execution;
       const promptMatches = artifact.provenance.prompts.filter(
@@ -737,53 +712,6 @@ function sameCanonicalCollection(
   return (
     canonicalSerialize(normalized(left)) ===
     canonicalSerialize(normalized(right))
-  );
-}
-
-function addDuplicateIdentifierIssue(
-  values: readonly string[],
-  path: Array<string | number>,
-  context: z.RefinementCtx,
-): void {
-  const seen = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) {
-      context.addIssue({
-        code: "custom",
-        path,
-        message: `Duplicate identifier: ${value}`,
-      });
-      return;
-    }
-    seen.add(value);
-  }
-}
-
-function sameArtifactReference(
-  left:
-    | {
-        artifactId: string;
-        contentHash: string;
-        role: string;
-        canonicalStage?: string | undefined;
-        uri?: string | undefined;
-      }
-    | undefined,
-  right: {
-    artifactId: string;
-    contentHash: string;
-    role: string;
-    canonicalStage?: string | undefined;
-    uri?: string | undefined;
-  },
-): boolean {
-  return (
-    left != null &&
-    left.artifactId === right.artifactId &&
-    left.contentHash === right.contentHash &&
-    left.role === right.role &&
-    left.canonicalStage === right.canonicalStage &&
-    left.uri === right.uri
   );
 }
 

@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import { createBoundaryParser } from "../shared/boundary.js";
 import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
+import { findDuplicate } from "../contract/artifacts/checks.js";
 
 import { normalizeDiscoverClaimText } from "../contract/claim-unit.js";
 
@@ -1499,24 +1501,4 @@ function throwIfFatal(input: {
   }
 }
 
-function parseAdapterOutput<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0];
-  throw new CanonicalDiscoverBoundaryError(
-    `Invalid ${label} adapter output at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
-  );
-}
-
-function findDuplicate(values: readonly string[]): string | undefined {
-  const seen = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) return value;
-    seen.add(value);
-  }
-  return undefined;
-}
+const parseAdapterOutput = createBoundaryParser(CanonicalDiscoverBoundaryError);

@@ -1,15 +1,13 @@
-import { canonicalSerialize } from "./stable-identity.js";
+import { canonicalSerialize, compareCodeUnits } from "./stable-identity.js";
 
 /**
  * Deterministic ordering and deduplication for artifact content.
  *
  * Every canonical artifact is content-hashed, so any list inside one must be
- * ordered the same way on every machine. `localeCompare` is not: it depends on
- * the process locale and on ICU version. Code-unit comparison is.
+ * ordered the same way on every machine. `compareCodeUnits` lives next to the
+ * canonical serializer so this module depends on it, not the other way round.
  */
-export function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+export { compareCodeUnits };
 
 /** Deduplicate by canonical serialization, then order by that serialization. */
 export function uniqueSorted<T>(values: readonly T[]): T[] {

@@ -34,7 +34,7 @@ npm run ui:dev         # local Next.js UI (orchestration + inspection)
 npm run ui:build
 npm run ui:start
 npm --workspace @palimpsest/ui run test   # UI workspace tests (Vitest + happy-dom)
-npx knip --reporter compact               # optional dead-code / deps (see repo knip.json)
+npx knip --reporter compact               # dead-code / deps check (knip is not a dependency; npx fetches it)
 ```
 
 ## Architecture
@@ -55,7 +55,7 @@ src/
   review/       Append-only report-bound human review store (package export: palimpsest/review)
   storage/      SQLite schema, migrations (sequential .sql files), repositories
   shared/       Cross-cutting primitives
-  contract/     Shared stage/run types; package exports: palimpsest/contract (+ /server)
+  contract/     Shared stage/run types; artifacts/ holds per-stage artifact schemas and lineage checks; package exports: palimpsest/contract (+ /server)
 tests/          Mirrors src/ structure
 ```
 
@@ -82,7 +82,7 @@ tests/          Mirrors src/ structure
 - **Migrations**: Sequential `.sql` files in `src/storage/migrations/` named `NNNN_description.sql`. Applied via `schema_migrations` table. Never modify existing migration files.
 - **ESM modules**: The project uses `"type": "module"` with NodeNext resolution. All local imports must use `.js` extensions.
 - **Type imports**: ESLint enforces `import type` for type-only imports (`@typescript-eslint/consistent-type-imports`).
-- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/contract/inspector-payloads.ts` via `buildStageInspectorPayload()`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing. Report Families read the canonical `familyMutations` section of the Report artifact (`buildReportInspectorFamilies` joins inspector rows onto it; it is not a second producer); human review is an append-only sidecar under `palimpsest/review` / `data/runs/<runId>/review/<reportArtifactId>/`, never a seventh stage and never a rewrite of canonical machine artifacts. The review workspace opens blinded, the reviewer records their own `F`/`D`/`E`/`U`/`not_adjudicable` label plus mutation kinds, and agreement is derived at export time; the CSV export collapses records to `family × citing-paper × claim` units via `buildClaimUnitKey`, the same rule the Report counts with.
+- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/contract/inspector-payloads.ts` via `buildStageInspectorPayload()` in `src/contract/selectors.ts`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing. Report Families read the canonical `familyMutations` section of the Report artifact (`buildReportInspectorFamilies` joins inspector rows onto it; it is not a second producer); human review is an append-only sidecar under `palimpsest/review` / `data/runs/<runId>/review/<reportArtifactId>/`, never a seventh stage and never a rewrite of canonical machine artifacts. The review workspace opens blinded, the reviewer records their own `F`/`D`/`E`/`U`/`not_adjudicable` label plus mutation kinds, and agreement is derived at export time; the CSV export collapses records to `family × citing-paper × claim` units via `buildClaimUnitKey`, the same rule the Report counts with.
 
 ### Domain Model
 

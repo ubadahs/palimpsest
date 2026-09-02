@@ -1,4 +1,5 @@
 import { compareCodeUnits } from "../shared/order.js";
+import { normalizeWhitespace } from "../contract/artifacts/checks.js";
 
 import {
   buildEvidenceBm25RunId,
@@ -366,8 +367,4 @@ function buildBm25Configuration(
     candidateLimit,
     tieBreaker: "chunk-id-code-unit-ascending",
   };
-}
-
-function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
 }

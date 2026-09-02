@@ -33,7 +33,6 @@ function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
     title: "Seed Paper Title",
     doi: "10.1234/seed",
     authors: ["Belicova"],
-    abstract: undefined,
     source: "openalex",
     fullTextHints: {
       providerAvailability: "available",

@@ -6,6 +6,7 @@ import {
   sortedUnique,
   uniqueSorted,
 } from "../shared/order.js";
+import { normalizeWhitespace } from "../contract/artifacts/checks.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
 import {
@@ -700,10 +701,6 @@ function scopeArtifactSchemaForBuild(value: unknown): ScopeArtifact {
   throw new CanonicalScopeBoundaryError(
     `Invalid canonical Scope artifact at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
   );
-}
-
-function normalizeWhitespace(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
 }
 
 const parseBoundary = createBoundaryParser(CanonicalScopeBoundaryError);

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
 import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
+import { sameIdentifierSequence } from "../contract/artifacts/checks.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
 import { classifyCitationFunction } from "../classification/classify-citation-function.js";
@@ -741,16 +742,6 @@ function classificationReason(classification: PrepareClassification): string {
   return classification.status === "failed"
     ? classification.reason
     : classification.rationale;
-}
-
-function sameIdentifierSequence(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
-  );
 }
 
 const parseBoundary = createBoundaryParser(CanonicalPrepareBoundaryError);

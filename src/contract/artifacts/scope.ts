@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { parsedBlockKindSchema } from "../../domain/parsing.js";
-import { compareCodeUnits } from "../../shared/order.js";
+import { compareCodeUnits, sortedUnique } from "../../shared/order.js";
 import { buildStableId } from "../../shared/stable-identity.js";
 import {
   artifactReferenceSchema,
@@ -23,7 +23,6 @@ import {
   normalizeWhitespace,
   sameArtifactReference,
   sameIdentifierSequence,
-  sortedUniqueIdentifiers,
 } from "./checks.js";
 
 export type ScopedFamilyIdentityInputs = {
@@ -560,10 +559,10 @@ function validateScopePayload(
     const expectedCandidateIds = familyDecisions
       .map((decision) => decision.candidateId)
       .sort(compareCodeUnits);
-    const expectedClaimRecordIds = sortedUniqueIdentifiers(
+    const expectedClaimRecordIds = sortedUnique(
       familyDecisions.flatMap((decision) => decision.sourceClaimRecordIds),
     );
-    const expectedMentionIds = sortedUniqueIdentifiers(
+    const expectedMentionIds = sortedUnique(
       familyDecisions.flatMap((decision) => decision.memberMentionIds),
     );
     if (!sameIdentifierSequence(family.candidateIds, expectedCandidateIds)) {

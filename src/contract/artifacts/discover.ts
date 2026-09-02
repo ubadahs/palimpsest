@@ -13,13 +13,13 @@ import {
   stableIdentifierSchema,
 } from "../lean-artifact-primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
+import { sortedUnique } from "../../shared/order.js";
 import {
   addDuplicateIdentifierIssue,
   addIssue,
   findDuplicate,
   normalizeDoi,
   normalizeWhitespace,
-  sortedUniqueIdentifiers,
 } from "./checks.js";
 
 export type SeedIdentityInputs = {
@@ -134,7 +134,7 @@ export function buildClaimCandidateId(
     identityKind: "claim-candidate-v1",
     seedId: input.seedId,
     normalizedClaim: normalizeWhitespace(input.normalizedClaim),
-    sourceClaimRecordIds: sortedUniqueIdentifiers(input.sourceClaimRecordIds),
+    sourceClaimRecordIds: sortedUnique(input.sourceClaimRecordIds),
   });
 }
 

@@ -16,10 +16,12 @@ export function createBoundaryParser(
   ): T {
     const parsed = schema.safeParse(value);
     if (parsed.success) return parsed.data;
-    const issue = parsed.error.issues[0];
-    const path = issue?.path.join(".") || "<root>";
-    throw new BoundaryError(
-      `Invalid ${label} at ${path}: ${issue?.message ?? parsed.error.message}`,
-    );
+    throw new BoundaryError(formatZodFailure(`Invalid ${label}`, parsed.error));
   };
+}
+
+/** One-line description of the first Zod issue, with its path. */
+export function formatZodFailure(label: string, error: z.ZodError): string {
+  const issue = error.issues[0];
+  return `${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? error.message}`;
 }

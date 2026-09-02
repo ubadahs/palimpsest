@@ -15,7 +15,7 @@ Critical policy:
 
 - `U` is **not** an operational failure bucket
 - retrieval/provider/classification/gate failures are `not_adjudicated`, `adjudication_failed`, or `invalid_output` — never F/D/E/U
-- ambiguous citation roles (`manual_review_role_ambiguous`, `manual_review_extraction_limited`) stay gated as operational non-verdicts and are not auto-routed to the model
+- ambiguous citation roles (`manual_review_role_ambiguous`, `manual_review_extraction_limited`) stay gated as operational non-verdicts and are not auto-routed to the adjudication model. Prepare may ask a small role-classification model to resolve a citation role the deterministic pass left `unclear`; that call labels the role only and never touches the verdict.
 - `no_lexical_matches` never becomes `E` or `U`
 - confidence may be recorded but never chooses another model or alters the verdict path
 - `D` verdicts name one to three categorical `mutationKinds` and a `direction`; `F`, `E`, and `U` carry none. These fields record which dimension of the source claim moved and are aggregated by Report as `mutationKindCounts` / `mutationDirectionCounts`; they are descriptive and do not route or reweight the verdict

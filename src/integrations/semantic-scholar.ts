@@ -15,7 +15,6 @@ const s2PaperSchema = z
     paperId: z.string(),
     title: z.string().nullable(),
     authors: z.array(z.object({ name: z.string() })).optional(),
-    abstract: z.string().nullable().optional(),
     isOpenAccess: z.boolean().optional(),
     openAccessPdf: z
       .object({ url: z.string().nullable() })
@@ -83,7 +82,6 @@ function toResolvedPaper(paper: S2Paper): ResolvedPaper {
     pmid: paper.externalIds?.PubMed ?? undefined,
     title: paper.title ?? "Untitled",
     authors: (paper.authors ?? []).map((a) => a.name),
-    abstract: paper.abstract ?? undefined,
     source: "semantic_scholar",
     fullTextHints: inferFullTextHints(paper),
     paperType: mapS2Type(paper.publicationTypes),
@@ -160,7 +158,7 @@ function matchesPublicationYear(
 // --- Public API ---
 
 const S2_FIELDS =
-  "paperId,title,authors,abstract,isOpenAccess,openAccessPdf,externalIds,publicationTypes,referenceCount,year";
+  "paperId,title,authors,isOpenAccess,openAccessPdf,externalIds,publicationTypes,referenceCount,year";
 
 export async function resolvePaperByDoi(
   doi: string,

@@ -80,7 +80,6 @@ export type ResolvedPaper = {
   pmid?: string | undefined;
   title: string;
   authors: string[];
-  abstract?: string | undefined;
   source: "openalex" | "semantic_scholar" | "manual";
   fullTextHints: FullTextHints;
   paperType?: string | undefined;
