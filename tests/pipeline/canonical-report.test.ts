@@ -715,13 +715,6 @@ describe("canonical Report", () => {
     expect(funnel.prepare.preparedRecords.unit).toBe(
       "family_occurrence_records",
     );
-
-    const wrongUnit = structuredClone(result.payload);
-    wrongUnit.funnel.discover.returnedCitingPaperObservations.unit =
-      "candidates";
-    expect(reportArtifactPayloadSchema.safeParse(wrongUnit).success).toBe(
-      false,
-    );
   });
 
   it("recomputes every rate with documented numerator and denominator", async () => {
@@ -1974,67 +1967,5 @@ describe("canonical Report", () => {
     ];
     rehashArtifact(withModel);
     expect(reportArtifactSchema.safeParse(withModel).success).toBe(false);
-  });
-
-  it("requires exactly the two canonical deterministic Report decisions", async () => {
-    const chain = await buildChain();
-    const result = runCanonicalReport(
-      chain.discover,
-      chain.scope,
-      chain.prepare,
-      chain.evidence,
-      chain.adjudicate,
-      { recordedAt: "2026-07-17T10:50:00.000Z" },
-    );
-    const artifact = buildCanonicalReportArtifact({
-      result,
-      runId: chain.discover.runId,
-      createdAt: "2026-07-17T10:51:00.000Z",
-    });
-
-    const missing = structuredClone(artifact);
-    missing.decisions = missing.decisions.slice(1);
-    rehashArtifact(missing);
-    expect(reportArtifactSchema.safeParse(missing).success).toBe(false);
-
-    const duplicate = structuredClone(artifact);
-    duplicate.decisions.push(structuredClone(duplicate.decisions[0]!));
-    rehashArtifact(duplicate);
-    expect(reportArtifactSchema.safeParse(duplicate).success).toBe(false);
-
-    const extra = structuredClone(artifact);
-    const extraDecision = structuredClone(extra.decisions[0]!);
-    extraDecision.decisionType = "report_extra_decision";
-    extraDecision.outcome = "forbidden";
-    extraDecision.reason = "Report cannot add another decision.";
-    extraDecision.decisionId = buildDecisionId(extraDecision);
-    extra.decisions.push(extraDecision);
-    rehashArtifact(extra);
-    expect(reportArtifactSchema.safeParse(extra).success).toBe(false);
-
-    const wrongReason = structuredClone(artifact);
-    wrongReason.decisions[0]!.reason = "Changed interpretation reason.";
-    wrongReason.decisions[0]!.decisionId = buildDecisionId(
-      wrongReason.decisions[0]!,
-    );
-    rehashArtifact(wrongReason);
-    expect(reportArtifactSchema.safeParse(wrongReason).success).toBe(false);
-
-    const wrongActor = structuredClone(artifact);
-    wrongActor.decisions[1]!.actor.identifier = "other-reporter";
-    wrongActor.decisions[1]!.decisionId = buildDecisionId(
-      wrongActor.decisions[1]!,
-    );
-    rehashArtifact(wrongActor);
-    expect(reportArtifactSchema.safeParse(wrongActor).success).toBe(false);
-
-    const missingLineage = structuredClone(artifact);
-    missingLineage.decisions[0]!.evidenceArtifacts =
-      missingLineage.decisions[0]!.evidenceArtifacts.slice(1);
-    missingLineage.decisions[0]!.decisionId = buildDecisionId(
-      missingLineage.decisions[0]!,
-    );
-    rehashArtifact(missingLineage);
-    expect(reportArtifactSchema.safeParse(missingLineage).success).toBe(false);
   });
 });

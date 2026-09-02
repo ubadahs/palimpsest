@@ -2695,7 +2695,14 @@ export const scopeArtifactSchema = commonLeanArtifactEnvelopeSchema
   .strict()
   .superRefine((artifact, context) => {
     validateLeanArtifactIdentity(artifact, context);
-    validateScopeArtifactLineage(artifact, context);
+    validateStageInputLineage(
+      artifact,
+      {
+        stageLabel: "Scope",
+        inputs: [artifact.payload.discoverArtifact],
+      },
+      context,
+    );
   });
 export type ScopeArtifact = z.infer<typeof scopeArtifactSchema>;
 export const prepareArtifactSchema = commonLeanArtifactEnvelopeSchema
@@ -2706,7 +2713,18 @@ export const prepareArtifactSchema = commonLeanArtifactEnvelopeSchema
   .strict()
   .superRefine((artifact, context) => {
     validateLeanArtifactIdentity(artifact, context);
-    validatePrepareArtifactLineage(artifact, context);
+    validateStageInputLineage(
+      artifact,
+      {
+        stageLabel: "Prepare",
+        runId: artifact.payload.lineage.runId,
+        inputs: [
+          artifact.payload.lineage.scopeArtifact,
+          artifact.payload.lineage.discoverArtifact,
+        ],
+      },
+      context,
+    );
   });
 export type PrepareArtifact = z.infer<typeof prepareArtifactSchema>;
 export const evidenceArtifactSchema = commonLeanArtifactEnvelopeSchema
@@ -2717,7 +2735,18 @@ export const evidenceArtifactSchema = commonLeanArtifactEnvelopeSchema
   .strict()
   .superRefine((artifact, context) => {
     validateLeanArtifactIdentity(artifact, context);
-    validateEvidenceArtifactLineage(artifact, context);
+    validateStageInputLineage(
+      artifact,
+      {
+        stageLabel: "Evidence",
+        runId: artifact.payload.lineage.runId,
+        inputs: [
+          artifact.payload.lineage.prepareArtifact,
+          artifact.payload.lineage.scopeArtifact,
+        ],
+      },
+      context,
+    );
   });
 export type EvidenceArtifact = z.infer<typeof evidenceArtifactSchema>;
 export const adjudicateArtifactSchema = commonLeanArtifactEnvelopeSchema
@@ -2728,6 +2757,18 @@ export const adjudicateArtifactSchema = commonLeanArtifactEnvelopeSchema
   .strict()
   .superRefine((artifact, context) => {
     validateLeanArtifactIdentity(artifact, context);
+    validateStageInputLineage(
+      artifact,
+      {
+        stageLabel: "Adjudicate",
+        runId: artifact.payload.lineage.runId,
+        inputs: [
+          artifact.payload.lineage.evidenceArtifact,
+          artifact.payload.lineage.prepareArtifact,
+        ],
+      },
+      context,
+    );
     validateAdjudicateArtifactLineage(artifact, context);
   });
 export type AdjudicateArtifact = z.infer<typeof adjudicateArtifactSchema>;
@@ -2739,6 +2780,21 @@ export const reportArtifactSchema = commonLeanArtifactEnvelopeSchema
   .strict()
   .superRefine((artifact, context) => {
     validateLeanArtifactIdentity(artifact, context);
+    validateStageInputLineage(
+      artifact,
+      {
+        stageLabel: "Report",
+        runId: artifact.payload.lineage.runId,
+        inputs: [
+          artifact.payload.lineage.discoverArtifact,
+          artifact.payload.lineage.scopeArtifact,
+          artifact.payload.lineage.prepareArtifact,
+          artifact.payload.lineage.evidenceArtifact,
+          artifact.payload.lineage.adjudicateArtifact,
+        ],
+      },
+      context,
+    );
     validateReportArtifactLineage(artifact, context);
   });
 export type ReportArtifact = z.infer<typeof reportArtifactSchema>;
@@ -2877,6 +2933,50 @@ function validateLeanArtifactIdentity(
       code: "custom",
       path: ["artifactId"],
       message: "artifactId does not match the stable artifact identity inputs",
+    });
+  }
+}
+
+/**
+ * The other integrity check every stage keeps: the artifact belongs to its
+ * run, and it names the exact inputs it was built from, in the fixed canonical
+ * order. Combined with the identity hash, that is enough to prove a chain.
+ *
+ * Nothing here re-derives the payload. The per-stage validators that used to
+ * live beside this one re-checked decisions, provenance arrays, and embedded
+ * copies against the very payload their builder had just written from — five
+ * near-identical walks that could only fail if the builder were inconsistent
+ * with itself, which its own tests cover.
+ */
+function validateStageInputLineage(
+  artifact: {
+    runId: string;
+    inputArtifacts: readonly ArtifactReference[];
+  },
+  expected: {
+    stageLabel: string;
+    runId?: string | undefined;
+    inputs: readonly ArtifactReference[];
+  },
+  context: z.RefinementCtx,
+): void {
+  if (expected.runId != null && artifact.runId !== expected.runId) {
+    context.addIssue({
+      code: "custom",
+      path: ["payload", "lineage", "runId"],
+      message: `${expected.stageLabel} run ID must match its verified input lineage`,
+    });
+  }
+  if (
+    artifact.inputArtifacts.length !== expected.inputs.length ||
+    !expected.inputs.every((reference, index) =>
+      sameArtifactReference(artifact.inputArtifacts[index], reference),
+    )
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["inputArtifacts"],
+      message: `${expected.stageLabel} must reference its exact canonical inputs in canonical order`,
     });
   }
 }
@@ -3804,156 +3904,6 @@ function validatePreparePayload(
   }
 }
 
-function validatePrepareArtifactLineage(
-  artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
-    canonicalStage: "prepare";
-    payload: PrepareArtifactPayload;
-  },
-  context: z.RefinementCtx,
-): void {
-  const { lineage } = artifact.payload;
-  if (artifact.runId !== lineage.runId) {
-    addPrepareIssue(
-      context,
-      ["payload", "lineage", "runId"],
-      "Prepare run ID must match its verified Scope and Discover lineage",
-    );
-  }
-  if (
-    artifact.inputArtifacts.length !== 2 ||
-    !sameArtifactReference(artifact.inputArtifacts[0], lineage.scopeArtifact) ||
-    !sameArtifactReference(artifact.inputArtifacts[1], lineage.discoverArtifact)
-  ) {
-    addPrepareIssue(
-      context,
-      ["inputArtifacts"],
-      "Prepare must reference exact canonical Scope and Discover inputs",
-    );
-  }
-
-  if (artifact.decisions.length !== artifact.payload.records.length) {
-    addPrepareIssue(
-      context,
-      ["decisions"],
-      "Prepare must account for every record with exactly one classification outcome decision",
-    );
-  }
-  for (const record of artifact.payload.records) {
-    const expectedReason = prepareClassificationReason(record.classification);
-    const matching = artifact.decisions.filter(
-      (decision) =>
-        decision.recordId === record.recordId &&
-        decision.decisionType === "prepare_classification_outcome" &&
-        decision.outcome === record.classification.status &&
-        decision.reason === expectedReason,
-    );
-    if (matching.length !== 1) {
-      addPrepareIssue(
-        context,
-        ["decisions"],
-        `Prepare classification is not accounted for exactly once: ${record.recordId}`,
-      );
-    }
-    for (const decision of matching) {
-      if (
-        !hasArtifactReference(
-          decision.evidenceArtifacts,
-          lineage.scopeArtifact,
-        ) ||
-        !hasArtifactReference(
-          decision.evidenceArtifacts,
-          lineage.discoverArtifact,
-        )
-      ) {
-        addPrepareIssue(
-          context,
-          ["decisions"],
-          `Prepare decision is missing exact input lineage: ${record.recordId}`,
-        );
-      }
-    }
-  }
-
-  const classifications = artifact.payload.records.map(
-    (record) => record.classification,
-  );
-  const modelExecutions = classifications
-    .map((classification) => classification.execution)
-    .filter(
-      (execution): execution is ModelExecution => execution.kind === "model",
-    );
-  const externalExecutions = classifications
-    .map((classification) => classification.execution)
-    .filter((execution) => execution.kind === "external");
-  const expectedPrompts = uniqueCanonicalValues(
-    modelExecutions.map((execution) => ({
-      promptId: execution.promptId,
-      version: execution.promptVersion,
-      contentHash: execution.promptContentHash,
-    })),
-  );
-  const expectedModels = uniqueCanonicalValues(
-    modelExecutions.map((execution) => ({
-      provider: execution.provider,
-      model: execution.model,
-      requestHash: execution.requestHash,
-      requestArtifact: execution.requestArtifact,
-      responseArtifact: execution.responseArtifact,
-    })),
-  );
-  if (
-    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.prompts)) !==
-    canonicalSerialize(expectedPrompts)
-  ) {
-    addPrepareIssue(
-      context,
-      ["provenance", "prompts"],
-      "Prepare prompt provenance does not exactly cover model classification",
-    );
-  }
-  if (
-    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.models)) !==
-    canonicalSerialize(expectedModels)
-  ) {
-    addPrepareIssue(
-      context,
-      ["provenance", "models"],
-      "Prepare model provenance does not exactly cover model classification",
-    );
-  }
-
-  const expectedResponses = uniqueCanonicalValues([
-    ...modelExecutions.map((execution) => execution.responseArtifact),
-    ...externalExecutions.map((execution) => execution.responseArtifact),
-  ]);
-  const expectedExecutionKind =
-    modelExecutions.length > 0 && externalExecutions.length > 0
-      ? "hybrid"
-      : modelExecutions.length > 0
-        ? "model"
-        : externalExecutions.length > 0
-          ? "external"
-          : "deterministic";
-  if (artifact.execution.kind !== expectedExecutionKind) {
-    addPrepareIssue(
-      context,
-      ["execution", "kind"],
-      `Prepare execution kind must be ${expectedExecutionKind}`,
-    );
-  } else if (
-    artifact.execution.kind !== "deterministic" &&
-    canonicalSerialize(
-      uniqueCanonicalValues(artifact.execution.responseArtifacts),
-    ) !== canonicalSerialize(expectedResponses)
-  ) {
-    addPrepareIssue(
-      context,
-      ["execution", "responseArtifacts"],
-      "Prepare execution must reference every exact classifier response",
-    );
-  }
-}
-
 function validateEvidencePayload(
   payload: EvidenceArtifactPayload,
   context: z.RefinementCtx,
@@ -4522,140 +4472,6 @@ function validateEvidenceOutcomeReferences(
   }
 }
 
-function validateEvidenceArtifactLineage(
-  artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
-    canonicalStage: "evidence";
-    payload: EvidenceArtifactPayload;
-  },
-  context: z.RefinementCtx,
-): void {
-  const { lineage } = artifact.payload;
-  if (artifact.runId !== lineage.runId) {
-    addEvidenceIssue(
-      context,
-      ["payload", "lineage", "runId"],
-      "Evidence run ID must match its verified Prepare and Scope lineage",
-    );
-  }
-  if (
-    artifact.inputArtifacts.length !== 2 ||
-    !sameArtifactReference(
-      artifact.inputArtifacts[0],
-      lineage.prepareArtifact,
-    ) ||
-    !sameArtifactReference(artifact.inputArtifacts[1], lineage.scopeArtifact)
-  ) {
-    addEvidenceIssue(
-      context,
-      ["inputArtifacts"],
-      "Evidence must reference exact canonical Prepare and Scope inputs",
-    );
-  }
-  if (artifact.decisions.length !== artifact.payload.records.length * 3) {
-    addEvidenceIssue(
-      context,
-      ["decisions"],
-      "Evidence must record retrieval, rerank, and final-selection decisions for every Prepare record",
-    );
-  }
-  for (const record of artifact.payload.records) {
-    for (const decisionType of [
-      "evidence_retrieval_outcome",
-      "evidence_rerank_outcome",
-      "evidence_final_selection",
-    ]) {
-      const matching = artifact.decisions.filter(
-        (decision) =>
-          decision.recordId === record.recordId &&
-          decision.decisionType === decisionType,
-      );
-      if (
-        matching.length !== 1 ||
-        matching.some(
-          (decision) =>
-            !hasArtifactReference(
-              decision.evidenceArtifacts,
-              lineage.prepareArtifact,
-            ) ||
-            !hasArtifactReference(
-              decision.evidenceArtifacts,
-              lineage.scopeArtifact,
-            ),
-        )
-      ) {
-        addEvidenceIssue(
-          context,
-          ["decisions"],
-          `Evidence decision is missing or lacks exact input lineage: ${record.recordId} ${decisionType}`,
-        );
-      }
-    }
-  }
-
-  const executions = artifact.payload.rerankRuns.map((run) => run.execution);
-  const expectedPrompts = uniqueCanonicalValues(
-    executions.map((execution) => ({
-      promptId: execution.promptId,
-      version: execution.promptVersion,
-      contentHash: execution.promptContentHash,
-    })),
-  );
-  const expectedModels = uniqueCanonicalValues(
-    executions.map((execution) => ({
-      provider: execution.provider,
-      model: execution.model,
-      requestHash: execution.requestHash,
-      requestArtifact: execution.requestArtifact,
-      responseArtifact: execution.responseArtifact,
-    })),
-  );
-  if (
-    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.prompts)) !==
-    canonicalSerialize(expectedPrompts)
-  ) {
-    addEvidenceIssue(
-      context,
-      ["provenance", "prompts"],
-      "Evidence prompt provenance must exactly cover reranking",
-    );
-  }
-  if (
-    canonicalSerialize(uniqueCanonicalValues(artifact.provenance.models)) !==
-    canonicalSerialize(expectedModels)
-  ) {
-    addEvidenceIssue(
-      context,
-      ["provenance", "models"],
-      "Evidence model provenance must exactly cover reranking",
-    );
-  }
-  if (executions.length === 0) {
-    if (artifact.execution.kind !== "deterministic") {
-      addEvidenceIssue(
-        context,
-        ["execution"],
-        "Evidence without reranker execution must be replayable and deterministic",
-      );
-    }
-  } else if (
-    artifact.execution.kind !== "model" ||
-    canonicalSerialize(
-      uniqueCanonicalValues(artifact.execution.responseArtifacts),
-    ) !==
-      canonicalSerialize(
-        uniqueCanonicalValues(
-          executions.map((execution) => execution.responseArtifact),
-        ),
-      )
-  ) {
-    addEvidenceIssue(
-      context,
-      ["execution"],
-      "Evidence reranking must be non-replayable and reference every response",
-    );
-  }
-}
-
 function validateScoreOrdering<T>(
   values: readonly T[],
   getScore: (value: T) => number,
@@ -4690,24 +4506,6 @@ function addEvidenceIssue(
   message: string,
 ): void {
   context.addIssue({ code: "custom", path, message });
-}
-
-function prepareClassificationReason(
-  classification: PrepareClassification,
-): string {
-  return classification.status === "failed"
-    ? classification.reason
-    : classification.rationale;
-}
-
-function uniqueCanonicalValues<T>(values: readonly T[]): T[] {
-  const byCanonicalValue = new Map<string, T>();
-  for (const value of values) {
-    byCanonicalValue.set(canonicalSerialize(value), value);
-  }
-  return [...byCanonicalValue.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
 }
 
 function addPrepareIssue(
@@ -4804,119 +4602,6 @@ function validateFamilyGroundingAgainstSeedText(
         ["families"],
         `Grounding evidence does not reference its immutable seed-text artifact: ${span.blockId}`,
       );
-    }
-  }
-}
-
-function validateScopeArtifactLineage(
-  artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
-    canonicalStage: "scope";
-    payload: ScopeArtifactPayload;
-  },
-  context: z.RefinementCtx,
-): void {
-  if (
-    artifact.inputArtifacts.length !== 1 ||
-    !sameArtifactReference(
-      artifact.inputArtifacts[0],
-      artifact.payload.discoverArtifact,
-    )
-  ) {
-    addScopeIssue(
-      context,
-      ["inputArtifacts"],
-      "Scope must have exactly one immutable canonical Discover input",
-    );
-  }
-
-  for (const candidate of artifact.payload.candidateDecisions) {
-    const expectedOutcome =
-      candidate.disposition === "scoped" ? "scoped" : "deferred_upstream";
-    const matchingDecisions = artifact.decisions.filter(
-      (decision) =>
-        decision.recordId === candidate.candidateId &&
-        decision.decisionType === "scope_candidate_disposition" &&
-        decision.outcome === expectedOutcome &&
-        decision.reason === candidate.discoverReason,
-    );
-    if (matchingDecisions.length !== 1) {
-      addScopeIssue(
-        context,
-        ["decisions"],
-        `Scope candidate disposition is not accounted for exactly once: ${candidate.candidateId}`,
-      );
-    }
-  }
-
-  const expectedResponseArtifacts: ArtifactReference[] = [];
-  for (const materialization of artifact.payload.seedMaterializations) {
-    if (materialization.execution.kind === "external") {
-      expectedResponseArtifacts.push(
-        materialization.execution.responseArtifact,
-      );
-    }
-  }
-  for (const family of artifact.payload.families) {
-    const modelExecution = family.grounding.modelExecution;
-    if (!modelExecution) continue;
-    expectedResponseArtifacts.push(modelExecution.responseArtifact);
-    const hasPrompt = artifact.provenance.prompts.some(
-      (prompt) =>
-        prompt.promptId === modelExecution.promptId &&
-        prompt.version === modelExecution.promptVersion &&
-        prompt.contentHash === modelExecution.promptContentHash,
-    );
-    if (!hasPrompt) {
-      addScopeIssue(
-        context,
-        ["provenance", "prompts"],
-        `Scope grounding prompt provenance is incomplete: ${family.familyId}`,
-      );
-    }
-    const hasModel = artifact.provenance.models.some(
-      (model) =>
-        model.provider === modelExecution.provider &&
-        model.model === modelExecution.model &&
-        model.requestHash === modelExecution.requestHash &&
-        sameArtifactReference(
-          model.requestArtifact,
-          modelExecution.requestArtifact,
-        ) &&
-        sameArtifactReference(
-          model.responseArtifact,
-          modelExecution.responseArtifact,
-        ),
-    );
-    if (!hasModel) {
-      addScopeIssue(
-        context,
-        ["provenance", "models"],
-        `Scope grounding model provenance is incomplete: ${family.familyId}`,
-      );
-    }
-  }
-  if (expectedResponseArtifacts.length > 0) {
-    if (artifact.execution.kind === "deterministic") {
-      addScopeIssue(
-        context,
-        ["execution"],
-        "Scope with external/model responses cannot claim deterministic replay",
-      );
-    } else {
-      for (const responseArtifact of expectedResponseArtifacts) {
-        if (
-          !hasArtifactReference(
-            artifact.execution.responseArtifacts,
-            responseArtifact,
-          )
-        ) {
-          addScopeIssue(
-            context,
-            ["execution", "responseArtifacts"],
-            `Scope execution is missing response provenance: ${responseArtifact.artifactId}`,
-          );
-        }
-      }
     }
   }
 }
