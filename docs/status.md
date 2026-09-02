@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-08-08
+**Last updated:** 2026-09-02
 
 This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
 
@@ -27,12 +27,24 @@ Run with:
 npm run dev -- pipeline --input path/to/dois.json
 npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
 npm run dev -- pipeline --run-id <uuid>
+npm run dev -- runs:gc --dry-run   # superseded stage attempts + unreferenced provenance
 npm run test:live-smoke   # optional; requires PALIMPSEST_LIVE_SMOKE=1 and credentials
 ```
 
 Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six canonical keys.
 
 Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded VRN replay fixtures under `fixtures/pipeline/vrn-replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
+
+## From the September 2026 plan
+
+Landed as code, still unmeasured:
+
+- **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). The measured loss it targets — 28 records gated `manual_review_role_ambiguous` in the 2026-09-02 replay — has not been re-measured.
+- **Structured outputs.** Every canonical model call uses provider-enforced structured output. Whether Opus adjudicates as well through a tool schema, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
+- **Instrumented ledger.** `cost-summary.json` now records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
+- **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. No blinded labels exist yet, so `calibrationStatus` stays `uncalibrated`.
+
+Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
 
 ## Scientific status
 
@@ -42,7 +54,7 @@ There is no `curate` or sampling boundary: Scope, Prepare, Evidence, and Adjudic
 
 ## Compatibility and cleanup
 
-Migration `0011_purge_pre_canonical_runs.sql` plus startup config validation purge unsupported `analysis_runs` / `analysis_run_stages` rows from the former seven-stage executor. Migration `0012_drop_orphan_papers_citations.sql` drops unused `papers` / `citations` tables (paper storage is `paper_cache` / `paper_parsed` only). Paper/LLM caches and on-disk `data/runs/` directories are preserved; those runs must not be resumed, converted, or bridged into canonical artifacts. `db:gc --days <n> [--dry-run]` deletes aged analysis-run registry rows and stale LLM exact-result cache rows from SQLite; it does not delete artifact directories. Public benchmark CLI commands remain removed until a canonical blinded evaluation workflow exists.
+Migration `0011_purge_pre_canonical_runs.sql` plus startup config validation purge unsupported `analysis_runs` / `analysis_run_stages` rows from the former seven-stage executor. Migration `0012_drop_orphan_papers_citations.sql` drops unused `papers` / `citations` tables (paper storage is `paper_cache` / `paper_parsed` only). Paper/LLM caches and on-disk `data/runs/` directories are preserved; those runs must not be resumed, converted, or bridged into canonical artifacts. `db:gc --days <n> [--dry-run]` deletes aged analysis-run registry rows and stale LLM exact-result cache rows from SQLite; it does not delete artifact directories. `runs:gc [--run-id <uuid>] [--dry-run]` handles the on-disk side: superseded stage attempts the run registry no longer points at, and the provenance blobs only those attempts referenced. Migration `0013_drop_write_only_columns.sql` drops `derived_artifacts` and every column that was written and never read back. Public benchmark CLI commands remain removed until a canonical blinded evaluation workflow exists.
 
 The physical SQLite column `analysis_run_stages.family_index` remains because it is part of an immutable migration primary key. Canonical execution always writes `0` (one row per stage). UI/API surfaces no longer expose per-family query parameters.
 
