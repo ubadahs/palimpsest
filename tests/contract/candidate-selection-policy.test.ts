@@ -18,6 +18,8 @@ function mention(input: {
   paperId: string;
   group: number;
   context: string;
+  mentionIndex?: number;
+  blockId?: string;
 }) {
   return {
     mentionId: input.id,
@@ -25,9 +27,17 @@ function mention(input: {
     citingPaperRecordId: `citing-paper_${input.paperId}`,
     citingPaperId: input.paperId,
     citedPaperId: "seed-paper",
-    mentionIndex: input.group,
+    mentionIndex: input.mentionIndex ?? input.group,
     targetRefIds: ["seed-ref"],
     citationGroupOrdinal: input.group,
+    ...(input.blockId
+      ? {
+          sourceLocator: {
+            kind: "block_id" as const,
+            value: `${input.blockId}#cg-${String(input.group)}`,
+          },
+        }
+      : {}),
     identityStrength: "weak_context_fallback" as const,
     citationMarker: "[1]",
     rawContext: input.context,
@@ -505,5 +515,119 @@ describe("adaptive portfolio candidate selection", () => {
       dispositions.find((entry) => entry.candidateId === "cand_compound")
         ?.annotation.claimShape,
     ).toBe("compound");
+  });
+
+  it("counts citation groups per paragraph, not per paper-local ordinal", () => {
+    // Both groups carry ordinal 0 because the ordinal restarts in every
+    // paragraph; the source locator is what makes them distinct.
+    const mentions = [
+      mention({
+        id: "m_para1",
+        paperId: "p1",
+        group: 0,
+        mentionIndex: 0,
+        blockId: "block_intro",
+        context: "Pvalb neurons express the marker in the intro.",
+      }),
+      mention({
+        id: "m_para2",
+        paperId: "p1",
+        group: 0,
+        mentionIndex: 1,
+        blockId: "block_discussion",
+        context: "Pvalb neurons express the marker in the discussion.",
+      }),
+    ];
+    const claims = [
+      claim({
+        id: "c_para1",
+        mentionId: "m_para1",
+        text: "Pvalb neurons express the marker.",
+      }),
+      claim({
+        id: "c_para2",
+        mentionId: "m_para2",
+        text: "Pvalb neurons express the marker.",
+      }),
+    ];
+    const cand = candidate({
+      id: "cand_two_paragraphs",
+      text: "Pvalb neurons express the marker.",
+      mentionIds: ["m_para1", "m_para2"],
+      claimIds: ["c_para1", "c_para2"],
+    });
+    const annotation = annotateClaimCandidate({
+      candidate: cand,
+      mentionsById: new Map(
+        mentions.map((entry) => [entry.mentionId, entry as never]),
+      ),
+      claimsById: new Map(
+        claims.map((entry) => [entry.claimRecordId, entry as never]),
+      ),
+    });
+    expect(annotation.uniqueCitingPaperCount).toBe(1);
+    expect(annotation.uniqueCitationGroupCount).toBe(2);
+
+    const [disposition] = selectAdaptivePortfolio({
+      candidates: [cand],
+      mentions: mentions as never[],
+      claims: claims as never[],
+      policy: defaultAdaptivePortfolioPolicy,
+    });
+    // Prepare emits one record per member occurrence.
+    expect(disposition?.projectedRecordCost).toBe(2);
+  });
+
+  it("fills the family minimum before the record budget binds and records the real deferral reason", () => {
+    const texts = [
+      "Pvalb neurons increase gamma power in adult mouse vRN slices.",
+      "Nxph1 marks a caudal GABAergic population in the developing vRN.",
+      "Calb1 neurons project to the superior colliculus in mice.",
+    ];
+    const mentions = texts.map((text, index) =>
+      mention({
+        id: `m${String(index)}`,
+        paperId: `p${String(index)}`,
+        group: 0,
+        blockId: `block${String(index)}`,
+        context: text,
+      }),
+    );
+    const claims = texts.map((text, index) =>
+      claim({
+        id: `c${String(index)}`,
+        mentionId: `m${String(index)}`,
+        text,
+        confidence: "high",
+      }),
+    );
+    const candidates = texts.map((text, index) =>
+      candidate({
+        id: `cand${String(index)}`,
+        text,
+        mentionIds: [`m${String(index)}`],
+        claimIds: [`c${String(index)}`],
+      }),
+    );
+
+    // A record budget of 1 would admit a single family. The minimum of 2
+    // takes priority, so two are selected and the third is deferred by budget.
+    const dispositions = selectAdaptivePortfolio({
+      candidates,
+      mentions: mentions as never[],
+      claims: claims as never[],
+      policy: adaptivePortfolioPolicySchema.parse({
+        mode: "adaptive_portfolio",
+        minFamilies: 2,
+        maxFamilies: 3,
+        maxPreparedRecords: 1,
+      }),
+    });
+    const selected = dispositions.filter((entry) => entry.selectedForScope);
+    const deferred = dispositions.filter((entry) => !entry.selectedForScope);
+    expect(selected).toHaveLength(2);
+    expect(deferred).toHaveLength(1);
+    expect(deferred[0]?.bindingConstraint).toBe("max_prepared_records");
+    expect(deferred[0]?.reason).toContain("max_prepared_records");
   });
 });
