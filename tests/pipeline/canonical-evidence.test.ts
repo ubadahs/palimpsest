@@ -1383,3 +1383,40 @@ describe("canonical Evidence", () => {
     ).toBe(true);
   });
 });
+
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("evidence concurrency", () => {
+  it("produces the same artifact whether records rerank one at a time or side by side", async () => {
+    const ancestors = await buildPrepareAncestors();
+    const run = async (concurrency: number) => {
+      const calls: CanonicalEvidenceRerankerInput[] = [];
+      const base = rerankerAdapter("success", calls, "fixture-reranker-a");
+      const result = await runCanonicalEvidence(
+        ancestors.prepare,
+        ancestors.scope,
+        {
+          rerank: async (input) => {
+            await tick(input.familyId.endsWith("a") ? 6 : 1);
+            return base(input);
+          },
+        },
+        {
+          recordedAt: "2026-07-17T08:30:00.000Z",
+          reranking: { enabled: true, topN: 3 },
+          concurrency,
+        },
+      );
+      return { result, calls: calls.length };
+    };
+    const sequential = await run(1);
+    const parallel = await run(4);
+    expect(parallel.result.payload).toEqual(sequential.result.payload);
+    expect(parallel.result.provenanceInputs).toEqual(
+      sequential.result.provenanceInputs,
+    );
+    // Identical concurrent rerank requests share one call, so parallel never
+    // issues more requests than the sequential run did.
+    expect(parallel.calls).toBeLessThanOrEqual(sequential.calls);
+  });
+});

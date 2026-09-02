@@ -1121,3 +1121,57 @@ describe("canonical Scope", () => {
     expect(calls.size).toBe(0);
   });
 });
+
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("scope grounding concurrency", () => {
+  it("primes each seed's cached prefix with one call before fanning out", async () => {
+    const discover = await buildDiscoverArtifact(4);
+    const base = scopeAdapters({}, new Map());
+    const events: Array<{ seedId: string; phase: "start" | "end" }> = [];
+    const result = await runCanonicalScope(
+      discover,
+      {
+        ...base,
+        groundFamily: async (input) => {
+          events.push({ seedId: input.seed.seedId, phase: "start" });
+          await tick(5);
+          const output = await base.groundFamily(input);
+          events.push({ seedId: input.seed.seedId, phase: "end" });
+          return output;
+        },
+      },
+      { recordedAt: "2026-07-16T12:10:00.000Z", concurrency: 4 },
+    );
+
+    const seedIds = new Set(events.map((event) => event.seedId));
+    expect(seedIds.size).toBeGreaterThan(0);
+    for (const seedId of seedIds) {
+      const phases = events
+        .filter((event) => event.seedId === seedId)
+        .map((event) => event.phase);
+      // The first call for a seed completes alone; only then do others start.
+      expect(phases.slice(0, 2)).toEqual(
+        phases.length === 1 ? ["start", "end"] : ["start", "end"],
+      );
+      if (phases.length >= 6) {
+        // With three or more families the remainder overlap.
+        expect(phases.slice(2, 4)).toEqual(["start", "start"]);
+      }
+    }
+    expect(result.payload.families.length).toBe(events.length / 2);
+  });
+
+  it("produces the same artifact at any concurrency", async () => {
+    const discover = await buildDiscoverArtifact(4);
+    const run = (concurrency: number) =>
+      runCanonicalScope(discover, scopeAdapters({}, new Map()), {
+        recordedAt: "2026-07-16T12:10:00.000Z",
+        concurrency,
+      });
+    const sequential = await run(1);
+    const parallel = await run(3);
+    expect(parallel.payload).toEqual(sequential.payload);
+    expect(parallel.provenanceInputs).toEqual(sequential.provenanceInputs);
+  });
+});

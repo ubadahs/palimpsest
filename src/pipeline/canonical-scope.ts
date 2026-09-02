@@ -7,6 +7,7 @@ import {
   uniqueSorted,
 } from "../shared/order.js";
 import { normalizeWhitespace } from "../contract/artifacts/checks.js";
+import { pMap } from "../shared/concurrency.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
 import {
@@ -46,6 +47,8 @@ const canonicalScopeOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     discoverArtifactUri: z.string().min(1).optional(),
+    /** Model requests in flight at once; results keep input order. */
+    concurrency: z.number().int().positive().optional(),
   })
   .strict();
 export type CanonicalScopeOptions = z.infer<typeof canonicalScopeOptionsSchema>;
@@ -240,8 +243,33 @@ export async function runCanonicalScope(
     responseArtifacts.push(...executionResponseArtifacts(materialization));
   }
 
-  const families: ScopeArtifactPayload["families"] = [];
-  for (const construction of familyConstructions) {
+  // The seed text is a provider-cached prompt prefix. The first grounding
+  // call for a seed writes that cache; the others wait for it, then fan out,
+  // so every family after the first reads the seed from cache.
+  const primedSeeds = new Map<string, Promise<unknown>>();
+  async function groundWithPrimedSeed<T>(
+    seedId: string,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    const primer = primedSeeds.get(seedId);
+    if (primer) {
+      await primer;
+      return call();
+    }
+    const first = call();
+    primedSeeds.set(
+      seedId,
+      first.catch(() => undefined),
+    );
+    return first;
+  }
+
+  async function groundConstruction(
+    construction: (typeof familyConstructions)[number],
+  ): Promise<{
+    family: ScopeArtifactPayload["families"][number];
+    execution: ModelExecution | undefined;
+  }> {
     const seed = discoverArtifact.payload.seeds.find(
       (entry) => entry.seedId === construction.seedId,
     );
@@ -253,6 +281,7 @@ export async function runCanonicalScope(
     }
 
     let grounding: ScopeGrounding;
+    let execution: ModelExecution | undefined;
     const groundingArtifacts: ArtifactReference[] = [];
     if (materialization.status !== "materialized") {
       grounding = {
@@ -267,22 +296,19 @@ export async function runCanonicalScope(
     } else {
       const groundingResult = parseBoundary(
         canonicalScopeGroundingResultSchema,
-        await adapters.groundFamily({
-          seed,
-          family: construction,
-          seedText: materialization,
-        }),
+        await groundWithPrimedSeed(construction.seedId, () =>
+          adapters.groundFamily({
+            seed,
+            family: construction,
+            seedText: materialization,
+          }),
+        ),
         `claim grounding for ${construction.familyId}`,
       );
       if (groundingResult.status === "failed") {
         throwIfFatal(groundingResult);
       }
-      recordModelExecution(
-        groundingResult.execution,
-        prompts,
-        models,
-        responseArtifacts,
-      );
+      execution = groundingResult.execution;
       groundingArtifacts.push(
         groundingResult.execution.requestArtifact,
         groundingResult.execution.responseArtifact,
@@ -305,24 +331,39 @@ export async function runCanonicalScope(
             );
     }
 
-    families.push({
-      familyId: construction.familyId,
-      seedId: construction.seedId,
-      candidateIds: construction.candidateIds,
-      sourceClaimRecordIds: construction.sourceClaimRecordIds,
-      trackedClaim: construction.trackedClaim,
-      normalizedClaim: construction.normalizedClaim,
-      grounding,
-      includedCitationOccurrenceIds: construction.includedCitationOccurrenceIds,
-      provenanceArtifacts: uniqueSortedArtifactReferences([
-        discoverReference,
-        ...construction.candidates.flatMap(
-          (candidate) => candidate.provenanceArtifacts,
-        ),
-        ...materializationArtifacts(materialization),
-        ...groundingArtifacts,
-      ]),
-    });
+    return {
+      family: {
+        familyId: construction.familyId,
+        seedId: construction.seedId,
+        candidateIds: construction.candidateIds,
+        sourceClaimRecordIds: construction.sourceClaimRecordIds,
+        trackedClaim: construction.trackedClaim,
+        normalizedClaim: construction.normalizedClaim,
+        grounding,
+        includedCitationOccurrenceIds:
+          construction.includedCitationOccurrenceIds,
+        provenanceArtifacts: uniqueSortedArtifactReferences([
+          discoverReference,
+          ...construction.candidates.flatMap(
+            (candidate) => candidate.provenanceArtifacts,
+          ),
+          ...materializationArtifacts(materialization),
+          ...groundingArtifacts,
+        ]),
+      },
+      execution,
+    };
+  }
+
+  const grounded = await pMap(familyConstructions, groundConstruction, {
+    concurrency: options.concurrency ?? 1,
+  });
+  const families: ScopeArtifactPayload["families"] = [];
+  for (const { family, execution } of grounded) {
+    families.push(family);
+    if (execution) {
+      recordModelExecution(execution, prompts, models, responseArtifacts);
+    }
   }
 
   const payload = scopeArtifactPayloadSchema.parse({

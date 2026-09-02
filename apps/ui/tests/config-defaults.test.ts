@@ -23,6 +23,7 @@ describe("config defaults contract", () => {
     const formFlattened = {
       stopAfterStage: CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
       forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
+      modelConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency,
       discover: {
         neighborhoodProvider:
           CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodProvider,
