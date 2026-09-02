@@ -736,6 +736,9 @@ export async function orchestrateCanonicalPipelineRun(
         apiKey: params.apiKey ?? "",
         collector: telemetry,
         database,
+        // Without this the exact-result cache still serves stale completions
+        // on a --force-refresh run while provenance claims it was bypassed.
+        forceRefresh: runConfig.forceRefresh,
       });
     const adapters =
       params.adapters ??

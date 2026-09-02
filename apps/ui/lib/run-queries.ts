@@ -665,16 +665,17 @@ type RunCostSummary = {
 };
 
 /**
- * Read cost data for a run: first try the pipeline-generated `_run-cost.json`,
- * then fall back to summing `runTelemetry` from adjudicate artifacts.
+ * Read the pipeline-generated `cost-summary.json` for a run. The executor
+ * writes it at the run root after each invocation; there is no other source.
  */
 export function getRunCostSummary(runId: string): RunCostSummary | undefined {
   const runRoot = getRunRoot(runId);
-
-  const costFile = readdirSync(runRoot)
-    .filter((f) => f.endsWith("_run-cost.json"))
-    .sort()
-    .at(-1);
+  let costFile: string | undefined;
+  try {
+    costFile = readdirSync(runRoot).find((f) => f === "cost-summary.json");
+  } catch {
+    return undefined;
+  }
 
   if (costFile) {
     try {
@@ -712,18 +713,9 @@ export function getRunCostSummary(runId: string): RunCostSummary | undefined {
         source: "cost_file",
       };
     } catch {
-      /* fall through */
+      return undefined;
     }
   }
 
-  const database = getDatabase();
-  const stages = listRunStages(database, runId);
-  const adjudicateStages = stages.filter(
-    (s) => s.stageKey === "adjudicate" && s.status === "succeeded",
-  );
-  if (adjudicateStages.length === 0) return undefined;
-
-  // Canonical Adjudicate records per-request provenance but deliberately has
-  // no aggregate run telemetry. The pipeline cost artifact is authoritative.
   return undefined;
 }

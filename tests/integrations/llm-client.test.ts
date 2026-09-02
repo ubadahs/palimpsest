@@ -14,6 +14,7 @@ import { generateText } from "ai";
 import {
   buildAnthropicThinkingProviderOptions,
   buildNormalizedLLMCallProvenance,
+  classifyProviderError,
   createLLMClient,
   modelSupportsAdaptiveThinking,
   resolvePromptCacheControl,
@@ -603,5 +604,23 @@ describe("exact-result cache integration via LLM client", () => {
         exactCache: { keyVersion: "v2" },
       }),
     ).rejects.toThrow(/invalid API key/i);
+  });
+});
+
+describe("classifyProviderError", () => {
+  it("treats a rate-limit message that mentions quota as transient", () => {
+    const result = classifyProviderError(
+      new Error("429 rate limit quota exceeded, retry later"),
+    );
+    expect(result.classification).toBe("rate_limit");
+    expect(result.fatal).toBe(false);
+  });
+
+  it("still treats genuine billing failures as fatal", () => {
+    const result = classifyProviderError(
+      new Error("Your credit balance is too low to access the API"),
+    );
+    expect(result.classification).toBe("billing_or_quota");
+    expect(result.fatal).toBe(true);
   });
 });
