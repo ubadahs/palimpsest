@@ -1,3 +1,5 @@
+import { compareCodeUnits } from "../shared/order.js";
+
 import {
   buildEvidenceBm25RunId,
   buildEvidenceChunkCorpusId,
@@ -368,8 +370,4 @@ function buildBm25Configuration(
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

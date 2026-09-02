@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import { compareCodeUnits } from "../shared/order.js";
+import { createBoundaryParser } from "../shared/boundary.js";
+
 import {
   assessAdjudicatePacketQuality,
   buildCanonicalAdjudicatePacket,
@@ -881,40 +885,4 @@ function uniqueModelProvenance(
   );
 }
 
-function uniqueSortedArtifactReferences(
-  references: ArtifactReference[],
-): ArtifactReference[] {
-  const seen = new Set<string>();
-  const unique: ArtifactReference[] = [];
-  for (const reference of references) {
-    const key = canonicalSerialize(reference);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(reference);
-  }
-  return unique.sort((left, right) =>
-    compareCodeUnits(canonicalSerialize(left), canonicalSerialize(right)),
-  );
-}
-
-function parseBoundary<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(value);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path.join(".") || "<root>";
-    throw new CanonicalAdjudicateBoundaryError(
-      `Invalid ${label} at ${path}: ${issue?.message ?? parsed.error.message}`,
-    );
-  }
-  return parsed.data;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
+const parseBoundary = createBoundaryParser(CanonicalAdjudicateBoundaryError);

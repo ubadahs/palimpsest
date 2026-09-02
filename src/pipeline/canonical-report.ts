@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { compareCodeUnits } from "../shared/order.js";
+import { createBoundaryParser } from "../shared/boundary.js";
+
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
 
 import {
@@ -1708,24 +1711,4 @@ function assertExactReference(
   }
 }
 
-function parseBoundary<T>(
-  schema: z.ZodType<T>,
-  input: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path?.join(".") || "<root>";
-    throw new CanonicalReportBoundaryError(
-      `Invalid ${label}: ${path} ${issue?.message ?? parsed.error.message}`,
-    );
-  }
-  return parsed.data;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
+const parseBoundary = createBoundaryParser(CanonicalReportBoundaryError);

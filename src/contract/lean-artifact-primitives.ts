@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { uniqueSorted } from "../shared/order.js";
 import { stageKeySchema } from "./lean-stages.js";
 
 /**
@@ -32,3 +33,16 @@ export const artifactReferenceSchema = z
   .strict();
 
 export type ArtifactReference = z.infer<typeof artifactReferenceSchema>;
+
+/**
+ * Validate, deduplicate, and order a provenance reference list. Every artifact
+ * that records where its inputs came from goes through this, so two runs that
+ * saw the same inputs produce the same bytes.
+ */
+export function uniqueSortedArtifactReferences(
+  references: readonly ArtifactReference[],
+): ArtifactReference[] {
+  return uniqueSorted(
+    references.map((reference) => artifactReferenceSchema.parse(reference)),
+  );
+}

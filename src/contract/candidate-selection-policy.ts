@@ -1,3 +1,5 @@
+import { compareCodeUnits } from "../shared/order.js";
+
 import {
   buildCitationGroupKey,
   type DiscoverAttributedClaimRecord,
@@ -164,12 +166,6 @@ type AnnotatedCandidate = {
   annotation: CandidateSelectionAnnotation;
   projectedRecordCost: number;
 };
-
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
-}
 
 function tokenize(normalizedClaim: string): string[] {
   return normalizedClaim
