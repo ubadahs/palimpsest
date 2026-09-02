@@ -6,7 +6,7 @@ This guide covers dependencies for the runnable canonical pipeline:
 discover → scope → prepare → evidence → adjudicate → report
 ```
 
-Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`, and `pipeline` only.
+Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`, `runs:gc`, and `pipeline` only.
 
 ## What you need
 
@@ -15,9 +15,12 @@ Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`
 | Node.js 22+ | Yes | See `package.json`. |
 | Local SQLite path | Yes | `PALIMPSEST_DB_PATH` defaults to `data/palimpsest.sqlite`. |
 | `GROBID_BASE_URL` | Yes | Required by environment validation and PDF-backed parsing. |
-| `ANTHROPIC_API_KEY` | Stage-dependent | Needed for model-backed extraction, grounding, optional reranking, and eligible-record adjudication. |
+| `ANTHROPIC_API_KEY` | Stage-dependent | Needed for model-backed extraction, grounding, evidence reranking (on by default), and eligible-record adjudication. |
 | `OPENALEX_EMAIL` | No | Useful for OpenAlex requests. |
 | `SEMANTIC_SCHOLAR_API_KEY` | No | Optional metadata/fallback resolution. |
+| `INSTITUTIONAL_PROXY_URL` | No | Library proxy prefix (for example `https://libproxy.example.edu/login?url=`). Tried for landing-page and PDF URLs only after every open-access candidate fails. |
+| `OPENALEX_BASE_URL`, `SEMANTIC_SCHOLAR_BASE_URL`, `BIORXIV_BASE_URL` | No | Override a provider's base URL, mainly for tests and mirrors. |
+| `NODE_ENV` | No | `development` by default; `test` relaxes nothing in the pipeline. |
 
 ```bash
 PALIMPSEST_DB_PATH=data/palimpsest.sqlite
@@ -39,7 +42,7 @@ docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
 
 ## Model access
 
-Anthropic is required only when a run reaches a model-backed operation. Discover can extract attributed claims, Scope can ground claims, Evidence can optionally rerank, and Adjudicate calls the model only for eligible records. Fully gated Adjudicate runs can complete without model calls.
+Anthropic is required only when a run reaches a model-backed operation. Discover can extract attributed claims, Scope can ground claims, Evidence reranks unless `evidence.rerankEnabled` is false, and Adjudicate calls the model only for eligible records. Fully gated Adjudicate runs can complete without model calls.
 
 Run:
 

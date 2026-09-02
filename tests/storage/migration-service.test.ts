@@ -43,6 +43,9 @@ describe("runMigrations", () => {
       expect(firstRun.appliedMigrations.map(({ name }) => name)).toContain(
         "0012_drop_orphan_papers_citations.sql",
       );
+      expect(firstRun.appliedMigrations.map(({ name }) => name)).toContain(
+        "0013_drop_write_only_columns.sql",
+      );
       expect(secondRun.appliedMigrations).toHaveLength(0);
       expect(tableNames).toEqual(
         expect.arrayContaining([
@@ -53,6 +56,26 @@ describe("runMigrations", () => {
       );
       expect(tableNames).not.toContain("papers");
       expect(tableNames).not.toContain("citations");
+      expect(tableNames).not.toContain("derived_artifacts");
+
+      // 0013 drops the write-only columns and keeps the keyed ones.
+      const columnsOf = (table: string): string[] =>
+        (
+          database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+            name: string;
+          }>
+        ).map(({ name }) => name);
+      expect(columnsOf("analysis_runs")).not.toContain("tracked_claim");
+      const stageColumns = columnsOf("analysis_run_stages");
+      expect(stageColumns).not.toContain("exit_code");
+      expect(stageColumns).not.toContain("input_artifact_path");
+      expect(stageColumns).toContain("family_index");
+      const paperCacheColumns = columnsOf("paper_cache");
+      expect(paperCacheColumns).not.toContain("metadata_json");
+      expect(paperCacheColumns).toContain("content_hash");
+      const llmCacheColumns = columnsOf("llm_result_cache");
+      expect(llmCacheColumns).not.toContain("purpose");
+      expect(llmCacheColumns).toContain("cache_key");
     } finally {
       database.close();
     }

@@ -202,8 +202,6 @@ type StageWriteOutcome = {
 };
 
 type StageRunner = {
-  /** Stage whose artifact path is recorded as this stage's input, if any. */
-  inputStage?: StageKey;
   execute: (context: StageRunContext) => Promise<StageWriteOutcome>;
 };
 
@@ -214,7 +212,6 @@ type StageRunner = {
  */
 function defineStage<K extends StageKey, Result>(spec: {
   stageKey: K;
-  inputStage?: StageKey;
   run: (context: StageRunContext) => Promise<Result> | Result;
   build: (input: {
     result: Result;
@@ -233,7 +230,6 @@ function defineStage<K extends StageKey, Result>(spec: {
   attach: (chain: LoadedChain, artifact: StageArtifactMap[K]) => void;
 }): StageRunner {
   return {
-    ...(spec.inputStage ? { inputStage: spec.inputStage } : {}),
     async execute(context) {
       const artifact = spec.build({
         result: await spec.run(context),
@@ -326,7 +322,6 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   scope: defineStage({
     stageKey: "scope",
-    inputStage: "discover",
     run: ({ chain, adapters, recordedAt }) =>
       runCanonicalScope(
         requireChain(
@@ -345,7 +340,6 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   prepare: defineStage({
     stageKey: "prepare",
-    inputStage: "scope",
     run: ({ chain, adapters, recordedAt }) =>
       runCanonicalPrepare(
         requireChain(
@@ -368,7 +362,6 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   evidence: defineStage({
     stageKey: "evidence",
-    inputStage: "prepare",
     run: ({ chain, adapters, recordedAt, runConfig }) =>
       runCanonicalEvidence(
         requireChain(
@@ -398,7 +391,6 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   adjudicate: defineStage({
     stageKey: "adjudicate",
-    inputStage: "evidence",
     run: ({ chain, adapters, recordedAt }) =>
       runCanonicalAdjudicate(
         requireChain(
@@ -421,7 +413,6 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   report: defineStage({
     stageKey: "report",
-    inputStage: "adjudicate",
     run: ({ chain, recordedAt }) => {
       const missing = "Report requires the complete validated canonical chain.";
       return runCanonicalReport(

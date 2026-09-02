@@ -148,6 +148,18 @@ export function ReviewWorkspace({
     hideMachineJudgment &&
     !revealedRecordIds.has(activeRecordKey);
 
+  // Any record shown while the machine judgment is visible counts as revealed,
+  // not only the one active when the checkbox was toggled.
+  useEffect(() => {
+    if (!hideMachineJudgment && activeRecordKey) {
+      setRevealedRecordIds((current) =>
+        current.has(activeRecordKey)
+          ? current
+          : new Set([...current, activeRecordKey]),
+      );
+    }
+  }, [hideMachineJudgment, activeRecordKey]);
+
   useEffect(() => {
     if (activeRecordId && activeRecordId !== selectedRecordId) {
       onSelectRecord(activeRecordId);
@@ -466,7 +478,10 @@ export function ReviewWorkspace({
                 <blockquote className="rounded-[18px] border border-[var(--border)] bg-[var(--panel-muted)] px-4 py-3 text-sm leading-7">
                   {activeRecord.citationContext}
                 </blockquote>
-                <EvidencePassages record={activeRecord} />
+                <EvidencePassages
+                  hideMachineJudgment={hideMachineJudgment}
+                  record={activeRecord}
+                />
                 {!hideMachineJudgment ? (
                   <div className="rounded-[18px] border border-dashed border-[var(--border)] px-4 py-3 text-sm leading-7 text-[var(--text-muted)]">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em]">

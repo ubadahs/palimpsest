@@ -103,35 +103,6 @@ export function AuditTrail({
       <Card className="overflow-hidden">
         <CardHeader>
           <h3 className="font-semibold text-[var(--text)]">
-            Exclusion summaries
-          </h3>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {summary.exclusionSummaries.length === 0 ? (
-            <p className="text-sm text-[var(--text-muted)]">
-              No upstream exclusions summarized.
-            </p>
-          ) : (
-            summary.exclusionSummaries.map((item) => (
-              <div
-                className="flex items-baseline justify-between gap-3 text-sm"
-                key={`${item.stage}-${item.reasonCode}`}
-              >
-                <span className="text-[var(--text-muted)]">
-                  {item.stage} · {humanizeCode(item.reasonCode)}
-                </span>
-                <span className="font-semibold tabular-nums text-[var(--text)]">
-                  {item.count}
-                </span>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <h3 className="font-semibold text-[var(--text)]">
             Authoritative artifacts
           </h3>
         </CardHeader>

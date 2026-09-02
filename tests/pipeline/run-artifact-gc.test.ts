@@ -164,6 +164,87 @@ describe("run artifact garbage collection", () => {
     }
   });
 
+  it("keeps a superseded report a human review was written against", () => {
+    const root = mkdtempSync(join(tmpdir(), "runs-gc-review-"));
+    tempRoots.push(root);
+    const database = openDatabase(join(root, "gc.sqlite"));
+    runMigrations(database);
+    const runRoot = join(root, "data", "runs", "run-review");
+
+    try {
+      createAnalysisRun(database, {
+        id: "run-review",
+        seedDoi: "10.1234/seed",
+        seedDois: ["10.1234/seed"],
+        targetStage: "report",
+        runRoot,
+        config: analysisRunConfigSchema.parse({}),
+      });
+      setRunStatus(database, "run-review", "succeeded");
+      const reportDir = join(runRoot, "05-report");
+      mkdirSync(reportDir, { recursive: true });
+
+      const reviewedArtifactId = `artifact_${"a".repeat(64)}`;
+      const reviewedStem = `20260902T100000Z_${reviewedArtifactId}`;
+      const unreviewedStem = `20260902T103000Z_${"b".repeat(8)}`;
+      const currentStem = "20260902T110000Z_current";
+      for (const stem of [reviewedStem, unreviewedStem, currentStem]) {
+        writeFileSync(
+          join(reportDir, `${stem}_canonical-report.json`),
+          "{}",
+          "utf8",
+        );
+      }
+      // The review sidecar is keyed by the report artifact it judged.
+      mkdirSync(join(runRoot, "review", reviewedArtifactId), {
+        recursive: true,
+      });
+      updateStageStatus(database, "run-review", "report", "succeeded", {
+        primaryArtifactPath: join(
+          reportDir,
+          `${currentStem}_canonical-report.json`,
+        ),
+      });
+
+      const result = findOrphanedRunArtifacts(database);
+      expect(result.runs[0]!.stageFiles).toEqual([
+        join(reportDir, `${unreviewedStem}_canonical-report.json`),
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("skips a queued run that has not started writing", () => {
+    const root = mkdtempSync(join(tmpdir(), "runs-gc-queued-"));
+    tempRoots.push(root);
+    const database = openDatabase(join(root, "gc.sqlite"));
+    runMigrations(database);
+    const runRoot = join(root, "data", "runs", "run-queued");
+
+    try {
+      createAnalysisRun(database, {
+        id: "run-queued",
+        seedDoi: "10.1234/seed",
+        seedDois: ["10.1234/seed"],
+        targetStage: "report",
+        runRoot,
+        config: analysisRunConfigSchema.parse({}),
+      });
+      const provenanceDir = join(runRoot, "provenance");
+      mkdirSync(provenanceDir, { recursive: true });
+      writeFileSync(
+        join(provenanceDir, `${provenanceId("d")}.json`),
+        "{}",
+        "utf8",
+      );
+
+      expect(findOrphanedRunArtifacts(database).runs).toEqual([]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("leaves a run whose every attempt is still referenced alone", () => {
     const root = mkdtempSync(join(tmpdir(), "runs-gc-clean-"));
     tempRoots.push(root);

@@ -3,8 +3,12 @@ import { loadEnvironment } from "../../config/env.js";
 import {
   deleteOrphanedRunArtifacts,
   findOrphanedRunArtifacts,
+  type RunArtifactGcResult,
 } from "../../pipeline/run-artifact-gc.js";
-import { openDatabase } from "../../storage/database.js";
+import {
+  openDatabase,
+  type DatabaseConnection,
+} from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
 
 function fail(message: string): never {
@@ -13,7 +17,7 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-type RunsGcOptions = {
+export type RunsGcOptions = {
   runId: string | undefined;
   dryRun: boolean;
 };
@@ -74,32 +78,42 @@ export function runRunsGcCommand(argv: string[]): void {
 
   try {
     runMigrations(database);
-    const result = findOrphanedRunArtifacts(database, {
-      ...(options.runId != null ? { runId: options.runId } : {}),
-    });
-    const megabytes = (result.byteCount / 1_000_000).toFixed(1);
-
-    if (result.fileCount === 0) {
-      console.info("runs:gc: no orphaned artifact files found.");
-      return;
-    }
-
-    for (const run of result.runs) {
-      console.info(
-        `runs:gc ${run.runId}: ${String(run.stageFiles.length)} superseded stage file(s), ${String(run.provenanceFiles.length)} unreferenced provenance blob(s)`,
-      );
-    }
-    if (options.dryRun) {
-      console.info(
-        `runs:gc dry-run: would delete ${String(result.fileCount)} file(s) (${megabytes} MB).`,
-      );
-      return;
-    }
-    deleteOrphanedRunArtifacts(result);
-    console.info(
-      `runs:gc: deleted ${String(result.fileCount)} file(s) (${megabytes} MB).`,
-    );
+    collectRunArtifacts(database, options, (line) => console.info(line));
   } finally {
     database.close();
   }
+}
+
+/** Find, report, and (unless dry-run) delete the orphaned files. */
+export function collectRunArtifacts(
+  database: DatabaseConnection,
+  options: RunsGcOptions,
+  log: (line: string) => void,
+): RunArtifactGcResult {
+  const result = findOrphanedRunArtifacts(database, {
+    ...(options.runId != null ? { runId: options.runId } : {}),
+  });
+  const megabytes = (result.byteCount / 1_000_000).toFixed(1);
+
+  if (result.fileCount === 0) {
+    log("runs:gc: no orphaned artifact files found.");
+    return result;
+  }
+
+  for (const run of result.runs) {
+    log(
+      `runs:gc ${run.runId}: ${String(run.stageFiles.length)} superseded stage file(s), ${String(run.provenanceFiles.length)} unreferenced provenance blob(s)`,
+    );
+  }
+  if (options.dryRun) {
+    log(
+      `runs:gc dry-run: would delete ${String(result.fileCount)} file(s) (${megabytes} MB).`,
+    );
+    return result;
+  }
+  deleteOrphanedRunArtifacts(result);
+  log(
+    `runs:gc: deleted ${String(result.fileCount)} file(s) (${megabytes} MB).`,
+  );
+  return result;
 }
