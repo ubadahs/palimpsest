@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  _reconstructAbstract,
   getCitingWorks,
   resolveWorkByDoi,
 } from "../../src/integrations/openalex.js";
@@ -16,20 +15,23 @@ function loadFixture(name: string): unknown {
   return JSON.parse(readFileSync(`${fixturesPath}/${name}`, "utf8")) as unknown;
 }
 
-describe("reconstructAbstract", () => {
-  it("reconstructs words from an inverted index", () => {
-    const result = _reconstructAbstract({
-      We: [0],
-      found: [1],
-      that: [2],
-      gene: [3],
-      X: [4],
-    });
-    expect(result).toBe("We found that gene X");
-  });
-});
-
 describe("resolveWorkByDoi", () => {
+  it("asks OpenAlex only for the fields it reads", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(loadFixture("work-response.json")),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await resolveWorkByDoi("10.1101/2024.01.15.575745", "https://api.test");
+
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url).toContain("select=");
+    expect(url).toContain("primary_location");
+    // The inverted abstract index is the largest field and nothing reads it.
+    expect(url).not.toContain("abstract_inverted_index");
+  });
+
   it("transforms an OpenAlex work response into a ResolvedPaper", async () => {
     const fixture = loadFixture("work-response.json");
     vi.stubGlobal(
@@ -53,7 +55,6 @@ describe("resolveWorkByDoi", () => {
       "A Hedged Finding About Gene X in Mouse Liver",
     );
     expect(result.data.authors).toEqual(["Alice Smith", "Bob Jones"]);
-    expect(result.data.abstract).toContain("gene X may increase");
     expect(result.data.source).toBe("openalex");
     expect(result.data.fullTextHints).toMatchObject({
       providerAvailability: "available",

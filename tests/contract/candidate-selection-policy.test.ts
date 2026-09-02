@@ -38,7 +38,7 @@ function mention(input: {
           },
         }
       : {}),
-    identityStrength: "weak_context_fallback" as const,
+    locationQuality: "exact_dom" as const,
     citationMarker: "[1]",
     rawContext: input.context,
     isBundledCitation: false,

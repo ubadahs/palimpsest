@@ -299,6 +299,31 @@ export const discoverCitingPaperRecordSchema = z
       })
       .strict(),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
+    /**
+     * How the citing paper's text was obtained and how its bibliography entry
+     * for the seed was found. Both bear on whether an occurrence is real: a
+     * proxy-acquired PDF parses differently from publisher JATS, and a fuzzy
+     * title match can name the wrong reference.
+     */
+    acquisition: z
+      .object({
+        accessChannel: z.enum(["open_access", "institutional_proxy"]),
+        fullTextFormat: z.string().min(1).optional(),
+        selectedUrl: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    bibliographyMatch: z
+      .object({
+        method: z.enum([
+          "doi",
+          "author_year_exact_title",
+          "author_year_title_overlap",
+        ]),
+        refId: z.string().min(1),
+      })
+      .strict()
+      .optional(),
     probe: paperDispositionSchema.extend({
       status: z.enum(["selected", "not_selected"]),
       /** Sampling stratum used by the deterministic probe budget. */
@@ -377,11 +402,14 @@ export const discoverCitationOccurrenceSchema = z
     charOffsetEnd: z.number().int().nonnegative().optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
     citationGroupOrdinal: z.number().int().nonnegative().optional(),
-    identityStrength: z.enum([
-      "strong_source_offsets",
-      "strong_source_locator",
-      "weak_context_fallback",
-    ]),
+    /**
+     * How well the parser could place the marker in the source document:
+     * `exact_dom` when it found the marker element itself, `approximate` when
+     * it fell back to a text search, `missing` when it could not. This is the
+     * parser's own judgement, not a restatement of which locator fields are
+     * present, and it is the honest floor on how much to trust `rawContext`.
+     */
+    locationQuality: z.enum(["exact_dom", "approximate", "missing"]),
     citationMarker: z.string(),
     rawContext: z.string(),
     sectionTitle: z.string().optional(),
@@ -425,14 +453,6 @@ export const discoverCitationOccurrenceSchema = z
         code: "custom",
         path: ["mentionId"],
         message: "mentionId does not match the citation occurrence",
-      });
-    }
-    if (mention.identityStrength !== citationIdentityStrength(mention)) {
-      context.addIssue({
-        code: "custom",
-        path: ["identityStrength"],
-        message:
-          "identityStrength does not match the available source location",
       });
     }
     if (
@@ -1258,21 +1278,4 @@ function buildCitationSourceLocation(input: {
     citationMarker: normalizeWhitespace(input.citationMarker),
     rawContext: normalizeWhitespace(input.rawContext),
   };
-}
-
-function citationIdentityStrength(input: {
-  charOffsetStart?: number | undefined;
-  charOffsetEnd?: number | undefined;
-  sourceLocator?: CitationSourceLocator | undefined;
-}):
-  | "strong_source_offsets"
-  | "strong_source_locator"
-  | "weak_context_fallback" {
-  if (input.sourceLocator) {
-    return "strong_source_locator";
-  }
-  if (input.charOffsetStart != null && input.charOffsetEnd != null) {
-    return "strong_source_offsets";
-  }
-  return "weak_context_fallback";
 }

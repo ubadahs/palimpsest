@@ -49,10 +49,6 @@ const openAlexWorkSchema = z
       .optional(),
     display_name: z.string(),
     authorships: z.array(openAlexAuthorshipSchema).optional(),
-    abstract_inverted_index: z
-      .record(z.string(), z.array(z.number()))
-      .nullable()
-      .optional(),
     open_access: openAlexOpenAccessSchema.optional(),
     primary_location: openAlexLocationSchema.optional(),
     type: z.string().nullable().optional(),
@@ -72,16 +68,6 @@ const openAlexWorksListSchema = z.object({
 type OpenAlexWork = z.infer<typeof openAlexWorkSchema>;
 
 // --- Helpers ---
-
-function reconstructAbstract(invertedIndex: Record<string, number[]>): string {
-  const words: string[] = [];
-  for (const [word, positions] of Object.entries(invertedIndex)) {
-    for (const pos of positions) {
-      words[pos] = word;
-    }
-  }
-  return words.join(" ");
-}
 
 function stripDoiPrefix(rawDoi: string): string {
   return rawDoi.replace(/^https?:\/\/doi\.org\//i, "");
@@ -140,10 +126,6 @@ function inferFullTextHints(work: OpenAlexWork): FullTextHints {
 
 function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
   const rawDoi = work.doi ?? undefined;
-  const abstract =
-    work.abstract_inverted_index != null
-      ? reconstructAbstract(work.abstract_inverted_index)
-      : undefined;
   const fullTextHints = inferFullTextHints(work);
 
   return {
@@ -157,7 +139,7 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
       ) ?? undefined,
     title: work.display_name,
     authors: (work.authorships ?? []).map((a) => a.author.display_name),
-    abstract,
+    abstract: undefined,
     source: "openalex",
     fullTextHints,
     paperType: work.type ?? undefined,
@@ -240,6 +222,29 @@ function withResolutionProvenance(
 
 // --- Public API ---
 
+/**
+ * The fields `toResolvedPaper` and `inferFullTextHints` actually read. Passing
+ * `select=` keeps a 200-work neighborhood page small; without it OpenAlex
+ * returns every field it has, including the inverted abstract index.
+ */
+const OPENALEX_SELECT_FIELDS = [
+  "id",
+  "doi",
+  "ids",
+  "display_name",
+  "authorships",
+  "open_access",
+  "primary_location",
+  "type",
+  "referenced_works_count",
+  "publication_year",
+].join(",");
+
+function appendSelect(url: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}select=${OPENALEX_SELECT_FIELDS}`;
+}
+
 function appendEmail(url: string, email: string | undefined): string {
   if (!email) return url;
   const separator = url.includes("?") ? "&" : "?";
@@ -252,7 +257,10 @@ export async function resolveWorkByDoi(
   email?: string,
 ): Promise<Result<ResolvedPaper>> {
   const encodedDoi = encodeURIComponent(`https://doi.org/${doi}`);
-  const url = appendEmail(`${baseUrl}/works/${encodedDoi}`, email);
+  const url = appendEmail(
+    appendSelect(`${baseUrl}/works/${encodedDoi}`),
+    email,
+  );
   const result = await fetchJson(url, openAlexWorkSchema);
 
   if (!result.ok) return result;
@@ -273,7 +281,9 @@ async function resolveWorkByFilter(
   email?: string,
 ): Promise<Result<ResolvedPaper>> {
   const url = appendEmail(
-    `${baseUrl}/works?filter=${encodeURIComponent(filter)}&per_page=5`,
+    appendSelect(
+      `${baseUrl}/works?filter=${encodeURIComponent(filter)}&per_page=5`,
+    ),
     email,
   );
   const result = await fetchJson(url, openAlexWorksListSchema);
@@ -341,7 +351,7 @@ export async function resolveWorkByMetadata(
 ): Promise<Result<ResolvedPaper>> {
   const query = encodeURIComponent(`"${locator.title}"`);
   const url = appendEmail(
-    `${baseUrl}/works?search=${query}&per_page=10`,
+    appendSelect(`${baseUrl}/works?search=${query}&per_page=10`),
     email,
   );
   const result = await fetchJson(url, openAlexWorksListSchema);
@@ -432,7 +442,9 @@ export async function getCitingWorks(
   while (works.length < limit) {
     const perPage = Math.min(OPENALEX_MAX_PER_PAGE, limit - works.length);
     const url = appendEmail(
-      `${baseUrl}/works?filter=${filter}&per_page=${String(perPage)}&cursor=${encodeURIComponent(cursor)}`,
+      appendSelect(
+        `${baseUrl}/works?filter=${filter}&per_page=${String(perPage)}&cursor=${encodeURIComponent(cursor)}`,
+      ),
       email,
     );
     const result = await fetchJson(url, openAlexWorksListSchema);
@@ -467,5 +479,3 @@ export async function getCitingWorks(
     data: { papers, pages, providerReportedTotal, coverage },
   };
 }
-
-export { reconstructAbstract as _reconstructAbstract };

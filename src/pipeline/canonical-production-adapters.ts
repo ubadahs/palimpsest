@@ -786,6 +786,18 @@ export function buildCanonicalDiscoverAdapters(
         canonicalStage: "discover",
       });
       const materializationArtifacts = [parseArtifact];
+      const acquisition = {
+        accessChannel:
+          materializeResult.data.acquisition.accessChannel ?? "open_access",
+        ...(materializeResult.data.acquisition.fullTextFormat
+          ? {
+              fullTextFormat: materializeResult.data.acquisition.fullTextFormat,
+            }
+          : {}),
+        ...(materializeResult.data.acquisition.selectedUrl
+          ? { selectedUrl: materializeResult.data.acquisition.selectedUrl }
+          : {}),
+      };
 
       const refs = materializeResult.data.parsedDocument.references;
       const firstAuthorSurname = inferFirstAuthorSurname(seedPaper.authors[0]);
@@ -807,9 +819,11 @@ export function buildCanonicalDiscoverAdapters(
           harvest: {
             status: "no_mentions" as const,
             reason: "Seed paper not found in citing bibliography.",
+            reasonCode: "not_found" as const,
             provenanceArtifacts: [parseArtifact],
           },
           mentions: [],
+          acquisition,
         };
       }
       const seedRef = seedMatch.reference;
@@ -832,6 +846,11 @@ export function buildCanonicalDiscoverAdapters(
             provenanceArtifacts: [parseArtifact],
           },
           mentions: [],
+          acquisition,
+          bibliographyMatch: {
+            method: seedMatch.method,
+            refId: seedRef.refId,
+          },
         };
       }
 
@@ -848,6 +867,8 @@ export function buildCanonicalDiscoverAdapters(
           reason: `Harvested ${String(rawMentions.length)} citation occurrence(s).`,
           provenanceArtifacts: [parseArtifact],
         },
+        acquisition,
+        bibliographyMatch: { method: seedMatch.method, refId: seedRef.refId },
         mentions: rawMentions.map((mention) => ({
           mentionIndex: mention.mentionIndex,
           ...(mention.refId ? { refId: mention.refId } : {}),

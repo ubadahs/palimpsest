@@ -272,7 +272,7 @@ function buildAllStageArtifacts() {
         {
           mentionId,
           ...mentionIdentity,
-          identityStrength: "strong_source_offsets",
+          locationQuality: "exact_dom",
           sectionTitle: "Discussion",
           seedRefLabel: "Seed Author, 2020",
           isBundledCitation: false,
@@ -753,6 +753,17 @@ function buildAllStageArtifacts() {
       funnel: {
         discover: {
           probeStratumCounts: [],
+          neighborhoodCoverage: [],
+          materializationChannelCounts: [],
+          materializationLossReasonCounts: [],
+          harvestLossReasonCounts: [],
+          bibliographyMatchMethodCounts: [],
+          providerReportedNeighborhoodTotal: buildReportCount({
+            metricId: "discover.provider_reported_neighborhood_total",
+            count: 0,
+            unit: "citing_paper_observations",
+            population: "Provider-reported citing works for the seed",
+          }),
           seeds: buildReportCount({
             metricId: "discover.seeds",
             count: 0,
@@ -1221,6 +1232,7 @@ function buildAllStageArtifacts() {
       familyMutations: [],
       recordTraces: [],
       decisionSummaries: [],
+      selectionAudit: [],
     },
   });
   return { discover, scope, prepare, evidence, adjudicate, report };
