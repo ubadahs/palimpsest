@@ -1063,7 +1063,13 @@ export function buildCanonicalDiscoverAdapters(
         }
         return {
           status: "completed" as const,
-          clusters: parsed.data.clusters,
+          clusters: parsed.data.clusters.map((cluster) => ({
+            canonicalClaim: cluster.canonicalClaim,
+            claimRecordIds: cluster.claims.flatMap((handle) => {
+              const claim = claims[handle - 1];
+              return claim ? [claim.claimRecordId] : [];
+            }),
+          })),
           execution,
         };
       } catch (error) {
@@ -1788,7 +1794,7 @@ function buildClaimCanonicalizationPrompt(input: {
       const where = claim.sectionTitle
         ? `${claim.citingPaperTitle} — ${claim.sectionTitle}`
         : claim.citingPaperTitle;
-      return `${String(index + 1)}. id=${claim.claimRecordId}\n   "${claim.extractedClaimText}"\n   (from: ${where})`;
+      return `#${String(index + 1)}: "${claim.extractedClaimText}"\n   (from: ${where})`;
     })
     .join("\n");
 
@@ -1807,14 +1813,14 @@ ${claimLines}
 
 Group the claims that attribute the SAME underlying finding of the seed paper. Claims belong together even when they differ in wording, strength, scope, certainty, population, or specificity; those differences are measured downstream and must not split a group. Split groups only when the claims concern different findings, variables, methods, or materials of the seed. A claim that shares no finding with any other stays in a group of one.
 
-Every claim id above must appear in exactly one group; do not invent ids.
+Every claim number above must appear in exactly one group; do not invent numbers.
 
 For each group write one canonicalClaim: a neutral, specific sentence naming the seed finding the group is about. Do not adopt any single citer's exaggeration or hedge; describe what the group has in common.
 
-Respond with JSON (no markdown fences):
+Respond with JSON (no markdown fences), referring to claims by their numbers:
 {
   "clusters": [
-    { "canonicalClaim": "…", "claimRecordIds": ["…"] }
+    { "canonicalClaim": "…", "claims": [1, 4, 7] }
   ]
 }
 
@@ -1827,7 +1833,8 @@ const claimCanonicalizationOutputSchema = z
       z
         .object({
           canonicalClaim: z.string().trim().min(1),
-          claimRecordIds: z.array(z.string().min(1)).min(1),
+          /** 1-based handles from the prompt; hashes are too error-prone for a model to echo. */
+          claims: z.array(z.number().int().positive()).min(1),
         })
         .strict(),
     ),
