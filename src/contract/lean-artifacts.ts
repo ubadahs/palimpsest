@@ -3580,6 +3580,13 @@ function expectedPrepareEvaluationMode(
   modifiers: z.infer<typeof prepareClassificationModifiersSchema>,
   ambiguousMode: z.infer<typeof evaluationModeSchema>,
 ): z.infer<typeof evaluationModeSchema> {
+  // An unclear role is unadjudicable whatever the transmission path, so the
+  // manual-review queue wins over review mediation.
+  if (role === "unclear") {
+    return ambiguousMode === "manual_review_extraction_limited"
+      ? "manual_review_extraction_limited"
+      : "manual_review_role_ambiguous";
+  }
   if (modifiers.isReviewMediated) return "review_transmission";
   if (
     modifiers.isBundled &&
@@ -3596,10 +3603,6 @@ function expectedPrepareEvaluationMode(
       return "fidelity_methods_use";
     case "acknowledgment_or_low_information":
       return "skip_low_information";
-    case "unclear":
-      return ambiguousMode === "manual_review_extraction_limited"
-        ? "manual_review_extraction_limited"
-        : "manual_review_role_ambiguous";
   }
 }
 
