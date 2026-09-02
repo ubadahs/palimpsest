@@ -14,7 +14,7 @@ The public CLI, SQLite run registry, local UI, artifact layout, resume logic, an
 
 | Stage | Status | Notes |
 |---|---|---|
-| `discover` | Runnable | Paginates the citing neighborhood, stratifies probing, emits one seed occurrence per exact citation group, exact-verifies claim support spans into offset-bound `supportSpan` fields, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
+| `discover` | Runnable | Paginates the citing neighborhood, stratifies probing, emits one seed occurrence per exact citation group, exact-verifies claim support spans into offset-bound `supportSpan` fields, clusters paraphrased claims across citers into one candidate per seed finding, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
 | `scope` | Runnable | Accounts for every Discover candidate, freezes exact family and occurrence membership, materializes seed text once per seed, and records verified grounding without excluding a family. |
 | `prepare` | Runnable | Produces one stable record for every scoped family × citation occurrence with complete and occurrence-local claim membership plus typed classification. Missing verified support spans and ambiguous roles remain queued for manual review. |
 | `evidence` | Runnable | Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), content-hash reuse, and optional immutable relevance-rerank versions. One outcome per Prepare record. |
@@ -61,4 +61,4 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
-- LLM purposes are limited to `attributed-claim-extraction`, `seed-grounding`, `evidence-rerank`, and `adjudication`.
+- LLM purposes are limited to `attributed-claim-extraction`, `claim-canonicalization`, `seed-grounding`, `evidence-rerank`, and `adjudication`.

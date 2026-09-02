@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adaptivePortfolioPolicySchema } from "../../src/contract/candidate-selection-policy.js";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   buildStableId,
@@ -25,6 +25,7 @@ import {
   type CanonicalDiscoverAdapters,
   type CanonicalDiscoverOptions,
   type CanonicalDiscoverResult,
+  type CanonicalClaimCanonicalizationInput,
 } from "../../src/pipeline/canonical-discover.js";
 import {
   loadCanonicalDiscoverArtifact,
@@ -1001,5 +1002,146 @@ describe("canonical Discover", () => {
           model.responseArtifact.role === "model-response",
       ),
     ).toBe(true);
+  });
+});
+
+describe("canonical Discover claim canonicalization", () => {
+  type ExtractionOutput = {
+    status: "completed";
+    reason: string;
+    claims: Array<{
+      text: string;
+      supportSpanText?: string;
+      confidence?: string;
+    }>;
+    execution: ReturnType<typeof modelExecution>;
+  };
+
+  /** Give every citing paper its own paraphrase so exact grouping cannot merge. */
+  function paraphrasingAdapters(): CanonicalDiscoverAdapters {
+    const base = buildFixtureAdapters();
+    return {
+      ...base,
+      extractAttributedClaims: async (input) => {
+        const output = (await base.extractAttributedClaims(input)) as
+          | ExtractionOutput
+          | { status: "failed" };
+        if (output.status !== "completed") return output;
+        return {
+          ...output,
+          claims: output.claims.map((claim) => ({
+            ...claim,
+            text: `${claim.text} As restated by ${input.citingPaper.paperId}.`,
+          })),
+        };
+      },
+    };
+  }
+
+  it("groups by exact normalized text when no canonicalization adapter is supplied", async () => {
+    const result = await runCanonicalDiscover(
+      fixtureOptions(),
+      paraphrasingAdapters(),
+    );
+    for (const candidate of result.payload.claimCandidates) {
+      expect(candidate.equivalence).toEqual({
+        method: "exact_normalized_text",
+      });
+      expect(candidate.memberMentionIds.length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("merges paraphrases across citing papers into one family per seed finding", async () => {
+    const adapters = paraphrasingAdapters();
+    const canonicalizeClaims = vi.fn(
+      ({ seed, claims }: CanonicalClaimCanonicalizationInput) =>
+        Promise.resolve({
+          status: "completed",
+          clusters: [
+            {
+              canonicalClaim: "The seed paper reported a measurable effect.",
+              claimRecordIds: claims.map((claim) => claim.claimRecordId),
+            },
+          ],
+          execution: {
+            ...modelExecution(`canon-${seed.paper.paperId}`, "fixture-canon"),
+            promptId: "canonical-claim-canonicalization",
+          },
+        }),
+    );
+    const result = await runCanonicalDiscover(fixtureOptions(), {
+      ...adapters,
+      canonicalizeClaims,
+    });
+
+    expect(canonicalizeClaims).toHaveBeenCalled();
+    // Without the adapter every paraphrase is its own candidate.
+    const exact = await runCanonicalDiscover(fixtureOptions(), adapters);
+    let anyFamilyMerged = false;
+    for (const seed of result.payload.seeds) {
+      const records = result.payload.attributedClaimRecords.filter(
+        (record) => record.seedId === seed.seedId,
+      );
+      if (records.length < 2) continue;
+      const candidates = result.payload.claimCandidates.filter(
+        (candidate) => candidate.seedId === seed.seedId,
+      );
+      const exactCandidates = exact.payload.claimCandidates.filter(
+        (candidate) => candidate.seedId === seed.seedId,
+      );
+      expect(candidates).toHaveLength(1);
+      expect(exactCandidates.length).toBeGreaterThan(1);
+      const [family] = candidates;
+      expect(family!.canonicalClaim).toBe(
+        "The seed paper reported a measurable effect.",
+      );
+      expect(family!.sourceClaimRecordIds).toHaveLength(records.length);
+      expect(family!.memberMentionIds.length).toBeGreaterThan(1);
+      expect(family!.equivalence?.method).toBe("model");
+      anyFamilyMerged = true;
+    }
+    expect(anyFamilyMerged).toBe(true);
+    expect(
+      result.provenanceInputs.models.some((model) =>
+        model.model.startsWith("fixture-canon"),
+      ),
+    ).toBe(true);
+    // The artifact schema accepts the model-equivalence provenance.
+    buildCanonicalDiscoverArtifact({
+      result,
+      runId: "run-canonicalization-fixture",
+      createdAt: "2026-09-02T12:05:00.000Z",
+    });
+  });
+
+  it("falls back to exact grouping and records why when clusters do not partition the claims", async () => {
+    const adapters = paraphrasingAdapters();
+    const result = await runCanonicalDiscover(fixtureOptions(), {
+      ...adapters,
+      canonicalizeClaims: ({ seed, claims }) =>
+        Promise.resolve({
+          status: "completed",
+          clusters: [
+            {
+              canonicalClaim: "Partial cluster",
+              claimRecordIds: claims.slice(0, 1).map((c) => c.claimRecordId),
+            },
+          ],
+          execution: modelExecution(
+            `canon-${seed.paper.paperId}`,
+            "fixture-canon",
+          ),
+        }),
+    });
+    const fallback = result.payload.claimCandidates.filter(
+      (candidate) =>
+        candidate.equivalence?.method === "exact_normalized_text" &&
+        candidate.equivalence.fallbackReason != null,
+    );
+    expect(fallback.length).toBeGreaterThan(0);
+    expect(fallback[0]!.equivalence).toMatchObject({
+      method: "exact_normalized_text",
+      fallbackReason: expect.stringMatching(/omitted/i) as string,
+    });
   });
 });
