@@ -36,7 +36,7 @@ import {
   modelExecutionSchema,
   type ModelExecution,
 } from "./model-execution.js";
-import type { CanonicalStageKey } from "./lean-stages.js";
+import type { StageKey } from "./lean-stages.js";
 
 export {
   artifactReferenceSchema,
@@ -2931,7 +2931,7 @@ export function parseLeanStageArtifact(
 
 function validateLeanArtifactIdentity(
   artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
-    canonicalStage: CanonicalStageKey;
+    canonicalStage: StageKey;
     payload: unknown;
   },
   context: z.RefinementCtx,

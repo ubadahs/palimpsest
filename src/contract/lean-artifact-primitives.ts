@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { canonicalStageKeySchema } from "./lean-stages.js";
+import { stageKeySchema } from "./lean-stages.js";
 
 /**
  * Cycle-free primitives shared by lean stage envelopes and stage-focused
@@ -26,7 +26,7 @@ export const artifactReferenceSchema = z
     artifactId: stableIdentifierSchema,
     contentHash: sha256DigestSchema,
     role: z.string().min(1),
-    canonicalStage: canonicalStageKeySchema.optional(),
+    canonicalStage: stageKeySchema.optional(),
     uri: z.string().min(1).optional(),
   })
   .strict();

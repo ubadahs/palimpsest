@@ -46,15 +46,15 @@ import {
   type CanonicalEvidenceRerankerInput,
 } from "../../src/pipeline/canonical-evidence.js";
 import {
-  loadCanonicalEvidenceArtifact,
-  writeCanonicalEvidenceArtifact,
-} from "../../src/pipeline/canonical-evidence-artifact.js";
-import {
   buildOccurrenceLocalEvidenceQuery,
   buildScopedFamilyEvidenceQuery,
   chunkScopeSeedText,
   retrieveEvidenceByBm25,
 } from "../../src/retrieval/canonical-evidence-retrieval.js";
+import {
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 
 type GroundingVariant =
   | "grounded"
@@ -1317,13 +1317,13 @@ describe("canonical Evidence", () => {
     const directory = mkdtempSync(join(tmpdir(), "palimpsest-evidence-"));
     const artifactPath = join(directory, "evidence.json");
     try {
-      writeCanonicalEvidenceArtifact(artifactPath, artifact);
-      expect(loadCanonicalEvidenceArtifact(artifactPath)).toEqual(artifact);
+      writeCanonicalArtifact("evidence", artifactPath, artifact);
+      expect(loadCanonicalArtifact("evidence", artifactPath)).toEqual(artifact);
 
       const tampered = structuredClone(artifact);
       tampered.payload.bm25Runs[0]!.candidates[0]!.rawScore += 2;
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
-      expect(() => loadCanonicalEvidenceArtifact(artifactPath)).toThrow(
+      expect(() => loadCanonicalArtifact("evidence", artifactPath)).toThrow(
         /rankingContentHash|contentHash|artifactId/,
       );
 
@@ -1333,12 +1333,12 @@ describe("canonical Evidence", () => {
         evidenceArtifactPayloadSchema.safeParse(wrongLineage.payload).success,
       ).toBe(true);
       writeFileSync(artifactPath, JSON.stringify(wrongLineage), "utf8");
-      expect(() => loadCanonicalEvidenceArtifact(artifactPath)).toThrow(
+      expect(() => loadCanonicalArtifact("evidence", artifactPath)).toThrow(
         /lineage|contentHash|artifactId/,
       );
 
       expect(() =>
-        writeCanonicalEvidenceArtifact(artifactPath, {
+        writeCanonicalArtifact("evidence", artifactPath, {
           ...artifact,
           artifactVersion: 2,
         } as unknown as EvidenceArtifact),

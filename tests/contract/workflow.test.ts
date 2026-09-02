@@ -7,7 +7,7 @@ import {
   parseProgressEventLine,
   progressLogPrefix,
 } from "../../src/contract/workflow.js";
-import { stageKeyValues } from "../../src/contract/stages.js";
+import { stageKeyValues } from "../../src/contract/lean-stages.js";
 
 describe("stage workflow definitions", () => {
   it("defines ordered, non-empty workflows for every stage", () => {

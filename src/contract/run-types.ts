@@ -6,11 +6,8 @@ import {
   defaultAdaptivePortfolioPolicy,
 } from "./adaptive-portfolio-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
-import { stageKeyValues } from "./stages.js";
+import { stageKeySchema, type StageKey } from "./lean-stages.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
-
-const stageKeySchema = z.enum(stageKeyValues);
-export type StageKey = z.infer<typeof stageKeySchema>;
 
 export const analysisRunStatusValues = [
   "queued",

@@ -1,13 +1,21 @@
+import type { z } from "zod";
+
 import { existsSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
-import { loadCanonicalAdjudicateArtifact } from "../pipeline/canonical-adjudicate-artifact.js";
-import { loadCanonicalDiscoverArtifact } from "../pipeline/canonical-discover-artifact.js";
-import { loadCanonicalEvidenceArtifact } from "../pipeline/canonical-evidence-artifact.js";
-import { loadCanonicalPrepareArtifact } from "../pipeline/canonical-prepare-artifact.js";
-import { loadCanonicalReportArtifact } from "../pipeline/canonical-report-artifact.js";
-import { loadCanonicalScopeArtifact } from "../pipeline/canonical-scope-artifact.js";
-import { manifestPathForArtifact } from "../shared/artifact-io.js";
+import {
+  adjudicateArtifactSchema,
+  discoverArtifactSchema,
+  evidenceArtifactSchema,
+  prepareArtifactSchema,
+  reportArtifactSchema,
+  scopeArtifactSchema,
+} from "./lean-artifacts.js";
+import {
+  loadJsonArtifact,
+  manifestPathForArtifact,
+  writeJsonArtifact,
+} from "../shared/artifact-io.js";
 import type {
   BuildStageInspectorOptions,
   MutationFamilyView,
@@ -19,11 +27,10 @@ import type {
   StageArtifactMap,
   StageInspectorPayload,
 } from "./inspector-payloads.js";
-import { getStageDefinition } from "./stages.js";
+import { getStageDefinition, type StageKey } from "./lean-stages.js";
 import type {
   AnalysisStageSummary,
   StageArtifactPointer,
-  StageKey,
 } from "./run-types.js";
 
 export type StageArtifactSet = {
@@ -32,8 +39,6 @@ export type StageArtifactSet = {
   manifestPath?: string;
   extraArtifacts: StageArtifactPointer[];
 };
-
-type CanonicalArtifact = StageArtifactMap[StageKey];
 
 function metric(
   label: string,
@@ -57,48 +62,95 @@ function countBy<T>(
   return counts;
 }
 
-function loadCanonicalArtifact(
-  stageKey: "discover",
+/**
+ * One entry per canonical stage: its artifact schema, the label used in load
+ * errors, the run-registry summary, and the UI inspector payload. Every
+ * per-stage dispatch in this module reads from this table, so adding a stage
+ * or changing a shape is a single edit rather than five parallel switches.
+ */
+const STAGE_ADAPTERS: {
+  [K in StageKey]: {
+    label: string;
+    schema: z.ZodType<StageArtifactMap[K]>;
+    summarize: (artifact: StageArtifactMap[K]) => AnalysisStageSummary;
+    /**
+     * Checked before the artifact is loaded, so a caller that forgot a join
+     * path is told that rather than being handed a parse error.
+     */
+    requireOptions?: (options: BuildStageInspectorOptions | undefined) => void;
+    inspect: (
+      artifact: StageArtifactMap[K],
+      options?: BuildStageInspectorOptions,
+    ) => StageInspectorPayload<K>;
+  };
+} = {
+  discover: {
+    label: "canonical Discover",
+    schema: discoverArtifactSchema,
+    summarize: summarizeDiscover,
+    inspect: buildDiscoverInspectorPayload,
+  },
+  scope: {
+    label: "canonical Scope",
+    schema: scopeArtifactSchema,
+    summarize: summarizeScope,
+    inspect: buildScopeInspectorPayload,
+  },
+  prepare: {
+    label: "canonical Prepare",
+    schema: prepareArtifactSchema,
+    summarize: summarizePrepare,
+    inspect: buildPrepareInspectorPayload,
+  },
+  evidence: {
+    label: "canonical Evidence",
+    schema: evidenceArtifactSchema,
+    summarize: summarizeEvidence,
+    inspect: buildEvidenceInspectorPayload,
+  },
+  adjudicate: {
+    label: "canonical Adjudicate",
+    schema: adjudicateArtifactSchema,
+    summarize: summarizeAdjudicate,
+    inspect: buildAdjudicateInspectorPayload,
+  },
+  report: {
+    label: "canonical Report",
+    schema: reportArtifactSchema,
+    summarize: summarizeReport,
+    requireOptions: (options) => {
+      if (
+        !options?.preparePath ||
+        !options.evidencePath ||
+        !options.adjudicatePath
+      ) {
+        throw new Error(
+          "Report inspector requires preparePath, evidencePath, and adjudicatePath for record joins",
+        );
+      }
+    },
+    inspect: buildReportInspectorPayload,
+  },
+};
+
+export function loadCanonicalArtifact<K extends StageKey>(
+  stageKey: K,
   artifactPath: string,
-): StageArtifactMap["discover"];
-function loadCanonicalArtifact(
-  stageKey: "scope",
+): StageArtifactMap[K] {
+  const adapter = STAGE_ADAPTERS[stageKey];
+  return loadJsonArtifact(artifactPath, adapter.schema, adapter.label);
+}
+
+/** Validates before writing, so a malformed artifact never reaches disk. */
+export function writeCanonicalArtifact<K extends StageKey>(
+  stageKey: K,
   artifactPath: string,
-): StageArtifactMap["scope"];
-function loadCanonicalArtifact(
-  stageKey: "prepare",
-  artifactPath: string,
-): StageArtifactMap["prepare"];
-function loadCanonicalArtifact(
-  stageKey: "evidence",
-  artifactPath: string,
-): StageArtifactMap["evidence"];
-function loadCanonicalArtifact(
-  stageKey: "adjudicate",
-  artifactPath: string,
-): StageArtifactMap["adjudicate"];
-function loadCanonicalArtifact(
-  stageKey: "report",
-  artifactPath: string,
-): StageArtifactMap["report"];
-function loadCanonicalArtifact(
-  stageKey: StageKey,
-  artifactPath: string,
-): CanonicalArtifact {
-  switch (stageKey) {
-    case "discover":
-      return loadCanonicalDiscoverArtifact(artifactPath);
-    case "scope":
-      return loadCanonicalScopeArtifact(artifactPath);
-    case "prepare":
-      return loadCanonicalPrepareArtifact(artifactPath);
-    case "evidence":
-      return loadCanonicalEvidenceArtifact(artifactPath);
-    case "adjudicate":
-      return loadCanonicalAdjudicateArtifact(artifactPath);
-    case "report":
-      return loadCanonicalReportArtifact(artifactPath);
-  }
+  artifact: StageArtifactMap[K],
+): void {
+  writeJsonArtifact(
+    artifactPath,
+    STAGE_ADAPTERS[stageKey].schema.parse(artifact),
+  );
 }
 
 /**
@@ -177,143 +229,147 @@ export function artifactStemFromPrimaryPath(
     : base.replace(/\.[^.]+$/, "");
 }
 
-export function deriveCanonicalStageSummary(
-  stageKey: "discover",
-  artifact: StageArtifactMap["discover"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: "scope",
-  artifact: StageArtifactMap["scope"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: "prepare",
-  artifact: StageArtifactMap["prepare"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: "evidence",
-  artifact: StageArtifactMap["evidence"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: "adjudicate",
-  artifact: StageArtifactMap["adjudicate"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: "report",
-  artifact: StageArtifactMap["report"],
-): AnalysisStageSummary;
-export function deriveCanonicalStageSummary(
-  stageKey: StageKey,
-  artifact: CanonicalArtifact,
+export function deriveCanonicalStageSummary<K extends StageKey>(
+  stageKey: K,
+  artifact: StageArtifactMap[K],
 ): AnalysisStageSummary {
-  if (stageKey === "discover") {
-    const data = artifact as StageArtifactMap["discover"];
-    return {
-      headline: "Citing-neighborhood discovery ledger",
-      metrics: [
-        metric("Seeds", data.payload.seeds.length),
-        metric("Citing observations", data.payload.citingPapers.length),
-        metric("Citation occurrences", data.payload.citationMentions.length),
-        metric("Attributed claims", data.payload.attributedClaimRecords.length),
-        metric("Candidates", data.payload.claimCandidates.length),
-        metric(
-          "Selected for Scope",
-          data.payload.candidateDispositions.filter(
-            (item) => item.selectedForScope,
-          ).length,
-        ),
-      ],
-      artifacts: [],
-    };
-  }
-  if (stageKey === "scope") {
-    const data = artifact as StageArtifactMap["scope"];
-    return {
-      headline: "Scoped families and seed grounding",
-      metrics: [
-        metric("Candidate decisions", data.payload.candidateDecisions.length),
-        metric(
-          "Selected candidates",
-          data.payload.candidateDecisions.filter(
-            (item) => item.disposition === "scoped",
-          ).length,
-        ),
-        metric("Families", data.payload.families.length),
-        metric(
-          "Materialized seeds",
-          data.payload.seedMaterializations.filter(
-            (item) => item.status === "materialized",
-          ).length,
-        ),
-      ],
-      artifacts: [],
-    };
-  }
-  if (stageKey === "prepare") {
-    const data = artifact as StageArtifactMap["prepare"];
-    const classifications = countBy(
-      data.payload.records,
-      (record) => record.classification.status,
-    );
-    return {
-      headline: "Occurrence-local citation records",
-      metrics: [
-        metric("Families", data.payload.scopedFamilies.length),
-        metric("Records", data.payload.records.length),
-        metric("Classified", classifications.get("classified") ?? 0),
-        metric("Ambiguous", classifications.get("ambiguous") ?? 0),
-        metric("Failed", classifications.get("failed") ?? 0),
-      ],
-      artifacts: [],
-    };
-  }
-  if (stageKey === "evidence") {
-    const data = artifact as StageArtifactMap["evidence"];
-    const retrieval = countBy(
-      data.payload.records,
-      (record) => record.retrievalStatus,
-    );
-    return {
-      headline: "Seed-text evidence retrieval",
-      metrics: [
-        metric("Record outcomes", data.payload.records.length),
-        metric("Retrieved", retrieval.get("retrieved") ?? 0),
-        metric("No lexical matches", retrieval.get("no_lexical_matches") ?? 0),
-        metric("Selections", data.payload.selections.length),
-        metric("BM25 runs", data.payload.bm25Runs.length),
-        metric("Rerank runs", data.payload.rerankRuns.length),
-      ],
-      artifacts: [],
-    };
-  }
-  if (stageKey === "adjudicate") {
-    const data = artifact as StageArtifactMap["adjudicate"];
-    const outcomes = countBy(data.payload.records, (record) => record.status);
-    const verdicts = countBy(
-      data.payload.records.filter(
-        (record): record is Extract<typeof record, { status: "adjudicated" }> =>
-          record.status === "adjudicated",
-      ),
-      (record) => record.verdict,
-    );
-    return {
-      headline: "Canonical categorical adjudication",
-      metrics: [
-        metric("Records", data.payload.records.length),
-        metric("Adjudicated", outcomes.get("adjudicated") ?? 0),
-        metric("F", verdicts.get("F") ?? 0),
-        metric("D", verdicts.get("D") ?? 0),
-        metric("E", verdicts.get("E") ?? 0),
-        metric("U", verdicts.get("U") ?? 0),
-        metric("Not adjudicated", outcomes.get("not_adjudicated") ?? 0),
-        metric("Adjudication failed", outcomes.get("adjudication_failed") ?? 0),
-        metric("Invalid output", outcomes.get("invalid_output") ?? 0),
-      ],
-      artifacts: [],
-    };
-  }
+  return STAGE_ADAPTERS[stageKey].summarize(artifact);
+}
 
-  const data = artifact as StageArtifactMap["report"];
-  const { funnel } = data.payload;
+export function deriveCanonicalStageSummaryFromPath(
+  stageKey: StageKey,
+  artifactPath: string,
+): AnalysisStageSummary {
+  return deriveCanonicalStageSummary(
+    stageKey,
+    loadCanonicalArtifact(stageKey, artifactPath),
+  );
+}
+
+function summarizeDiscover(
+  artifact: StageArtifactMap["discover"],
+): AnalysisStageSummary {
+  const { payload } = artifact;
+  return {
+    headline: "Citing-neighborhood discovery ledger",
+    metrics: [
+      metric("Seeds", payload.seeds.length),
+      metric("Citing observations", payload.citingPapers.length),
+      metric("Citation occurrences", payload.citationMentions.length),
+      metric("Attributed claims", payload.attributedClaimRecords.length),
+      metric("Candidates", payload.claimCandidates.length),
+      metric(
+        "Selected for Scope",
+        payload.candidateDispositions.filter((item) => item.selectedForScope)
+          .length,
+      ),
+    ],
+    artifacts: [],
+  };
+}
+
+function summarizeScope(
+  artifact: StageArtifactMap["scope"],
+): AnalysisStageSummary {
+  const { payload } = artifact;
+  return {
+    headline: "Scoped families and seed grounding",
+    metrics: [
+      metric("Candidate decisions", payload.candidateDecisions.length),
+      metric(
+        "Selected candidates",
+        payload.candidateDecisions.filter(
+          (item) => item.disposition === "scoped",
+        ).length,
+      ),
+      metric("Families", payload.families.length),
+      metric(
+        "Materialized seeds",
+        payload.seedMaterializations.filter(
+          (item) => item.status === "materialized",
+        ).length,
+      ),
+    ],
+    artifacts: [],
+  };
+}
+
+function summarizePrepare(
+  artifact: StageArtifactMap["prepare"],
+): AnalysisStageSummary {
+  const { payload } = artifact;
+  const classifications = countBy(
+    payload.records,
+    (record) => record.classification.status,
+  );
+  return {
+    headline: "Occurrence-local citation records",
+    metrics: [
+      metric("Families", payload.scopedFamilies.length),
+      metric("Records", payload.records.length),
+      metric("Classified", classifications.get("classified") ?? 0),
+      metric("Ambiguous", classifications.get("ambiguous") ?? 0),
+      metric("Failed", classifications.get("failed") ?? 0),
+    ],
+    artifacts: [],
+  };
+}
+
+function summarizeEvidence(
+  artifact: StageArtifactMap["evidence"],
+): AnalysisStageSummary {
+  const { payload } = artifact;
+  const retrieval = countBy(
+    payload.records,
+    (record) => record.retrievalStatus,
+  );
+  return {
+    headline: "Seed-text evidence retrieval",
+    metrics: [
+      metric("Record outcomes", payload.records.length),
+      metric("Retrieved", retrieval.get("retrieved") ?? 0),
+      metric("No lexical matches", retrieval.get("no_lexical_matches") ?? 0),
+      metric("Selections", payload.selections.length),
+      metric("BM25 runs", payload.bm25Runs.length),
+      metric("Rerank runs", payload.rerankRuns.length),
+    ],
+    artifacts: [],
+  };
+}
+
+function summarizeAdjudicate(
+  artifact: StageArtifactMap["adjudicate"],
+): AnalysisStageSummary {
+  const { payload } = artifact;
+  const outcomes = countBy(payload.records, (record) => record.status);
+  const verdicts = countBy(
+    payload.records.filter(
+      (record): record is Extract<typeof record, { status: "adjudicated" }> =>
+        record.status === "adjudicated",
+    ),
+    (record) => record.verdict,
+  );
+  return {
+    headline: "Canonical categorical adjudication",
+    metrics: [
+      metric("Records", payload.records.length),
+      metric("Adjudicated", outcomes.get("adjudicated") ?? 0),
+      metric("F", verdicts.get("F") ?? 0),
+      metric("D", verdicts.get("D") ?? 0),
+      metric("E", verdicts.get("E") ?? 0),
+      metric("U", verdicts.get("U") ?? 0),
+      metric("Not adjudicated", outcomes.get("not_adjudicated") ?? 0),
+      metric("Adjudication failed", outcomes.get("adjudication_failed") ?? 0),
+      metric("Invalid output", outcomes.get("invalid_output") ?? 0),
+    ],
+    artifacts: [],
+  };
+}
+
+function summarizeReport(
+  artifact: StageArtifactMap["report"],
+): AnalysisStageSummary {
+  const { funnel } = artifact.payload;
   return {
     headline: "Canonical audit report",
     metrics: [
@@ -329,44 +385,6 @@ export function deriveCanonicalStageSummary(
     ],
     artifacts: [],
   };
-}
-
-export function deriveCanonicalStageSummaryFromPath(
-  stageKey: StageKey,
-  artifactPath: string,
-): AnalysisStageSummary {
-  switch (stageKey) {
-    case "discover":
-      return deriveCanonicalStageSummary(
-        "discover",
-        loadCanonicalArtifact("discover", artifactPath),
-      );
-    case "scope":
-      return deriveCanonicalStageSummary(
-        "scope",
-        loadCanonicalArtifact("scope", artifactPath),
-      );
-    case "prepare":
-      return deriveCanonicalStageSummary(
-        "prepare",
-        loadCanonicalArtifact("prepare", artifactPath),
-      );
-    case "evidence":
-      return deriveCanonicalStageSummary(
-        "evidence",
-        loadCanonicalArtifact("evidence", artifactPath),
-      );
-    case "adjudicate":
-      return deriveCanonicalStageSummary(
-        "adjudicate",
-        loadCanonicalArtifact("adjudicate", artifactPath),
-      );
-    case "report":
-      return deriveCanonicalStageSummary(
-        "report",
-        loadCanonicalArtifact("report", artifactPath),
-      );
-  }
 }
 
 function buildDiscoverInspectorPayload(
@@ -979,45 +997,7 @@ export function buildStageInspectorPayload<K extends StageKey>(
   primaryPath: string,
   options?: BuildStageInspectorOptions,
 ): StageInspectorPayload<K> {
-  switch (stageKey) {
-    case "discover":
-      return buildDiscoverInspectorPayload(
-        loadCanonicalArtifact("discover", primaryPath),
-      ) as StageInspectorPayload<K>;
-    case "scope":
-      return buildScopeInspectorPayload(
-        loadCanonicalArtifact("scope", primaryPath),
-      ) as StageInspectorPayload<K>;
-    case "prepare":
-      return buildPrepareInspectorPayload(
-        loadCanonicalArtifact("prepare", primaryPath),
-      ) as StageInspectorPayload<K>;
-    case "evidence":
-      return buildEvidenceInspectorPayload(
-        loadCanonicalArtifact("evidence", primaryPath),
-      ) as StageInspectorPayload<K>;
-    case "adjudicate":
-      return buildAdjudicateInspectorPayload(
-        loadCanonicalArtifact("adjudicate", primaryPath),
-      ) as StageInspectorPayload<K>;
-    case "report": {
-      if (
-        !options?.preparePath ||
-        !options.evidencePath ||
-        !options.adjudicatePath
-      ) {
-        throw new Error(
-          "Report inspector requires preparePath, evidencePath, and adjudicatePath for record joins",
-        );
-      }
-      return buildReportInspectorPayload(
-        loadCanonicalArtifact("report", primaryPath),
-        options,
-      ) as StageInspectorPayload<K>;
-    }
-    default: {
-      const _exhaustive: never = stageKey;
-      throw new Error(`Unsupported stage key: ${String(_exhaustive)}`);
-    }
-  }
+  const adapter = STAGE_ADAPTERS[stageKey];
+  adapter.requireOptions?.(options);
+  return adapter.inspect(loadCanonicalArtifact(stageKey, primaryPath), options);
 }

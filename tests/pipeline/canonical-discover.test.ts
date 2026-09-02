@@ -28,9 +28,9 @@ import {
   type CanonicalClaimCanonicalizationInput,
 } from "../../src/pipeline/canonical-discover.js";
 import {
-  loadCanonicalDiscoverArtifact,
-  writeCanonicalDiscoverArtifact,
-} from "../../src/pipeline/canonical-discover-artifact.js";
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 
 type FixtureVariant = {
   parser?: string;
@@ -955,19 +955,19 @@ describe("canonical Discover", () => {
     const directory = mkdtempSync(join(tmpdir(), "palimpsest-discover-"));
     const artifactPath = join(directory, "discover.json");
     try {
-      writeCanonicalDiscoverArtifact(artifactPath, artifact);
-      expect(loadCanonicalDiscoverArtifact(artifactPath)).toEqual(artifact);
+      writeCanonicalArtifact("discover", artifactPath, artifact);
+      expect(loadCanonicalArtifact("discover", artifactPath)).toEqual(artifact);
 
       const tampered = structuredClone(artifact);
       tampered.payload.citationMentions[0]!.rawContext =
         "Tampered scientific context";
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
-      expect(() => loadCanonicalDiscoverArtifact(artifactPath)).toThrow(
+      expect(() => loadCanonicalArtifact("discover", artifactPath)).toThrow(
         /mentionId|contentHash|supportSpan/,
       );
 
       expect(() =>
-        writeCanonicalDiscoverArtifact(artifactPath, {
+        writeCanonicalArtifact("discover", artifactPath, {
           ...artifact,
           artifactVersion: 2,
         } as unknown as DiscoverArtifact),

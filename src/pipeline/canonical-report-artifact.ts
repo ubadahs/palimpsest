@@ -2,13 +2,11 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
-  reportArtifactSchema,
-  type ReportArtifact,
-} from "../contract/lean-artifacts.js";
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../contract/selectors.js";
+import type { ReportArtifact } from "../contract/lean-artifacts.js";
 import { renderCanonicalReportMarkdown } from "../reporting/canonical-report-markdown.js";
-import { loadJsonArtifact, writeJsonArtifact } from "../shared/artifact-io.js";
-
-const CANONICAL_REPORT_ARTIFACT_LABEL = "canonical Report";
 
 export type CanonicalReportWriteResult = {
   jsonPath: string;
@@ -31,9 +29,8 @@ export function writeCanonicalReportArtifacts(
       "Canonical Report JSON and Markdown paths must resolve to different files",
     );
   }
-  const artifact = reportArtifactSchema.parse(artifactInput);
-  writeJsonArtifact(jsonPath, artifact);
-  const parsedFromDisk = loadCanonicalReportArtifact(jsonPath);
+  writeCanonicalArtifact("report", jsonPath, artifactInput);
+  const parsedFromDisk = loadCanonicalArtifact("report", jsonPath);
   const markdown = renderCanonicalReportMarkdown(parsedFromDisk);
   writeFileSync(markdownPath, markdown, "utf8");
   return {
@@ -42,14 +39,4 @@ export function writeCanonicalReportArtifacts(
     artifact: parsedFromDisk,
     markdown,
   };
-}
-
-export function loadCanonicalReportArtifact(
-  artifactPath: string,
-): ReportArtifact {
-  return loadJsonArtifact(
-    artifactPath,
-    reportArtifactSchema,
-    CANONICAL_REPORT_ARTIFACT_LABEL,
-  );
 }

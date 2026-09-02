@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 
 import { analysisRunConfigSchema } from "../contract/run-types.js";
-import { stageKeyValues } from "../contract/stages.js";
+import { stageKeyValues } from "../contract/lean-stages.js";
 
 const migrationsDirectoryPath = join(
   dirname(fileURLToPath(import.meta.url)),

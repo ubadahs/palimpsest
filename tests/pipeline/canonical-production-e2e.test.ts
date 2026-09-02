@@ -34,12 +34,6 @@ import type { CanonicalDiscoverAdapters } from "../../src/pipeline/canonical-dis
 import type { CanonicalScopeAdapters } from "../../src/pipeline/canonical-scope.js";
 import type { CanonicalEvidenceAdapters } from "../../src/pipeline/canonical-evidence.js";
 import type { CanonicalAdjudicateAdapters } from "../../src/pipeline/canonical-adjudicate.js";
-import { loadCanonicalDiscoverArtifact } from "../../src/pipeline/canonical-discover-artifact.js";
-import { loadCanonicalScopeArtifact } from "../../src/pipeline/canonical-scope-artifact.js";
-import { loadCanonicalPrepareArtifact } from "../../src/pipeline/canonical-prepare-artifact.js";
-import { loadCanonicalEvidenceArtifact } from "../../src/pipeline/canonical-evidence-artifact.js";
-import { loadCanonicalAdjudicateArtifact } from "../../src/pipeline/canonical-adjudicate-artifact.js";
-import { loadCanonicalReportArtifact } from "../../src/pipeline/canonical-report-artifact.js";
 import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 import { getRunStage } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
@@ -48,6 +42,7 @@ import {
   buildStableId,
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
+import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -462,22 +457,28 @@ describe("canonical production-path DOI→Report E2E", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       );
 
-      const discover = loadCanonicalDiscoverArtifact(
+      const discover = loadCanonicalArtifact(
+        "discover",
         getRunStage(database, result.runId, "discover")!.primaryArtifactPath!,
       );
-      const scope = loadCanonicalScopeArtifact(
+      const scope = loadCanonicalArtifact(
+        "scope",
         getRunStage(database, result.runId, "scope")!.primaryArtifactPath!,
       );
-      const prepare = loadCanonicalPrepareArtifact(
+      const prepare = loadCanonicalArtifact(
+        "prepare",
         getRunStage(database, result.runId, "prepare")!.primaryArtifactPath!,
       );
-      const evidence = loadCanonicalEvidenceArtifact(
+      const evidence = loadCanonicalArtifact(
+        "evidence",
         getRunStage(database, result.runId, "evidence")!.primaryArtifactPath!,
       );
-      const adjudicate = loadCanonicalAdjudicateArtifact(
+      const adjudicate = loadCanonicalArtifact(
+        "adjudicate",
         getRunStage(database, result.runId, "adjudicate")!.primaryArtifactPath!,
       );
-      const report = loadCanonicalReportArtifact(
+      const report = loadCanonicalArtifact(
+        "report",
         getRunStage(database, result.runId, "report")!.primaryArtifactPath!,
       );
 

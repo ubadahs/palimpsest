@@ -32,13 +32,13 @@ import {
   type CanonicalScopeResult,
 } from "../../src/pipeline/canonical-scope.js";
 import {
-  loadCanonicalScopeArtifact,
-  writeCanonicalScopeArtifact,
-} from "../../src/pipeline/canonical-scope-artifact.js";
-import {
   buildStableId,
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
+import {
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 
 type ScopeFixtureOptions = {
   maxFamilies?: number;
@@ -1062,18 +1062,18 @@ describe("canonical Scope", () => {
     const directory = mkdtempSync(join(tmpdir(), "palimpsest-scope-"));
     const artifactPath = join(directory, "scope.json");
     try {
-      writeCanonicalScopeArtifact(artifactPath, artifact);
-      expect(loadCanonicalScopeArtifact(artifactPath)).toEqual(artifact);
+      writeCanonicalArtifact("scope", artifactPath, artifact);
+      expect(loadCanonicalArtifact("scope", artifactPath)).toEqual(artifact);
 
       const tampered = structuredClone(artifact);
       tampered.payload.families[0]!.trackedClaim = "Tampered claim";
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
-      expect(() => loadCanonicalScopeArtifact(artifactPath)).toThrow(
+      expect(() => loadCanonicalArtifact("scope", artifactPath)).toThrow(
         /contentHash|artifactId/,
       );
 
       expect(() =>
-        writeCanonicalScopeArtifact(artifactPath, {
+        writeCanonicalArtifact("scope", artifactPath, {
           ...artifact,
           artifactVersion: 2,
         } as unknown as typeof artifact),
