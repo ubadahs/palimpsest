@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { getStageDefinition } from "../contract/stages.js";
-import type { StageKey } from "../contract/run-types.js";
+import { getStageDefinition } from "../contract/lean-stages.js";
+import type { StageKey } from "../contract/lean-stages.js";
 import type { LeanStageArtifact } from "../contract/lean-artifacts.js";
 import { manifestPathForArtifact } from "../shared/artifact-io.js";
 

@@ -1,10 +1,9 @@
-import { stageDefinitions } from "./stages.js";
+import { stageDefinitions, type StageKey } from "./lean-stages.js";
 import type {
   AnalysisRunStage,
   AnalysisRunStageStatus,
   AnalysisStageSummary,
   LogicalStageGroup,
-  StageKey,
 } from "./run-types.js";
 
 const TERMINAL: ReadonlySet<AnalysisRunStageStatus> = new Set([

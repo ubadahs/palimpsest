@@ -6,7 +6,7 @@ import {
   setRunStatus,
   updateStageStatus,
 } from "../storage/analysis-runs.js";
-import type { StageKey } from "../contract/run-types.js";
+import { stageKeyValues, type StageKey } from "../contract/lean-stages.js";
 
 /**
  * Tracks canonical pipeline stage lifecycle in the database.
@@ -24,16 +24,11 @@ export class RunTracker {
     this.runId = runId;
   }
 
-  stageStart(stageKey: StageKey, logPath?: string): void {
+  stageStart(stageKey: StageKey): void {
     this.activeStages.add(stageKey);
     updateStageStatus(this.db, this.runId, stageKey, "running", {
       startedAt: new Date().toISOString(),
       processId: process.pid,
-      ...(logPath
-        ? {
-            // log path is set at create time; keep status update minimal
-          }
-        : {}),
     });
     setRunStatus(this.db, this.runId, "running", stageKey);
   }
@@ -67,15 +62,7 @@ export class RunTracker {
   }
 
   blockPendingStages(message: string): void {
-    const stages = [
-      "discover",
-      "scope",
-      "prepare",
-      "evidence",
-      "adjudicate",
-      "report",
-    ] as const satisfies readonly StageKey[];
-    for (const stageKey of stages) {
+    for (const stageKey of stageKeyValues) {
       const stage = getRunStage(this.db, this.runId, stageKey);
       if (stage?.status === "not_started") {
         this.stageBlocked(stageKey, message);

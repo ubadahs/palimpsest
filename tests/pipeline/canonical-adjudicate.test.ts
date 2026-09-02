@@ -56,9 +56,9 @@ import {
   type CanonicalAdjudicateAdapterInput,
 } from "../../src/pipeline/canonical-adjudicate.js";
 import {
-  loadCanonicalAdjudicateArtifact,
-  writeCanonicalAdjudicateArtifact,
-} from "../../src/pipeline/canonical-adjudicate-artifact.js";
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 
 type GroundingVariant =
   | "grounded"
@@ -1389,8 +1389,8 @@ describe("canonical Adjudicate", () => {
     const directory = mkdtempSync(join(tmpdir(), "canonical-adjudicate-"));
     const path = join(directory, "adjudicate.json");
     try {
-      writeCanonicalAdjudicateArtifact(path, artifact);
-      const loaded = loadCanonicalAdjudicateArtifact(path);
+      writeCanonicalArtifact("adjudicate", path, artifact);
+      const loaded = loadCanonicalArtifact("adjudicate", path);
       expect(loaded).toEqual(artifact);
 
       const tampered = {
@@ -1405,7 +1405,7 @@ describe("canonical Adjudicate", () => {
         contentHash: "0".repeat(64),
       };
       writeFileSync(path, `${JSON.stringify(tampered, null, 2)}\n`);
-      expect(() => loadCanonicalAdjudicateArtifact(path)).toThrow(
+      expect(() => loadCanonicalArtifact("adjudicate", path)).toThrow(
         /contentHash|tamper|Invalid/i,
       );
     } finally {
@@ -1537,7 +1537,7 @@ describe("canonical Adjudicate", () => {
         rehashArtifact(tampered);
         writeFileSync(path, `${JSON.stringify(tampered, null, 2)}\n`);
         expect(
-          () => loadCanonicalAdjudicateArtifact(path),
+          () => loadCanonicalArtifact("adjudicate", path),
           mutation.name,
         ).toThrow(/Invalid canonical Adjudicate artifact/i);
       }
@@ -1570,7 +1570,7 @@ describe("canonical Adjudicate", () => {
     const path = join(directory, "adjudicate.json");
     try {
       writeFileSync(path, `${JSON.stringify(tampered, null, 2)}\n`);
-      expect(() => loadCanonicalAdjudicateArtifact(path)).toThrow(
+      expect(() => loadCanonicalArtifact("adjudicate", path)).toThrow(
         /Invalid canonical Adjudicate artifact/i,
       );
     } finally {

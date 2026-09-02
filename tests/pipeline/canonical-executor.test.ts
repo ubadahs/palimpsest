@@ -13,13 +13,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AppConfig } from "../../src/config/app-config.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
-import { stageDefinitions, stageKeyValues } from "../../src/contract/stages.js";
-import { loadCanonicalDiscoverArtifact } from "../../src/pipeline/canonical-discover-artifact.js";
-import { loadCanonicalScopeArtifact } from "../../src/pipeline/canonical-scope-artifact.js";
-import { loadCanonicalPrepareArtifact } from "../../src/pipeline/canonical-prepare-artifact.js";
-import { loadCanonicalEvidenceArtifact } from "../../src/pipeline/canonical-evidence-artifact.js";
-import { loadCanonicalAdjudicateArtifact } from "../../src/pipeline/canonical-adjudicate-artifact.js";
-import { loadCanonicalReportArtifact } from "../../src/pipeline/canonical-report-artifact.js";
+import {
+  stageDefinitions,
+  stageKeyValues,
+} from "../../src/contract/lean-stages.js";
 import {
   CanonicalExecutorError,
   orchestrateCanonicalPipelineRun,
@@ -62,6 +59,7 @@ import {
   getStageWorkflowDefinition,
   parseProgressEventLine,
 } from "../../src/contract/workflow.js";
+import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
 
 const TRACKED_CLAIM =
   "Rab35 silencing causes loss of apical bulkheads and cyst formation.";
@@ -522,22 +520,28 @@ describe("canonical executor cutover", () => {
       ),
     );
 
-    const discover = loadCanonicalDiscoverArtifact(
+    const discover = loadCanonicalArtifact(
+      "discover",
       getRunStage(database, result.runId, "discover")!.primaryArtifactPath!,
     );
-    const scope = loadCanonicalScopeArtifact(
+    const scope = loadCanonicalArtifact(
+      "scope",
       getRunStage(database, result.runId, "scope")!.primaryArtifactPath!,
     );
-    const prepare = loadCanonicalPrepareArtifact(
+    const prepare = loadCanonicalArtifact(
+      "prepare",
       getRunStage(database, result.runId, "prepare")!.primaryArtifactPath!,
     );
-    const evidence = loadCanonicalEvidenceArtifact(
+    const evidence = loadCanonicalArtifact(
+      "evidence",
       getRunStage(database, result.runId, "evidence")!.primaryArtifactPath!,
     );
-    const adjudicate = loadCanonicalAdjudicateArtifact(
+    const adjudicate = loadCanonicalArtifact(
+      "adjudicate",
       getRunStage(database, result.runId, "adjudicate")!.primaryArtifactPath!,
     );
-    const reportArtifact = loadCanonicalReportArtifact(
+    const reportArtifact = loadCanonicalArtifact(
+      "report",
       report.primaryArtifactPath!,
     );
 
@@ -705,7 +709,7 @@ describe("canonical executor cutover", () => {
       "discover",
     )!.primaryArtifactPath!;
     expect(
-      loadCanonicalDiscoverArtifact(discoverPath).payload.seeds.map(
+      loadCanonicalArtifact("discover", discoverPath).payload.seeds.map(
         (seed) => seed.doi,
       ),
     ).toEqual(seedDois);
@@ -746,12 +750,13 @@ describe("canonical executor cutover", () => {
       process.chdir(previousCwd);
     }
     expect(
-      loadCanonicalDiscoverArtifact(discoverPath).payload.seeds.map(
+      loadCanonicalArtifact("discover", discoverPath).payload.seeds.map(
         (seed) => seed.doi,
       ),
     ).toEqual(seedDois);
     expect(
-      loadCanonicalScopeArtifact(
+      loadCanonicalArtifact(
+        "scope",
         getRunStage(partial.database, partial.result.runId, "scope")!
           .primaryArtifactPath!,
       ).payload.seedMaterializations,
@@ -761,7 +766,8 @@ describe("canonical executor cutover", () => {
 
   it("persists resume target and future-stage config overrides for later reads", async () => {
     const partial = await runFresh({ stopAfterStage: "discover" });
-    const discover = loadCanonicalDiscoverArtifact(
+    const discover = loadCanonicalArtifact(
+      "discover",
       getRunStage(partial.database, partial.result.runId, "discover")!
         .primaryArtifactPath!,
     );
@@ -814,7 +820,8 @@ describe("canonical executor cutover", () => {
       rerankModel: "fixture-reranker-override",
       rerankTopN: 3,
     });
-    const evidence = loadCanonicalEvidenceArtifact(
+    const evidence = loadCanonicalArtifact(
+      "evidence",
       getRunStage(partial.database, partial.result.runId, "evidence")!
         .primaryArtifactPath!,
     );
@@ -1364,12 +1371,12 @@ describe("canonical executor cutover", () => {
     const { database, result } = await runFresh();
     const prepareBefore = getRunStage(database, result.runId, "prepare")!;
     const oldPreparePath = prepareBefore.primaryArtifactPath!;
-    const oldPrepareArtifact = loadCanonicalPrepareArtifact(oldPreparePath);
+    const oldPrepareArtifact = loadCanonicalArtifact("prepare", oldPreparePath);
     const evidenceBefore = getRunStage(database, result.runId, "evidence")!;
     const oldEvidencePath = evidenceBefore.primaryArtifactPath!;
     const reportBefore = getRunStage(database, result.runId, "report")!;
     const oldReportPath = reportBefore.primaryArtifactPath!;
-    const oldReportArtifact = loadCanonicalReportArtifact(oldReportPath);
+    const oldReportArtifact = loadCanonicalArtifact("report", oldReportPath);
     expect(existsSync(oldPreparePath)).toBe(true);
     expect(existsSync(oldEvidencePath)).toBe(true);
     expect(existsSync(oldReportPath)).toBe(true);
@@ -1437,7 +1444,7 @@ describe("canonical executor cutover", () => {
     expect(prepareAfter.primaryArtifactPath).toBeTruthy();
     expect(prepareAfter.primaryArtifactPath).not.toBe(oldPreparePath);
     expect(
-      loadCanonicalPrepareArtifact(prepareAfter.primaryArtifactPath!)
+      loadCanonicalArtifact("prepare", prepareAfter.primaryArtifactPath!)
         .artifactId,
     ).toBe(oldPrepareArtifact.artifactId);
     expect(
@@ -1447,7 +1454,8 @@ describe("canonical executor cutover", () => {
     const reportAfter = getRunStage(database, result.runId, "report")!;
     expect(reportAfter.primaryArtifactPath).not.toBe(oldReportPath);
     expect(
-      loadCanonicalReportArtifact(reportAfter.primaryArtifactPath!).artifactId,
+      loadCanonicalArtifact("report", reportAfter.primaryArtifactPath!)
+        .artifactId,
     ).toBe(oldReportArtifact.artifactId);
     // Old files remain on disk (append-only).
     expect(existsSync(oldPreparePath)).toBe(true);
@@ -1578,7 +1586,8 @@ describe("canonical executor cutover", () => {
       adapters,
       now: () => new Date("2026-07-17T12:00:00.000Z"),
     });
-    const adjudicate = loadCanonicalAdjudicateArtifact(
+    const adjudicate = loadCanonicalArtifact(
+      "adjudicate",
       getRunStage(database, result.runId, "adjudicate")!.primaryArtifactPath!,
     );
     expect(
@@ -1592,7 +1601,8 @@ describe("canonical executor cutover", () => {
 
   it("supports evidence rerank enabled and nonfatal failure paths", async () => {
     const enabled = await runFresh({ evidence: "enabled" });
-    const evidence = loadCanonicalEvidenceArtifact(
+    const evidence = loadCanonicalArtifact(
+      "evidence",
       getRunStage(enabled.database, enabled.result.runId, "evidence")!
         .primaryArtifactPath!,
     );
@@ -1600,7 +1610,8 @@ describe("canonical executor cutover", () => {
     enabled.database.close();
 
     const failed = await runFresh({ evidence: "fail" });
-    const failedEvidence = loadCanonicalEvidenceArtifact(
+    const failedEvidence = loadCanonicalArtifact(
+      "evidence",
       getRunStage(failed.database, failed.result.runId, "evidence")!
         .primaryArtifactPath!,
     );
@@ -1682,17 +1693,17 @@ function loadByStage(
 } {
   switch (stageKey) {
     case "discover":
-      return loadCanonicalDiscoverArtifact(path);
+      return loadCanonicalArtifact("discover", path);
     case "scope":
-      return loadCanonicalScopeArtifact(path);
+      return loadCanonicalArtifact("scope", path);
     case "prepare":
-      return loadCanonicalPrepareArtifact(path);
+      return loadCanonicalArtifact("prepare", path);
     case "evidence":
-      return loadCanonicalEvidenceArtifact(path);
+      return loadCanonicalArtifact("evidence", path);
     case "adjudicate":
-      return loadCanonicalAdjudicateArtifact(path);
+      return loadCanonicalArtifact("adjudicate", path);
     case "report":
-      return loadCanonicalReportArtifact(path);
+      return loadCanonicalArtifact("report", path);
     default:
       throw new CanonicalExecutorError(`Unexpected stage ${stageKey}`);
   }

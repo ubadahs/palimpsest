@@ -55,11 +55,9 @@ import {
   CanonicalReportBoundaryError,
   runCanonicalReport,
 } from "../../src/pipeline/canonical-report.js";
-import {
-  loadCanonicalReportArtifact,
-  writeCanonicalReportArtifacts,
-} from "../../src/pipeline/canonical-report-artifact.js";
 import { renderCanonicalReportMarkdown } from "../../src/reporting/canonical-report-markdown.js";
+import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
+import { writeCanonicalReportArtifacts } from "../../src/pipeline/canonical-report-artifact.js";
 
 const TRACKED_CLAIM =
   "Rab35 silencing causes loss of apical bulkheads and cyst formation.";
@@ -1837,7 +1835,7 @@ describe("canonical Report", () => {
         artifact,
       );
       expect(written.markdown).toBe(readFileSync(markdownPath, "utf8"));
-      const loaded = loadCanonicalReportArtifact(jsonPath);
+      const loaded = loadCanonicalArtifact("report", jsonPath);
       expect(loaded.artifactId).toBe(artifact.artifactId);
       expect(loaded.contentHash).toBe(artifact.contentHash);
       expect(renderCanonicalReportMarkdown(loaded)).toBe(written.markdown);
@@ -1845,7 +1843,7 @@ describe("canonical Report", () => {
       const tampered = structuredClone(loaded);
       tampered.payload.funnel.discover.seeds.count = 999;
       writeFileSync(jsonPath, JSON.stringify(tampered, null, 2), "utf8");
-      expect(() => loadCanonicalReportArtifact(jsonPath)).toThrow(
+      expect(() => loadCanonicalArtifact("report", jsonPath)).toThrow(
         /Invalid canonical Report|contentHash|artifactId/i,
       );
     } finally {

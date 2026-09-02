@@ -19,18 +19,19 @@ import type { AppConfig } from "../config/app-config.js";
 import {
   analysisRunConfigSchema,
   type AnalysisRun,
+  type AnalysisStageSummary,
   type AnalysisRunConfig,
-  type StageKey,
 } from "../contract/run-types.js";
 import {
   compareStageKeys,
   getNextStageKey,
-  getStageDefinition,
   stageDefinitions,
   stageKeySchema,
-} from "../contract/stages.js";
+  type StageKey,
+} from "../contract/lean-stages.js";
 import type {
   AdjudicateArtifact,
+  LeanArtifactProvenance,
   ArtifactReference,
   DiscoverArtifact,
   EvidenceArtifact,
@@ -38,6 +39,7 @@ import type {
   ReportArtifact,
   ScopeArtifact,
 } from "../contract/lean-artifacts.js";
+import type { StageArtifactMap } from "../contract/inspector-payloads.js";
 import {
   createLLMClient,
   createLLMTelemetryCollector,
@@ -62,49 +64,25 @@ import {
   runCanonicalDiscover,
 } from "./canonical-discover.js";
 import {
-  loadCanonicalDiscoverArtifact,
-  writeCanonicalDiscoverArtifact,
-} from "./canonical-discover-artifact.js";
-import {
   buildCanonicalScopeArtifact,
   runCanonicalScope,
 } from "./canonical-scope.js";
-import {
-  loadCanonicalScopeArtifact,
-  writeCanonicalScopeArtifact,
-} from "./canonical-scope-artifact.js";
 import {
   buildCanonicalPrepareArtifact,
   runCanonicalPrepare,
 } from "./canonical-prepare.js";
 import {
-  loadCanonicalPrepareArtifact,
-  writeCanonicalPrepareArtifact,
-} from "./canonical-prepare-artifact.js";
-import {
   buildCanonicalEvidenceArtifact,
   runCanonicalEvidence,
 } from "./canonical-evidence.js";
-import {
-  loadCanonicalEvidenceArtifact,
-  writeCanonicalEvidenceArtifact,
-} from "./canonical-evidence-artifact.js";
 import {
   buildCanonicalAdjudicateArtifact,
   runCanonicalAdjudicate,
 } from "./canonical-adjudicate.js";
 import {
-  loadCanonicalAdjudicateArtifact,
-  writeCanonicalAdjudicateArtifact,
-} from "./canonical-adjudicate-artifact.js";
-import {
   buildCanonicalReportArtifact,
   runCanonicalReport,
 } from "./canonical-report.js";
-import {
-  loadCanonicalReportArtifact,
-  writeCanonicalReportArtifacts,
-} from "./canonical-report-artifact.js";
 import {
   buildCanonicalProductionAdapters,
   type CanonicalProductionAdapters,
@@ -125,7 +103,12 @@ import {
   type RunCostSummary,
 } from "./cost-summary.js";
 import { RunTracker } from "./run-tracker.js";
-import { deriveCanonicalStageSummary } from "../contract/selectors.js";
+import {
+  deriveCanonicalStageSummary,
+  loadCanonicalArtifact,
+  writeCanonicalArtifact,
+} from "../contract/selectors.js";
+import { writeCanonicalReportArtifacts } from "./canonical-report-artifact.js";
 
 export type CanonicalPipelineCliOverrides = {
   input: string | undefined;
@@ -186,7 +169,7 @@ const doiInputSchema = z
 
 const STAGE_ORDER = stageDefinitions.map((stage) => stage.key);
 
-function assertCanonicalStageKey(value: string, label: string): StageKey {
+function assertStageKey(value: string, label: string): StageKey {
   const parsed = stageKeySchema.safeParse(value);
   if (!parsed.success) {
     throw new CanonicalExecutorError(
@@ -195,6 +178,282 @@ function assertCanonicalStageKey(value: string, label: string): StageKey {
   }
   return parsed.data;
 }
+
+type StageRunContext = {
+  runId: string;
+  runRoot: string;
+  recordedAt: string;
+  runConfig: AnalysisRunConfig;
+  seedDois: readonly string[];
+  doiProvenance: ArtifactReference;
+  configuration: NonNullable<LeanArtifactProvenance["configuration"]>;
+  adapters: CanonicalProductionAdapters;
+  chain: LoadedChain;
+};
+
+type StageWriteOutcome = {
+  primaryPath: string;
+  additionalPaths: string[];
+  reportArtifactPath?: string;
+  artifact: StageArtifactMap[StageKey];
+  summary: AnalysisStageSummary;
+  completedCount: number;
+};
+
+type StageRunner = {
+  /** Stage whose artifact path is recorded as this stage's input, if any. */
+  inputStage?: StageKey;
+  execute: (context: StageRunContext) => Promise<StageWriteOutcome>;
+};
+
+/**
+ * Every stage does the same nine things: run, build, write, reload, hash a
+ * manifest, count, summarize, and record. Only the first three differ, so only
+ * those appear here and the loop owns the rest.
+ */
+function defineStage<K extends StageKey, Result>(spec: {
+  stageKey: K;
+  inputStage?: StageKey;
+  run: (context: StageRunContext) => Promise<Result> | Result;
+  build: (input: {
+    result: Result;
+    runId: string;
+    createdAt: string;
+    configuration: NonNullable<LeanArtifactProvenance["configuration"]>;
+  }) => StageArtifactMap[K];
+  /** Extra files written alongside the primary JSON, if any. */
+  writeAdditional?: (input: {
+    runRoot: string;
+    attemptStem: string;
+    artifact: StageArtifactMap[K];
+    primaryPath: string;
+  }) => { paths: string[]; reportArtifactPath?: string };
+  count: (artifact: StageArtifactMap[K]) => number;
+  attach: (chain: LoadedChain, artifact: StageArtifactMap[K]) => void;
+}): StageRunner {
+  return {
+    ...(spec.inputStage ? { inputStage: spec.inputStage } : {}),
+    async execute(context) {
+      const artifact = spec.build({
+        result: await spec.run(context),
+        runId: context.runId,
+        createdAt: context.recordedAt,
+        configuration: context.configuration,
+      });
+      const attemptStem = createCanonicalAttemptStem(
+        context.recordedAt,
+        artifact.artifactId,
+      );
+      const primaryPath = resolveCanonicalPrimaryArtifactPath(
+        context.runRoot,
+        spec.stageKey,
+        attemptStem,
+      );
+      // Report renders its Markdown from the JSON it just wrote, so the extra
+      // files are written before the reload rather than after.
+      const additional = spec.writeAdditional
+        ? spec.writeAdditional({
+            runRoot: context.runRoot,
+            attemptStem,
+            artifact,
+            primaryPath,
+          })
+        : (writeCanonicalArtifact(spec.stageKey, primaryPath, artifact),
+          { paths: [] as string[] });
+      const reloaded = loadCanonicalArtifact(spec.stageKey, primaryPath);
+      spec.attach(context.chain, reloaded);
+      return {
+        primaryPath,
+        additionalPaths: additional.paths,
+        ...(additional.reportArtifactPath
+          ? { reportArtifactPath: additional.reportArtifactPath }
+          : {}),
+        artifact: reloaded,
+        summary: deriveCanonicalStageSummary(spec.stageKey, reloaded),
+        completedCount: spec.count(reloaded),
+      };
+    },
+  };
+}
+
+/** A stage cannot start without the ancestors its contract requires. */
+function requireChain<T>(artifact: T | undefined, message: string): T {
+  if (artifact == null) throw new CanonicalExecutorError(message);
+  return artifact;
+}
+
+const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
+  discover: defineStage({
+    stageKey: "discover",
+    run: ({ seedDois, doiProvenance, runConfig, recordedAt, adapters }) =>
+      runCanonicalDiscover(
+        {
+          seeds: seedDois.map((doi) => ({
+            doi,
+            provenanceArtifacts: [doiProvenance],
+          })),
+          neighborhood: {
+            provider: runConfig.discover.neighborhoodProvider,
+            query: runConfig.discover.neighborhoodQuery,
+            limit: runConfig.discover.neighborhoodLimit,
+            ...(runConfig.discover.fromYear != null ||
+            runConfig.discover.toYear != null
+              ? {
+                  yearRange: {
+                    ...(runConfig.discover.fromYear != null
+                      ? { from: runConfig.discover.fromYear }
+                      : {}),
+                    ...(runConfig.discover.toYear != null
+                      ? { to: runConfig.discover.toYear }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+          probeBudget: runConfig.discover.probeBudget,
+          candidateSelection: runConfig.discover.candidateSelection,
+          recordedAt,
+        },
+        adapters.discover,
+      ),
+    build: buildCanonicalDiscoverArtifact,
+    count: (artifact) => artifact.payload.seeds.length,
+    attach: (chain, artifact) => {
+      chain.discover = artifact;
+    },
+  }),
+
+  scope: defineStage({
+    stageKey: "scope",
+    inputStage: "discover",
+    run: ({ chain, adapters, recordedAt }) =>
+      runCanonicalScope(
+        requireChain(
+          chain.discover,
+          "Scope requires a validated Discover artifact.",
+        ),
+        adapters.scope,
+        { recordedAt },
+      ),
+    build: buildCanonicalScopeArtifact,
+    count: (artifact) => artifact.payload.families.length,
+    attach: (chain, artifact) => {
+      chain.scope = artifact;
+    },
+  }),
+
+  prepare: defineStage({
+    stageKey: "prepare",
+    inputStage: "scope",
+    run: ({ chain, adapters, recordedAt }) =>
+      runCanonicalPrepare(
+        requireChain(
+          chain.scope,
+          "Prepare requires validated Scope and Discover artifacts.",
+        ),
+        requireChain(
+          chain.discover,
+          "Prepare requires validated Scope and Discover artifacts.",
+        ),
+        adapters.prepare,
+        { recordedAt },
+      ),
+    build: buildCanonicalPrepareArtifact,
+    count: (artifact) => artifact.payload.records.length,
+    attach: (chain, artifact) => {
+      chain.prepare = artifact;
+    },
+  }),
+
+  evidence: defineStage({
+    stageKey: "evidence",
+    inputStage: "prepare",
+    run: ({ chain, adapters, recordedAt, runConfig }) =>
+      runCanonicalEvidence(
+        requireChain(
+          chain.prepare,
+          "Evidence requires validated Prepare and Scope artifacts.",
+        ),
+        requireChain(
+          chain.scope,
+          "Evidence requires validated Prepare and Scope artifacts.",
+        ),
+        adapters.evidence,
+        {
+          recordedAt,
+          bm25CandidateLimit: runConfig.evidence.bm25CandidateLimit,
+          selectionLimit: runConfig.evidence.selectionLimit,
+          reranking: runConfig.evidence.rerankEnabled
+            ? { enabled: true, topN: runConfig.evidence.rerankTopN }
+            : { enabled: false },
+        },
+      ),
+    build: buildCanonicalEvidenceArtifact,
+    count: (artifact) => artifact.payload.records.length,
+    attach: (chain, artifact) => {
+      chain.evidence = artifact;
+    },
+  }),
+
+  adjudicate: defineStage({
+    stageKey: "adjudicate",
+    inputStage: "evidence",
+    run: ({ chain, adapters, recordedAt }) =>
+      runCanonicalAdjudicate(
+        requireChain(
+          chain.evidence,
+          "Adjudicate requires validated Evidence and Prepare artifacts.",
+        ),
+        requireChain(
+          chain.prepare,
+          "Adjudicate requires validated Evidence and Prepare artifacts.",
+        ),
+        adapters.adjudicate,
+        { recordedAt },
+      ),
+    build: buildCanonicalAdjudicateArtifact,
+    count: (artifact) => artifact.payload.records.length,
+    attach: (chain, artifact) => {
+      chain.adjudicate = artifact;
+    },
+  }),
+
+  report: defineStage({
+    stageKey: "report",
+    inputStage: "adjudicate",
+    run: ({ chain, recordedAt }) => {
+      const missing = "Report requires the complete validated canonical chain.";
+      return runCanonicalReport(
+        requireChain(chain.discover, missing),
+        requireChain(chain.scope, missing),
+        requireChain(chain.prepare, missing),
+        requireChain(chain.evidence, missing),
+        requireChain(chain.adjudicate, missing),
+        { recordedAt },
+      );
+    },
+    build: buildCanonicalReportArtifact,
+    writeAdditional: ({ runRoot, attemptStem, artifact, primaryPath }) => {
+      const markdownPath = resolveCanonicalReportMarkdownPath(
+        runRoot,
+        attemptStem,
+      );
+      const written = writeCanonicalReportArtifacts(
+        primaryPath,
+        markdownPath,
+        artifact,
+      );
+      return {
+        paths: [written.markdownPath],
+        reportArtifactPath: written.markdownPath,
+      };
+    },
+    count: (artifact) => artifact.payload.recordTraces.length,
+    attach: (chain, artifact) => {
+      chain.report = artifact;
+    },
+  }),
+};
 
 function buildConfigFromCli(
   args: CanonicalPipelineCliOverrides,
@@ -400,7 +659,7 @@ function loadValidatedChain(
   if (!throughStage) return chain;
 
   const discoverPath = loadSucceededArtifact(database, runId, "discover");
-  chain.discover = loadCanonicalDiscoverArtifact(discoverPath);
+  chain.discover = loadCanonicalArtifact("discover", discoverPath);
   if (chain.discover.runId !== runId) {
     throw new CanonicalExecutorError(
       `Discover artifact runId mismatch (artifact=${chain.discover.runId}, run=${runId}).`,
@@ -409,7 +668,7 @@ function loadValidatedChain(
   if (throughStage === "discover") return chain;
 
   const scopePath = loadSucceededArtifact(database, runId, "scope");
-  chain.scope = loadCanonicalScopeArtifact(scopePath);
+  chain.scope = loadCanonicalArtifact("scope", scopePath);
   if (
     chain.scope.payload.discoverArtifact.artifactId !==
       chain.discover.artifactId ||
@@ -423,7 +682,7 @@ function loadValidatedChain(
   if (throughStage === "scope") return chain;
 
   const preparePath = loadSucceededArtifact(database, runId, "prepare");
-  chain.prepare = loadCanonicalPrepareArtifact(preparePath);
+  chain.prepare = loadCanonicalArtifact("prepare", preparePath);
   if (
     chain.prepare.payload.lineage.scopeArtifact.artifactId !==
       chain.scope.artifactId ||
@@ -441,7 +700,7 @@ function loadValidatedChain(
   if (throughStage === "prepare") return chain;
 
   const evidencePath = loadSucceededArtifact(database, runId, "evidence");
-  chain.evidence = loadCanonicalEvidenceArtifact(evidencePath);
+  chain.evidence = loadCanonicalArtifact("evidence", evidencePath);
   if (
     chain.evidence.payload.lineage.prepareArtifact.artifactId !==
       chain.prepare.artifactId ||
@@ -459,7 +718,7 @@ function loadValidatedChain(
   if (throughStage === "evidence") return chain;
 
   const adjudicatePath = loadSucceededArtifact(database, runId, "adjudicate");
-  chain.adjudicate = loadCanonicalAdjudicateArtifact(adjudicatePath);
+  chain.adjudicate = loadCanonicalArtifact("adjudicate", adjudicatePath);
   if (
     chain.adjudicate.payload.lineage.evidenceArtifact.artifactId !==
       chain.evidence.artifactId ||
@@ -477,7 +736,7 @@ function loadValidatedChain(
   if (throughStage === "adjudicate") return chain;
 
   const reportPath = loadSucceededArtifact(database, runId, "report");
-  chain.report = loadCanonicalReportArtifact(reportPath);
+  chain.report = loadCanonicalArtifact("report", reportPath);
   const lineage = chain.report.payload.lineage;
   if (
     chain.report.runId !== runId ||
@@ -656,10 +915,7 @@ export async function orchestrateCanonicalPipelineRun(
     });
     isResume = true;
     if (args.rerunFromStage) {
-      const rerunStage = assertCanonicalStageKey(
-        args.rerunFromStage,
-        "--rerun-from",
-      );
+      const rerunStage = assertStageKey(args.rerunFromStage, "--rerun-from");
       markDownstreamStagesStale(database, run.id, rerunStage);
     }
   } else {
@@ -682,7 +938,7 @@ export async function orchestrateCanonicalPipelineRun(
       );
     }
     const stopAfter = args.stopAfterStage
-      ? assertCanonicalStageKey(args.stopAfterStage, "--stop-after")
+      ? assertStageKey(args.stopAfterStage, "--stop-after")
       : "report";
     runConfig = buildConfigFromCli({ ...args, stopAfterStage: stopAfter });
     const runId = randomUUID();
@@ -702,10 +958,7 @@ export async function orchestrateCanonicalPipelineRun(
     });
   }
 
-  const stopAfter = assertCanonicalStageKey(
-    runConfig.stopAfterStage,
-    "stopAfterStage",
-  );
+  const stopAfter = assertStageKey(runConfig.stopAfterStage, "stopAfterStage");
   const tracker = new RunTracker(database, run.id);
   const ownsDatabase = params.ownsDatabase === true;
   const onSignal = () => {
@@ -794,12 +1047,7 @@ export async function orchestrateCanonicalPipelineRun(
       if (compareStageKeys(stageKey, startStage) < 0) continue;
       if (compareStageKeys(stageKey, stopAfter) > 0) break;
 
-      const logPath = resolve(
-        run.runRoot,
-        "logs",
-        `${getStageDefinition(stageKey).slug}.log`,
-      );
-      tracker.stageStart(stageKey, logPath);
+      tracker.stageStart(stageKey);
       const reporter = createStageReporter(stageKey, run.runRoot);
       const workflow = getStageWorkflowDefinition(stageKey);
       const firstStep = workflow.steps[0]!;
@@ -812,346 +1060,41 @@ export async function orchestrateCanonicalPipelineRun(
       let completedCount: number | undefined;
 
       try {
-        if (stageKey === "discover") {
-          const result = await runCanonicalDiscover(
-            {
-              seeds: seedDois.map((doi) => ({
-                doi,
-                provenanceArtifacts: [doiProvenance],
-              })),
-              neighborhood: {
-                provider: runConfig.discover.neighborhoodProvider,
-                query: runConfig.discover.neighborhoodQuery,
-                limit: runConfig.discover.neighborhoodLimit,
-                ...(runConfig.discover.fromYear != null ||
-                runConfig.discover.toYear != null
-                  ? {
-                      yearRange: {
-                        ...(runConfig.discover.fromYear != null
-                          ? { from: runConfig.discover.fromYear }
-                          : {}),
-                        ...(runConfig.discover.toYear != null
-                          ? { to: runConfig.discover.toYear }
-                          : {}),
-                      },
-                    }
-                  : {}),
-              },
-              probeBudget: runConfig.discover.probeBudget,
-              candidateSelection: runConfig.discover.candidateSelection,
-              recordedAt,
-            },
-            adapters.discover,
-          );
-          const artifact = buildCanonicalDiscoverArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const path = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "discover",
-            attemptStem,
-          );
-          writeCanonicalDiscoverArtifact(path, artifact);
-          const reloaded = loadCanonicalDiscoverArtifact(path);
-          const manifestPath = writeCanonicalStageManifest(path, reloaded);
-          chain.discover = reloaded;
-          completedCount = reloaded.payload.seeds.length;
-          const summary = deriveCanonicalStageSummary("discover", reloaded);
-          updateStageStatus(database, run.id, "discover", "succeeded", {
-            primaryArtifactPath: path,
-            inputArtifactPath: doiInputPath,
-            manifestPath,
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        } else if (stageKey === "scope") {
-          if (!chain.discover) {
-            throw new CanonicalExecutorError(
-              "Scope requires a validated Discover artifact.",
-            );
-          }
-          const discoverPath = loadSucceededArtifact(
-            database,
-            run.id,
-            "discover",
-          );
-          const result = await runCanonicalScope(
-            chain.discover,
-            adapters.scope,
-            {
-              recordedAt,
-            },
-          );
-          const artifact = buildCanonicalScopeArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const path = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "scope",
-            attemptStem,
-          );
-          writeCanonicalScopeArtifact(path, artifact);
-          const reloaded = loadCanonicalScopeArtifact(path);
-          const manifestPath = writeCanonicalStageManifest(path, reloaded);
-          chain.scope = reloaded;
-          completedCount = reloaded.payload.families.length;
-          const summary = deriveCanonicalStageSummary("scope", reloaded);
-          updateStageStatus(database, run.id, "scope", "succeeded", {
-            primaryArtifactPath: path,
-            inputArtifactPath: discoverPath,
-            manifestPath,
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        } else if (stageKey === "prepare") {
-          if (!chain.discover || !chain.scope) {
-            throw new CanonicalExecutorError(
-              "Prepare requires validated Scope and Discover artifacts.",
-            );
-          }
-          const scopePath = loadSucceededArtifact(database, run.id, "scope");
-          const result = await runCanonicalPrepare(
-            chain.scope,
-            chain.discover,
-            adapters.prepare,
-            {
-              recordedAt,
-            },
-          );
-          const artifact = buildCanonicalPrepareArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const path = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "prepare",
-            attemptStem,
-          );
-          writeCanonicalPrepareArtifact(path, artifact);
-          const reloaded = loadCanonicalPrepareArtifact(path);
-          const manifestPath = writeCanonicalStageManifest(path, reloaded);
-          chain.prepare = reloaded;
-          completedCount = reloaded.payload.records.length;
-          const summary = deriveCanonicalStageSummary("prepare", reloaded);
-          updateStageStatus(database, run.id, "prepare", "succeeded", {
-            primaryArtifactPath: path,
-            inputArtifactPath: scopePath,
-            manifestPath,
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        } else if (stageKey === "evidence") {
-          if (!chain.prepare || !chain.scope) {
-            throw new CanonicalExecutorError(
-              "Evidence requires validated Prepare and Scope artifacts.",
-            );
-          }
-          const preparePath = loadSucceededArtifact(
-            database,
-            run.id,
-            "prepare",
-          );
-          const result = await runCanonicalEvidence(
-            chain.prepare,
-            chain.scope,
-            adapters.evidence,
-            {
-              recordedAt,
-              bm25CandidateLimit: runConfig.evidence.bm25CandidateLimit,
-              selectionLimit: runConfig.evidence.selectionLimit,
-              reranking: runConfig.evidence.rerankEnabled
-                ? {
-                    enabled: true,
-                    topN: runConfig.evidence.rerankTopN,
-                  }
-                : { enabled: false },
-            },
-          );
-          const artifact = buildCanonicalEvidenceArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const path = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "evidence",
-            attemptStem,
-          );
-          writeCanonicalEvidenceArtifact(path, artifact);
-          const reloaded = loadCanonicalEvidenceArtifact(path);
-          const manifestPath = writeCanonicalStageManifest(path, reloaded);
-          chain.evidence = reloaded;
-          completedCount = reloaded.payload.records.length;
-          const summary = deriveCanonicalStageSummary("evidence", reloaded);
-          updateStageStatus(database, run.id, "evidence", "succeeded", {
-            primaryArtifactPath: path,
-            inputArtifactPath: preparePath,
-            manifestPath,
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        } else if (stageKey === "adjudicate") {
-          if (!chain.evidence || !chain.prepare) {
-            throw new CanonicalExecutorError(
-              "Adjudicate requires validated Evidence and Prepare artifacts.",
-            );
-          }
-          const evidencePath = loadSucceededArtifact(
-            database,
-            run.id,
-            "evidence",
-          );
-          const result = await runCanonicalAdjudicate(
-            chain.evidence,
-            chain.prepare,
-            adapters.adjudicate,
-            {
-              recordedAt,
-            },
-          );
-          const artifact = buildCanonicalAdjudicateArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const path = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "adjudicate",
-            attemptStem,
-          );
-          writeCanonicalAdjudicateArtifact(path, artifact);
-          const reloaded = loadCanonicalAdjudicateArtifact(path);
-          const manifestPath = writeCanonicalStageManifest(path, reloaded);
-          chain.adjudicate = reloaded;
-          completedCount = reloaded.payload.records.length;
-          const summary = deriveCanonicalStageSummary("adjudicate", reloaded);
-          updateStageStatus(database, run.id, "adjudicate", "succeeded", {
-            primaryArtifactPath: path,
-            inputArtifactPath: evidencePath,
-            manifestPath,
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        } else if (stageKey === "report") {
-          if (
-            !chain.discover ||
-            !chain.scope ||
-            !chain.prepare ||
-            !chain.evidence ||
-            !chain.adjudicate
-          ) {
-            throw new CanonicalExecutorError(
-              "Report requires the complete validated canonical chain.",
-            );
-          }
-          const result = runCanonicalReport(
-            chain.discover,
-            chain.scope,
-            chain.prepare,
-            chain.evidence,
-            chain.adjudicate,
-            { recordedAt },
-          );
-          const artifact = buildCanonicalReportArtifact({
-            result,
-            runId: run.id,
-            createdAt: recordedAt,
-            configuration: {
-              contentHash: configProvenance.contentHash,
-              sourceArtifact: configProvenance.sourceArtifact,
-            },
-          });
-          const attemptStem = createCanonicalAttemptStem(
-            recordedAt,
-            artifact.artifactId,
-          );
-          const jsonPath = resolveCanonicalPrimaryArtifactPath(
-            run.runRoot,
-            "report",
-            attemptStem,
-          );
-          const mdPath = resolveCanonicalReportMarkdownPath(
-            run.runRoot,
-            attemptStem,
-          );
-          const written = writeCanonicalReportArtifacts(
-            jsonPath,
-            mdPath,
-            artifact,
-          );
-          const reloaded = loadCanonicalReportArtifact(written.jsonPath);
-          const manifestPath = writeCanonicalStageManifest(
-            written.jsonPath,
-            reloaded,
-            [written.markdownPath],
-          );
-          chain.report = reloaded;
-          completedCount = reloaded.payload.recordTraces.length;
-          const summary = deriveCanonicalStageSummary("report", reloaded);
-          updateStageStatus(database, run.id, "report", "succeeded", {
-            primaryArtifactPath: written.jsonPath,
-            reportArtifactPath: written.markdownPath,
-            manifestPath,
-            inputArtifactPath: loadSucceededArtifact(
-              database,
-              run.id,
-              "adjudicate",
-            ),
-            finishedAt: now().toISOString(),
-            exitCode: 0,
-            ...(summary ? { summary } : {}),
-          });
-        }
+        const runner = STAGE_RUNNERS[stageKey];
+        const written = await runner.execute({
+          runId: run.id,
+          runRoot: run.runRoot,
+          recordedAt,
+          runConfig,
+          seedDois,
+          doiProvenance,
+          configuration: {
+            contentHash: configProvenance.contentHash,
+            sourceArtifact: configProvenance.sourceArtifact,
+          },
+          adapters,
+          chain,
+        });
+        completedCount = written.completedCount;
+        const manifestPath = writeCanonicalStageManifest(
+          written.primaryPath,
+          written.artifact,
+          written.additionalPaths,
+        );
+        const inputArtifactPath = runner.inputStage
+          ? loadSucceededArtifact(database, run.id, runner.inputStage)
+          : doiInputPath;
+        updateStageStatus(database, run.id, stageKey, "succeeded", {
+          primaryArtifactPath: written.primaryPath,
+          ...(written.reportArtifactPath
+            ? { reportArtifactPath: written.reportArtifactPath }
+            : {}),
+          manifestPath,
+          inputArtifactPath,
+          finishedAt: now().toISOString(),
+          exitCode: 0,
+          summary: written.summary,
+        });
 
         for (const [index, step] of workflow.steps.entries()) {
           const isLast = index === workflow.steps.length - 1;
