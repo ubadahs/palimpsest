@@ -4,6 +4,11 @@ import Database from "better-sqlite3";
 vi.mock("ai", () => ({
   generateText: vi.fn(),
   generateObject: vi.fn(),
+  // Passthrough: the client wraps the provider schema and a local validator.
+  jsonSchema: (schema: unknown, options?: { validate?: unknown }) => ({
+    jsonSchema: schema,
+    validate: options?.validate,
+  }),
 }));
 
 vi.mock("@ai-sdk/anthropic", () => ({
@@ -11,10 +16,12 @@ vi.mock("@ai-sdk/anthropic", () => ({
 }));
 
 import { generateObject, generateText } from "ai";
+import { z } from "zod";
 import {
   buildAnthropicThinkingProviderOptions,
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
+  toProviderJsonSchema,
   createLLMClient,
   modelSupportsAdaptiveThinking,
   resolvePromptCacheControl,
@@ -714,5 +721,67 @@ describe("classifyProviderError", () => {
     );
     expect(result.classification).toBe("billing_or_quota");
     expect(result.fatal).toBe(true);
+  });
+});
+
+describe("toProviderJsonSchema", () => {
+  it("strips bounds and defaults the provider rejects and keeps the shape", () => {
+    const schema = z
+      .object({
+        verdict: z.enum(["F", "D"]),
+        mutationKinds: z.array(z.string()).max(3).default([]),
+        citedChunks: z.array(z.number().int().positive()).min(1),
+        rationale: z.string().min(1),
+        score: z.number().min(0).max(100),
+      })
+      .strict();
+    const json = JSON.stringify(toProviderJsonSchema(schema));
+    for (const keyword of [
+      "maxItems",
+      "minItems",
+      "minLength",
+      "minimum",
+      "maximum",
+      "default",
+      "$schema",
+    ]) {
+      expect(json).not.toContain(`"${keyword}"`);
+    }
+    expect(json).toContain('"additionalProperties":false');
+    expect(json).toContain('"enum":["F","D"]');
+    expect(json).toContain('"type":"integer"');
+  });
+
+  it("turns discriminated unions into anyOf and drops never-typed items", () => {
+    const schema = z.discriminatedUnion("status", [
+      z
+        .object({
+          status: z.literal("grounded"),
+          spans: z.array(z.object({ quote: z.string() })).min(1),
+        })
+        .strict(),
+      z
+        .object({
+          status: z.literal("not_found"),
+          spans: z.array(z.never()).length(0),
+        })
+        .strict(),
+    ]);
+    const json = JSON.stringify(toProviderJsonSchema(schema));
+    expect(json).toContain('"anyOf"');
+    expect(json).not.toContain('"oneOf"');
+    expect(json).not.toContain('"not"');
+  });
+});
+
+describe("invalid requests are not retried", () => {
+  it("classifies a schema rejection as invalid_request and non-fatal", () => {
+    const result = classifyProviderError(
+      new Error(
+        "invalid_request_error: output_config.format.schema: For 'array' type, property 'maxItems' is not supported",
+      ),
+    );
+    expect(result.classification).toBe("invalid_request");
+    expect(result.fatal).toBe(false);
   });
 });
