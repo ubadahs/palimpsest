@@ -29,7 +29,7 @@ import {
 } from "../contract/lean-artifacts.js";
 import type { ResolvedPaper } from "../domain/common.js";
 import { isReviewPaperType } from "../domain/attribution-signal.js";
-import { classifySectionRole } from "../domain/section-patterns.js";
+import { inferSectionRoles } from "../domain/section-patterns.js";
 import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
@@ -1272,6 +1272,7 @@ export function buildCanonicalScopeAdapters(
         seedTextArtifact,
       ];
 
+      const sectionRoles = inferSectionRoles(doc.blocks);
       return {
         seedId: seed.seedId,
         status: "materialized" as const,
@@ -1284,12 +1285,12 @@ export function buildCanonicalScopeAdapters(
           kind: doc.parserKind,
           version: doc.parserVersion || PARSED_PAPER_PARSER_VERSION,
         },
-        blocks: doc.blocks.map((block) => ({
+        blocks: doc.blocks.map((block, index) => ({
           blockId: block.blockId,
           text: block.text,
           ...(block.sectionTitle ? { sectionTitle: block.sectionTitle } : {}),
           blockKind: block.blockKind,
-          sectionRole: classifySectionRole(block.blockKind, block.sectionTitle),
+          sectionRole: sectionRoles[index]!,
           // The seed's own in-text citations per block: the signal that lets
           // downstream stages separate the seed's results from its summary of
           // prior work.
