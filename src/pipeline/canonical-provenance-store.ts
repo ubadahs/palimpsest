@@ -5,6 +5,7 @@ import {
   artifactReferenceSchema,
   type ArtifactReference,
 } from "../contract/lean-artifact-primitives.js";
+import type { ModelExecution } from "../contract/model-execution.js";
 import {
   buildStableId,
   canonicalSerialize,
@@ -163,6 +164,10 @@ export function contentAddressedExternalExecution(input: {
 export function contentAddressedModelExecution(input: {
   provider: string;
   model: string;
+  /** How the call was served; see `modelExecutionSchema`. Never identity. */
+  servedModel?: string | undefined;
+  exactCacheHit?: boolean | undefined;
+  thinking?: ModelExecution["thinking"];
   promptId: string;
   promptVersion: string;
   promptText: string;
@@ -174,17 +179,7 @@ export function contentAddressedModelExecution(input: {
   requestHash?: string;
   kind?: "model";
   canonicalStage?: ArtifactReference["canonicalStage"];
-}): {
-  kind: "model";
-  provider: string;
-  model: string;
-  promptId: string;
-  promptVersion: string;
-  promptContentHash: string;
-  requestHash: string;
-  requestArtifact: ArtifactReference;
-  responseArtifact: ArtifactReference;
-} {
+}): ModelExecution {
   const promptContentHash = canonicalSha256(input.promptText);
   const requestArtifact = input.store.persist({
     role: input.requestRole,
@@ -204,6 +199,11 @@ export function contentAddressedModelExecution(input: {
     kind: "model",
     provider: input.provider,
     model: input.model,
+    ...(input.servedModel != null ? { servedModel: input.servedModel } : {}),
+    ...(input.exactCacheHit != null
+      ? { exactCacheHit: input.exactCacheHit }
+      : {}),
+    ...(input.thinking != null ? { thinking: input.thinking } : {}),
     promptId: input.promptId,
     promptVersion: input.promptVersion,
     promptContentHash,

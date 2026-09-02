@@ -8,7 +8,7 @@
  * wrong-lineage artifacts fail the run — never silent recomputation.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
@@ -119,7 +119,11 @@ import {
   resolveCanonicalStageDirectory,
   writeCanonicalStageManifest,
 } from "./canonical-stage-paths.js";
-import { summarizeLedgerByStage } from "./cost-summary.js";
+import {
+  mergeCostSummaries,
+  summarizeLedgerByStage,
+  type RunCostSummary,
+} from "./cost-summary.js";
 import { RunTracker } from "./run-tracker.js";
 import { deriveCanonicalStageSummary } from "../contract/selectors.js";
 
@@ -552,16 +556,32 @@ function blockDownstream(
   }
 }
 
+/**
+ * Accumulates cost across attempts. A resume's ledger covers only the stages
+ * it re-ran, so it is added to what is already on disk rather than replacing
+ * it. Returns the run's total spend so far.
+ */
 function writeCostSummary(
   runRoot: string,
   ledger: ReturnType<LLMClient["getLedger"]>,
-): void {
-  const summary = summarizeLedgerByStage(ledger);
-  writeFileSync(
-    resolve(runRoot, "cost-summary.json"),
-    `${JSON.stringify(summary, null, 2)}\n`,
-    "utf8",
-  );
+): RunCostSummary {
+  const path = resolve(runRoot, "cost-summary.json");
+  const attempt = summarizeLedgerByStage(ledger);
+  const previous = readCostSummary(path);
+  const summary = previous ? mergeCostSummaries(previous, attempt) : attempt;
+  writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  return summary;
+}
+
+function readCostSummary(path: string): RunCostSummary | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as RunCostSummary;
+  } catch {
+    // An unreadable summary from an earlier attempt must not fail the run;
+    // the current attempt's numbers are still worth writing.
+    return undefined;
+  }
 }
 
 export async function orchestrateCanonicalPipelineRun(
@@ -1172,13 +1192,24 @@ export async function orchestrateCanonicalPipelineRun(
       }
     }
 
-    writeCostSummary(run.runRoot, llmClient.getLedger());
+    const cost = writeCostSummary(run.runRoot, llmClient.getLedger());
     setRunStatus(database, run.id, "succeeded");
     log(
       "pipeline",
       isResume
         ? `Canonical resume complete for run ${run.id}`
         : `Canonical pipeline complete for run ${run.id}`,
+    );
+    const reportPath = getRunStage(
+      database,
+      run.id,
+      "report",
+    )?.reportArtifactPath;
+    log("pipeline", `Run root: ${run.runRoot}`);
+    if (reportPath) log("pipeline", `Report: ${reportPath}`);
+    log(
+      "pipeline",
+      `Estimated cost: $${cost.totalEstimatedCostUsd.toFixed(2)} over ${String(cost.totalCalls)} model calls`,
     );
     return { runId: run.id, runRoot: run.runRoot };
   } catch (error) {

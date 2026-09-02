@@ -36,6 +36,7 @@ import {
   classifyProviderError,
   resolvePromptCacheControl,
   resolveThinkingConfig,
+  type LLMCallRecord,
   type LLMClient,
   type ThinkingConfig,
 } from "../integrations/llm-client.js";
@@ -113,6 +114,29 @@ const CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION =
 const CANONICAL_EVIDENCE_RERANK_PROMPT_ID =
   "canonical-evidence-relevance-rerank" as const;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v2" as const;
+
+/**
+ * How a call was served, as opposed to what it answered: the snapshot that
+ * replied, whether the reply came from the exact-result cache, and the
+ * thinking configuration in force. Excluded from result identity.
+ */
+function modelExecutionTelemetry(record: LLMCallRecord): {
+  servedModel?: string;
+  exactCacheHit: boolean;
+  thinking?: ThinkingConfig;
+} {
+  const thinking: ThinkingConfig | undefined =
+    record.thinkingType === "adaptive" && record.thinkingEffort != null
+      ? { type: "adaptive", effort: record.thinkingEffort }
+      : record.thinkingType === "enabled" && record.thinkingBudgetTokens != null
+        ? { type: "enabled", budgetTokens: record.thinkingBudgetTokens }
+        : undefined;
+  return {
+    ...(record.servedModel != null ? { servedModel: record.servedModel } : {}),
+    exactCacheHit: record.exactCacheHit === true,
+    ...(thinking != null ? { thinking } : {}),
+  };
+}
 
 function mapLlmCallThinking(
   model: string,
@@ -940,6 +964,7 @@ export function buildCanonicalDiscoverAdapters(
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
           promptId: CANONICAL_EXTRACTION_PROMPT_ID,
           promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
           promptText: prompt,
@@ -1030,10 +1055,14 @@ export function buildCanonicalDiscoverAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
-      const executionFor = (responseBody: Record<string, unknown>) =>
+      const executionFor = (
+        responseBody: Record<string, unknown>,
+        record?: LLMCallRecord,
+      ) =>
         contentAddressedModelExecution({
           provider: "anthropic",
-          model,
+          model: record?.model ?? model,
+          ...(record ? modelExecutionTelemetry(record) : {}),
           promptId: CANONICAL_CANONICALIZATION_PROMPT_ID,
           promptVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION,
           promptText: prompt,
@@ -1057,11 +1086,14 @@ export function buildCanonicalDiscoverAdapters(
           result.text,
           claimCanonicalizationOutputSchema,
         );
-        const execution = executionFor({
-          role: "normalized-claim-canonicalization-response",
-          text: result.text,
-          parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
-        });
+        const execution = executionFor(
+          {
+            role: "normalized-claim-canonicalization-response",
+            text: result.text,
+            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+          },
+          result.record,
+        );
         if (!parsed.ok) {
           return {
             status: "failed" as const,
@@ -1370,6 +1402,7 @@ export function buildCanonicalScopeAdapters(
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
           promptId: CANONICAL_SCOPE_GROUNDING_PROMPT_ID,
           promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
           promptText: prompt,
@@ -1478,6 +1511,7 @@ export function buildCanonicalPrepareAdapters(
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
           promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
           promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
           promptText: prompt,
@@ -1575,6 +1609,7 @@ function buildCanonicalEvidenceAdapters(
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
           promptId: CANONICAL_EVIDENCE_RERANK_PROMPT_ID,
           promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
           promptText: prompt,
@@ -1676,6 +1711,7 @@ export function buildCanonicalAdjudicateAdapters(
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
           promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
           promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
           promptText,
