@@ -938,6 +938,62 @@ describe("canonical Report", () => {
     );
   });
 
+  it("publishes family mutations that cover every record in citing order", async () => {
+    const chain = await buildChain({
+      classifier: "mixed",
+      adjudicateVariant: "D",
+    });
+    const result = runCanonicalReport(
+      chain.discover,
+      chain.scope,
+      chain.prepare,
+      chain.evidence,
+      chain.adjudicate,
+      { recordedAt: "2026-07-17T10:50:00.000Z" },
+    );
+    const families = result.payload.familyMutations;
+    expect(families.length).toBeGreaterThan(0);
+    const covered = families.flatMap((family) =>
+      family.records.map((record) => record.recordId),
+    );
+    expect(new Set(covered).size).toBe(result.payload.recordTraces.length);
+    for (const family of families) {
+      expect(family.trackedClaim.length).toBeGreaterThan(0);
+      expect(family.uniqueClaimUnits).toBeGreaterThan(0);
+      const years = family.records.map(
+        (record) => record.citingPaperYear ?? Number.POSITIVE_INFINITY,
+      );
+      expect([...years].sort((a, b) => a - b)).toEqual(years);
+      const adjudicated = family.records.filter(
+        (record) => record.status === "adjudicated",
+      );
+      for (const record of adjudicated) {
+        expect(record.verdict).toBe("D");
+        expect(record.mutationKinds?.length).toBeGreaterThan(0);
+        expect(record.citingAssertion).toBeTruthy();
+        expect(record.sourceStatement).toBeTruthy();
+        expect(record.citingRestatement.length).toBeGreaterThan(0);
+      }
+      expect(family.verdictCounts.D).toBe(adjudicated.length);
+    }
+    const uniqueD = result.payload.rates.find(
+      (rate) => rate.metricId === "verdict_D_unique_rate",
+    );
+    expect(uniqueD?.denominator).toBe(
+      result.payload.funnel.adjudicate.uniqueAdjudicatedClaimUnits.count,
+    );
+    expect(
+      result.payload.funnel.discover.probeStratumCounts.length,
+    ).toBeGreaterThan(0);
+
+    const markdown = renderCanonicalReportMarkdown(result.payload);
+    expect(
+      markdown.indexOf("## Claim families and their restatements"),
+    ).toBeLessThan(markdown.indexOf("## Run and funnel coverage"));
+    expect(markdown).toContain("### By unique claim unit");
+    expect(markdown).toContain("Probe sampling design");
+  });
+
   it("requires stable identifiers throughout per-record traces", async () => {
     const chain = await buildChain({ reranking: true });
     const result = runCanonicalReport(

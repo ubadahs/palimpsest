@@ -664,6 +664,7 @@ export async function runCanonicalDiscover(
           status: isSelected
             ? ("selected" as const)
             : ("not_selected" as const),
+          ...(stratum ? { stratum: parseProbeStratumKey(stratum) } : {}),
           reason: isSelected
             ? `Selected within the deterministic stratified probe budget (stratum ${stratum ?? "unknown"}).`
             : `Not selected: the stratified probe budget was exhausted for stratum ${stratum ?? "unknown"}.`,
@@ -1306,6 +1307,17 @@ function probeStratumKey(paper: {
   paperType?: string | undefined;
 }): string {
   return `${probeYearBand(paper.publicationYear)}::${paper.paperType ?? "unknown"}`;
+}
+
+function parseProbeStratumKey(key: string): {
+  yearBand: string;
+  paperType: string;
+} {
+  const separator = key.indexOf("::");
+  return {
+    yearBand: separator >= 0 ? key.slice(0, separator) : key,
+    paperType: separator >= 0 ? key.slice(separator + 2) : "unknown",
+  };
 }
 
 type ProbeObservation = {

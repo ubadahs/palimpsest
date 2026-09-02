@@ -267,9 +267,20 @@ const reportVerdictsByRankingSourceSchema = z
   })
   .strict();
 
+const reportProbeStratumCountSchema = z
+  .object({
+    /** `<year band>::<paper type>` as used by the deterministic probe sampler. */
+    stratum: z.string().min(1),
+    returned: z.number().int().nonnegative(),
+    probed: z.number().int().nonnegative(),
+  })
+  .strict();
+
 const discoverFunnelCountsSchema = z
   .object({
     seeds: reportCountSchema,
+    /** Sampling design: how many citing papers each stratum returned and how many were probed. */
+    probeStratumCounts: z.array(reportProbeStratumCountSchema),
     returnedCitingPaperObservations: reportCountSchema,
     probed: reportCountSchema,
     notProbed: reportCountSchema,
@@ -362,6 +373,19 @@ const adjudicateFunnelCountsSchema = z
     verdictCountsByRankingSource: z.array(reportVerdictsByRankingSourceSchema),
     uniqueClaimUnits: reportCountSchema,
     uniqueAdjudicatedClaimUnits: reportCountSchema,
+    /**
+     * Unique family × citing-paper × claim units that received each verdict.
+     * A unit is counted under every distinct verdict its records received,
+     * so repeated citations of one claim do not inflate a verdict.
+     */
+    uniqueClaimUnitVerdictCounts: z
+      .object({
+        F: reportCountSchema,
+        D: reportCountSchema,
+        E: reportCountSchema,
+        U: reportCountSchema,
+      })
+      .strict(),
     repeatedRecordsBeyondUniqueUnits: reportCountSchema,
     packetsWithVerifiedSupportSpans: reportCountSchema,
     packetsMissingSupportSpans: reportCountSchema,
@@ -622,7 +646,98 @@ export const REQUIRED_REPORT_RATE_METRIC_IDS = [
   "verdict_D_rate",
   "verdict_E_rate",
   "verdict_U_rate",
+  "verdict_F_unique_rate",
+  "verdict_D_unique_rate",
+  "verdict_E_unique_rate",
+  "verdict_U_unique_rate",
 ] as const;
+
+const reportFamilyRecordStatusSchema = z.enum([
+  "adjudicated",
+  "not_adjudicated",
+  "adjudication_failed",
+  "invalid_output",
+]);
+
+/**
+ * One citing paper's restatement of a family claim. This is the scientific
+ * unit of the report: what the citer said, in publication order, and how the
+ * adjudicator judged it against the seed.
+ */
+const reportFamilyMutationRecordSchema = z
+  .object({
+    recordId: stableIdentifierSchema,
+    citationOccurrenceId: stableIdentifierSchema,
+    citingPaperId: z.string().min(1),
+    citingPaperTitle: z.string().min(1),
+    citingPaperDoi: z.string().min(1).optional(),
+    citingPaperYear: z.number().int().optional(),
+    sectionTitle: z.string().min(1).optional(),
+    /** The occurrence-local attributed claim text(s), newline-joined. */
+    citingRestatement: z.string().min(1),
+    /** Exact-verified citing-side spans the claims were extracted from. */
+    supportSpanTexts: z.array(z.string().min(1)),
+    status: reportFamilyRecordStatusSchema,
+    verdict: fidelityTopLabelSchema.optional(),
+    mutationKinds: z.array(mutationKindSchema).optional(),
+    direction: mutationDirectionSchema.optional(),
+    citingAssertion: z.string().min(1).optional(),
+    sourceStatement: z.string().min(1).optional(),
+    gateCode: adjudicateGateCodeSchema.optional(),
+    evidenceSufficiency: z.enum(["sufficient", "limited"]).optional(),
+    rankingSource: z
+      .enum([
+        "bm25",
+        "reranked",
+        "bm25_with_scope_pins",
+        "reranked_with_scope_pins",
+      ])
+      .optional(),
+  })
+  .strict();
+export type ReportFamilyMutationRecord = z.infer<
+  typeof reportFamilyMutationRecordSchema
+>;
+
+const reportFamilyGroundingSpanSchema = z
+  .object({
+    blockId: z.string().min(1),
+    sectionTitle: z.string().min(1).optional(),
+    text: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * A seed finding and every citing restatement of it, chronologically. The
+ * canonical, hashable form of what the UI Families tab displays.
+ */
+export const reportFamilyMutationSchema = z
+  .object({
+    familyId: stableIdentifierSchema,
+    seedId: stableIdentifierSchema,
+    seedDoi: z.string().min(1),
+    seedTitle: z.string().min(1).optional(),
+    trackedClaim: z.string().min(1),
+    /** How the family's member claims were judged equivalent in Discover. */
+    equivalenceMethod: z.enum(["model", "exact_normalized_text"]).optional(),
+    groundingStatus: z.string().min(1),
+    verifiedSeedGroundingSpans: z.array(reportFamilyGroundingSpanSchema),
+    verdictCounts: z
+      .object({
+        F: z.number().int().nonnegative(),
+        D: z.number().int().nonnegative(),
+        E: z.number().int().nonnegative(),
+        U: z.number().int().nonnegative(),
+        not_adjudicated: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+      })
+      .strict(),
+    uniqueClaimUnits: z.number().int().nonnegative(),
+    /** Chronological: citing year, then title, then recordId. */
+    records: z.array(reportFamilyMutationRecordSchema).min(1),
+  })
+  .strict();
+export type ReportFamilyMutation = z.infer<typeof reportFamilyMutationSchema>;
 
 export const reportArtifactPayloadSchema = z
   .object({
@@ -634,6 +749,8 @@ export const reportArtifactPayloadSchema = z
     replayableFromInputs: z.literal(true),
     funnel: reportFunnelCountsSchema,
     rates: z.array(reportRateSchema),
+    /** The scientific content: each family and its restatements in order. */
+    familyMutations: z.array(reportFamilyMutationSchema),
     recordTraces: z.array(reportRecordTraceSchema),
     decisionSummaries: z.array(reportDecisionSummarySchema),
     exclusionSummaries: z.array(reportExclusionSummarySchema),
@@ -799,6 +916,90 @@ function validateReportPayload(
         message: `verdict_${verdict}_rate numerator must match adjudicated ${verdict} count`,
       });
     }
+  }
+
+  const uniqueAdjudicated =
+    payload.funnel.adjudicate.uniqueAdjudicatedClaimUnits.count;
+  for (const verdict of ["F", "D", "E", "U"] as const) {
+    const rate = payload.rates.find(
+      (entry) => entry.metricId === `verdict_${verdict}_unique_rate`,
+    );
+    if (rate == null) continue;
+    if (rate.denominator !== uniqueAdjudicated) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `verdict_${verdict}_unique_rate denominator must be unique adjudicated claim units`,
+      });
+    }
+    const count =
+      payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts[verdict].count;
+    if (rate.numerator !== count) {
+      context.addIssue({
+        code: "custom",
+        path: ["rates"],
+        message: `verdict_${verdict}_unique_rate numerator must match the unique-unit ${verdict} count`,
+      });
+    }
+  }
+
+  const traceById = new Map(
+    payload.recordTraces.map((trace) => [trace.recordId, trace]),
+  );
+  const familyRecordIds = new Set<string>();
+  for (const [familyIndex, family] of payload.familyMutations.entries()) {
+    for (const [recordIndex, record] of family.records.entries()) {
+      const path = ["familyMutations", familyIndex, "records", recordIndex];
+      if (familyRecordIds.has(record.recordId)) {
+        context.addIssue({
+          code: "custom",
+          path,
+          message: "Family mutation records must not repeat across families",
+        });
+      }
+      familyRecordIds.add(record.recordId);
+      const trace = traceById.get(record.recordId);
+      if (!trace) {
+        context.addIssue({
+          code: "custom",
+          path,
+          message: "Family mutation record has no per-record trace",
+        });
+        continue;
+      }
+      if (trace.familyId !== family.familyId) {
+        context.addIssue({
+          code: "custom",
+          path,
+          message: "Family mutation record belongs to a different family",
+        });
+      }
+      if (trace.adjudication.status !== record.status) {
+        context.addIssue({
+          code: "custom",
+          path: [...path, "status"],
+          message: "Family mutation record status must match its trace",
+        });
+      }
+      if (
+        trace.adjudication.status === "adjudicated" &&
+        trace.adjudication.verdict !== record.verdict
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [...path, "verdict"],
+          message: "Family mutation record verdict must match its trace",
+        });
+      }
+    }
+  }
+  if (familyRecordIds.size !== payload.recordTraces.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["familyMutations"],
+      message:
+        "Family mutations must cover every per-record trace exactly once",
+    });
   }
 
   const retrievalCoverage = payload.rates.find(

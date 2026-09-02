@@ -179,6 +179,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
       },
       funnel: {
         discover: {
+          probeStratumCounts: [],
           seeds: count("discover.seeds", 1, "seeds"),
           returnedCitingPaperObservations: count(
             "discover.returned_citing_paper_observations",
@@ -386,6 +387,28 @@ function buildPayload(): StageInspectorPayload<"report"> {
             20,
             "unique_claim_units",
           ),
+          uniqueClaimUnitVerdictCounts: {
+            F: count(
+              "adjudicate.unique_claim_units_verdict_F",
+              15,
+              "unique_claim_units",
+            ),
+            D: count(
+              "adjudicate.unique_claim_units_verdict_D",
+              2,
+              "unique_claim_units",
+            ),
+            E: count(
+              "adjudicate.unique_claim_units_verdict_E",
+              0,
+              "unique_claim_units",
+            ),
+            U: count(
+              "adjudicate.unique_claim_units_verdict_U",
+              0,
+              "unique_claim_units",
+            ),
+          },
           uniqueAdjudicatedClaimUnits: count(
             "adjudicate.unique_adjudicated_claim_units",
             17,
@@ -418,7 +441,12 @@ function buildPayload(): StageInspectorPayload<"report"> {
         rate("verdict_D_rate", 4, 35, 4 / 35),
         rate("verdict_E_rate", 0, 35, 0),
         rate("verdict_U_rate", 0, 0, null),
+        rate("verdict_F_unique_rate", 15, 17, 15 / 17),
+        rate("verdict_D_unique_rate", 2, 17, 2 / 17),
+        rate("verdict_E_unique_rate", 0, 17, 0),
+        rate("verdict_U_unique_rate", 0, 17, 0),
       ],
+      familyMutations: [],
       decisionSummaries: [
         {
           stage: "adjudicate",
