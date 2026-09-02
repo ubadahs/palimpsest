@@ -45,7 +45,6 @@ export class RunTracker {
     updateStageStatus(this.db, this.runId, stageKey, "blocked", {
       errorMessage: message,
       finishedAt: new Date().toISOString(),
-      exitCode: 1,
     });
   }
 
@@ -55,7 +54,6 @@ export class RunTracker {
       updateStageStatus(this.db, this.runId, stageKey, "failed", {
         errorMessage: msg,
         finishedAt: new Date().toISOString(),
-        exitCode: 1,
       });
     }
     setRunStatus(this.db, this.runId, "failed");

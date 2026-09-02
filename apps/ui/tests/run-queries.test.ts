@@ -73,7 +73,6 @@ describe("canonical run creation", () => {
       errorMessage: "Command exited with code 1.",
       startedAt: "2026-07-17T12:00:00.000Z",
       finishedAt: "2026-07-17T12:01:00.000Z",
-      exitCode: 1,
     });
     setRunStatus(database, "run-failed", "failed", "scope");
     writeFileSync(
@@ -126,7 +125,6 @@ describe("canonical run creation", () => {
       {
         primaryArtifactPath: supersededPath,
         finishedAt: "2026-07-17T12:00:00.000Z",
-        exitCode: 0,
       },
     );
     updateStageStatus(database, "run-stale-artifacts", "discover", "stale", {

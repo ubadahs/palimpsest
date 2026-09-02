@@ -1182,7 +1182,6 @@ describe("canonical executor cutover", () => {
         reportArtifactPath: wrongReport.reportArtifactPath!,
         manifestPath: wrongReport.manifestPath!,
         finishedAt: "2026-07-17T15:00:00.000Z",
-        exitCode: 0,
       },
     );
 
@@ -1285,7 +1284,6 @@ describe("canonical executor cutover", () => {
         {
           ...oldReportPointers,
           finishedAt: "2026-07-17T16:00:00.000Z",
-          exitCode: 0,
         },
       );
       await expect(

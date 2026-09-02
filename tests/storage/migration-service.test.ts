@@ -65,12 +65,11 @@ describe("runMigrations", () => {
       runMigrations(database);
       database.exec(`
         INSERT INTO analysis_runs (
-          id, seed_doi, tracked_claim, target_stage, status, current_stage,
+          id, seed_doi, target_stage, status, current_stage,
           run_root, config_json
         ) VALUES (
           'legacy-run',
           '10.1234/seed',
-          NULL,
           'screen',
           'succeeded',
           NULL,
@@ -82,11 +81,8 @@ describe("runMigrations", () => {
         ) VALUES (
           'legacy-run', 'screen', 2, 0, 'succeeded'
         );
-        INSERT INTO paper_cache (
-          paper_id, doi, title, access_status, fetch_status, fetched_at
-        ) VALUES (
-          'paper-1', '10.1234/seed', 'Seed', 'open', 'ok', '2026-07-17T00:00:00Z'
-        );
+        INSERT INTO paper_cache (paper_id, raw_full_text)
+        VALUES ('paper-1', '<article/>');
       `);
 
       const purged = purgeUnsupportedAnalysisRuns(database);

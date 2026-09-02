@@ -945,13 +945,6 @@ export function parseParsedPaperDocument(
   }
 }
 
-function parseSectionsJson(blocks: ParsedPaperBlock[]): string | undefined {
-  const sections = [
-    ...new Set(blocks.map((block) => block.sectionTitle).filter(Boolean)),
-  ];
-  return sections.length > 0 ? JSON.stringify(sections) : undefined;
-}
-
 function decodeCachedParsedPaper(
   cached: ReturnType<typeof getParsedPaper>,
   fullTextFormat: FullTextFormat,
@@ -1044,7 +1037,6 @@ export async function materializeParsedPaper(
         parserVersion: PARSED_PAPER_PARSER_VERSION,
         parserKind: parsedResult.data.parserKind,
         contentHash,
-        sectionsJson: parseSectionsJson(parsedResult.data.blocks),
         refsJson: JSON.stringify(parsedResult.data.references),
         chunksJson: JSON.stringify(parsedResult.data.blocks),
         mentionsJson: JSON.stringify(parsedResult.data.mentions),

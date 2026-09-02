@@ -1360,22 +1360,10 @@ export async function acquireFullText(
     try {
       upsertRawPaper(cache.db, {
         paperId: paper.id,
-        doi: paper.doi,
-        openalexId: paper.id.startsWith("https://openalex.org/")
-          ? paper.id
-          : undefined,
-        pmcid: paper.pmcid,
-        title: paper.title,
-        authorsJson: JSON.stringify(paper.authors),
-        accessStatus: "available",
         rawFullText: result.data.content,
         fullTextFormat: result.data.format,
-        fetchSourceUrl: result.data.acquisition.selectedUrl,
-        fetchStatus: "success",
         contentHash: computeContentHash(result.data.content),
-        fetchedAt: new Date().toISOString(),
         acquisitionProvenanceJson: JSON.stringify(result.data.acquisition),
-        metadataJson: undefined,
       });
     } catch {
       // cache write failure is non-fatal
