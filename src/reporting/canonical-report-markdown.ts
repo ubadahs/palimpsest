@@ -192,6 +192,28 @@ export function renderCanonicalReportMarkdown(
   }
   lines.push("");
 
+  lines.push("## Mutation kinds (D verdicts only)");
+  lines.push("");
+  lines.push(
+    "Which dimension of the source claim moved, and in which direction. A D record may name up to three kinds.",
+  );
+  lines.push("");
+  if (payload.funnel.adjudicate.mutationKindCounts.length === 0) {
+    lines.push("- No mutation kinds recorded.");
+  } else {
+    for (const entry of payload.funnel.adjudicate.mutationKindCounts) {
+      lines.push(
+        `- kind \`${entry.status}\`: ${String(entry.count)} (unit: D records naming this kind)`,
+      );
+    }
+  }
+  for (const entry of payload.funnel.adjudicate.mutationDirectionCounts) {
+    lines.push(
+      `- direction \`${entry.status}\`: ${String(entry.count)} (unit: D records)`,
+    );
+  }
+  lines.push("");
+
   lines.push("## Operational non-verdicts");
   lines.push("");
   if (payload.funnel.adjudicate.gateCodeCounts.length === 0) {

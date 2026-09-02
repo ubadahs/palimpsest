@@ -7,6 +7,8 @@ import {
 } from "../shared/stable-identity.js";
 import {
   adjudicateGateCodeSchema,
+  mutationDirectionSchema,
+  mutationKindSchema,
   adjudicateNonfatalFailureCodeSchema,
 } from "./canonical-adjudicate.js";
 import {
@@ -236,6 +238,20 @@ const reportAdjudicateFailureCountSchema = z
   })
   .strict();
 
+const reportMutationKindCountSchema = z
+  .object({
+    status: mutationKindSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const reportMutationDirectionCountSchema = z
+  .object({
+    status: mutationDirectionSchema,
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
 const discoverFunnelCountsSchema = z
   .object({
     seeds: reportCountSchema,
@@ -321,6 +337,9 @@ const adjudicateFunnelCountsSchema = z
         U: reportCountSchema,
       })
       .strict(),
+    /** Drift direction over D verdicts: which dimension moved, and which way. */
+    mutationKindCounts: z.array(reportMutationKindCountSchema),
+    mutationDirectionCounts: z.array(reportMutationDirectionCountSchema),
     uniqueClaimUnits: reportCountSchema,
     uniqueAdjudicatedClaimUnits: reportCountSchema,
     repeatedRecordsBeyondUniqueUnits: reportCountSchema,
@@ -504,6 +523,8 @@ const reportAdjudicationTraceSchema = z.discriminatedUnion("status", [
       status: z.literal("adjudicated"),
       adjudicationResultId: stableIdentifierSchema,
       verdict: fidelityTopLabelSchema,
+      mutationKinds: z.array(mutationKindSchema),
+      direction: mutationDirectionSchema,
       evidenceSufficiency: z.enum(["sufficient", "limited"]),
       evidenceLimitation: z.enum(["figure_only_support"]).optional(),
     })
@@ -1228,6 +1249,41 @@ function validateTraceAccounting(
       code: "custom",
       path: ["funnel", "adjudicate", "failureCodeCounts"],
       message: "Failure-code summary must exactly match per-record traces",
+    });
+  }
+  const expectedMutationKindCounts = summarizeStatuses(
+    traces.flatMap((trace) =>
+      trace.adjudication.status === "adjudicated"
+        ? trace.adjudication.mutationKinds
+        : [],
+    ),
+  );
+  if (
+    canonicalSerialize(adjudicate.mutationKindCounts) !==
+    canonicalSerialize(expectedMutationKindCounts)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "mutationKindCounts"],
+      message: "Mutation-kind summary must exactly match per-record traces",
+    });
+  }
+  const expectedDirectionCounts = summarizeStatuses(
+    traces.flatMap((trace) =>
+      trace.adjudication.status === "adjudicated" &&
+      trace.adjudication.verdict === "D"
+        ? [trace.adjudication.direction]
+        : [],
+    ),
+  );
+  if (
+    canonicalSerialize(adjudicate.mutationDirectionCounts) !==
+    canonicalSerialize(expectedDirectionCounts)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "mutationDirectionCounts"],
+      message: "Mutation-direction summary must exactly match D traces",
     });
   }
   for (const verdict of ["F", "D", "E", "U"] as const) {

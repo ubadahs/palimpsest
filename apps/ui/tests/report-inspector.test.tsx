@@ -372,6 +372,8 @@ function buildPayload(): StageInspectorPayload<"report"> {
             { status: "manual_review_role_ambiguous", count: 9 },
           ],
           failureCodeCounts: [],
+          mutationKindCounts: [],
+          mutationDirectionCounts: [],
           verdictCounts: {
             F: count("adjudicate.verdict_F", 31),
             D: count("adjudicate.verdict_D", 4),
@@ -436,7 +438,10 @@ function buildPayload(): StageInspectorPayload<"report"> {
       adjudicationStatus: "adjudicated",
       verdict: "F",
       confidence: "high",
-      comparison: "The attribution matches the seed findings.",
+      citingAssertion: "The attribution matches the seed findings.",
+      sourceStatement: "The seed reports the same findings.",
+      mutationKinds: [],
+      direction: "none",
       rationale: "Direct support across multiple cited chunks.",
     }),
     record({
@@ -446,7 +451,10 @@ function buildPayload(): StageInspectorPayload<"report"> {
       confidence: "high",
       evaluatedClaimText: "Four inhibitory neuron types were identified",
       citingPaperTitle: "Circuit paper with distortion",
-      comparison: "The seed reported sublaminae, not total types.",
+      citingAssertion: "Four inhibitory neuron types were identified.",
+      sourceStatement: "The seed reported sublaminae, not total types.",
+      mutationKinds: ["scope_narrowed"],
+      direction: "shifted",
       rationale: "The count was materially narrowed.",
     }),
     record({

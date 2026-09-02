@@ -84,3 +84,38 @@ describe("canonical adjudicate packet quality", () => {
     expect(prompt).toMatch(/figure-only support/i);
   });
 });
+
+describe("canonical adjudicate prompt contract", () => {
+  it("asks for mutation kinds and direction and never for a claim id echo", () => {
+    const prompt = buildCanonicalAdjudicatePrompt(basePacket());
+    expect(prompt).toMatch(/mutationKinds/);
+    expect(prompt).toMatch(/direction/);
+    expect(prompt).toMatch(/citingAssertion/);
+    expect(prompt).toMatch(/sourceStatement/);
+    expect(prompt).not.toMatch(/evaluatedClaimRecordIds/);
+    expect(prompt).not.toMatch(/claimRecordId=/);
+    // Offsets index the full paragraph, not the shown window, so they are
+    // not rendered.
+    expect(prompt).not.toMatch(/supportSpan: ".*" \(offsets/);
+  });
+
+  it("explains role and mode tokens instead of leaking bare enums", () => {
+    const prompt = buildCanonicalAdjudicatePrompt(basePacket());
+    expect(prompt).toMatch(
+      /Citation role: substantive_attribution \(the citing text attributes/,
+    );
+    expect(prompt).toMatch(
+      /Evaluation mode: fidelity_specific_claim \(judge the specific/,
+    );
+  });
+
+  it("accepts a window where every sentence is attributed to the seed", () => {
+    const result = assessAdjudicatePacketQuality(
+      basePacket({
+        markedCitingContext:
+          "▶ Marlowe et al. (2021) reported four inhibitory neuron types. They also mapped their laminar positions in the mouse dLGN. ◀",
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+});

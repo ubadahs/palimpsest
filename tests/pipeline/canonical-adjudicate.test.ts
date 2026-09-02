@@ -80,11 +80,8 @@ type AdjudicateVariant =
   | "D"
   | "E"
   | "U"
-  | "unknown_claim"
-  | "duplicate_claim"
   | "unknown_chunk"
   | "duplicate_chunk"
-  | "omitted_claim"
   | "all_references"
   | "reordered_references"
   | "malformed"
@@ -677,20 +674,13 @@ function adjudicateAdapter(
         execution,
       });
     }
-    const claimIds = input.packet.occurrenceClaims.map(
-      (claim) => claim.claimRecordId,
-    );
     const chunkIds = input.packet.selectedChunks.map((chunk) => chunk.chunkId);
-    const claimId = claimIds[0]!;
     const chunkId = chunkIds[0]!;
     const verdict =
       variant === "high_confidence_still_one_call"
         ? "F"
-        : variant === "unknown_claim" ||
-            variant === "duplicate_claim" ||
-            variant === "unknown_chunk" ||
+        : variant === "unknown_chunk" ||
             variant === "duplicate_chunk" ||
-            variant === "omitted_claim" ||
             variant === "all_references" ||
             variant === "reordered_references" ||
             variant === "wrong_prompt_id" ||
@@ -699,16 +689,6 @@ function adjudicateAdapter(
             variant === "wrong_request_hash"
           ? "F"
           : variant;
-    const evaluatedClaimRecordIds =
-      variant === "unknown_claim"
-        ? [buildStableId("claim-record", { missing: true })]
-        : variant === "duplicate_claim"
-          ? [claimId, claimId]
-          : variant === "omitted_claim"
-            ? [claimId]
-            : variant === "reordered_references"
-              ? [...claimIds].reverse()
-              : claimIds;
     const citedChunkIds =
       variant === "unknown_chunk"
         ? [buildStableId("evidence-chunk", { missing: true })]
@@ -722,14 +702,17 @@ function adjudicateAdapter(
     return Promise.resolve({
       status: "completed",
       rawOutput: {
-        comparison:
-          "The citing paper attributes Rab35 silencing to bulkhead loss. The cited chunks report the same phenotype in hepatocytes.",
+        citingAssertion:
+          "The citing paper attributes Rab35 silencing to bulkhead loss.",
+        sourceStatement:
+          "The cited chunks report the same phenotype in hepatocytes.",
         verdict,
+        mutationKinds: verdict === "D" ? ["certainty_strengthened"] : [],
+        direction: verdict === "F" ? "none" : "strengthened",
         rationale:
           "The attribution matches the selected cited evidence with only reasonable compression.",
         confidence:
           variant === "high_confidence_still_one_call" ? "high" : "medium",
-        evaluatedClaimRecordIds,
         citedChunkIds,
       },
       execution,
@@ -1127,13 +1110,8 @@ describe("canonical Adjudicate", () => {
     expect(calls[0]!.promptText).toBe(prompt);
   });
 
-  it("rejects unknown or duplicate claim/chunk references as invalid_output", async () => {
-    for (const variant of [
-      "unknown_claim",
-      "duplicate_claim",
-      "unknown_chunk",
-      "duplicate_chunk",
-    ] as const) {
+  it("rejects unknown or duplicate chunk references as invalid_output", async () => {
+    for (const variant of ["unknown_chunk", "duplicate_chunk"] as const) {
       const { result } = await runAdjudicateFixture({ variant });
       for (const record of result.payload.records) {
         expect(record.status).toBe("invalid_output");
@@ -1141,16 +1119,38 @@ describe("canonical Adjudicate", () => {
     }
   });
 
-  it("requires the complete occurrence-local claim set", async () => {
-    const { result } = await runAdjudicateFixture({
-      variant: "omitted_claim",
+  it("binds the occurrence-local claim set from Prepare without a model echo", async () => {
+    const { prepare, result } = await runAdjudicateFixture({
+      variant: "F",
       multipleClaims: true,
     });
     for (const record of result.payload.records) {
-      expect(record.status).toBe("invalid_output");
-      if (record.status === "invalid_output") {
-        expect(record.reason).toMatch(/omitted occurrence-local claim/i);
-      }
+      expect(record.status).toBe("adjudicated");
+      if (record.status !== "adjudicated") continue;
+      const prepareRecord = prepare.payload.records.find(
+        (entry) => entry.recordId === record.recordId,
+      )!;
+      expect(record.evaluatedClaimRecordIds).toEqual(
+        prepareRecord.occurrenceSourceClaimRecords.map(
+          (claim) => claim.claimRecordId,
+        ),
+      );
+    }
+  });
+
+  it("records mutation kinds and direction for D verdicts only", async () => {
+    const distorted = await runAdjudicateFixture({ variant: "D" });
+    for (const record of distorted.result.payload.records) {
+      expect(record.status).toBe("adjudicated");
+      if (record.status !== "adjudicated") continue;
+      expect(record.mutationKinds).toEqual(["certainty_strengthened"]);
+      expect(record.direction).toBe("strengthened");
+    }
+    const faithful = await runAdjudicateFixture({ variant: "F" });
+    for (const record of faithful.result.payload.records) {
+      if (record.status !== "adjudicated") continue;
+      expect(record.mutationKinds).toEqual([]);
+      expect(record.direction).toBe("none");
     }
   });
 

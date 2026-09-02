@@ -774,7 +774,10 @@ function buildReportInspectorRecordRow(input: {
   if (adjudicateRecord.status === "adjudicated") {
     row.verdict = adjudicateRecord.verdict;
     row.confidence = adjudicateRecord.confidence;
-    row.comparison = adjudicateRecord.comparison;
+    row.citingAssertion = adjudicateRecord.citingAssertion;
+    row.sourceStatement = adjudicateRecord.sourceStatement;
+    row.mutationKinds = [...adjudicateRecord.mutationKinds];
+    row.direction = adjudicateRecord.direction;
     row.rationale = adjudicateRecord.rationale;
     row.evidenceSufficiency = adjudicateRecord.evidenceSufficiency;
     if (adjudicateRecord.evidenceLimitation) {

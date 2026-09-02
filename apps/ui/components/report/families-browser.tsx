@@ -109,9 +109,30 @@ function MutationRecordCard({
           {record.citationContext}
         </blockquote>
         <EvidencePassages record={record} />
-        {record.rationale || record.comparison || record.operationalReason ? (
+        {record.rationale ||
+        record.citingAssertion ||
+        record.operationalReason ? (
           <div className="space-y-2 text-sm leading-7 text-[var(--text)]">
-            {record.comparison ? <p>{record.comparison}</p> : null}
+            {record.citingAssertion ? (
+              <p>
+                <span className="font-semibold">Citing:</span>{" "}
+                {record.citingAssertion}
+              </p>
+            ) : null}
+            {record.sourceStatement ? (
+              <p>
+                <span className="font-semibold">Seed:</span>{" "}
+                {record.sourceStatement}
+              </p>
+            ) : null}
+            {record.mutationKinds && record.mutationKinds.length > 0 ? (
+              <p className="text-[var(--text-muted)]">
+                {record.direction}:{" "}
+                {record.mutationKinds
+                  .map((kind) => kind.replace(/_/g, " "))
+                  .join(", ")}
+              </p>
+            ) : null}
             {record.rationale ? <p>{record.rationale}</p> : null}
             {record.operationalReason ? (
               <p className="text-[var(--text-muted)]">
