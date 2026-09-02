@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import {
+  compareCodeUnits,
+  sortedUnique,
+  uniqueSorted,
+} from "../shared/order.js";
+import { createBoundaryParser } from "../shared/boundary.js";
+
 import {
   buildScopedFamilyId,
   createAppendOnlyDecision,
@@ -685,19 +693,6 @@ function buildDiscoverReference(
   };
 }
 
-function parseBoundary<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0];
-  throw new CanonicalScopeBoundaryError(
-    `Invalid ${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
-  );
-}
-
 function scopeArtifactSchemaForBuild(value: unknown): ScopeArtifact {
   const parsed = scopeArtifactSchema.safeParse(value);
   if (parsed.success) return parsed.data;
@@ -707,30 +702,8 @@ function scopeArtifactSchemaForBuild(value: unknown): ScopeArtifact {
   );
 }
 
-function uniqueSortedArtifactReferences(
-  references: readonly ArtifactReference[],
-): ArtifactReference[] {
-  return uniqueSorted(references);
-}
-
-function uniqueSorted<T>(values: readonly T[]): T[] {
-  const byCanonicalValue = new Map<string, T>();
-  for (const value of values) {
-    byCanonicalValue.set(canonicalSerialize(value), value);
-  }
-  return [...byCanonicalValue.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
-}
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareCodeUnits);
-}
-
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+const parseBoundary = createBoundaryParser(CanonicalScopeBoundaryError);

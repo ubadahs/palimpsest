@@ -1,5 +1,7 @@
 import type { z } from "zod";
 
+import { compareCodeUnits } from "../shared/order.js";
+
 import { existsSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
@@ -622,10 +624,6 @@ function buildOccurrenceClaims(
   });
 }
 
-function compareStableText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
 function compareMutationRecords(
   left: ReportInspectorRecordRow,
   right: ReportInspectorRecordRow,
@@ -635,14 +633,14 @@ function compareMutationRecords(
   if (leftYear !== rightYear) {
     return leftYear - rightYear;
   }
-  const titleCmp = compareStableText(
+  const titleCmp = compareCodeUnits(
     left.citingPaperTitle,
     right.citingPaperTitle,
   );
   if (titleCmp !== 0) {
     return titleCmp;
   }
-  return compareStableText(left.recordId, right.recordId);
+  return compareCodeUnits(left.recordId, right.recordId);
 }
 
 function emptyVerdictCounts(): MutationFamilyVerdictCounts {
@@ -748,11 +746,11 @@ export function buildReportInspectorFamilies(
   });
 
   families.sort((left, right) => {
-    const claimCmp = compareStableText(left.trackedClaim, right.trackedClaim);
+    const claimCmp = compareCodeUnits(left.trackedClaim, right.trackedClaim);
     if (claimCmp !== 0) {
       return claimCmp;
     }
-    return compareStableText(left.familyId, right.familyId);
+    return compareCodeUnits(left.familyId, right.familyId);
   });
   return families;
 }

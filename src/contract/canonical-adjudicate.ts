@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { compareCodeUnits } from "../shared/order.js";
+
 import { confidenceSchema } from "../domain/classification.js";
 import {
   fidelityTopLabelSchema,
@@ -803,12 +805,6 @@ function sameArtifactReference(
     left.canonicalStage === right.canonicalStage &&
     left.uri === right.uri
   );
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1;
-  if (left > right) return 1;
-  return 0;
 }
 
 /** Content hash helper for packet/prompt provenance (not outcome identity). */

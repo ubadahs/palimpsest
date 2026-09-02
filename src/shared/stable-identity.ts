@@ -1,3 +1,5 @@
+import { compareCodeUnits } from "./order.js";
+
 import { createHash } from "node:crypto";
 
 /**
@@ -91,8 +93,4 @@ export function buildStableId(
     identityVersion: 1,
     identityInputs,
   })}`;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

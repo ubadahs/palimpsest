@@ -1,10 +1,13 @@
 import { z } from "zod";
 
+import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
+import { createBoundaryParser } from "../shared/boundary.js";
+
 import { classifyCitationFunction } from "../classification/classify-citation-function.js";
 import { deriveEvaluationMode } from "../classification/evaluation-mode.js";
 import type { CitationRole } from "../domain/classification.js";
 import {
-  artifactReferenceSchema,
   buildCitationInstanceRecordId,
   createAppendOnlyDecision,
   createLeanStageArtifact,
@@ -32,7 +35,6 @@ import {
   type ScopeArtifact,
   type ScopedFamily,
 } from "../contract/lean-artifacts.js";
-import { canonicalSerialize } from "../shared/stable-identity.js";
 
 export const canonicalPrepareOptionsSchema = z
   .object({
@@ -741,37 +743,6 @@ function classificationReason(classification: PrepareClassification): string {
     : classification.rationale;
 }
 
-function parseBoundary<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label: string,
-): T {
-  const parsed = schema.safeParse(value);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0];
-  throw new CanonicalPrepareBoundaryError(
-    `Invalid ${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
-  );
-}
-
-function uniqueSortedArtifactReferences(
-  references: readonly ArtifactReference[],
-): ArtifactReference[] {
-  return uniqueSorted(
-    references.map((reference) => artifactReferenceSchema.parse(reference)),
-  );
-}
-
-function uniqueSorted<T>(values: readonly T[]): T[] {
-  const byCanonicalValue = new Map<string, T>();
-  for (const value of values) {
-    byCanonicalValue.set(canonicalSerialize(value), value);
-  }
-  return [...byCanonicalValue.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([, value]) => value);
-}
-
 function sameIdentifierSequence(
   left: readonly string[],
   right: readonly string[],
@@ -782,6 +753,4 @@ function sameIdentifierSequence(
   );
 }
 
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+const parseBoundary = createBoundaryParser(CanonicalPrepareBoundaryError);
