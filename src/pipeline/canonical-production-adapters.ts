@@ -39,6 +39,7 @@ import {
   type LLMCallRecord,
   type LLMClient,
   type ThinkingConfig,
+  type ThinkingEffort,
 } from "../integrations/llm-client.js";
 import { resolvePaperByDoi } from "../integrations/paper-resolver.js";
 import * as openalex from "../integrations/openalex.js";
@@ -94,7 +95,6 @@ function createFullTextAdapters(config: AppConfig): FullTextFetchAdapters {
     institutionalProxyUrl: config.institutionalProxyUrl,
   });
 }
-import { extractJsonFromModelText } from "../shared/extract-json-from-text.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
 
 const CANONICAL_EXTRACTION_PROMPT_ID =
@@ -142,8 +142,14 @@ function mapLlmCallThinking(
   model: string,
   enabled: boolean,
   budgetTokens: number,
+  effort?: ThinkingEffort,
 ): ThinkingConfig | undefined {
-  return resolveThinkingConfig({ model, enabled, budgetTokens });
+  return resolveThinkingConfig({
+    model,
+    enabled,
+    budgetTokens,
+    ...(effort != null ? { effort } : {}),
+  });
 }
 
 function llmRequestProvenanceFields(params: {
@@ -905,17 +911,15 @@ export function buildCanonicalDiscoverAdapters(
         }),
       };
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "attributed-claim-extraction",
           model,
           prompt,
+          schema: canonicalAttributedClaimExtractionOutputSchema,
           context: { stageKey: "discover" },
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.extraction },
         });
-        const parsed = parseCanonicalAttributedClaimExtractionResponse(
-          result.text,
-        );
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -926,30 +930,21 @@ export function buildCanonicalDiscoverAdapters(
           requestBody,
           responseBody: {
             role: "normalized-attributed-claim-extraction-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
           },
           store,
           requestRole: "normalized-attributed-claim-extraction-request",
           responseRole: "normalized-attributed-claim-extraction-response",
           canonicalStage: "discover",
         });
-        if (!parsed.ok) {
-          return {
-            status: "failed" as const,
-            reasonCode: "invalid_response" as const,
-            reason: parsed.error,
-            execution,
-          };
-        }
         return {
           status: "completed" as const,
           reason:
-            parsed.data.reason ??
-            (parsed.data.claims.length === 0
+            result.object.reason ??
+            (result.object.claims.length === 0
               ? "Mention contains no in-scope empirical attribution."
-              : `Extracted ${String(parsed.data.claims.length)} attributed claim(s).`),
-          claims: parsed.data.claims.map((claim) => ({
+              : `Extracted ${String(result.object.claims.length)} attributed claim(s).`),
+          claims: result.object.claims.map((claim) => ({
             text: claim.text.trim(),
             ...(claim.supportSpanText
               ? { supportSpanText: claim.supportSpanText }
@@ -1030,37 +1025,25 @@ export function buildCanonicalDiscoverAdapters(
           canonicalStage: "discover",
         });
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "claim-canonicalization",
           model,
           prompt,
+          schema: claimCanonicalizationOutputSchema,
           context: { stageKey: "discover" },
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.canonicalization },
         });
-        const parsed = parseModelJson(
-          result.text,
-          claimCanonicalizationOutputSchema,
-        );
         const execution = executionFor(
           {
             role: "normalized-claim-canonicalization-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
           },
           result.record,
         );
-        if (!parsed.ok) {
-          return {
-            status: "failed" as const,
-            reasonCode: "invalid_response" as const,
-            reason: parsed.error,
-            execution,
-          };
-        }
         return {
           status: "completed" as const,
-          clusters: parsed.data.clusters.map((cluster) => ({
+          clusters: result.object.clusters.map((cluster) => ({
             canonicalClaim: cluster.canonicalClaim,
             claimRecordIds: cluster.claims.flatMap((handle) => {
               const claim = claims[handle - 1];
@@ -1346,16 +1329,16 @@ export function buildCanonicalScopeAdapters(
         }),
       };
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "seed-grounding",
           model,
           promptPrefix: promptParts.prefix,
           promptSuffix: promptParts.suffix,
+          schema: canonicalScopeGroundingOutputSchema,
           context: { stageKey: "scope" },
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
         });
-        const parsed = parseScopeGroundingResponse(result.text);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1366,25 +1349,16 @@ export function buildCanonicalScopeAdapters(
           requestBody,
           responseBody: {
             role: "normalized-scope-grounding-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
           },
           store,
           requestRole: "normalized-scope-grounding-request",
           responseRole: "normalized-scope-grounding-response",
           canonicalStage: "scope",
         });
-        if (!parsed.ok) {
-          return {
-            status: "failed" as const,
-            reasonCode: "invalid_response" as const,
-            reason: parsed.error,
-            execution,
-          };
-        }
         return {
           status: "completed" as const,
-          rawOutput: parsed.data,
+          rawOutput: result.object,
           execution,
         };
       } catch (error) {
@@ -1457,14 +1431,14 @@ export function buildCanonicalPrepareAdapters(
         }),
       };
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "citation-role-classification",
           model,
           prompt,
+          schema: citationRoleResponseSchema,
           context: { stageKey: "prepare" },
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.roleClassification },
         });
-        const parsed = parseCitationRoleResponse(result.text);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1475,28 +1449,17 @@ export function buildCanonicalPrepareAdapters(
           requestBody,
           responseBody: {
             role: "normalized-citation-role-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
           },
           store,
           requestRole: "normalized-citation-role-request",
           responseRole: "normalized-citation-role-response",
           canonicalStage: "prepare",
         });
-        if (!parsed.ok) {
-          // A malformed reply is not a fatal run failure: the record keeps the
-          // deterministic gate and the failed call stays in the provenance.
-          return applyPrepareModelRole(deterministic, {
-            citationRole: "unclear",
-            rationale: `Model role fallback returned an unusable response: ${parsed.error}`,
-            signals: ["model-role:invalid_response"],
-            execution,
-          });
-        }
         return applyPrepareModelRole(deterministic, {
-          citationRole: parsed.data.citationRole,
-          rationale: parsed.data.rationale,
-          signals: [`model-role:${parsed.data.citationRole}`],
+          citationRole: result.object.citationRole,
+          rationale: result.object.rationale,
+          signals: [`model-role:${result.object.citationRole}`],
           execution,
         });
       } catch (error) {
@@ -1556,14 +1519,15 @@ function buildCanonicalEvidenceAdapters(
         }),
       };
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "evidence-rerank",
           model,
           prompt,
+          schema: rerankModelResponseSchema,
           context: { stageKey: "evidence" },
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.rerank },
         });
-        const parsed = parseRerankResponse(result.text, input.candidates);
+        const parsed = mapRerankResponse(result.object, input.candidates);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1574,8 +1538,8 @@ function buildCanonicalEvidenceAdapters(
           requestBody,
           responseBody: {
             role: "normalized-evidence-rerank-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
+            mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
           },
           store,
           requestRole: "normalized-evidence-rerank-request",
@@ -1638,6 +1602,7 @@ export function buildCanonicalAdjudicateAdapters(
         model,
         deps.runConfig.adjudicate.thinking,
         12_000,
+        deps.runConfig.adjudicate.effort,
       );
       const requestBody = {
         purpose: input.purpose,
@@ -1656,15 +1621,16 @@ export function buildCanonicalAdjudicateAdapters(
         }),
       };
       try {
-        const result = await deps.llmClient.generateText({
+        const result = await deps.llmClient.generateObject({
           purpose: "adjudication",
           model,
           prompt: promptText,
+          schema: adjudicateModelResponseSchema,
           context: { stageKey: "adjudicate" },
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
         });
-        const parsed = parseAdjudicateResponse(result.text, input.packet);
+        const parsed = mapAdjudicateResponse(result.object, input.packet);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1675,8 +1641,8 @@ export function buildCanonicalAdjudicateAdapters(
           requestBody,
           responseBody: {
             role: "normalized-canonical-adjudicate-response",
-            text: result.text,
-            parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+            object: result.object,
+            mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
           },
           store,
           requestRole: "normalized-canonical-adjudicate-request",
@@ -1700,7 +1666,7 @@ export function buildCanonicalAdjudicateAdapters(
         if (!parsed.ok) {
           return {
             status: "completed" as const,
-            rawOutput: { parseError: parsed.error, text: result.text },
+            rawOutput: { mappingError: parsed.error },
             execution,
           };
         }
@@ -1852,33 +1818,6 @@ export const canonicalAttributedClaimExtractionOutputSchema = z
   })
   .strict();
 
-export function parseCanonicalAttributedClaimExtractionResponse(
-  rawText: string,
-):
-  | {
-      ok: true;
-      data: z.infer<typeof canonicalAttributedClaimExtractionOutputSchema>;
-    }
-  | { ok: false; error: string } {
-  try {
-    const jsonSlice = extractJsonFromModelText(rawText);
-    const parsed: unknown = JSON.parse(jsonSlice);
-    const result =
-      canonicalAttributedClaimExtractionOutputSchema.safeParse(parsed);
-    if (result.success) return { ok: true, data: result.data };
-    const issue = result.error.issues[0];
-    return {
-      ok: false,
-      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "JSON parse failed",
-    };
-  }
-}
-
 function buildClaimCanonicalizationPrompt(input: {
   seedTitle: string;
   seedDoi?: string | undefined;
@@ -1941,29 +1880,6 @@ const claimCanonicalizationOutputSchema = z
   })
   .strict();
 
-/** Tolerant JSON extraction plus strict schema validation of a model reply. */
-function parseModelJson<T extends z.ZodType>(
-  rawText: string,
-  schema: T,
-): { ok: true; data: z.infer<T> } | { ok: false; error: string } {
-  try {
-    const jsonSlice = extractJsonFromModelText(rawText);
-    const parsed: unknown = JSON.parse(jsonSlice);
-    const result = schema.safeParse(parsed);
-    if (result.success) return { ok: true, data: result.data as z.infer<T> };
-    const issue = result.error.issues[0];
-    return {
-      ok: false,
-      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "JSON parse failed",
-    };
-  }
-}
-
 /**
  * The grounding prompt is split so the seed text (identical for every family
  * of a seed) is a cacheable prefix and only the tracked claim varies.
@@ -2018,29 +1934,6 @@ Rules:
 - not_found must use an empty supportSpans array
 - never invent blockIds`;
   return { prefix, suffix };
-}
-
-function parseScopeGroundingResponse(
-  rawText: string,
-):
-  | { ok: true; data: z.infer<typeof canonicalScopeGroundingOutputSchema> }
-  | { ok: false; error: string } {
-  try {
-    const jsonSlice = extractJsonFromModelText(rawText);
-    const parsed: unknown = JSON.parse(jsonSlice);
-    const result = canonicalScopeGroundingOutputSchema.safeParse(parsed);
-    if (result.success) return { ok: true, data: result.data };
-    const issue = result.error.issues[0];
-    return {
-      ok: false,
-      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "JSON parse failed",
-    };
-  }
 }
 
 /**
@@ -2106,14 +1999,6 @@ const citationRoleResponseSchema = z
   })
   .strict();
 
-function parseCitationRoleResponse(
-  rawText: string,
-):
-  | { ok: true; data: z.infer<typeof citationRoleResponseSchema> }
-  | { ok: false; error: string } {
-  return parseModelJson(rawText, citationRoleResponseSchema);
-}
-
 function buildRelevanceRerankPrompt(
   input: CanonicalEvidenceRerankerInput,
 ): string {
@@ -2175,16 +2060,19 @@ const rerankModelResponseSchema = z
   })
   .strict();
 
-function parseRerankResponse(
-  rawText: string,
+/**
+ * Turns the model's candidate numbers into chunk ids. The reply's shape is
+ * guaranteed by the output schema; what can still go wrong is a number that
+ * names no candidate, or a set that names none of them.
+ */
+function mapRerankResponse(
+  reply: z.infer<typeof rerankModelResponseSchema>,
   candidates: CanonicalEvidenceRerankerInput["candidates"],
 ):
   | { ok: true; data: z.infer<typeof evidenceRerankOutputSchema> }
   | { ok: false; error: string } {
-  const parsed = parseModelJson(rawText, rerankModelResponseSchema);
-  if (!parsed.ok) return parsed;
   const seen = new Set<string>();
-  const mapped = parsed.data.results.flatMap((entry) => {
+  const mapped = reply.results.flatMap((entry) => {
     const candidate = candidates[entry.candidate - 1];
     if (!candidate || seen.has(candidate.chunkId)) return [];
     seen.add(candidate.chunkId);
@@ -2222,15 +2110,18 @@ const adjudicateModelResponseSchema = z
   })
   .strict();
 
-function parseAdjudicateResponse(
-  rawText: string,
+/**
+ * Turns the model's chunk numbers into ids and applies the contract schema.
+ * The reply's field shape is guaranteed by the output schema; the verdict
+ * vocabulary and the chunk references are not.
+ */
+function mapAdjudicateResponse(
+  reply: z.infer<typeof adjudicateModelResponseSchema>,
   packet: CanonicalAdjudicateAdapterInput["packet"],
 ):
   | { ok: true; data: z.infer<typeof canonicalAdjudicateModelOutputSchema> }
   | { ok: false; error: string } {
-  const parsed = parseModelJson(rawText, adjudicateModelResponseSchema);
-  if (!parsed.ok) return parsed;
-  const { citedChunks, ...rest } = parsed.data;
+  const { citedChunks, ...rest } = reply;
   const citedChunkIds = [
     ...new Set(
       citedChunks.flatMap((handle) => {

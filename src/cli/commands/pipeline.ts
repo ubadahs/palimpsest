@@ -87,6 +87,7 @@ export function parseCanonicalPipelineArgs(
   let evidenceSelectionLimit: number | undefined;
   let adjudicateModel: string | undefined;
   let adjudicateThinking: boolean | undefined;
+  let adjudicateEffort: "low" | "medium" | "high" | "max" | undefined;
   let rerunFromStage: StageKey | undefined;
 
   for (let index = 0; index < argv.length; index++) {
@@ -192,6 +193,22 @@ export function parseCanonicalPipelineArgs(
       case "--no-adjudicate-thinking":
         adjudicateThinking = false;
         break;
+      case "--adjudicate-effort": {
+        const value = readValue(argv, index, flag);
+        if (
+          value !== "low" &&
+          value !== "medium" &&
+          value !== "high" &&
+          value !== "max"
+        ) {
+          fail(
+            `--adjudicate-effort must be low, medium, high, or max; received "${value}".`,
+          );
+        }
+        adjudicateEffort = value;
+        index++;
+        break;
+      }
       case "--rerun-from":
         rerunFromStage = readCanonicalStage(argv, index, flag);
         index++;
@@ -250,6 +267,7 @@ export function parseCanonicalPipelineArgs(
     evidenceSelectionLimit,
     adjudicateModel,
     adjudicateThinking,
+    adjudicateEffort,
     rerunFromStage,
   };
 }
@@ -290,6 +308,7 @@ Options:
   --adjudicate-model <model>        Adjudication model
   --adjudicate-thinking             Enable adjudication thinking
   --no-adjudicate-thinking          Disable adjudication thinking
+  --adjudicate-effort <level>       Adaptive thinking effort: low|medium|high|max
   --rerun-from <stage>              Rerun a canonical stage and downstream stages`);
 }
 
