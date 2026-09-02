@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import { compareCodeUnits } from "../shared/order.js";
+import {
+  addDuplicateIdentifierIssue,
+  sameArtifactReference,
+} from "./artifacts/checks.js";
 
 import {
   fidelityTopLabelSchema,
@@ -151,6 +155,15 @@ const reportCountSchema = z
   .strict();
 export type ReportCount = z.infer<typeof reportCountSchema>;
 
+/**
+ * A funnel count whose unit is fixed by its position: a count of citing
+ * papers cannot be relabelled as a count of records without failing the
+ * schema, so a renderer can trust the unit without re-checking it.
+ */
+function countOf<U extends ReportCount["unit"]>(unit: U) {
+  return reportCountSchema.extend({ unit: z.literal(unit) });
+}
+
 export const reportRateSchema = z
   .object({
     metricId: z.string().min(1),
@@ -281,7 +294,7 @@ const reportProbeStratumCountSchema = z
 
 const discoverFunnelCountsSchema = z
   .object({
-    seeds: reportCountSchema,
+    seeds: countOf("seeds"),
     /** Sampling design: how many citing papers each stratum returned and how many were probed. */
     probeStratumCounts: z.array(reportProbeStratumCountSchema),
     /**
@@ -290,34 +303,36 @@ const discoverFunnelCountsSchema = z
      * reached all of it. Every rate below is over what was observed, not over
      * this, and a reader cannot judge that without seeing both.
      */
-    providerReportedNeighborhoodTotal: reportCountSchema,
+    providerReportedNeighborhoodTotal: countOf("citing_paper_observations"),
     neighborhoodCoverage: z.array(reportStatusCountSchema),
-    returnedCitingPaperObservations: reportCountSchema,
-    probed: reportCountSchema,
-    notProbed: reportCountSchema,
-    materializationSucceeded: reportCountSchema,
-    materializationFailed: reportCountSchema,
-    materializationUnavailable: reportCountSchema,
-    materializationNotAttempted: reportCountSchema,
-    harvestSucceeded: reportCountSchema,
-    harvestNoMentions: reportCountSchema,
-    harvestFailed: reportCountSchema,
-    harvestNotAttempted: reportCountSchema,
-    citationOccurrences: reportCountSchema,
-    extractionClaimsExtracted: reportCountSchema,
-    extractionNoClaims: reportCountSchema,
-    extractionFailed: reportCountSchema,
-    attributedClaimRecords: reportCountSchema,
-    candidateClaims: reportCountSchema,
-    selectedCandidates: reportCountSchema,
-    deferredCandidates: reportCountSchema,
-    uniqueCitingPapersWithOccurrences: reportCountSchema,
-    uniqueCitationGroups: reportCountSchema,
-    attributedClaimsWithVerifiedSupportSpan: reportCountSchema,
-    attributedClaimsMissingSupportSpan: reportCountSchema,
-    deferredByFamilyCap: reportCountSchema,
-    deferredByRecordBudget: reportCountSchema,
-    deferredByNovelty: reportCountSchema,
+    returnedCitingPaperObservations: countOf("citing_paper_observations"),
+    probed: countOf("citing_paper_observations"),
+    notProbed: countOf("citing_paper_observations"),
+    materializationSucceeded: countOf("citing_paper_observations"),
+    materializationFailed: countOf("citing_paper_observations"),
+    materializationUnavailable: countOf("citing_paper_observations"),
+    materializationNotAttempted: countOf("citing_paper_observations"),
+    harvestSucceeded: countOf("citing_paper_observations"),
+    harvestNoMentions: countOf("citing_paper_observations"),
+    harvestFailed: countOf("citing_paper_observations"),
+    harvestNotAttempted: countOf("citing_paper_observations"),
+    citationOccurrences: countOf("citation_occurrences"),
+    extractionClaimsExtracted: countOf("citation_occurrences"),
+    extractionNoClaims: countOf("citation_occurrences"),
+    extractionFailed: countOf("citation_occurrences"),
+    attributedClaimRecords: countOf("attributed_claim_records"),
+    candidateClaims: countOf("candidates"),
+    selectedCandidates: countOf("candidates"),
+    deferredCandidates: countOf("candidates"),
+    uniqueCitingPapersWithOccurrences: countOf("citing_papers"),
+    uniqueCitationGroups: countOf("citation_groups"),
+    attributedClaimsWithVerifiedSupportSpan: countOf(
+      "attributed_claim_records",
+    ),
+    attributedClaimsMissingSupportSpan: countOf("attributed_claim_records"),
+    deferredByFamilyCap: countOf("candidates"),
+    deferredByRecordBudget: countOf("candidates"),
+    deferredByNovelty: countOf("candidates"),
     /**
      * Where the citing papers went and how their text was reached. A run that
      * lost most of its neighborhood to paywalls is a different result from one
@@ -331,56 +346,56 @@ const discoverFunnelCountsSchema = z
   .strict();
 const scopeFunnelCountsSchema = z
   .object({
-    scopedCandidates: reportCountSchema,
-    deferredCandidates: reportCountSchema,
-    families: reportCountSchema,
+    scopedCandidates: countOf("candidates"),
+    deferredCandidates: countOf("candidates"),
+    families: countOf("families"),
     groundingStatusCounts: z.array(reportStatusCountSchema),
   })
   .strict();
 const prepareFunnelCountsSchema = z
   .object({
-    expectedFamilyOccurrencePairs: reportCountSchema,
-    preparedRecords: reportCountSchema,
-    classified: reportCountSchema,
-    ambiguous: reportCountSchema,
-    failed: reportCountSchema,
-    lowInformation: reportCountSchema,
-    manualReview: reportCountSchema,
-    manualReviewRoleAmbiguous: reportCountSchema,
-    manualReviewExtractionLimited: reportCountSchema,
+    expectedFamilyOccurrencePairs: countOf("family_occurrence_records"),
+    preparedRecords: countOf("family_occurrence_records"),
+    classified: countOf("family_occurrence_records"),
+    ambiguous: countOf("family_occurrence_records"),
+    failed: countOf("family_occurrence_records"),
+    lowInformation: countOf("family_occurrence_records"),
+    manualReview: countOf("family_occurrence_records"),
+    manualReviewRoleAmbiguous: countOf("family_occurrence_records"),
+    manualReviewExtractionLimited: countOf("family_occurrence_records"),
   })
   .strict();
 const evidenceFunnelCountsSchema = z
   .object({
-    recordOutcomes: reportCountSchema,
+    recordOutcomes: countOf("family_occurrence_records"),
     retrievalStatusCounts: z.array(reportEvidenceRetrievalStatusCountSchema),
-    bm25MatchedRuns: reportCountSchema,
-    bm25NoMatchRuns: reportCountSchema,
-    rerankDisabled: reportCountSchema,
-    rerankCompleted: reportCountSchema,
-    rerankFailed: reportCountSchema,
-    rerankNotAttempted: reportCountSchema,
-    uniqueFinalSelectionsBm25: reportCountSchema,
-    uniqueFinalSelectionsReranked: reportCountSchema,
-    recordSelectionBm25: reportCountSchema,
-    recordSelectionReranked: reportCountSchema,
+    bm25MatchedRuns: countOf("bm25_runs"),
+    bm25NoMatchRuns: countOf("bm25_runs"),
+    rerankDisabled: countOf("family_occurrence_records"),
+    rerankCompleted: countOf("family_occurrence_records"),
+    rerankFailed: countOf("family_occurrence_records"),
+    rerankNotAttempted: countOf("family_occurrence_records"),
+    uniqueFinalSelectionsBm25: countOf("selections"),
+    uniqueFinalSelectionsReranked: countOf("selections"),
+    recordSelectionBm25: countOf("family_occurrence_records"),
+    recordSelectionReranked: countOf("family_occurrence_records"),
   })
   .strict();
 const adjudicateFunnelCountsSchema = z
   .object({
-    totalRecordOutcomes: reportCountSchema,
-    adjudicated: reportCountSchema,
-    notAdjudicated: reportCountSchema,
-    adjudicationFailed: reportCountSchema,
-    invalidOutput: reportCountSchema,
+    totalRecordOutcomes: countOf("family_occurrence_records"),
+    adjudicated: countOf("family_occurrence_records"),
+    notAdjudicated: countOf("family_occurrence_records"),
+    adjudicationFailed: countOf("family_occurrence_records"),
+    invalidOutput: countOf("family_occurrence_records"),
     gateCodeCounts: z.array(reportAdjudicateGateCountSchema),
     failureCodeCounts: z.array(reportAdjudicateFailureCountSchema),
     verdictCounts: z
       .object({
-        F: reportCountSchema,
-        D: reportCountSchema,
-        E: reportCountSchema,
-        U: reportCountSchema,
+        F: countOf("family_occurrence_records"),
+        D: countOf("family_occurrence_records"),
+        E: countOf("family_occurrence_records"),
+        U: countOf("family_occurrence_records"),
       })
       .strict(),
     /** Drift direction over D verdicts: which dimension moved, and which way. */
@@ -391,8 +406,8 @@ const adjudicateFunnelCountsSchema = z
      * can be compared instead of pooled.
      */
     verdictCountsByRankingSource: z.array(reportVerdictsByRankingSourceSchema),
-    uniqueClaimUnits: reportCountSchema,
-    uniqueAdjudicatedClaimUnits: reportCountSchema,
+    uniqueClaimUnits: countOf("unique_claim_units"),
+    uniqueAdjudicatedClaimUnits: countOf("unique_claim_units"),
     /**
      * Unique family × citing-paper × claim units that received each verdict.
      * A unit is counted under every distinct verdict its records received,
@@ -400,18 +415,18 @@ const adjudicateFunnelCountsSchema = z
      */
     uniqueClaimUnitVerdictCounts: z
       .object({
-        F: reportCountSchema,
-        D: reportCountSchema,
-        E: reportCountSchema,
-        U: reportCountSchema,
+        F: countOf("unique_claim_units"),
+        D: countOf("unique_claim_units"),
+        E: countOf("unique_claim_units"),
+        U: countOf("unique_claim_units"),
       })
       .strict(),
-    repeatedRecordsBeyondUniqueUnits: reportCountSchema,
-    packetsWithVerifiedSupportSpans: reportCountSchema,
-    packetsMissingSupportSpans: reportCountSchema,
-    evidenceSufficient: reportCountSchema,
-    evidenceLimited: reportCountSchema,
-    figureOnlyLimitation: reportCountSchema,
+    repeatedRecordsBeyondUniqueUnits: countOf("family_occurrence_records"),
+    packetsWithVerifiedSupportSpans: countOf("adjudication_packets"),
+    packetsMissingSupportSpans: countOf("adjudication_packets"),
+    evidenceSufficient: countOf("family_occurrence_records"),
+    evidenceLimited: countOf("family_occurrence_records"),
+    figureOnlyLimitation: countOf("family_occurrence_records"),
   })
   .strict();
 const reportFunnelCountsSchema = z
@@ -1747,58 +1762,11 @@ export function buildReportRate(input: {
   });
 }
 
-export function buildReportCount(input: {
+export function buildReportCount<U extends ReportCountUnit>(input: {
   metricId: string;
   count: number;
-  unit: ReportCountUnit;
+  unit: U;
   population: string;
-}): ReportCount {
-  return reportCountSchema.parse(input);
-}
-
-function addDuplicateIdentifierIssue(
-  values: readonly string[],
-  path: Array<string | number>,
-  context: z.RefinementCtx,
-): void {
-  const seen = new Set<string>();
-  for (const value of values) {
-    if (seen.has(value)) {
-      context.addIssue({
-        code: "custom",
-        path,
-        message: `Duplicate identifier: ${value}`,
-      });
-      return;
-    }
-    seen.add(value);
-  }
-}
-
-function sameArtifactReference(
-  left:
-    | {
-        artifactId: string;
-        contentHash: string;
-        role: string;
-        canonicalStage?: string | undefined;
-        uri?: string | undefined;
-      }
-    | undefined,
-  right: {
-    artifactId: string;
-    contentHash: string;
-    role: string;
-    canonicalStage?: string | undefined;
-    uri?: string | undefined;
-  },
-): boolean {
-  return (
-    left != null &&
-    left.artifactId === right.artifactId &&
-    left.contentHash === right.contentHash &&
-    left.role === right.role &&
-    left.canonicalStage === right.canonicalStage &&
-    left.uri === right.uri
-  );
+}): ReportCount & { unit: U } {
+  return reportCountSchema.parse(input) as ReportCount & { unit: U };
 }

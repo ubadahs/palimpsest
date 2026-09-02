@@ -1,6 +1,12 @@
-import { compareCodeUnits } from "./order.js";
-
 import { createHash } from "node:crypto";
+
+/**
+ * Code-unit string comparison. `localeCompare` depends on the process locale
+ * and ICU version, so every content-hashed artifact orders strings with this.
+ */
+export function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
 
 /**
  * Serialize JSON-compatible data with recursively sorted object keys.
