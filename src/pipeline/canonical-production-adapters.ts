@@ -104,7 +104,7 @@ const CANONICAL_SCOPE_GROUNDING_PROMPT_ID =
 const CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION = LLM_PROMPT_VERSIONS.grounding;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_ID =
   "canonical-evidence-relevance-rerank" as const;
-const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v1" as const;
+const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v2" as const;
 
 function mapLlmCallThinking(
   model: string,
@@ -1465,7 +1465,7 @@ function buildCanonicalEvidenceAdapters(
           context: { stageKey: "evidence" },
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.rerank },
         });
-        const parsed = parseRerankResponse(result.text);
+        const parsed = parseRerankResponse(result.text, input.candidates);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1566,7 +1566,7 @@ export function buildCanonicalAdjudicateAdapters(
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
         });
-        const parsed = parseAdjudicateResponse(result.text);
+        const parsed = parseAdjudicateResponse(result.text, input.packet);
         const execution = contentAddressedModelExecution({
           provider: "anthropic",
           model: result.record.model,
@@ -1959,7 +1959,7 @@ function buildRelevanceRerankPrompt(
         ? `, role=${candidate.sourceSectionRole}`
         : "";
       const cites = candidate.sourceCitesOtherWork ? ", cites other work" : "";
-      return `${String(index + 1)}. chunkId=${candidate.chunkId} (${candidate.sourceBlockKind}${role}${section}${cites})\n${candidate.text}`;
+      return `#${String(index + 1)} (${candidate.sourceBlockKind}${role}${section}${cites})\n${candidate.text}`;
     })
     .join("\n\n");
 
@@ -1972,58 +1972,111 @@ Return the top ${String(input.topN)} most relevant chunks. Relevance only — ig
 Candidates:
 ${candidates}
 
-Respond with JSON (no markdown fences):
+Respond with JSON (no markdown fences), referring to candidates by their numbers:
 {
   "results": [
-    { "chunkId": "...", "relevanceScore": 0-100, "rank": 1, "rationale": "..." }
+    { "candidate": 3, "relevanceScore": 0-100, "rank": 1, "rationale": "..." }
   ]
 }
 
-Use only candidate chunkIds. ranks must be contiguous from 1.`;
+Use only candidate numbers from the list above, each at most once. Ranks must be contiguous from 1.`;
 }
+
+/**
+ * The model refers to candidates by number; 64-hex chunk ids were echoed
+ * with typos often enough to lose a third of rerank calls. Out-of-range or
+ * repeated numbers are dropped, results are ordered by score, and ranks are
+ * reassigned contiguously before the contract schema is applied.
+ */
+const rerankModelResponseSchema = z
+  .object({
+    results: z
+      .array(
+        z
+          .object({
+            candidate: z.number().int().positive(),
+            relevanceScore: z.number().min(0).max(100),
+            rank: z.number().int().positive().optional(),
+            rationale: z.string().optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
 
 function parseRerankResponse(
   rawText: string,
+  candidates: CanonicalEvidenceRerankerInput["candidates"],
 ):
   | { ok: true; data: z.infer<typeof evidenceRerankOutputSchema> }
   | { ok: false; error: string } {
-  try {
-    const jsonSlice = extractJsonFromModelText(rawText);
-    const parsed: unknown = JSON.parse(jsonSlice);
-    const result = evidenceRerankOutputSchema.safeParse(parsed);
-    if (result.success) return { ok: true, data: result.data };
-    const issue = result.error.issues[0];
-    return {
-      ok: false,
-      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "JSON parse failed",
-    };
-  }
+  const parsed = parseModelJson(rawText, rerankModelResponseSchema);
+  if (!parsed.ok) return parsed;
+  const seen = new Set<string>();
+  const mapped = parsed.data.results.flatMap((entry) => {
+    const candidate = candidates[entry.candidate - 1];
+    if (!candidate || seen.has(candidate.chunkId)) return [];
+    seen.add(candidate.chunkId);
+    return [
+      {
+        chunkId: candidate.chunkId,
+        relevanceScore: entry.relevanceScore,
+        rationale: entry.rationale?.trim() || "(no rationale given)",
+      },
+    ];
+  });
+  mapped.sort((left, right) => right.relevanceScore - left.relevanceScore);
+  const result = evidenceRerankOutputSchema.safeParse({
+    results: mapped.map((entry, index) => ({ ...entry, rank: index + 1 })),
+  });
+  if (result.success) return { ok: true, data: result.data };
+  const issue = result.error.issues[0];
+  return {
+    ok: false,
+    error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
+  };
 }
+
+/** Model reply with chunks referenced by number; mapped to ids before the contract schema. */
+const adjudicateModelResponseSchema = z
+  .object({
+    citingAssertion: z.string().min(1),
+    sourceStatement: z.string().min(1),
+    verdict: z.string().min(1),
+    mutationKinds: z.array(z.string()).default([]),
+    direction: z.string().min(1),
+    rationale: z.string().min(1),
+    confidence: z.string().min(1),
+    citedChunks: z.array(z.number().int().positive()).min(1),
+  })
+  .strict();
 
 function parseAdjudicateResponse(
   rawText: string,
+  packet: CanonicalAdjudicateAdapterInput["packet"],
 ):
   | { ok: true; data: z.infer<typeof canonicalAdjudicateModelOutputSchema> }
   | { ok: false; error: string } {
-  try {
-    const jsonSlice = extractJsonFromModelText(rawText);
-    const parsed: unknown = JSON.parse(jsonSlice);
-    const result = canonicalAdjudicateModelOutputSchema.safeParse(parsed);
-    if (result.success) return { ok: true, data: result.data };
-    const issue = result.error.issues[0];
-    return {
-      ok: false,
-      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "JSON parse failed",
-    };
-  }
+  const parsed = parseModelJson(rawText, adjudicateModelResponseSchema);
+  if (!parsed.ok) return parsed;
+  const { citedChunks, ...rest } = parsed.data;
+  const citedChunkIds = [
+    ...new Set(
+      citedChunks.flatMap((handle) => {
+        const chunk = packet.selectedChunks[handle - 1];
+        return chunk ? [chunk.chunkId] : [];
+      }),
+    ),
+  ];
+  const result = canonicalAdjudicateModelOutputSchema.safeParse({
+    ...rest,
+    citedChunkIds,
+  });
+  if (result.success) return { ok: true, data: result.data };
+  const issue = result.error.issues[0];
+  return {
+    ok: false,
+    error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
+  };
 }

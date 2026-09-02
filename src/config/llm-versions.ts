@@ -16,9 +16,9 @@ export const LLM_CACHE_VERSIONS = {
   /** Cross-citer claim equivalence clustering per seed. */
   canonicalization: "canonicalization-2026-09-02-v2",
   /** LLM-based evidence reranking. */
-  rerank: "rerank-2026-04-11-v1",
+  rerank: "rerank-2026-09-02-v2",
   /** Citation fidelity adjudication. */
-  adjudication: "adjudication-2026-09-02-v9",
+  adjudication: "adjudication-2026-09-02-v10",
 } as const;
 
 export const LLM_PROMPT_VERSIONS = {
@@ -29,5 +29,5 @@ export const LLM_PROMPT_VERSIONS = {
   /** Claim equivalence clustering prompt template. */
   canonicalization: "2026-09-02-v2",
   /** Categorical adjudication prompt template. */
-  adjudication: "v3",
+  adjudication: "v4",
 } as const;

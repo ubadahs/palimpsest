@@ -1097,7 +1097,9 @@ describe("canonical Adjudicate", () => {
     expect(prompt).toContain(
       prepareRecord.occurrenceSourceClaimRecords[0]!.extractedClaimText,
     );
-    expect(prompt).toContain(selection.selectedChunkIds[0]!);
+    // Chunks are numbered in the prompt; the model never echoes hashes.
+    expect(prompt).toContain("#1 (");
+    expect(prompt).not.toContain(selection.selectedChunkIds[0]!);
     expect(prompt).toMatch(/Bundled-reference warning|Seed reference label|▶/);
     expect(prompt).not.toMatch(/bm25Score|relevanceScore|rawScore/);
     expect(prompt).not.toMatch(/not_found|grounding status|cannot_determine/i);

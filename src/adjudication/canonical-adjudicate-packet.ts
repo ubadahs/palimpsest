@@ -221,7 +221,7 @@ function renderCanonicalAdjudicatePacket(
       const cites = chunk.sourceCitesOtherWork
         ? ", cites other work: may summarize prior findings rather than report the seed's own"
         : "";
-      return `${String(index + 1)}. chunkId=${chunk.chunkId} (${chunk.sourceBlockKind}${role}${section}${cites}, offsets ${String(chunk.charOffsetStart)}-${String(chunk.charOffsetEnd)})\n"${chunk.text}"`;
+      return `#${String(index + 1)} (${chunk.sourceBlockKind}${role}${section}${cites}, offsets ${String(chunk.charOffsetStart)}-${String(chunk.charOffsetEnd)})\n"${chunk.text}"`;
     })
     .join("\n\n");
 
@@ -247,7 +247,7 @@ ${claimsBlock}
 
 ## Selected cited-paper chunks
 
-Chunk order is presentation order only. It is not a judgment of support or truth. Each chunk names its section role; only role=results, figure, table, or abstract can establish what the seed itself found, and a chunk that cites other work may be the seed summarizing prior literature. Use only these chunkId values in citedChunkIds. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
+Chunk order is presentation order only. It is not a judgment of support or truth. Each chunk names its section role; only role=results, figure, table, or abstract can establish what the seed itself found, and a chunk that cites other work may be the seed summarizing prior literature. Refer to chunks by their numbers in citedChunks. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
 
 ${chunksBlock}`;
 }
@@ -273,7 +273,7 @@ Return JSON with:
 - direction: one of ${mutationDirectionSchema.options.join(" | ")} — how the citing version moved relative to the source (strengthened = stronger, broader, or more certain; weakened = hedged or narrowed; shifted = changed entity, endpoint, or population). Use none for F.
 - rationale: 2-3 sentences explaining the comparison without advocacy
 - confidence: low | medium | high (does not change the verdict path)
-- citedChunkIds: one or more selected chunkId values supplied above; no unknowns or duplicates
+- citedChunks: one or more chunk numbers from the list above that you relied on; no unknowns or duplicates
 
 Judge only from the packet. Do not invent evidence outside the selected chunks. Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs. If a chunk is the seed paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the seed's finding.`;
 }

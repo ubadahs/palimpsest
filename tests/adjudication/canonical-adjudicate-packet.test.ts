@@ -94,6 +94,10 @@ describe("canonical adjudicate prompt contract", () => {
     expect(prompt).toMatch(/sourceStatement/);
     expect(prompt).not.toMatch(/evaluatedClaimRecordIds/);
     expect(prompt).not.toMatch(/claimRecordId=/);
+    // Chunks are referenced by number; hashes were mis-echoed by the model.
+    expect(prompt).toMatch(/citedChunks/);
+    expect(prompt).not.toMatch(/chunkId=/);
+    expect(prompt).toMatch(/#1 \(body_paragraph/);
     // Offsets index the full paragraph, not the shown window, so they are
     // not rendered.
     expect(prompt).not.toMatch(/supportSpan: ".*" \(offsets/);
