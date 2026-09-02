@@ -56,6 +56,8 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
     candidateSelection: defaultAdaptivePortfolioPolicy,
     extractionModel: "claude-haiku-4-5",
     extractionThinking: false,
+    canonicalizationModel: "claude-sonnet-4-6",
+    canonicalizationThinking: false,
   },
   scope: {
     groundingModel: "claude-sonnet-4-6",
@@ -122,6 +124,18 @@ export const analysisRunConfigSchema = z
         extractionThinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking),
+        /** Model that clusters paraphrased claims across citers, once per seed. */
+        canonicalizationModel: z
+          .string()
+          .min(1)
+          .default(
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
+          ),
+        canonicalizationThinking: z
+          .boolean()
+          .default(
+            CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationThinking,
+          ),
       })
       .strict()
       .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.discover })),

@@ -32,9 +32,13 @@ import {
   type DiscoverCitationOccurrence,
   type DiscoverCitingPaperRecord,
   type DiscoverClaimCandidate,
+  type DiscoverClaimEquivalence,
   type LeanArtifactProvenance,
 } from "../contract/lean-artifacts.js";
-import { modelExecutionSchema } from "../contract/model-execution.js";
+import {
+  modelExecutionSchema,
+  type ModelExecution,
+} from "../contract/model-execution.js";
 import { verifyClaimSupportSpan } from "../shared/claim-support-span.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
@@ -347,6 +351,50 @@ export const canonicalClaimExtractionResultSchema = z.discriminatedUnion(
       .strict(),
   ],
 );
+/**
+ * Cross-citer claim equivalence. One call per seed clusters the extracted
+ * claims that attribute the same underlying seed finding, so a family is one
+ * finding rather than one wording. Differences in strength, scope, or
+ * certainty stay inside a cluster; they are what Adjudicate measures.
+ */
+export const canonicalClaimCanonicalizationResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z
+      .object({
+        status: z.literal("completed"),
+        clusters: z.array(
+          z
+            .object({
+              canonicalClaim: z.string().trim().min(1),
+              claimRecordIds: z.array(z.string().min(1)).min(1),
+            })
+            .strict(),
+        ),
+        execution: modelExecutionSchema,
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal("failed"),
+        reasonCode: canonicalDiscoverFailureCodeSchema,
+        reason: z.string().min(1),
+        execution: modelExecutionSchema,
+      })
+      .strict(),
+  ],
+);
+
+export type CanonicalClaimCanonicalizationInput = {
+  seed: CanonicalSeedResolutionResult & { status: "resolved" };
+  claims: Array<{
+    claimRecordId: string;
+    extractedClaimText: string;
+    citingPaperTitle: string;
+    sectionTitle?: string | undefined;
+  }>;
+};
+
 export type CanonicalDiscoverAdapters = {
   resolveSeed: (input: { doi: string }) => Promise<unknown>;
   retrieveCitingNeighborhood: (input: {
@@ -362,6 +410,10 @@ export type CanonicalDiscoverAdapters = {
     citingPaper: z.infer<typeof citingPaperInputSchema>;
     mention: DiscoverCitationOccurrence;
   }) => Promise<unknown>;
+  /** Optional; without it candidates group by exact normalized text only. */
+  canonicalizeClaims?: (
+    input: CanonicalClaimCanonicalizationInput,
+  ) => Promise<unknown>;
 };
 
 type CanonicalDiscoverProvenanceInputs = {
@@ -413,6 +465,10 @@ export async function runCanonicalDiscover(
   const responseArtifacts: ArtifactReference[] = [];
   const prompts: LeanArtifactProvenance["prompts"] = [];
   const models: LeanArtifactProvenance["models"] = [];
+  const resolvedSeedsById = new Map<
+    string,
+    CanonicalSeedResolutionResult & { status: "resolved" }
+  >();
 
   const orderedSeeds = [...options.seeds].sort((left, right) =>
     compareCodeUnits(buildSeedId(left), buildSeedId(right)),
@@ -460,6 +516,9 @@ export async function runCanonicalDiscover(
             },
     };
     seeds.push(seed);
+    if (resolution.status === "resolved") {
+      resolvedSeedsById.set(seedId, resolution);
+    }
 
     const neighborhoodId = buildNeighborhoodQueryId({
       seedId,
@@ -750,7 +809,45 @@ export async function runCanonicalDiscover(
     }
   }
 
-  const claimCandidates = buildClaimCandidates(attributedClaimRecords);
+  const citingTitleByMentionId = new Map<string, string>();
+  const sectionByMentionId = new Map<string, string | undefined>();
+  const citingPaperById = new Map(
+    citingPapers.map((paper) => [paper.citingPaperRecordId, paper]),
+  );
+  for (const mention of citationMentions) {
+    citingTitleByMentionId.set(
+      mention.mentionId,
+      citingPaperById.get(mention.citingPaperRecordId)?.paper.title ?? "",
+    );
+    sectionByMentionId.set(mention.mentionId, mention.sectionTitle);
+  }
+  const claimGroups = await buildClaimGroups({
+    records: attributedClaimRecords,
+    resolvedSeedsById,
+    adapters,
+    describeClaim: (record) => ({
+      claimRecordId: record.claimRecordId,
+      extractedClaimText: record.extractedClaimText,
+      citingPaperTitle: citingTitleByMentionId.get(record.mentionId) ?? "",
+      sectionTitle: sectionByMentionId.get(record.mentionId),
+    }),
+    onExecution: (execution) => {
+      responseArtifacts.push(execution.responseArtifact);
+      prompts.push({
+        promptId: execution.promptId,
+        version: execution.promptVersion,
+        contentHash: execution.promptContentHash,
+      });
+      models.push({
+        provider: execution.provider,
+        model: execution.model,
+        requestHash: execution.requestHash,
+        requestArtifact: execution.requestArtifact,
+        responseArtifact: execution.responseArtifact,
+      });
+    },
+  });
+  const claimCandidates = buildClaimCandidates(claimGroups);
   const candidateDispositions = selectAdaptivePortfolio({
     candidates: claimCandidates,
     mentions: citationMentions,
@@ -844,10 +941,6 @@ export function buildCanonicalDiscoverArtifact(input: {
   return discoverArtifactSchema.parse(artifact);
 }
 
-function normalizeClaimForDiscovery(value: string): string {
-  return normalizeDiscoverClaimText(value);
-}
-
 function buildAttributedClaimRecords(input: {
   claims: z.infer<typeof extractedClaimInputSchema>[];
   seedId: string;
@@ -937,58 +1030,165 @@ function claimDuplicateOrderingContent(
   };
 }
 
-function buildClaimCandidates(
+type ClaimGroup = {
+  seedId: string;
+  canonicalClaim: string;
+  records: DiscoverAttributedClaimRecord[];
+  equivalence: DiscoverClaimEquivalence;
+};
+
+/** Deterministic fallback: one group per exact normalized claim text. */
+function groupRecordsByNormalizedText(
   records: readonly DiscoverAttributedClaimRecord[],
-): DiscoverClaimCandidate[] {
+  fallbackReason?: string,
+): ClaimGroup[] {
   const groups = new Map<string, DiscoverAttributedClaimRecord[]>();
   for (const record of records) {
-    const normalizedClaim = normalizeClaimForDiscovery(
-      record.extractedClaimText,
-    );
     const key = canonicalSerialize({
       seedId: record.seedId,
-      normalizedClaim,
+      normalizedClaim: normalizeDiscoverClaimText(record.extractedClaimText),
     });
     const group = groups.get(key);
-    if (group) {
-      group.push(record);
-    } else {
-      groups.set(key, [record]);
+    if (group) group.push(record);
+    else groups.set(key, [record]);
+  }
+  return [...groups.values()].map((group) => {
+    const ordered = [...group].sort((left, right) =>
+      compareCodeUnits(left.claimRecordId, right.claimRecordId),
+    );
+    const canonicalClaim = ordered
+      .map((record) => record.extractedClaimText.trim().replace(/\s+/g, " "))
+      .sort(compareCodeUnits)[0]!;
+    return {
+      seedId: ordered[0]!.seedId,
+      canonicalClaim,
+      records: ordered,
+      equivalence: {
+        method: "exact_normalized_text",
+        ...(fallbackReason ? { fallbackReason } : {}),
+      },
+    };
+  });
+}
+
+/** Every record must land in exactly one cluster; anything else falls back. */
+function validateClusterPartition(
+  clusters: ReadonlyArray<{ claimRecordIds: string[] }>,
+  records: readonly DiscoverAttributedClaimRecord[],
+): string | undefined {
+  const expected = new Set(records.map((record) => record.claimRecordId));
+  const seen = new Set<string>();
+  for (const cluster of clusters) {
+    for (const claimRecordId of cluster.claimRecordIds) {
+      if (!expected.has(claimRecordId)) {
+        return `Unknown claim record in cluster: ${claimRecordId}`;
+      }
+      if (seen.has(claimRecordId)) {
+        return `Claim record assigned to two clusters: ${claimRecordId}`;
+      }
+      seen.add(claimRecordId);
     }
   }
+  if (seen.size !== expected.size) {
+    return `Clusters omitted ${String(expected.size - seen.size)} claim record(s)`;
+  }
+  return undefined;
+}
 
-  return [...groups.values()]
+async function buildClaimGroups(input: {
+  records: readonly DiscoverAttributedClaimRecord[];
+  resolvedSeedsById: ReadonlyMap<
+    string,
+    CanonicalSeedResolutionResult & { status: "resolved" }
+  >;
+  adapters: CanonicalDiscoverAdapters;
+  describeClaim: (
+    record: DiscoverAttributedClaimRecord,
+  ) => CanonicalClaimCanonicalizationInput["claims"][number];
+  onExecution: (execution: ModelExecution) => void;
+}): Promise<ClaimGroup[]> {
+  const recordsBySeed = new Map<string, DiscoverAttributedClaimRecord[]>();
+  for (const record of input.records) {
+    const list = recordsBySeed.get(record.seedId);
+    if (list) list.push(record);
+    else recordsBySeed.set(record.seedId, [record]);
+  }
+
+  const groups: ClaimGroup[] = [];
+  for (const seedId of [...recordsBySeed.keys()].sort(compareCodeUnits)) {
+    const records = recordsBySeed.get(seedId)!;
+    const exactGroups = groupRecordsByNormalizedText(records);
+    const seed = input.resolvedSeedsById.get(seedId);
+    if (!input.adapters.canonicalizeClaims || !seed || exactGroups.length < 2) {
+      groups.push(...exactGroups);
+      continue;
+    }
+    const result = parseAdapterOutput(
+      canonicalClaimCanonicalizationResultSchema,
+      await input.adapters.canonicalizeClaims({
+        seed,
+        claims: records.map(input.describeClaim),
+      }),
+      `claim canonicalization for ${seedId}`,
+    );
+    input.onExecution(result.execution);
+    if (result.status === "failed") {
+      throwIfFatal(result);
+      groups.push(...groupRecordsByNormalizedText(records, result.reason));
+      continue;
+    }
+    const partitionError = validateClusterPartition(result.clusters, records);
+    if (partitionError) {
+      groups.push(...groupRecordsByNormalizedText(records, partitionError));
+      continue;
+    }
+    const recordsById = new Map(
+      records.map((record) => [record.claimRecordId, record]),
+    );
+    for (const cluster of result.clusters) {
+      const ordered = cluster.claimRecordIds
+        .map((claimRecordId) => recordsById.get(claimRecordId)!)
+        .sort((left, right) =>
+          compareCodeUnits(left.claimRecordId, right.claimRecordId),
+        );
+      groups.push({
+        seedId,
+        canonicalClaim: cluster.canonicalClaim.trim().replace(/\s+/g, " "),
+        records: ordered,
+        equivalence: { method: "model", execution: result.execution },
+      });
+    }
+  }
+  return groups;
+}
+
+function buildClaimCandidates(
+  groups: readonly ClaimGroup[],
+): DiscoverClaimCandidate[] {
+  return groups
     .map((group): DiscoverClaimCandidate => {
-      const orderedRecords = [...group].sort((left, right) =>
-        compareCodeUnits(left.claimRecordId, right.claimRecordId),
-      );
-      const first = orderedRecords[0]!;
-      const normalizedClaim = normalizeClaimForDiscovery(
-        first.extractedClaimText,
-      );
-      const sourceClaimRecordIds = orderedRecords.map(
+      const normalizedClaim = normalizeDiscoverClaimText(group.canonicalClaim);
+      const sourceClaimRecordIds = group.records.map(
         (record) => record.claimRecordId,
       );
       const memberMentionIds = [
-        ...new Set(orderedRecords.map((record) => record.mentionId)),
+        ...new Set(group.records.map((record) => record.mentionId)),
       ].sort(compareCodeUnits);
-      const canonicalClaim = orderedRecords
-        .map((record) => record.extractedClaimText.trim().replace(/\s+/g, " "))
-        .sort(compareCodeUnits)[0]!;
       return {
         candidateId: buildClaimCandidateId({
-          seedId: first.seedId,
+          seedId: group.seedId,
           normalizedClaim,
           sourceClaimRecordIds,
         }),
-        seedId: first.seedId,
-        canonicalClaim,
+        seedId: group.seedId,
+        canonicalClaim: group.canonicalClaim,
         normalizedClaim,
         memberMentionIds,
         sourceClaimRecordIds,
         provenanceArtifacts: uniqueSortedArtifactReferences(
-          orderedRecords.flatMap((record) => record.provenanceArtifacts),
+          group.records.flatMap((record) => record.provenanceArtifacts),
         ),
+        equivalence: group.equivalence,
       };
     })
     .sort((left, right) =>

@@ -28,6 +28,7 @@ import {
 
 export type LLMPurpose =
   | "attributed-claim-extraction"
+  | "claim-canonicalization"
   | "seed-grounding"
   | "evidence-rerank"
   | "adjudication";

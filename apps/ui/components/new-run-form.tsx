@@ -30,6 +30,8 @@ type FormState = {
     toYear: string;
     extractionModel: string;
     extractionThinking: boolean;
+    canonicalizationModel: string;
+    canonicalizationThinking: boolean;
   };
   scope: {
     groundingModel: string;
@@ -87,6 +89,10 @@ const defaultState: FormState = {
     extractionModel: CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
     extractionThinking:
       CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking,
+    canonicalizationModel:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
+    canonicalizationThinking:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationThinking,
   },
   scope: {
     groundingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
@@ -122,6 +128,8 @@ function flattenConfig(s: FormState) {
       },
       extractionModel: s.discover.extractionModel,
       extractionThinking: s.discover.extractionThinking,
+      canonicalizationModel: s.discover.canonicalizationModel,
+      canonicalizationThinking: s.discover.canonicalizationThinking,
       ...(s.discover.fromYear ? { fromYear: Number(s.discover.fromYear) } : {}),
       ...(s.discover.toYear ? { toYear: Number(s.discover.toYear) } : {}),
     },
@@ -311,6 +319,20 @@ export function NewRunForm() {
                     updateStage("discover", "extractionThinking", v)
                   }
                   thinkingDescription="Enable thinking for claim extraction."
+                  modelClassName="md:col-span-2"
+                />
+                <ModelWithThinking
+                  label="Canonicalization model"
+                  description="Model that clusters paraphrased claims across citing papers into one family per seed finding (one call per seed)."
+                  model={state.discover.canonicalizationModel}
+                  onModelChange={(v) =>
+                    updateStage("discover", "canonicalizationModel", v)
+                  }
+                  thinking={state.discover.canonicalizationThinking}
+                  onThinkingChange={(v) =>
+                    updateStage("discover", "canonicalizationThinking", v)
+                  }
+                  thinkingDescription="Enable thinking for claim clustering."
                   modelClassName="md:col-span-2"
                 />
                 <label className="grid gap-2">

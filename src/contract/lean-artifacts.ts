@@ -928,6 +928,29 @@ export type DiscoverAttributedClaimRecord = z.infer<
   typeof discoverAttributedClaimRecordSchema
 >;
 
+/**
+ * How a candidate's member claims were judged equivalent. Exact text grouping
+ * is the deterministic fallback; the model method clusters paraphrases across
+ * citers so that a family is one seed finding, not one wording of it.
+ */
+export const discoverClaimEquivalenceSchema = z.discriminatedUnion("method", [
+  z
+    .object({
+      method: z.literal("exact_normalized_text"),
+      fallbackReason: z.string().min(1).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      method: z.literal("model"),
+      execution: modelExecutionSchema,
+    })
+    .strict(),
+]);
+export type DiscoverClaimEquivalence = z.infer<
+  typeof discoverClaimEquivalenceSchema
+>;
+
 export const discoverClaimCandidateSchema = z
   .object({
     candidateId: stableIdentifierSchema,
@@ -937,6 +960,7 @@ export const discoverClaimCandidateSchema = z
     memberMentionIds: z.array(stableIdentifierSchema).min(1),
     sourceClaimRecordIds: z.array(stableIdentifierSchema).min(1),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
+    equivalence: discoverClaimEquivalenceSchema.optional(),
   })
   .strict()
   .superRefine((candidate, context) => {
