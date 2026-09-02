@@ -37,6 +37,9 @@ type FormState = {
     groundingModel: string;
     groundingThinking: boolean;
   };
+  prepare: {
+    roleClassifierModel: string;
+  };
   evidence: {
     rerankEnabled: boolean;
     rerankModel: string;
@@ -98,6 +101,10 @@ const defaultState: FormState = {
     groundingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
     groundingThinking: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking,
   },
+  prepare: {
+    roleClassifierModel:
+      CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
+  },
   evidence: {
     rerankEnabled: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled,
     rerankModel: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel,
@@ -134,7 +141,10 @@ function flattenConfig(s: FormState) {
       ...(s.discover.toYear ? { toYear: Number(s.discover.toYear) } : {}),
     },
     scope: s.scope,
-    prepare: { classifier: "deterministic" as const },
+    prepare: {
+      classifier: "deterministic" as const,
+      roleClassifierModel: s.prepare.roleClassifierModel,
+    },
     evidence: s.evidence,
     adjudicate: s.adjudicate,
   };
@@ -156,7 +166,7 @@ export function NewRunForm() {
   }
 
   function updateStage<
-    G extends "discover" | "scope" | "evidence" | "adjudicate",
+    G extends "discover" | "scope" | "prepare" | "evidence" | "adjudicate",
     K extends string & keyof FormState[G],
   >(group: G, key: K, value: FormState[G][K]): void {
     setState((prev) => ({
@@ -495,6 +505,29 @@ export function NewRunForm() {
                     updateStage("scope", "groundingThinking", v)
                   }
                   thinkingDescription="Enable Anthropic thinking when grounding tracked claims against the seed paper."
+                />
+              </div>
+            </details>
+
+            {/* Prepare */}
+            <details className={sectionClass}>
+              <summary className={summaryClass}>
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  Prepare
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  classify what each citation is doing with the seed
+                </span>
+              </summary>
+              <div className={sectionBodyClass}>
+                <ModelSelect
+                  label="Role fallback model"
+                  description="Asked for a citation role only when the free deterministic pass returns unclear (roughly one call in three)."
+                  value={state.prepare.roleClassifierModel}
+                  onChange={(v) =>
+                    updateStage("prepare", "roleClassifierModel", v)
+                  }
+                  className="md:col-span-2"
                 />
               </div>
             </details>

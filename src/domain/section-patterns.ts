@@ -3,21 +3,28 @@
  * Used by deterministic citation-function classification.
  */
 
+/**
+ * Heading vocabulary that marks a methods section. The first group is the
+ * domain-agnostic scholarly heads; the second is life-sciences technique
+ * headings that appear as top-level methods headings when a parser loses the
+ * parent "Methods". Both are accelerators, not the authority: `inferSectionRoles`
+ * carries the role forward through unrecognized subsection titles.
+ */
 export const METHODS_SECTION_PATTERNS: RegExp[] = [
   /\bmethods?\b/i,
   /\bmaterials?\s+and\s+methods?\b/i,
   /\bprotocol\b/i,
+  /\breagents?\b/i,
+  /\bstatistic(?:s|al)\b/i,
   /\bsupplemental\b/i,
   /\bexperimental\s+procedures?\b/i,
   /\bdata\s+analysis\b/i,
-  /\bstatistic(?:s|al)\b/i,
+  /\bkey\s+resources?\s+table\b/i,
+  /\bimage\s+analysis\b/i,
+  /\bquantification\b/i,
   /\bRNA-seq\b/i,
   /\bimmunofluorescence\b/i,
   /\bwestern\s+blot\b/i,
-  /\bkey\s+resources?\s+table\b/i,
-  /\bhepatoblast\s+isolation\b/i,
-  /\bimage\s+analysis\b/i,
-  /\bquantification\b/i,
   /\bcell\s+culture\b/i,
   /\banimals?\b/i,
   /\bin\s+situ\s+hybridi[sz]ation\b/i,

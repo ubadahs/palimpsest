@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { classifyCitationFunction } from "../classification/classify-citation-function.js";
 import { deriveEvaluationMode } from "../classification/evaluation-mode.js";
+import type { CitationRole } from "../domain/classification.js";
 import {
   artifactReferenceSchema,
   buildCitationInstanceRecordId,
@@ -14,6 +15,7 @@ import {
   prepareArtifactSchema,
   prepareClassificationFailureExecutionSchema,
   prepareClassificationSchema,
+  type PrepareClassificationFailureExecution,
   prepareFatalFailureCodeSchema,
   scopeArtifactSchema,
   type AppendOnlyDecision,
@@ -530,6 +532,74 @@ export function classifyPrepareOccurrenceDeterministically(
       : {
           status: "classified",
           citationRole: classified.citationRole,
+          ...common,
+        },
+  );
+}
+
+type AmbiguousPrepareClassification = Extract<
+  PrepareClassification,
+  { status: "ambiguous" }
+>;
+
+/**
+ * True when the deterministic pass left the role unresolved for a reason a
+ * model can settle. `manual_review_extraction_limited` is deliberately
+ * excluded: those records either lack a verified support span or carry a
+ * low-confidence extraction, so there is nothing trustworthy to show a model.
+ */
+export function prepareRoleNeedsModelFallback(
+  classification: PrepareClassification,
+): classification is AmbiguousPrepareClassification {
+  return (
+    classification.status === "ambiguous" &&
+    classification.evaluationMode === "manual_review_role_ambiguous"
+  );
+}
+
+/**
+ * Replace an unresolved deterministic role with a model-supplied one. The
+ * regex pass stays the free first filter; only its `unclear` verdict reaches a
+ * model, and a model that is also unclear leaves the record gated with its
+ * call recorded.
+ */
+export function applyPrepareModelRole(
+  deterministic: PrepareClassification,
+  model: {
+    citationRole: CitationRole;
+    rationale: string;
+    signals: readonly string[];
+    execution: PrepareClassificationFailureExecution;
+  },
+): PrepareClassification {
+  if (!prepareRoleNeedsModelFallback(deterministic)) {
+    throw new CanonicalPrepareBoundaryError(
+      "Model role fallback applied to a classification the regex pass had already resolved",
+    );
+  }
+  const common = {
+    modifiers: deterministic.modifiers,
+    signals: [...deterministic.signals, ...model.signals],
+    rationale: model.rationale,
+    confidence: deterministic.confidence,
+    execution: model.execution,
+  };
+  return prepareClassificationSchema.parse(
+    model.citationRole === "unclear"
+      ? {
+          status: "ambiguous",
+          citationRole: "unclear",
+          evaluationMode: deterministic.evaluationMode,
+          ...common,
+        }
+      : {
+          status: "classified",
+          citationRole: model.citationRole,
+          evaluationMode: deriveEvaluationMode(
+            model.citationRole,
+            deterministic.modifiers,
+            deterministic.confidence,
+          ),
           ...common,
         },
   );

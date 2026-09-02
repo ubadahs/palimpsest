@@ -178,6 +178,83 @@ const mention = {
   },
 };
 
+/** A context with no phrase, verb, or heading cue — the regex pass returns `unclear`. */
+const UNCLEAR_SUPPORT_SPAN =
+  "the ventral relay receives input from several retinal cell classes";
+const UNCLEAR_CONTEXT = `In the mouse, ${UNCLEAR_SUPPORT_SPAN} [1]. That arrangement has occupied a good deal of the literature over the past decade.`;
+
+function roleClassifierReply(body: unknown) {
+  return {
+    text: typeof body === "string" ? body : JSON.stringify(body),
+    record: {
+      purpose: "citation-role-classification" as const,
+      model: "claude-haiku-4-5",
+      attempted: true as const,
+      successful: true,
+      failed: false,
+      billable: true,
+      thinkingEnabled: false,
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      latencyMs: 1,
+      finishReason: "stop",
+      timestamp: "2026-09-02T12:00:00.000Z",
+      estimatedCostUsd: 0,
+    },
+  };
+}
+
+function prepareAdapterFor(
+  generateText: (params: GenerateTextParams) => Promise<{
+    text: string;
+    record: ReturnType<typeof roleClassifierReply>["record"];
+  }>,
+) {
+  return buildCanonicalPrepareAdapters({
+    config: appConfig(),
+    runConfig: analysisRunConfigSchema.parse({}),
+    llmClient: {
+      generateText,
+      generateObject: () => {
+        throw new Error("not used");
+      },
+      getLedger: () => {
+        throw new Error("not used");
+      },
+    } as unknown as LLMClient,
+    provenanceStore: makeStore(),
+  });
+}
+
+function unclearRoleInput() {
+  const offset = UNCLEAR_CONTEXT.indexOf(UNCLEAR_SUPPORT_SPAN);
+  return {
+    family: { familyId: `family_${"a".repeat(64)}` },
+    citationOccurrence: {
+      ...mention,
+      rawContext: UNCLEAR_CONTEXT,
+      sectionTitle: "Ventral relay connectivity",
+    },
+    citingPaper: { paper: { paperType: "article" } },
+    occurrenceSourceClaimRecords: [
+      {
+        claimRecordId: `claim_${"b".repeat(64)}`,
+        extractedClaimText: "The vRN receives retinal input.",
+        confidence: "medium" as const,
+        supportSpan: {
+          text: UNCLEAR_SUPPORT_SPAN,
+          charOffsetStart: offset,
+          charOffsetEnd: offset + UNCLEAR_SUPPORT_SPAN.length,
+          verificationStatus: "verified_exact" as const,
+        },
+      },
+    ],
+  } as unknown as Parameters<
+    ReturnType<typeof prepareAdapterFor>["classifyCitation"]
+  >[0];
+}
+
 describe("canonical production adapter seams", () => {
   it("stores identical bodies under different roles without overwrite", () => {
     const store = makeStore();
@@ -581,7 +658,9 @@ describe("canonical production adapter seams", () => {
   });
 
   it("marks review publication types as review-mediated in Prepare", async () => {
-    const adapter = buildCanonicalPrepareAdapters();
+    const adapter = prepareAdapterFor(() => {
+      throw new Error("a resolved regex role must not reach the model");
+    });
     const result = await adapter.classifyCitation({
       citationOccurrence: {
         ...mention,
@@ -595,6 +674,88 @@ describe("canonical production adapter seams", () => {
     } as Parameters<typeof adapter.classifyCitation>[0]);
     expect(result).toMatchObject({
       modifiers: { isReviewMediated: true },
+    });
+  });
+
+  it("resolves a regex-unclear role from the model and records the call", async () => {
+    const generateText = vi.fn((_params: GenerateTextParams) =>
+      Promise.resolve(
+        roleClassifierReply({
+          citationRole: "substantive_attribution",
+          rationale:
+            "The sentence credits a measured input source to the seed.",
+        }),
+      ),
+    );
+    const adapter = prepareAdapterFor(generateText);
+    const result = await adapter.classifyCitation(unclearRoleInput());
+
+    expect(generateText).toHaveBeenCalledTimes(1);
+    const prompt = generateText.mock.calls[0]![0].prompt!;
+    expect(prompt).toContain("▶");
+    expect(prompt).toContain(UNCLEAR_SUPPORT_SPAN);
+    expect(prompt).toContain("Ventral relay connectivity");
+    expect(result).toMatchObject({
+      status: "classified",
+      citationRole: "substantive_attribution",
+      evaluationMode: "fidelity_specific_claim",
+      execution: { kind: "model", provider: "anthropic" },
+    });
+    expect((result as { signals: string[] }).signals).toContain(
+      "model-role:substantive_attribution",
+    );
+  });
+
+  it("keeps a record gated when the model is also unclear", async () => {
+    const adapter = prepareAdapterFor(() =>
+      Promise.resolve(
+        roleClassifierReply({
+          citationRole: "unclear",
+          rationale: "The context does not say what the citation is doing.",
+        }),
+      ),
+    );
+    const result = await adapter.classifyCitation(unclearRoleInput());
+
+    expect(result).toMatchObject({
+      status: "ambiguous",
+      citationRole: "unclear",
+      evaluationMode: "manual_review_role_ambiguous",
+      execution: { kind: "model" },
+    });
+  });
+
+  it("keeps a record gated when the model reply cannot be parsed", async () => {
+    const adapter = prepareAdapterFor(() =>
+      Promise.resolve(roleClassifierReply("not json at all")),
+    );
+    const result = await adapter.classifyCitation(unclearRoleInput());
+
+    expect(result).toMatchObject({
+      status: "ambiguous",
+      evaluationMode: "manual_review_role_ambiguous",
+    });
+    expect((result as { signals: string[] }).signals).toContain(
+      "model-role:invalid_response",
+    );
+  });
+
+  it("does not send a missing-support-span record to the model", async () => {
+    const adapter = prepareAdapterFor(() => {
+      throw new Error("an extraction-limited record must not reach the model");
+    });
+    const input = unclearRoleInput();
+    const result = await adapter.classifyCitation({
+      ...input,
+      occurrenceSourceClaimRecords: input.occurrenceSourceClaimRecords.map(
+        ({ supportSpan: _dropped, ...claim }) => claim,
+      ),
+    } as Parameters<typeof adapter.classifyCitation>[0]);
+
+    expect(result).toMatchObject({
+      status: "ambiguous",
+      evaluationMode: "manual_review_extraction_limited",
+      execution: { kind: "deterministic" },
     });
   });
 

@@ -65,6 +65,7 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
   },
   prepare: {
     classifier: "deterministic" as const,
+    roleClassifierModel: "claude-haiku-4-5",
   },
   evidence: {
     rerankEnabled: true,
@@ -157,9 +158,15 @@ export const analysisRunConfigSchema = z
 
     prepare: z
       .object({
+        /** Deterministic regex pass; its `unclear` verdict falls back to a model. */
         classifier: z
           .literal("deterministic")
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.classifier),
+        /** Model asked to settle a citation role the regex pass left unclear. */
+        roleClassifierModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel),
       })
       .strict()
       .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare })),

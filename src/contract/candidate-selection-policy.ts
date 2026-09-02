@@ -105,8 +105,13 @@ const CLAIM_SHAPE_UTILITY_MULTIPLIER: Record<ClaimShape, number> = {
   citing_meta: 0.65,
 };
 
+/**
+ * Claim text that describes how an experiment was run rather than what it
+ * found. Generic method vocabulary only: reagent and instrument names are one
+ * paper's residue in a policy that has to hold for any field.
+ */
 const METHODS_PROTOCOL_CLAIM_RE =
-  /\b(?:anesthesia|anaesthesia|avertin|tribromoethanol|perfusion|immunohistochemistr|protocol|cryostat|paraformaldehyde|biological\s+replicates?|sections?\s+per\s+animal)\b/i;
+  /\b(?:protocol|reagents?|statistic(?:s|al)|anesthesia|anaesthesia|perfusion|immunohistochemistr|staining|technical\s+replicates?|biological\s+replicates?)\b/i;
 
 const CITING_META_CLAIM_RE =
   /\b(?:prior\s+studies|previous\s+studies|previously\s+estimated|seed\s+paper\s+described|the\s+seed\s+paper\s+(?:described|provides|is\s+cited))\b/i;
