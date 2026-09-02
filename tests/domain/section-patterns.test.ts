@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { classifySectionRole } from "../../src/domain/section-patterns.js";
+import {
+  classifySectionRole,
+  inferSectionRoles,
+} from "../../src/domain/section-patterns.js";
 
 describe("classifySectionRole", () => {
   it("uses block kind before section title", () => {
@@ -33,5 +36,60 @@ describe("classifySectionRole", () => {
     expect(classifySectionRole("body_paragraph", "Acknowledgements")).toBe(
       "other",
     );
+  });
+});
+
+describe("inferSectionRoles", () => {
+  const body = (sectionTitle?: string) => ({
+    blockKind: "body_paragraph" as const,
+    sectionTitle,
+  });
+
+  it("treats descriptive subsections after the introduction as results", () => {
+    const roles = inferSectionRoles([
+      { blockKind: "abstract" },
+      body("INTRODUCTION"),
+      body("INTRODUCTION"),
+      body("Identification of distinct subtypes of GABAergic neurons"),
+      body("Identification of distinct subtypes of GABAergic neurons"),
+      body("GABAergic neurons in the four sublaminae differ"),
+      { blockKind: "figure_caption", sectionTitle: "Figure 1" },
+      body("DISCUSSION"),
+      body("Animals"),
+      body("Riboprobe production"),
+      body("Statistics"),
+    ]);
+    expect(roles).toEqual([
+      "abstract",
+      "introduction",
+      "introduction",
+      "results",
+      "results",
+      "results",
+      "figure",
+      "discussion",
+      "methods",
+      "methods",
+      "methods",
+    ]);
+  });
+
+  it("keeps methods subsections as methods when methods precede results", () => {
+    const roles = inferSectionRoles([
+      body("Introduction"),
+      body("Materials and Methods"),
+      body("Riboprobe production"),
+      body("Results"),
+      body("Pvalb marks a lateral lamina"),
+      body("Discussion"),
+    ]);
+    expect(roles).toEqual([
+      "introduction",
+      "methods",
+      "methods",
+      "results",
+      "results",
+      "discussion",
+    ]);
   });
 });

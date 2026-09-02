@@ -10,7 +10,7 @@ export const METHODS_SECTION_PATTERNS: RegExp[] = [
   /\bsupplemental\b/i,
   /\bexperimental\s+procedures?\b/i,
   /\bdata\s+analysis\b/i,
-  /\bstatistical\b/i,
+  /\bstatistic(?:s|al)\b/i,
   /\bRNA-seq\b/i,
   /\bimmunofluorescence\b/i,
   /\bwestern\s+blot\b/i,
@@ -19,7 +19,11 @@ export const METHODS_SECTION_PATTERNS: RegExp[] = [
   /\bimage\s+analysis\b/i,
   /\bquantification\b/i,
   /\bcell\s+culture\b/i,
-  /\banimal\b/i,
+  /\banimals?\b/i,
+  /\bin\s+situ\s+hybridi[sz]ation\b/i,
+  /\briboprobe\b/i,
+  /\bslice\s+preparation\b/i,
+  /\bantibod(?:y|ies)\b/i,
   /\bmicroscopy\b/i,
   /\bcloning\b/i,
 ];
@@ -62,4 +66,50 @@ export function classifySectionRole(
   if (DISCUSSION_SECTION_RE.test(title)) return "discussion";
   if (BACKGROUND_SECTION_RE.test(title)) return "introduction";
   return "other";
+}
+
+/**
+ * Assign roles to a document's blocks in reading order. Titles that match a
+ * known heading set the current role; unrecognized subsection titles (the
+ * usual case for results subsections, which carry descriptive headings under
+ * a parent "Results" the parser does not preserve) inherit it. An
+ * unrecognized section that follows the abstract or introduction opens the
+ * results. Captions keep their own role and do not move the cursor.
+ */
+export function inferSectionRoles(
+  blocks: ReadonlyArray<{
+    blockKind:
+      | "abstract"
+      | "body_paragraph"
+      | "figure_caption"
+      | "table_caption";
+    sectionTitle?: string | undefined;
+  }>,
+): SectionRole[] {
+  let current: SectionRole = "other";
+  let previousTitle: string | undefined;
+  return blocks.map((block) => {
+    const own = classifySectionRole(block.blockKind, block.sectionTitle);
+    if (block.blockKind !== "body_paragraph") {
+      if (own === "abstract") current = "abstract";
+      return own;
+    }
+    const title = block.sectionTitle ?? "";
+    const newSection = title !== previousTitle;
+    previousTitle = title;
+    if (own !== "other") {
+      current = own;
+      return own;
+    }
+    if (title.length === 0) return current === "other" ? "other" : current;
+    if (
+      newSection &&
+      (current === "abstract" ||
+        current === "introduction" ||
+        current === "other")
+    ) {
+      current = "results";
+    }
+    return current;
+  });
 }
