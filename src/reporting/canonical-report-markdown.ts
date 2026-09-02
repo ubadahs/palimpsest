@@ -376,18 +376,6 @@ export function renderCanonicalReportMarkdown(
     }
   }
   lines.push("");
-  lines.push("### Exclusion summaries");
-  lines.push("");
-  if (payload.exclusionSummaries.length === 0) {
-    lines.push("- No upstream exclusions summarized.");
-  } else {
-    for (const summary of payload.exclusionSummaries) {
-      lines.push(
-        `- ${summary.stage} / \`${summary.reasonCode}\`: ${String(summary.count)} (unit: exclusions)`,
-      );
-    }
-  }
-  lines.push("");
 
   return `${lines.join("\n")}`;
 }
@@ -478,8 +466,6 @@ function formatUnit(unit: ReportCount["unit"]): string {
       return "selections";
     case "decisions":
       return "decisions";
-    case "exclusions":
-      return "exclusions";
     default:
       return unit;
   }

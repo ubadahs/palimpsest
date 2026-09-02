@@ -794,7 +794,6 @@ describe("canonical Prepare", () => {
       ),
     ).toBe(false);
     expect(result.payload.records).toHaveLength(3);
-    expect(result.exclusions).toEqual([]);
   });
 
   it("preserves bundled citation and source-locator data exactly", async () => {
@@ -819,8 +818,6 @@ describe("canonical Prepare", () => {
           value: "/article/body/sec[2]/p[1]/xref[2]",
         },
       });
-      expect(record.context.verbatim.text).toBe(source.rawContext);
-      expect(record.context.derived).toEqual([]);
     }
   });
 

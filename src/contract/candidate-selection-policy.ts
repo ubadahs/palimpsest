@@ -5,7 +5,6 @@ import {
   type DiscoverClaimCandidate,
 } from "./lean-artifacts.js";
 import { METHODS_SECTION_PATTERNS } from "../domain/section-patterns.js";
-import { canonicalSha256 } from "../shared/stable-identity.js";
 import {
   CANDIDATE_SELECTION_POLICY_VERSION,
   type AdaptivePortfolioPolicy,
@@ -134,11 +133,6 @@ export type CandidateSelectionAnnotation = {
   conditionCount: number;
   genericLanguagePenalty: number;
   claimShape: ClaimShape;
-  lexicalFingerprint: {
-    wordShingleHash: string;
-    charShingleHash: string;
-    wordShingles: string[];
-  };
 };
 
 export type CandidateSelectionDisposition = {
@@ -193,23 +187,20 @@ function confidenceToScore(
   return undefined;
 }
 
-function shingles(tokens: readonly string[], size: number): string[] {
+/**
+ * Word trigrams over content tokens, used only to measure how much a candidate
+ * repeats one already selected. Computed on demand: persisting them made every
+ * Discover artifact carry a few hundred strings nothing read back.
+ */
+function wordShingles(normalizedClaim: string): string[] {
+  const tokens = tokenize(normalizedClaim).filter(
+    (token) => !STOP_WORDS.has(token),
+  );
   if (tokens.length === 0) return [];
-  if (tokens.length < size) return [tokens.join(" ")];
+  if (tokens.length < 3) return [tokens.join(" ")];
   const out: string[] = [];
-  for (let i = 0; i <= tokens.length - size; i++) {
-    out.push(tokens.slice(i, i + size).join(" "));
-  }
-  return out;
-}
-
-function charShingles(text: string, size: number): string[] {
-  const compact = text.replace(/\s+/g, "");
-  if (compact.length === 0) return [];
-  if (compact.length < size) return [compact];
-  const out: string[] = [];
-  for (let i = 0; i <= compact.length - size; i++) {
-    out.push(compact.slice(i, i + size));
+  for (let i = 0; i <= tokens.length - 3; i++) {
+    out.push(tokens.slice(i, i + 3).join(" "));
   }
   return out;
 }
@@ -450,11 +441,6 @@ export function annotateClaimCandidate(input: {
       : confidenceScores.reduce((sum, score) => sum + score, 0) /
         confidenceScores.length;
   const specificity = computeSpecificity(input.candidate.normalizedClaim);
-  const tokens = tokenize(input.candidate.normalizedClaim).filter(
-    (token) => !STOP_WORDS.has(token),
-  );
-  const wordShingles = shingles(tokens, 3);
-  const char = charShingles(input.candidate.normalizedClaim, 4);
   return {
     policyVersion: CANDIDATE_SELECTION_POLICY_VERSION,
     uniqueCitingPaperCount: papers.size,
@@ -473,11 +459,6 @@ export function annotateClaimCandidate(input: {
       normalizedClaim: input.candidate.normalizedClaim,
       memberMentions,
     }),
-    lexicalFingerprint: {
-      wordShingleHash: canonicalSha256(wordShingles),
-      charShingleHash: canonicalSha256(char),
-      wordShingles,
-    },
   };
 }
 
@@ -508,8 +489,8 @@ function maxRedundancy(
     max = Math.max(
       max,
       jaccard(
-        candidate.annotation.lexicalFingerprint.wordShingles,
-        prior.annotation.lexicalFingerprint.wordShingles,
+        wordShingles(candidate.candidate.normalizedClaim),
+        wordShingles(prior.candidate.normalizedClaim),
       ),
     );
   }

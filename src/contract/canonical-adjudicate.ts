@@ -461,7 +461,6 @@ export function validateAdjudicateArtifactLineage(
       };
       evidenceArtifacts: ArtifactReference[];
     }>;
-    exclusions: unknown[];
     provenance: {
       models: Array<{
         provider: string;
@@ -509,20 +508,12 @@ export function validateAdjudicateArtifactLineage(
         "Adjudicate must reference exact canonical Evidence and Prepare inputs",
     });
   }
-  if (artifact.exclusions.length !== 0) {
-    context.addIssue({
-      code: "custom",
-      path: ["exclusions"],
-      message:
-        "Adjudicate performs complete accounting and cannot exclude Evidence records",
-    });
-  }
-  if (artifact.decisions.length !== artifact.payload.records.length * 3) {
+  if (artifact.decisions.length !== artifact.payload.records.length) {
     context.addIssue({
       code: "custom",
       path: ["decisions"],
       message:
-        "Adjudicate must record gate, model, and final-outcome decisions for every Evidence record",
+        "Adjudicate must record exactly one outcome decision per Evidence record",
     });
   }
 
@@ -666,23 +657,14 @@ export function validateAdjudicateArtifactLineage(
     }
   }
 
+  const lineageArtifacts = [lineage.evidenceArtifact, lineage.prepareArtifact];
   for (const record of artifact.payload.records) {
-    const gateDecision = findSingleDecision(
+    const decision = findSingleDecision(
       artifact.decisions,
       record.recordId,
-      "adjudicate_gate_outcome",
+      "adjudicate_outcome",
     );
-    const modelDecision = findSingleDecision(
-      artifact.decisions,
-      record.recordId,
-      "adjudicate_model_outcome",
-    );
-    const finalDecision = findSingleDecision(
-      artifact.decisions,
-      record.recordId,
-      "adjudicate_final_outcome",
-    );
-    if (!gateDecision || !modelDecision || !finalDecision) {
+    if (!decision) {
       context.addIssue({
         code: "custom",
         path: ["decisions"],
@@ -691,54 +673,35 @@ export function validateAdjudicateArtifactLineage(
       continue;
     }
 
-    const lineageArtifacts = [
-      lineage.evidenceArtifact,
-      lineage.prepareArtifact,
-    ];
+    if (record.status === "not_adjudicated") {
+      if (
+        decision.actor.kind !== "deterministic" ||
+        !sameCanonicalCollection(decision.evidenceArtifacts, lineageArtifacts)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["decisions"],
+          message: `A gated Adjudicate decision must be deterministic and lineage-only: ${record.recordId}`,
+        });
+      }
+      continue;
+    }
+
     if (
-      gateDecision.actor.kind !== "deterministic" ||
-      !sameCanonicalCollection(gateDecision.evidenceArtifacts, lineageArtifacts)
+      decision.actor.kind !== "model" ||
+      decision.actor.identifier !==
+        `${record.execution.provider}/${record.execution.model}` ||
+      !sameCanonicalCollection(decision.evidenceArtifacts, [
+        ...lineageArtifacts,
+        record.execution.requestArtifact,
+        record.execution.responseArtifact,
+      ])
     ) {
       context.addIssue({
         code: "custom",
         path: ["decisions"],
-        message: `Adjudicate gate decision must be deterministic and lineage-only: ${record.recordId}`,
+        message: `A modeled Adjudicate decision lacks exact request/response provenance: ${record.recordId}`,
       });
-    }
-
-    if (record.status === "not_adjudicated") {
-      for (const decision of [modelDecision, finalDecision]) {
-        if (
-          decision.actor.kind !== "deterministic" ||
-          !sameCanonicalCollection(decision.evidenceArtifacts, lineageArtifacts)
-        ) {
-          context.addIssue({
-            code: "custom",
-            path: ["decisions"],
-            message: `Gated Adjudicate decisions must remain deterministic and lineage-only: ${record.recordId}`,
-          });
-        }
-      }
-    } else {
-      const modeledArtifacts = [
-        ...lineageArtifacts,
-        record.execution.requestArtifact,
-        record.execution.responseArtifact,
-      ];
-      for (const decision of [modelDecision, finalDecision]) {
-        if (
-          decision.actor.kind !== "model" ||
-          decision.actor.identifier !==
-            `${record.execution.provider}/${record.execution.model}` ||
-          !sameCanonicalCollection(decision.evidenceArtifacts, modeledArtifacts)
-        ) {
-          context.addIssue({
-            code: "custom",
-            path: ["decisions"],
-            message: `Modeled Adjudicate decision lacks exact request/response provenance: ${record.recordId}`,
-          });
-        }
-      }
     }
   }
 }

@@ -14,7 +14,6 @@ import {
   scopeNonfatalFailureCodeSchema,
   scopeSeedMaterializationSchema,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverClaimCandidate,
@@ -141,7 +140,6 @@ type CanonicalScopeProvenanceInputs = {
 export type CanonicalScopeResult = {
   payload: ScopeArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
   provenanceInputs: CanonicalScopeProvenanceInputs;
 };
 
@@ -334,7 +332,6 @@ export async function runCanonicalScope(
     decisions: decisions.sort((left, right) =>
       compareCodeUnits(left.decisionId, right.decisionId),
     ),
-    exclusions: [],
     provenanceInputs: {
       prompts: uniqueSorted(prompts),
       models: uniqueSorted(models),
@@ -380,7 +377,6 @@ export function buildCanonicalScopeArtifact(input: {
           replayableFromInputs: true,
         },
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return scopeArtifactSchemaForBuild(artifact);

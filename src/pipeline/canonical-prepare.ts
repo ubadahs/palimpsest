@@ -19,7 +19,6 @@ import {
   prepareFatalFailureCodeSchema,
   scopeArtifactSchema,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverCitationOccurrence,
@@ -67,7 +66,6 @@ export type CanonicalPrepareClassifierInput = {
   seed: DiscoverSeed;
   citingPaper: DiscoverCitingPaperRecord;
   citationOccurrence: DiscoverCitationOccurrence;
-  context: PreparedCitationInstance["context"];
 };
 
 export type CanonicalPrepareAdapters = {
@@ -87,7 +85,6 @@ type CanonicalPrepareProvenanceInputs = {
 export type CanonicalPrepareResult = {
   payload: PrepareArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
   provenanceInputs: CanonicalPrepareProvenanceInputs;
 };
 
@@ -217,14 +214,6 @@ export async function runCanonicalPrepare(
           `Discover occurrence references an unknown citing-paper record: ${citationOccurrence.mentionId}`,
         );
       }
-      const context: PreparedCitationInstance["context"] = {
-        verbatim: {
-          text: citationOccurrence.rawContext,
-          sourceOccurrenceId: citationOccurrence.mentionId,
-          sourceArtifacts: citationOccurrence.observationProvenance.artifacts,
-        },
-        derived: [],
-      };
       const occurrenceSourceCandidates = sourceCandidates.filter((candidate) =>
         candidate.memberMentionIds.includes(citationOccurrenceId),
       );
@@ -250,7 +239,6 @@ export async function runCanonicalPrepare(
           seed,
           citingPaper,
           citationOccurrence,
-          context,
         }),
         `classification for ${family.familyId} × ${citationOccurrenceId}`,
       );
@@ -282,7 +270,6 @@ export async function runCanonicalPrepare(
         seed,
         citingPaper,
         citationOccurrence,
-        context,
         classification,
         lineage,
       };
@@ -345,7 +332,6 @@ export async function runCanonicalPrepare(
     decisions: decisions.sort((left, right) =>
       compareCodeUnits(left.decisionId, right.decisionId),
     ),
-    exclusions: [],
     provenanceInputs: {
       prompts: uniqueSorted(prompts),
       models: uniqueSorted(models),
@@ -411,7 +397,6 @@ export function buildCanonicalPrepareArtifact(input: {
     provenance,
     execution,
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return parseBoundary(

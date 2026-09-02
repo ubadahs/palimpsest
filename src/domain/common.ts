@@ -89,15 +89,3 @@ export type ResolvedPaper = {
   resolutionProvenance?: PaperResolutionProvenance | undefined;
   [key: string]: unknown;
 };
-
-export type EdgeClassification = {
-  isReview: boolean;
-  isCommentary: boolean;
-  isLetter: boolean;
-  isBookChapter: boolean;
-  isPreprint: boolean;
-  isJournalArticle: boolean;
-  isPrimaryLike: boolean;
-  highReferenceCount: boolean;
-  [key: string]: unknown;
-};

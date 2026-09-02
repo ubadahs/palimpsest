@@ -801,7 +801,7 @@ function buildReportInspectorRecordRow(input: {
     seedTitle: seed.seedTitle,
     citingPaperId: paper.paperId,
     citingPaperTitle: paper.title,
-    citationContext: prepareRecord.context.verbatim.text,
+    citationContext: occurrence.rawContext,
     classificationStatus: classification.status,
     groundingStatus: prepareRecord.family.grounding.status,
     verifiedSeedGroundingSpans: buildVerifiedGroundingSpans(
@@ -984,7 +984,6 @@ function buildReportInspectorPayload(
       funnel: artifact.payload.funnel,
       rates: artifact.payload.rates,
       decisionSummaries: artifact.payload.decisionSummaries,
-      exclusionSummaries: artifact.payload.exclusionSummaries,
       records,
       families,
     },

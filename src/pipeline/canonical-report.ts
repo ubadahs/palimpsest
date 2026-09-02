@@ -24,7 +24,6 @@ import {
   scopeArtifactSchema,
   type AdjudicateArtifact,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type DiscoverArtifact,
   type EvidenceArtifact,
@@ -34,7 +33,6 @@ import {
   type ReportArtifactPayload,
   type ReportCount,
   type ReportDecisionSummary,
-  type ReportExclusionSummary,
   type ReportFamilyMutation,
   type ReportFamilyMutationRecord,
   type ReportFunnelCounts,
@@ -62,7 +60,6 @@ export type CanonicalReportOptions = z.input<
 export type CanonicalReportResult = {
   payload: ReportArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
 };
 
 export class CanonicalReportBoundaryError extends Error {
@@ -150,13 +147,6 @@ export function runCanonicalReport(
     evidenceArtifact,
     adjudicateArtifact,
   ]);
-  const exclusionSummaries = buildExclusionSummaries([
-    discoverArtifact,
-    scopeArtifact,
-    prepareArtifact,
-    evidenceArtifact,
-    adjudicateArtifact,
-  ]);
 
   const familyMutations = buildFamilyMutations({
     discoverArtifact,
@@ -177,7 +167,6 @@ export function runCanonicalReport(
     familyMutations,
     recordTraces,
     decisionSummaries,
-    exclusionSummaries,
   });
 
   const decisions = [
@@ -222,7 +211,6 @@ export function runCanonicalReport(
   return {
     payload,
     decisions,
-    exclusions: [],
   };
 }
 
@@ -260,7 +248,6 @@ export function buildCanonicalReportArtifact(input: {
       replayableFromInputs: true,
     },
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return parseBoundary(
@@ -1470,40 +1457,6 @@ function buildDecisionSummaries(
     compareCodeUnits(
       `${left.stage}\0${left.decisionType}\0${left.outcome}`,
       `${right.stage}\0${right.decisionType}\0${right.outcome}`,
-    ),
-  );
-}
-
-function buildExclusionSummaries(
-  artifacts: Array<{
-    canonicalStage: ReportExclusionSummary["stage"];
-    exclusions: AppendOnlyExclusion[];
-  }>,
-): ReportExclusionSummary[] {
-  const counts = new Map<string, ReportExclusionSummary>();
-  for (const artifact of artifacts) {
-    for (const exclusion of artifact.exclusions) {
-      const key = canonicalSerialize({
-        stage: artifact.canonicalStage,
-        reasonCode: exclusion.reasonCode,
-      });
-      const existing = counts.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        counts.set(key, {
-          stage: artifact.canonicalStage,
-          reasonCode: exclusion.reasonCode,
-          count: 1,
-          unit: "exclusions",
-        });
-      }
-    }
-  }
-  return [...counts.values()].sort((left, right) =>
-    compareCodeUnits(
-      `${left.stage}\0${left.reasonCode}`,
-      `${right.stage}\0${right.reasonCode}`,
     ),
   );
 }

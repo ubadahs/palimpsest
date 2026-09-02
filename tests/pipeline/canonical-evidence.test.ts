@@ -704,7 +704,7 @@ describe("canonical Evidence", () => {
       new Set(
         prepare.payload.records.map((record) =>
           canonicalSerialize({
-            context: record.context.verbatim.text,
+            context: record.citationOccurrence.rawContext,
             localClaims: record.occurrenceSourceClaimRecords,
             classification: record.classification,
           }),
@@ -797,7 +797,6 @@ describe("canonical Evidence", () => {
       prepare.payload.records.map((record) => record.recordId),
     );
     expect(result.decisions).toHaveLength(prepare.payload.records.length * 3);
-    expect(result.exclusions).toEqual([]);
   });
 
   it("retrieves for preserved grounding and classification failures", async () => {
@@ -1281,7 +1280,8 @@ describe("canonical Evidence", () => {
     expect(calls).toEqual([]);
 
     const tampered = structuredClone(first.prepare);
-    tampered.payload.records[0]!.context.verbatim.text = "Tampered context";
+    tampered.payload.records[0]!.citationOccurrence.rawContext =
+      "Tampered context";
     await expect(
       runCanonicalEvidence(
         tampered,
