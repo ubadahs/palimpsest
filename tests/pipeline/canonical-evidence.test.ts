@@ -1178,7 +1178,12 @@ describe("canonical Evidence", () => {
     const reranked = await runEvidenceFixture({ rerankEnabled: true });
     const assertSelection = (
       fixture: Awaited<ReturnType<typeof runEvidenceFixture>>,
-      sources: ReadonlyArray<"bm25" | "bm25_with_scope_pins" | "reranked">,
+      sources: ReadonlyArray<
+        | "bm25"
+        | "bm25_with_scope_pins"
+        | "reranked"
+        | "reranked_with_scope_pins"
+      >,
     ) => {
       const chunks = fixture.result.payload.corpora[0]!.chunks;
       for (const outcome of fixture.result.payload.records) {
@@ -1193,7 +1198,8 @@ describe("canonical Evidence", () => {
       }
     };
     assertSelection(bm25, ["bm25", "bm25_with_scope_pins"]);
-    assertSelection(reranked, ["reranked"]);
+    // Grounding pins survive reranking so turning rerank on changes one variable.
+    assertSelection(reranked, ["reranked_with_scope_pins"]);
   });
 
   it("rejects missing, duplicate, dangling, mutated, and inconsistent payload data", async () => {

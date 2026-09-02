@@ -49,7 +49,7 @@ describe("canonical run creation", () => {
 
     expect(run.trackedClaim).toBeUndefined();
     expect(run.config.stopAfterStage).toBe("report");
-    expect(run.config.evidence.rerankEnabled).toBe(false);
+    expect(run.config.evidence.rerankEnabled).toBe(true);
     expect(getDoisInputPath(run.id)).toContain("dois.json");
 
     const detail = getRunDetailOrThrow(run.id);

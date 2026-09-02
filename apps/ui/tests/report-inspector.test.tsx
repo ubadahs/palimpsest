@@ -374,6 +374,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
           failureCodeCounts: [],
           mutationKindCounts: [],
           mutationDirectionCounts: [],
+          verdictCountsByRankingSource: [],
           verdictCounts: {
             F: count("adjudicate.verdict_F", 31),
             D: count("adjudicate.verdict_D", 4),

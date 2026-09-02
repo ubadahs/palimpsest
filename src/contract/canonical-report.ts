@@ -252,6 +252,21 @@ const reportMutationDirectionCountSchema = z
   })
   .strict();
 
+const reportVerdictsByRankingSourceSchema = z
+  .object({
+    rankingSource: z.enum([
+      "bm25",
+      "reranked",
+      "bm25_with_scope_pins",
+      "reranked_with_scope_pins",
+    ]),
+    F: z.number().int().nonnegative(),
+    D: z.number().int().nonnegative(),
+    E: z.number().int().nonnegative(),
+    U: z.number().int().nonnegative(),
+  })
+  .strict();
+
 const discoverFunnelCountsSchema = z
   .object({
     seeds: reportCountSchema,
@@ -340,6 +355,11 @@ const adjudicateFunnelCountsSchema = z
     /** Drift direction over D verdicts: which dimension moved, and which way. */
     mutationKindCounts: z.array(reportMutationKindCountSchema),
     mutationDirectionCounts: z.array(reportMutationDirectionCountSchema),
+    /**
+     * Verdicts split by evidence regime, so scope-pinned and unpinned records
+     * can be compared instead of pooled.
+     */
+    verdictCountsByRankingSource: z.array(reportVerdictsByRankingSourceSchema),
     uniqueClaimUnits: reportCountSchema,
     uniqueAdjudicatedClaimUnits: reportCountSchema,
     repeatedRecordsBeyondUniqueUnits: reportCountSchema,
@@ -366,7 +386,12 @@ const reportEvidenceTraceSchema = z
     retrievalStatus: evidenceRetrievalStatusSchema,
     rerankStatus: evidenceRerankStatusSchema,
     rankingSource: z
-      .enum(["bm25", "reranked", "bm25_with_scope_pins"])
+      .enum([
+        "bm25",
+        "reranked",
+        "bm25_with_scope_pins",
+        "reranked_with_scope_pins",
+      ])
       .optional(),
     queryId: stableIdentifierSchema,
     bm25RunId: stableIdentifierSchema.optional(),
@@ -417,7 +442,8 @@ const reportEvidenceTraceSchema = z
       }
       if (
         trace.rerankStatus === "completed" &&
-        trace.rankingSource !== "reranked"
+        trace.rankingSource !== "reranked" &&
+        trace.rankingSource !== "reranked_with_scope_pins"
       ) {
         context.addIssue({
           code: "custom",
@@ -1149,7 +1175,10 @@ function validateTraceAccounting(
     ) {
       bm25SelectionIds.add(selectionId);
       recordSelectionBm25 += 1;
-    } else if (trace.evidence.rankingSource === "reranked") {
+    } else if (
+      trace.evidence.rankingSource === "reranked" ||
+      trace.evidence.rankingSource === "reranked_with_scope_pins"
+    ) {
       rerankedSelectionIds.add(selectionId);
       recordSelectionReranked += 1;
     }
@@ -1284,6 +1313,40 @@ function validateTraceAccounting(
       code: "custom",
       path: ["funnel", "adjudicate", "mutationDirectionCounts"],
       message: "Mutation-direction summary must exactly match D traces",
+    });
+  }
+  const expectedBySource = new Map<
+    string,
+    { F: number; D: number; E: number; U: number }
+  >();
+  for (const trace of traces) {
+    if (
+      trace.adjudication.status !== "adjudicated" ||
+      trace.evidence.rankingSource == null
+    ) {
+      continue;
+    }
+    const bucket = expectedBySource.get(trace.evidence.rankingSource) ?? {
+      F: 0,
+      D: 0,
+      E: 0,
+      U: 0,
+    };
+    bucket[trace.adjudication.verdict] += 1;
+    expectedBySource.set(trace.evidence.rankingSource, bucket);
+  }
+  const expectedRows = [...expectedBySource.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([rankingSource, counts]) => ({ rankingSource, ...counts }));
+  if (
+    canonicalSerialize(adjudicate.verdictCountsByRankingSource) !==
+    canonicalSerialize(expectedRows)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["funnel", "adjudicate", "verdictCountsByRankingSource"],
+      message:
+        "Verdict-by-ranking-source summary must exactly match per-record traces",
     });
   }
   for (const verdict of ["F", "D", "E", "U"] as const) {

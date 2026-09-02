@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chunkScopeSeedText,
   chunksOverlappingVerifiedSpans,
   selectEvidenceChunkIds,
   unionBm25Candidates,
@@ -137,7 +138,8 @@ describe("scope-span evidence pinning", () => {
     const selected = selectEvidenceChunkIds({
       family: groundedFamily as never,
       corpus: corpus as never,
-      bm25Candidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
+      rankedCandidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
+      baseSource: "bm25",
       selectionLimit: 2,
     });
     expect(selected.rankingSource).toBe("bm25_with_scope_pins");
@@ -161,7 +163,8 @@ describe("scope-span evidence pinning", () => {
     const selected = selectEvidenceChunkIds({
       family: notFound as never,
       corpus: corpus as never,
-      bm25Candidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
+      rankedCandidates: [{ chunkId: "chunk_far" }, { chunkId: "chunk_hit" }],
+      baseSource: "bm25",
       selectionLimit: 2,
     });
     expect(selected.rankingSource).toBe("bm25");
@@ -224,5 +227,51 @@ describe("unionBm25Candidates", () => {
       3,
     );
     expect(fused).toHaveLength(3);
+  });
+});
+
+describe("chunkScopeSeedText", () => {
+  it("carries section role and third-party citation flags onto chunks", () => {
+    const seedTextArtifact = artifact("immutable-seed-text");
+    const corpus = chunkScopeSeedText({
+      seedId: buildStableId("seed", { doi: "10.1000/seed-a" }),
+      status: "materialized",
+      reason: "fixture",
+      seedTextArtifact,
+      sourceArtifacts: [seedTextArtifact],
+      parser: { kind: "jats", version: "fixture" },
+      blocks: [
+        {
+          blockId: "intro",
+          text: "Prior work established the layer (Smith 2001; Jones 2005).",
+          sectionTitle: "Introduction",
+          blockKind: "body_paragraph",
+          sectionRole: "introduction",
+          citationMentionCount: 2,
+          charOffsetStart: 0,
+          charOffsetEnd: 58,
+        },
+        {
+          blockId: "results",
+          text: "We observed a 2.3-fold increase in Pvalb density (Fig. 3C).",
+          sectionTitle: "Results",
+          blockKind: "body_paragraph",
+          sectionRole: "results",
+          citationMentionCount: 0,
+          charOffsetStart: 58,
+          charOffsetEnd: 117,
+        },
+      ],
+      execution: { kind: "deterministic", implementation: "fixture" },
+    } as never);
+    const [intro, results] = corpus.chunks;
+    expect(intro).toMatchObject({
+      sourceSectionRole: "introduction",
+      sourceCitesOtherWork: true,
+    });
+    expect(results).toMatchObject({
+      sourceSectionRole: "results",
+      sourceCitesOtherWork: false,
+    });
   });
 });
