@@ -175,6 +175,8 @@ export type GenerateTextParams =
       context?: LLMCallContext;
       /** Opt in to persistent exact-result caching. */
       exactCache?: ExactCacheConfig;
+      /** Hard cap on generated tokens (thinking included); defaults to 16k. */
+      maxOutputTokens?: number;
     }
   | {
       purpose: LLMPurpose;
@@ -191,7 +193,16 @@ export type GenerateTextParams =
       context?: LLMCallContext;
       /** Opt in to persistent exact-result caching. */
       exactCache?: ExactCacheConfig;
+      /** Hard cap on generated tokens (thinking included); defaults to 16k. */
+      maxOutputTokens?: number;
     };
+
+/**
+ * Every canonical purpose returns a few hundred visible tokens plus thinking.
+ * The SDK default for Opus is 128k on a non-streaming request, which invites
+ * HTTP timeouts and unbounded spend on a runaway completion.
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
 
 type GenerateTextResult = {
   text: string;
@@ -280,6 +291,17 @@ export function classifyProviderError(error: unknown): {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
 
+  // Rate limiting is checked first: provider messages such as "rate limit
+  // quota exceeded" are transient and must not abort the whole stage as a
+  // billing failure.
+  if (/rate limit|too many requests|429|overloaded/i.test(normalized)) {
+    return {
+      classification: "rate_limit",
+      fatal: false,
+      message,
+    };
+  }
+
   if (
     /credit balance|insufficient credit|insufficient funds|billing|quota|payment required|usage limit/i.test(
       normalized,
@@ -306,14 +328,6 @@ export function classifyProviderError(error: unknown): {
     return {
       classification: "authorization",
       fatal: true,
-      message,
-    };
-  }
-
-  if (/rate limit|too many requests|429|overloaded/i.test(normalized)) {
-    return {
-      classification: "rate_limit",
-      fatal: false,
       message,
     };
   }
@@ -986,6 +1000,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           () =>
             generateText({
               model: anthropic(modelId),
+              maxOutputTokens:
+                params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
               ...(promptInput.prompt != null
                 ? { prompt: promptInput.prompt }
                 : { messages: promptInput.messages }),
