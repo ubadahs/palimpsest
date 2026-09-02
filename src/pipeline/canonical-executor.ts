@@ -809,7 +809,6 @@ function blockDownstream(
     updateStageStatus(database, runId, cursor, "blocked", {
       errorMessage: reason,
       finishedAt: new Date().toISOString(),
-      exitCode: 1,
     });
     cursor = getNextStageKey(cursor);
   }
@@ -1029,7 +1028,6 @@ export async function orchestrateCanonicalPipelineRun(
         },
       });
 
-    const doiInputPath = resolveCanonicalDoiInputPath(run.runRoot);
     const doiProvenance = provenanceStore.persist({
       role: "doi-input",
       body: { dois: seedDois },
@@ -1081,18 +1079,13 @@ export async function orchestrateCanonicalPipelineRun(
           written.artifact,
           written.additionalPaths,
         );
-        const inputArtifactPath = runner.inputStage
-          ? loadSucceededArtifact(database, run.id, runner.inputStage)
-          : doiInputPath;
         updateStageStatus(database, run.id, stageKey, "succeeded", {
           primaryArtifactPath: written.primaryPath,
           ...(written.reportArtifactPath
             ? { reportArtifactPath: written.reportArtifactPath }
             : {}),
           manifestPath,
-          inputArtifactPath,
           finishedAt: now().toISOString(),
-          exitCode: 0,
           summary: written.summary,
         });
 
@@ -1121,7 +1114,6 @@ export async function orchestrateCanonicalPipelineRun(
         updateStageStatus(database, run.id, stageKey, "failed", {
           errorMessage: message,
           finishedAt: now().toISOString(),
-          exitCode: 1,
         });
         blockDownstream(
           database,

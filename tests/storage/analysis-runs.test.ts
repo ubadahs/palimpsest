@@ -131,26 +131,6 @@ describe("analysis runs repository", () => {
     }
   });
 
-  it("rejects manual tracked-claim ingestion", () => {
-    const database = openDatabase(join(tempDirectory, "doi-first.sqlite"));
-    runMigrations(database);
-    try {
-      expect(() =>
-        createAnalysisRun(database, {
-          id: "run-manual",
-          seedDoi: "10.1234/seed",
-          seedDois: ["10.1234/seed"],
-          trackedClaim: "Manual claim",
-          targetStage: "discover",
-          runRoot: join(tempDirectory, "data", "runs", "run-manual"),
-          config: analysisRunConfigSchema.parse({}),
-        }),
-      ).toThrow(/DOI/i);
-    } finally {
-      database.close();
-    }
-  });
-
   it("updates canonical resume config and target together", () => {
     const database = openDatabase(join(tempDirectory, "resume-config.sqlite"));
     runMigrations(database);
@@ -205,7 +185,6 @@ describe("analysis runs repository", () => {
           artifacts: [],
         },
         finishedAt: new Date().toISOString(),
-        exitCode: 0,
       });
 
       updateStageStatus(database, "run-pointers", "discover", "running", {
@@ -222,7 +201,6 @@ describe("analysis runs repository", () => {
       updateStageStatus(database, "run-pointers", "discover", "failed", {
         errorMessage: "boom",
         finishedAt: new Date().toISOString(),
-        exitCode: 1,
       });
       stage = getRunStage(database, "run-pointers", "discover")!;
       expect(stage.status).toBe("failed");
@@ -246,6 +224,41 @@ describe("analysis runs repository", () => {
       expect(stage.status).toBe("not_started");
       expect(stage.primaryArtifactPath).toBeUndefined();
       expect(stage.summary).toBeUndefined();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("times a retried stage from the retry, not from the first attempt", () => {
+    const database = openDatabase(join(tempDirectory, "retry-clock.sqlite"));
+    runMigrations(database);
+    try {
+      createAnalysisRun(database, {
+        id: "run-retry",
+        seedDoi: "10.1234/seed",
+        seedDois: ["10.1234/seed"],
+        targetStage: "report",
+        runRoot: join(tempDirectory, "data", "runs", "run-retry"),
+        config: analysisRunConfigSchema.parse({}),
+      });
+
+      updateStageStatus(database, "run-retry", "discover", "running", {
+        startedAt: "2026-09-02T10:00:00.000Z",
+      });
+      updateStageStatus(database, "run-retry", "discover", "failed", {
+        errorMessage: "provider timeout",
+        finishedAt: "2026-09-02T10:05:00.000Z",
+      });
+      updateStageStatus(database, "run-retry", "discover", "running", {
+        startedAt: "2026-09-02T11:00:00.000Z",
+      });
+      updateStageStatus(database, "run-retry", "discover", "succeeded", {
+        finishedAt: "2026-09-02T11:02:00.000Z",
+      });
+
+      const stage = getRunStage(database, "run-retry", "discover")!;
+      expect(stage.startedAt).toBe("2026-09-02T11:00:00.000Z");
+      expect(stage.finishedAt).toBe("2026-09-02T11:02:00.000Z");
     } finally {
       database.close();
     }

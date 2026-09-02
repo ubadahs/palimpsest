@@ -17,7 +17,6 @@ function stage(
     stageKey: key,
     stageOrder: order,
     status,
-    inputArtifactPath: undefined,
     primaryArtifactPath: undefined,
     reportArtifactPath: undefined,
     manifestPath: undefined,
@@ -26,7 +25,6 @@ function stage(
     errorMessage: undefined,
     startedAt: undefined,
     finishedAt: undefined,
-    exitCode: undefined,
     processId: undefined,
   };
 }

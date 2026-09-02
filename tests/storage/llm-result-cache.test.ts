@@ -76,9 +76,6 @@ describe("llm-result-cache", () => {
 
     storeLLMResult(db, {
       cacheKey: key,
-      purpose: "adjudication",
-      model: "claude-opus-4-6",
-      keyVersion: "v1",
       responseText: '{"verdict":"supported"}',
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -86,9 +83,6 @@ describe("llm-result-cache", () => {
     const cached = getCachedLLMResult(db, key);
     expect(cached).toBeDefined();
     expect(cached!.responseText).toBe('{"verdict":"supported"}');
-    expect(cached!.purpose).toBe("adjudication");
-    expect(cached!.model).toBe("claude-opus-4-6");
-    expect(cached!.keyVersion).toBe("v1");
     expect(cached!.createdAt).toBe("2026-04-11T00:00:00Z");
     // lastHitAt is set on read
     expect(cached!.lastHitAt).toBeDefined();
@@ -104,18 +98,12 @@ describe("llm-result-cache", () => {
 
     storeLLMResult(db, {
       cacheKey: key,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "first",
       createdAt: "2026-04-11T00:00:00Z",
     });
 
     storeLLMResult(db, {
       cacheKey: key,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "second",
       createdAt: "2026-04-11T01:00:00Z",
     });
@@ -141,9 +129,6 @@ describe("llm-result-cache", () => {
 
     storeLLMResult(db, {
       cacheKey: keyV1,
-      purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
-      keyVersion: "v1",
       responseText: "old response",
       createdAt: "2026-04-11T00:00:00Z",
     });

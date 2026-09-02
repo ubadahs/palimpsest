@@ -383,9 +383,6 @@ describe("provider options and telemetry through generateText", () => {
     });
     storeLLMResult(db, {
       cacheKey: adaptiveKey,
-      purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
-      keyVersion: "v1",
       responseText: "from-adaptive-cache",
       createdAt: "2026-07-17T00:00:00Z",
     });
@@ -446,9 +443,6 @@ describe("exact-result cache integration via LLM client", () => {
     });
     storeLLMResult(db, {
       cacheKey,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "cached response text",
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -501,9 +495,6 @@ describe("exact-result cache integration via LLM client", () => {
     };
     storeLLMResult(db, {
       cacheKey,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: JSON.stringify(cachedObject),
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -536,9 +527,6 @@ describe("exact-result cache integration via LLM client", () => {
     });
     storeLLMResult(db, {
       cacheKey,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "should not be returned",
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -575,9 +563,6 @@ describe("exact-result cache integration via LLM client", () => {
     });
     storeLLMResult(db, {
       cacheKey,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "should not be returned",
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -610,9 +595,6 @@ describe("exact-result cache integration via LLM client", () => {
     });
     storeLLMResult(db, {
       cacheKey,
-      purpose: "adjudication",
-      model: "claude-opus-4-6",
-      keyVersion: "v1",
       responseText: "cached",
       createdAt: "2026-04-11T00:00:00Z",
     });
@@ -646,9 +628,6 @@ describe("exact-result cache integration via LLM client", () => {
     });
     storeLLMResult(db, {
       cacheKey,
-      purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
-      keyVersion: "v1",
       responseText: "old cached",
       createdAt: "2026-04-11T00:00:00Z",
     });
