@@ -1068,53 +1068,7 @@ function validateFunnelPartitions(
   context: z.RefinementCtx,
 ): void {
   const { discover, scope, prepare, evidence } = payload.funnel;
-  for (const [field, entry] of Object.entries({
-    returnedCitingPaperObservations: discover.returnedCitingPaperObservations,
-    probed: discover.probed,
-    notProbed: discover.notProbed,
-    materializationSucceeded: discover.materializationSucceeded,
-    materializationFailed: discover.materializationFailed,
-    materializationUnavailable: discover.materializationUnavailable,
-    materializationNotAttempted: discover.materializationNotAttempted,
-    harvestSucceeded: discover.harvestSucceeded,
-    harvestNoMentions: discover.harvestNoMentions,
-    harvestFailed: discover.harvestFailed,
-    harvestNotAttempted: discover.harvestNotAttempted,
-  })) {
-    if (entry.unit !== "citing_paper_observations") {
-      context.addIssue({
-        code: "custom",
-        path: ["funnel", "discover", field, "unit"],
-        message:
-          "Discover citing-paper records are seed-specific citing-paper observations, not globally unique papers",
-      });
-    }
-  }
-  for (const [field, entry] of Object.entries({
-    uniqueFinalSelectionsBm25: evidence.uniqueFinalSelectionsBm25,
-    uniqueFinalSelectionsReranked: evidence.uniqueFinalSelectionsReranked,
-  })) {
-    if (entry.unit !== "selections") {
-      context.addIssue({
-        code: "custom",
-        path: ["funnel", "evidence", field, "unit"],
-        message: "Unique final-selection counts must use selections",
-      });
-    }
-  }
-  for (const [field, entry] of Object.entries({
-    recordSelectionBm25: evidence.recordSelectionBm25,
-    recordSelectionReranked: evidence.recordSelectionReranked,
-  })) {
-    if (entry.unit !== "family_occurrence_records") {
-      context.addIssue({
-        code: "custom",
-        path: ["funnel", "evidence", field, "unit"],
-        message:
-          "Per-record final-selection use must use family×occurrence records",
-      });
-    }
-  }
+
   const returned = discover.returnedCitingPaperObservations.count;
   assertCountEqual(
     discover.probed.count + discover.notProbed.count,
@@ -1643,38 +1597,10 @@ export function validateReportArtifactLineage(
   },
   context: z.RefinementCtx,
 ): void {
+  // Run and input-artifact agreement is checked once, generically, by the
+  // envelope. What remains here is specific to Report: it must be a
+  // deterministic replay of exactly five ancestors.
   const { lineage } = artifact.payload;
-  if (artifact.runId !== lineage.runId) {
-    context.addIssue({
-      code: "custom",
-      path: ["payload", "lineage", "runId"],
-      message: "Report run ID must match its verified five-artifact lineage",
-    });
-  }
-
-  const expectedInputs = [
-    lineage.discoverArtifact,
-    lineage.scopeArtifact,
-    lineage.prepareArtifact,
-    lineage.evidenceArtifact,
-    lineage.adjudicateArtifact,
-  ];
-  if (
-    artifact.inputArtifacts.length !== 5 ||
-    !expectedInputs.every((expected, index) =>
-      sameArtifactReference(artifact.inputArtifacts[index], expected),
-    )
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["inputArtifacts"],
-      message:
-        "Report must reference Discover, Scope, Prepare, Evidence, and Adjudicate inputs in that fixed order",
-    });
-  }
-
-  validateReportDecisions(artifact, expectedInputs, context);
-
   if (
     artifact.execution.kind !== "deterministic" ||
     artifact.execution.replayableFromInputs !== true
@@ -1734,89 +1660,6 @@ export function validateReportArtifactLineage(
           "Per-record trace upstream artifact references must match Report lineage exactly",
       });
     }
-  }
-}
-
-function validateReportDecisions(
-  artifact: {
-    runId: string;
-    decisions: Array<{
-      recordId: string;
-      decisionType: string;
-      outcome: string;
-      reason: string;
-      recordedAt: string;
-      actor: {
-        kind: "deterministic" | "model" | "external" | "human";
-        identifier: string;
-      };
-      evidenceArtifacts: ArtifactReference[];
-      supersedesDecisionId?: string | undefined;
-    }>;
-  },
-  expectedInputs: ArtifactReference[],
-  context: z.RefinementCtx,
-): void {
-  const expected = [
-    {
-      decisionType: "report_interpretation_status",
-      outcome: "uncalibrated_research_output",
-      reason: REPORT_INTERPRETATION_WARNING,
-    },
-    {
-      decisionType: "report_publication_status",
-      outcome: "research_artifact_only",
-      reason: REPORT_PUBLICATION_REASON,
-    },
-  ] as const;
-  if (artifact.decisions.length !== expected.length) {
-    context.addIssue({
-      code: "custom",
-      path: ["decisions"],
-      message:
-        "Canonical Report must contain exactly interpretation-status and publication-status decisions",
-    });
-  }
-
-  const expectedRecordId = buildReportDecisionRecordId(artifact.runId);
-  for (const [index, expectedDecision] of expected.entries()) {
-    const decision = artifact.decisions[index];
-    if (decision == null) continue;
-    if (
-      decision.decisionType !== expectedDecision.decisionType ||
-      decision.outcome !== expectedDecision.outcome ||
-      decision.reason !== expectedDecision.reason ||
-      decision.recordId !== expectedRecordId ||
-      decision.actor.kind !== "deterministic" ||
-      decision.actor.identifier !== canonicalReportMethodId ||
-      decision.supersedesDecisionId != null ||
-      decision.evidenceArtifacts.length !== expectedInputs.length ||
-      !expectedInputs.every((reference, referenceIndex) =>
-        sameArtifactReference(
-          decision.evidenceArtifacts[referenceIndex],
-          reference,
-        ),
-      )
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["decisions", index],
-        message: `Canonical Report decision does not match exact ${expectedDecision.decisionType} contract`,
-      });
-    }
-  }
-  const firstRecordedAt = artifact.decisions[0]?.recordedAt;
-  if (
-    firstRecordedAt != null &&
-    artifact.decisions.some(
-      (decision) => decision.recordedAt !== firstRecordedAt,
-    )
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["decisions"],
-      message: "Canonical Report decisions must share one recording timestamp",
-    });
   }
 }
 

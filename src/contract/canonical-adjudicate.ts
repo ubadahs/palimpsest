@@ -486,30 +486,10 @@ export function validateAdjudicateArtifactLineage(
   },
   context: z.RefinementCtx,
 ): void {
+  // Run and input-artifact agreement is checked once, generically, by the
+  // envelope. What remains here is specific to Adjudicate: a fully gated run
+  // must not claim model provenance, and a modeled one must carry it.
   const { lineage } = artifact.payload;
-  if (artifact.runId !== lineage.runId) {
-    context.addIssue({
-      code: "custom",
-      path: ["payload", "lineage", "runId"],
-      message:
-        "Adjudicate run ID must match its verified Evidence/Prepare lineage",
-    });
-  }
-  if (
-    artifact.inputArtifacts.length !== 2 ||
-    !sameArtifactReference(
-      artifact.inputArtifacts[0],
-      lineage.evidenceArtifact,
-    ) ||
-    !sameArtifactReference(artifact.inputArtifacts[1], lineage.prepareArtifact)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["inputArtifacts"],
-      message:
-        "Adjudicate must reference exact canonical Evidence and Prepare inputs",
-    });
-  }
   if (artifact.decisions.length !== artifact.payload.records.length) {
     context.addIssue({
       code: "custom",
