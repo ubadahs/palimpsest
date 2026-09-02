@@ -1072,28 +1072,62 @@ function groupRecordsByNormalizedText(
   });
 }
 
-/** Every record must land in exactly one cluster; anything else falls back. */
-function validateClusterPartition(
-  clusters: ReadonlyArray<{ claimRecordIds: string[] }>,
+/**
+ * Repair a model partition deterministically: unknown ids are dropped, a
+ * record named twice keeps its first cluster, and records the model omitted
+ * become singleton clusters. Empty clusters vanish. The repair is recorded so
+ * the artifact says how much of the grouping was the model's.
+ */
+function repairClusterPartition(
+  clusters: ReadonlyArray<{ canonicalClaim: string; claimRecordIds: string[] }>,
   records: readonly DiscoverAttributedClaimRecord[],
-): string | undefined {
-  const expected = new Set(records.map((record) => record.claimRecordId));
+): {
+  clusters: Array<{ canonicalClaim: string; claimRecordIds: string[] }>;
+  repairNote: string | undefined;
+} {
+  const recordsById = new Map(
+    records.map((record) => [record.claimRecordId, record]),
+  );
   const seen = new Set<string>();
-  for (const cluster of clusters) {
-    for (const claimRecordId of cluster.claimRecordIds) {
-      if (!expected.has(claimRecordId)) {
-        return `Unknown claim record in cluster: ${claimRecordId}`;
-      }
-      if (seen.has(claimRecordId)) {
-        return `Claim record assigned to two clusters: ${claimRecordId}`;
-      }
-      seen.add(claimRecordId);
-    }
+  let unknown = 0;
+  let duplicate = 0;
+  const repaired = clusters
+    .map((cluster) => ({
+      canonicalClaim: cluster.canonicalClaim,
+      claimRecordIds: cluster.claimRecordIds.filter((claimRecordId) => {
+        if (!recordsById.has(claimRecordId)) {
+          unknown += 1;
+          return false;
+        }
+        if (seen.has(claimRecordId)) {
+          duplicate += 1;
+          return false;
+        }
+        seen.add(claimRecordId);
+        return true;
+      }),
+    }))
+    .filter((cluster) => cluster.claimRecordIds.length > 0);
+  const omitted = records.filter((record) => !seen.has(record.claimRecordId));
+  for (const record of omitted) {
+    repaired.push({
+      canonicalClaim: record.extractedClaimText.trim().replace(/\s+/g, " "),
+      claimRecordIds: [record.claimRecordId],
+    });
   }
-  if (seen.size !== expected.size) {
-    return `Clusters omitted ${String(expected.size - seen.size)} claim record(s)`;
-  }
-  return undefined;
+  const notes = [
+    unknown > 0 ? `${String(unknown)} unknown claim reference(s) dropped` : "",
+    duplicate > 0
+      ? `${String(duplicate)} duplicate reference(s) kept in first cluster`
+      : "",
+    omitted.length > 0
+      ? `${String(omitted.length)} omitted claim(s) placed in singleton clusters`
+      : "",
+  ].filter((note) => note.length > 0);
+  return {
+    clusters: repaired,
+    repairNote: notes.length > 0 ? notes.join("; ") : undefined,
+  };
 }
 
 async function buildClaimGroups(input: {
@@ -1138,15 +1172,11 @@ async function buildClaimGroups(input: {
       groups.push(...groupRecordsByNormalizedText(records, result.reason));
       continue;
     }
-    const partitionError = validateClusterPartition(result.clusters, records);
-    if (partitionError) {
-      groups.push(...groupRecordsByNormalizedText(records, partitionError));
-      continue;
-    }
+    const repaired = repairClusterPartition(result.clusters, records);
     const recordsById = new Map(
       records.map((record) => [record.claimRecordId, record]),
     );
-    for (const cluster of result.clusters) {
+    for (const cluster of repaired.clusters) {
       const ordered = cluster.claimRecordIds
         .map((claimRecordId) => recordsById.get(claimRecordId)!)
         .sort((left, right) =>
@@ -1156,7 +1186,11 @@ async function buildClaimGroups(input: {
         seedId,
         canonicalClaim: cluster.canonicalClaim.trim().replace(/\s+/g, " "),
         records: ordered,
-        equivalence: { method: "model", execution: result.execution },
+        equivalence: {
+          method: "model",
+          execution: result.execution,
+          ...(repaired.repairNote ? { repairNote: repaired.repairNote } : {}),
+        },
       });
     }
   }

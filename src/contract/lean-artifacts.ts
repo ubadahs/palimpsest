@@ -954,6 +954,8 @@ export const discoverClaimEquivalenceSchema = z.discriminatedUnion("method", [
     .object({
       method: z.literal("model"),
       execution: modelExecutionSchema,
+      /** Set when unknown, duplicate, or omitted claims were repaired deterministically. */
+      repairNote: z.string().min(1).optional(),
     })
     .strict(),
 ]);
