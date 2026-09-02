@@ -1114,7 +1114,7 @@ describe("canonical Discover claim canonicalization", () => {
     });
   });
 
-  it("falls back to exact grouping and records why when clusters do not partition the claims", async () => {
+  it("repairs a model partition that omits claims instead of discarding it", async () => {
     const adapters = paraphrasingAdapters();
     const result = await runCanonicalDiscover(fixtureOptions(), {
       ...adapters,
@@ -1124,7 +1124,10 @@ describe("canonical Discover claim canonicalization", () => {
           clusters: [
             {
               canonicalClaim: "Partial cluster",
-              claimRecordIds: claims.slice(0, 1).map((c) => c.claimRecordId),
+              claimRecordIds: [
+                ...claims.slice(0, 1).map((c) => c.claimRecordId),
+                "claim-record_" + "0".repeat(64),
+              ],
             },
           ],
           execution: modelExecution(
@@ -1133,15 +1136,27 @@ describe("canonical Discover claim canonicalization", () => {
           ),
         }),
     });
-    const fallback = result.payload.claimCandidates.filter(
-      (candidate) =>
-        candidate.equivalence?.method === "exact_normalized_text" &&
-        candidate.equivalence.fallbackReason != null,
+    const modelGroups = result.payload.claimCandidates.filter(
+      (candidate) => candidate.equivalence?.method === "model",
     );
-    expect(fallback.length).toBeGreaterThan(0);
-    expect(fallback[0]!.equivalence).toMatchObject({
-      method: "exact_normalized_text",
-      fallbackReason: expect.stringMatching(/omitted/i) as string,
+    expect(modelGroups.length).toBeGreaterThan(1);
+    const repaired = modelGroups.filter(
+      (candidate) =>
+        candidate.equivalence?.method === "model" &&
+        candidate.equivalence.repairNote != null,
+    );
+    expect(repaired.length).toBe(modelGroups.length);
+    expect(repaired[0]!.equivalence).toMatchObject({
+      method: "model",
+      repairNote: expect.stringMatching(/unknown.*dropped.*omitted/i) as string,
     });
+    // Every record is still accounted for exactly once.
+    const memberIds = result.payload.claimCandidates.flatMap(
+      (candidate) => candidate.sourceClaimRecordIds,
+    );
+    expect(new Set(memberIds).size).toBe(memberIds.length);
+    expect(memberIds).toHaveLength(
+      result.payload.attributedClaimRecords.length,
+    );
   });
 });
