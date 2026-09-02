@@ -6,6 +6,7 @@ coverage/
 .env.local
 .env.*.local
 data/
+.vscode/
 
 # Next.js (workspace apps)
 .next/
