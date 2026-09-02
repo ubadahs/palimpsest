@@ -80,7 +80,7 @@ tests/          Mirrors src/ structure
 - **Migrations**: Sequential `.sql` files in `src/storage/migrations/` named `NNNN_description.sql`. Applied via `schema_migrations` table. Never modify existing migration files.
 - **ESM modules**: The project uses `"type": "module"` with NodeNext resolution. All local imports must use `.js` extensions.
 - **Type imports**: ESLint enforces `import type` for type-only imports (`@typescript-eslint/consistent-type-imports`).
-- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/contract/inspector-payloads.ts` via `buildStageInspectorPayload()`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing. Report Families are a deterministic mutation projection (`buildReportInspectorFamilies`); human review is an append-only sidecar under `palimpsest/review` / `data/runs/<runId>/review/<reportArtifactId>/`, never a seventh stage and never a rewrite of canonical machine artifacts.
+- **UI inspector contract**: Stage detail UIs should consume the typed payloads from `src/contract/inspector-payloads.ts` via `buildStageInspectorPayload()`, not raw artifacts or `unknown` casts. When stage artifact shapes change, update the payload builder and keep the contract tests passing. Report Families read the canonical `familyMutations` section of the Report artifact (`buildReportInspectorFamilies` joins inspector rows onto it; it is not a second producer); human review is an append-only sidecar under `palimpsest/review` / `data/runs/<runId>/review/<reportArtifactId>/`, never a seventh stage and never a rewrite of canonical machine artifacts.
 
 ### Domain Model
 
