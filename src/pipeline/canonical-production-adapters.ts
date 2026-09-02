@@ -858,7 +858,7 @@ export function buildCanonicalDiscoverAdapters(
           },
           harvest: {
             status: "no_mentions" as const,
-            reasonCode: "no_in_text_mentions",
+            reasonCode: "no_in_text_mentions" as const,
             reason:
               "Seed bibliography entry found but no in-text citation mentions.",
             provenanceArtifacts: [parseArtifact],

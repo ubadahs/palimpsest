@@ -66,9 +66,6 @@ const canonicalDiscoverFailureCodeSchema = z.union([
     "extraction_failed",
   ]),
 ]);
-type CanonicalDiscoverFailureCode = z.infer<
-  typeof canonicalDiscoverFailureCodeSchema
->;
 
 const seedInputSchema = z
   .object({
@@ -276,7 +273,15 @@ export const canonicalMentionHarvestResultSchema = z
         .extend({ status: z.literal("succeeded") })
         .strict(),
       dispositionInputSchema
-        .extend({ status: z.literal("no_mentions") })
+        .extend({
+          status: z.literal("no_mentions"),
+          /**
+           * Why a materialized paper yielded nothing: the seed was not in its
+           * bibliography at all, or was there but never cited in the text.
+           * The Report counts harvest losses by this code.
+           */
+          reasonCode: z.enum(["not_found", "no_in_text_mentions"]),
+        })
         .strict(),
       dispositionInputSchema
         .extend({
@@ -1487,7 +1492,7 @@ function assertUniqueSeedDois(
 }
 
 function throwIfFatal(input: {
-  reasonCode?: CanonicalDiscoverFailureCode | undefined;
+  reasonCode?: string | undefined;
   reason?: string | undefined;
 }): void {
   if (
