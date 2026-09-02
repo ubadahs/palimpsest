@@ -364,23 +364,17 @@ export function createLLMTelemetryCollector(): LLMTelemetryCollector {
   };
 }
 
+/**
+ * Provider prompt caching is prefix-based and charges a write premium on every
+ * cached request. Only seed grounding reuses a large prefix (the whole seed
+ * text, shared across every family of that seed); extraction, reranking, and
+ * adjudication prompts are unique per record, so caching them only costs.
+ */
 const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
   Record<LLMPurpose, PromptCachePolicy>
 > = {
   "seed-grounding": {
     minPromptChars: 4_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
-  "attributed-claim-extraction": {
-    minPromptChars: 2_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
-  adjudication: {
-    minPromptChars: 5_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
-  "evidence-rerank": {
-    minPromptChars: 2_000,
     cacheControl: { type: "ephemeral", ttl: "5m" },
   },
 };
