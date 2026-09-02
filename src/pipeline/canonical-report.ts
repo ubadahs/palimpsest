@@ -632,6 +632,18 @@ function buildFunnelCounts(input: {
   const failureCodeCounts = countStatuses(
     adjudicationFailed.map((record) => record.failureCode),
   );
+  const mutationKindCounts = countStatuses(
+    adjudicated.flatMap((record) =>
+      record.status === "adjudicated" ? record.mutationKinds : [],
+    ),
+  );
+  const mutationDirectionCounts = countStatuses(
+    adjudicated.flatMap((record) =>
+      record.status === "adjudicated" && record.verdict === "D"
+        ? [record.direction]
+        : [],
+    ),
+  );
   const verdictCount = (label: "F" | "D" | "E" | "U") =>
     adjudicated.filter(
       (record) => record.status === "adjudicated" && record.verdict === label,
@@ -1034,6 +1046,8 @@ function buildFunnelCounts(input: {
       ),
       gateCodeCounts,
       failureCodeCounts,
+      mutationKindCounts,
+      mutationDirectionCounts,
       verdictCounts: {
         F: count(
           "adjudicate.verdict_F",
@@ -1258,6 +1272,8 @@ function buildRecordTraces(input: {
             status: "adjudicated" as const,
             adjudicationResultId: adjudicateRecord.adjudicationResultId,
             verdict: adjudicateRecord.verdict,
+            mutationKinds: adjudicateRecord.mutationKinds,
+            direction: adjudicateRecord.direction,
             evidenceSufficiency: adjudicateRecord.evidenceSufficiency,
             ...(adjudicateRecord.evidenceLimitation
               ? { evidenceLimitation: adjudicateRecord.evidenceLimitation }

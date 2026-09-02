@@ -538,14 +538,15 @@ async function buildChain(
         return Promise.resolve({
           status: "completed",
           rawOutput: {
-            comparison:
+            citingAssertion:
               "The citing paper attributes Ril9 silencing to bulkhead loss.",
+            sourceStatement:
+              "The cited chunks report the same phenotype in lining cells.",
             verdict: variant,
+            mutationKinds: variant === "D" ? ["scope_broadened"] : [],
+            direction: variant === "F" ? "none" : "strengthened",
             rationale: "Fixture adjudication rationale.",
             confidence: "medium",
-            evaluatedClaimRecordIds: input.packet.occurrenceClaims.map(
-              (claim) => claim.claimRecordId,
-            ),
             citedChunkIds: [input.packet.selectedChunks[0]!.chunkId],
           },
           execution,

@@ -18,6 +18,7 @@ Critical policy:
 - ambiguous citation roles (`manual_review_role_ambiguous`, `manual_review_extraction_limited`) stay gated as operational non-verdicts and are not auto-routed to the model
 - `no_lexical_matches` never becomes `E` or `U`
 - confidence may be recorded but never chooses another model or alters the verdict path
+- `D` verdicts name one to three categorical `mutationKinds` and a `direction`; `F`, `E`, and `U` carry none. These fields record which dimension of the source claim moved and are aggregated by Report as `mutationKindCounts` / `mutationDirectionCounts`; they are descriptive and do not route or reweight the verdict
 - there is no advisor, vector-first, challenger, or confidence-only escalation path
 - blinded human calibration is required before trust claims
 

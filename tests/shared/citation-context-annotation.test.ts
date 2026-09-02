@@ -67,9 +67,11 @@ describe("annotateCitingContext", () => {
     const ctx =
       "Result A was shown (2009). " + "Result B was also shown (2009).";
     const result = annotateCitingContext(ctx, "2009");
-    // All sentences contain "2009" — annotation would wrap everything, so skip.
-    expect(result).not.toContain("▶");
-    expect(result).toBe(ctx);
+    // All sentences contain "2009": the whole window is attributed and wrapped,
+    // so the packet gate sees claim-bearing text inside the markers.
+    expect(result).toMatch(/^▶ .*◀$/s);
+    expect(result).toContain("Result A was shown (2009).");
+    expect(result).toContain("Result B was also shown (2009).");
   });
 
   it("fails closed on punctuation-only scope markers", () => {

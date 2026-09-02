@@ -16,14 +16,14 @@ export const LLM_CACHE_VERSIONS = {
   /** LLM-based evidence reranking. */
   rerank: "rerank-2026-04-11-v1",
   /** Citation fidelity adjudication. */
-  adjudication: "adjudication-2026-04-14-v8",
+  adjudication: "adjudication-2026-09-02-v9",
 } as const;
 
 export const LLM_PROMPT_VERSIONS = {
-  /** Claim discovery from seed paper sections. */
-  discovery: "2026-04-07-v1",
   /** Seed-claim grounding prompt template (canonical Scope). */
   grounding: "2026-07-17-v1",
   /** Attributed claim extraction prompt template. */
   extraction: "2026-07-17-v2",
+  /** Categorical adjudication prompt template. */
+  adjudication: "v3",
 } as const;

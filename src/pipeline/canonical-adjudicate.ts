@@ -310,7 +310,6 @@ export async function runCanonicalAdjudicate(
 
     const referenceError = validateModelReferences({
       output: parsedOutput.data,
-      prepareRecord,
       selectedChunkIds: gate.selection.selectedChunkIds,
     });
     if (referenceError) {
@@ -678,31 +677,9 @@ function classificationGateDecision(
 
 function validateModelReferences(input: {
   output: z.infer<typeof canonicalAdjudicateModelOutputSchema>;
-  prepareRecord: PreparedCitationInstance;
   selectedChunkIds: readonly string[];
 }): string | undefined {
-  const allowedClaims = new Set(
-    input.prepareRecord.occurrenceSourceClaimRecords.map(
-      (claim) => claim.claimRecordId,
-    ),
-  );
   const allowedChunks = new Set(input.selectedChunkIds);
-  const seenClaims = new Set<string>();
-  for (const claimId of input.output.evaluatedClaimRecordIds) {
-    if (!allowedClaims.has(claimId)) {
-      return `Unknown occurrence-local claim reference: ${claimId}`;
-    }
-    if (seenClaims.has(claimId)) {
-      return `Duplicate occurrence-local claim reference: ${claimId}`;
-    }
-    seenClaims.add(claimId);
-  }
-  if (seenClaims.size !== allowedClaims.size) {
-    const missingClaimIds = [...allowedClaims].filter(
-      (claimId) => !seenClaims.has(claimId),
-    );
-    return `Model omitted occurrence-local claim references: ${missingClaimIds.join(", ")}`;
-  }
   const seenChunks = new Set<string>();
   for (const chunkId of input.output.citedChunkIds) {
     if (!allowedChunks.has(chunkId)) {
@@ -742,7 +719,10 @@ function buildAdjudicatedOutcome(input: {
     citationOccurrenceId: input.prepareRecord.citationOccurrenceId,
     status: "adjudicated" as const,
     verdict: input.output.verdict,
-    comparison: input.output.comparison,
+    citingAssertion: input.output.citingAssertion,
+    sourceStatement: input.output.sourceStatement,
+    mutationKinds: [...input.output.mutationKinds].sort(compareCodeUnits),
+    direction: input.output.direction,
     rationale: input.output.rationale,
     confidence: input.output.confidence,
     evaluatedCitingClaimText,

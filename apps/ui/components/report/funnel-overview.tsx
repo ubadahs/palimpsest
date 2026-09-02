@@ -100,6 +100,10 @@ export function FunnelOverview({
         `Missing support spans: ${String(funnel.adjudicate.packetsMissingSupportSpans.count)}`,
         `Evidence limited: ${String(funnel.adjudicate.evidenceLimited.count)}`,
         `Figure-only limitation: ${String(funnel.adjudicate.figureOnlyLimitation.count)}`,
+        ...funnel.adjudicate.mutationKindCounts.map(
+          (item) =>
+            `Mutation ${humanizeCode(item.status)}: ${String(item.count)}`,
+        ),
         ...funnel.adjudicate.gateCodeCounts.map(
           (item) => `${humanizeCode(item.status)}: ${String(item.count)}`,
         ),

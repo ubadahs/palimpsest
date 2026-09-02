@@ -329,18 +329,17 @@ function fixtureAdjudicateAdapters(
     adjudicate: (input) => {
       const requestHash = hashCanonicalAdjudicateRequest(input);
       const base = modelExecution("adjudicate", input.recordId);
-      const claimIds = input.packet.occurrenceClaims.map(
-        (c) => c.claimRecordId,
-      );
       const chunkIds = input.packet.selectedChunks.map((c) => c.chunkId);
       return Promise.resolve({
         status: "completed",
         rawOutput: {
-          comparison: "Citing claim matches seed result.",
+          citingAssertion: "Citing claim matches seed result.",
+          sourceStatement: "The seed reports the same phenotype.",
           verdict: "F",
+          mutationKinds: [],
+          direction: "none",
           rationale: "Exact phenotype match in selected chunks.",
           confidence: "high",
-          evaluatedClaimRecordIds: claimIds,
           citedChunkIds: chunkIds.slice(0, 1),
         },
         execution: {
