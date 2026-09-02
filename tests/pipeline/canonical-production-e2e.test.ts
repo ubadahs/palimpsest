@@ -13,6 +13,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AppConfig } from "../../src/config/app-config.js";
 import type { ArtifactReference } from "../../src/contract/lean-artifacts.js";
+import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
+import type { LLMClient } from "../../src/integrations/llm-client.js";
+import { createCanonicalProvenanceStore } from "../../src/pipeline/canonical-provenance-store.js";
 import {
   CANONICAL_ADJUDICATE_PROMPT_ID,
   CANONICAL_ADJUDICATE_PROMPT_VERSION,
@@ -339,7 +342,45 @@ function productionPathAdjudicateAdapters(): CanonicalAdjudicateAdapters {
   };
 }
 
-function buildProductionPathAdapters(): CanonicalExecutorAdapters {
+/** Answers the citation-role fallback; every other purpose is stubbed above. */
+function roleClassifierLlmClient(): LLMClient {
+  return {
+    generateText: () =>
+      Promise.resolve({
+        text: JSON.stringify({
+          citationRole: "substantive_attribution",
+          rationale: "The sentence credits a measured result to the seed.",
+        }),
+        record: {
+          purpose: "citation-role-classification" as const,
+          model: "fixture-haiku",
+          attempted: true as const,
+          successful: true,
+          failed: false,
+          billable: true,
+          thinkingEnabled: false,
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          latencyMs: 1,
+          finishReason: "stop",
+          timestamp: "2026-07-19T12:00:00.000Z",
+          estimatedCostUsd: 0,
+        },
+      }),
+    generateObject: () => {
+      throw new Error("not used");
+    },
+    getLedger: () => {
+      throw new Error("not used");
+    },
+  };
+}
+
+function buildProductionPathAdapters(
+  config: AppConfig,
+  provenanceRoot: string,
+): CanonicalExecutorAdapters {
   return {
     session: {
       resolvedSeedsByDoi: new Map(),
@@ -347,7 +388,12 @@ function buildProductionPathAdapters(): CanonicalExecutorAdapters {
     },
     discover: productionPathDiscoverAdapters(),
     scope: productionPathScopeAdapters(),
-    prepare: buildCanonicalPrepareAdapters(),
+    prepare: buildCanonicalPrepareAdapters({
+      config,
+      runConfig: analysisRunConfigSchema.parse({}),
+      llmClient: roleClassifierLlmClient(),
+      provenanceStore: createCanonicalProvenanceStore(provenanceRoot),
+    }),
     evidence: productionPathEvidenceAdapters(),
     adjudicate: productionPathAdjudicateAdapters(),
   };
@@ -409,7 +455,7 @@ describe("canonical production-path DOI→Report E2E", () => {
         config,
         apiKey: undefined,
         database,
-        adapters: buildProductionPathAdapters(),
+        adapters: buildProductionPathAdapters(config, join(root, "provenance")),
         now: () => new Date("2026-07-19T12:00:00.000Z"),
       });
       expect(result.runId).toMatch(

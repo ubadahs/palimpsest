@@ -15,6 +15,8 @@ export const LLM_CACHE_VERSIONS = {
   extraction: "extraction-2026-09-02-v4",
   /** Cross-citer claim equivalence clustering per seed. */
   canonicalization: "canonicalization-2026-09-02-v2",
+  /** Citation-role fallback for occurrences the regex pass leaves unclear. */
+  roleClassification: "role-classification-2026-09-02-v1",
   /** LLM-based evidence reranking. */
   rerank: "rerank-2026-09-02-v2",
   /** Citation fidelity adjudication. */
@@ -28,6 +30,8 @@ export const LLM_PROMPT_VERSIONS = {
   extraction: "2026-09-02-v3",
   /** Claim equivalence clustering prompt template. */
   canonicalization: "2026-09-02-v2",
+  /** Citation-role fallback prompt template. */
+  roleClassification: "2026-09-02-v1",
   /** Categorical adjudication prompt template. */
   adjudication: "v4",
 } as const;
