@@ -40,7 +40,9 @@ function appendBody(): Record<string, unknown> {
       citingSpanValid: "yes",
       citedEvidenceValid: "yes",
       evidenceSufficiency: "sufficient",
-      verdictAgreement: "yes",
+      humanVerdict: "F",
+      blinded: true,
+      mutationKinds: [],
       notes: "",
     },
   };

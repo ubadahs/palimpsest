@@ -71,6 +71,8 @@ export type ReportInspectorRecordRow = {
   seedId: string;
   seedTitle: string;
   seedDoi?: string;
+  /** Provider-stable citing paper identity; part of the claim-unit key. */
+  citingPaperId: string;
   citingPaperTitle: string;
   citingPaperDoi?: string;
   citingPaperYear?: number;

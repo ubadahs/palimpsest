@@ -69,7 +69,14 @@ export function ReviewWorkspace({
     useState<ReviewQueueFilter>("unreviewed");
   const [form, setForm] = useState<ReviewFormState>(emptyReviewForm());
   const [baseline, setBaseline] = useState<ReviewFormState>(emptyReviewForm());
-  const [hideMachineJudgment, setHideMachineJudgment] = useState(false);
+  // Blinded by default: the 2026-07-21 review was done outside this tool
+  // because the machine verdict was on screen before the human formed one.
+  const [hideMachineJudgment, setHideMachineJudgment] = useState(true);
+  // Records whose verdict has been revealed in this session. Re-hiding does
+  // not un-see it, so blinding is sticky per record once broken.
+  const [revealedRecordIds, setRevealedRecordIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const reviewerRef = useRef("");
 
   const reviewByRecord = useMemo(() => {
@@ -134,7 +141,12 @@ export function ReviewWorkspace({
 
   const activeRecordKey = activeRecord?.recordId ?? "";
   const activeReviewEventId = activeReview?.eventId ?? "";
-  const activeAdjudicationStatus = activeRecord?.adjudicationStatus;
+  // A saved review carries its own blinding; a fresh one is blinded while the
+  // verdict is hidden and has never been revealed for this record.
+  const blinded =
+    (activeReview?.assessment.blinded ?? true) &&
+    hideMachineJudgment &&
+    !revealedRecordIds.has(activeRecordKey);
 
   useEffect(() => {
     if (activeRecordId && activeRecordId !== selectedRecordId) {
@@ -147,23 +159,12 @@ export function ReviewWorkspace({
     const review = reviewByRecord.get(activeRecordKey) ?? null;
     const next = review
       ? reviewFormFromAssessment(review.assessment, review.reviewer)
-      : {
-          ...emptyReviewForm(reviewerRef.current),
-          verdictAgreement:
-            activeAdjudicationStatus === "adjudicated"
-              ? ("yes" as const)
-              : ("not_applicable" as const),
-        };
+      : emptyReviewForm(reviewerRef.current);
     reviewerRef.current = next.reviewer;
     setForm(next);
     setBaseline(next);
     setSaveError(null);
-  }, [
-    activeAdjudicationStatus,
-    activeRecordKey,
-    activeReviewEventId,
-    reviewByRecord,
-  ]);
+  }, [activeRecordKey, activeReviewEventId, reviewByRecord]);
 
   const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
   const staleReport =
@@ -202,7 +203,7 @@ export function ReviewWorkspace({
     setSaving(true);
     setSaveError(null);
     try {
-      const assessment = buildHumanAssessment(form);
+      const assessment = buildHumanAssessment(form, blinded);
       const body: AppendHumanReviewRequest = {
         reportArtifactId,
         reportContentHash,
@@ -434,6 +435,11 @@ export function ReviewWorkspace({
                       onChange={(event) => {
                         const hidden = event.target.checked;
                         setHideMachineJudgment(hidden);
+                        if (!hidden && activeRecordKey) {
+                          setRevealedRecordIds(
+                            (current) => new Set([...current, activeRecordKey]),
+                          );
+                        }
                         if (hidden && isMachineOutcomeFilter(queueFilter)) {
                           setQueueFilter("all");
                         }
@@ -442,6 +448,9 @@ export function ReviewWorkspace({
                     />
                     Hide machine judgment
                   </label>
+                  <Badge variant={blinded ? "running" : "neutral"}>
+                    {blinded ? "blinded" : "not blinded"}
+                  </Badge>
                 </div>
                 <h3 className="font-[var(--font-instrument)] text-2xl tracking-[-0.03em]">
                   {activeRecord.evaluatedClaimText}
