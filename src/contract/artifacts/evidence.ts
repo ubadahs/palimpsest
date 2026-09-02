@@ -26,9 +26,10 @@ import {
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
   addDuplicateIdentifierIssue,
+  addIssue,
   addSortedUniqueIdentifierIssue,
-  normalizeWhitespace,
   findDuplicate,
+  normalizeWhitespace,
   sameArtifactReference,
   sameIdentifierSequence,
   validateScoreOrdering,
@@ -1033,7 +1034,7 @@ function validateEvidencePayload(
     ),
   );
   if (duplicatePreparedPair) {
-    addEvidenceIssue(
+    addIssue(
       context,
       ["preparedRecords"],
       `Duplicate prepared family × occurrence ledger entry: ${duplicatePreparedPair}`,
@@ -1049,7 +1050,7 @@ function validateEvidencePayload(
   for (const preparedRecord of payload.preparedRecords) {
     const outcome = outcomesByRecordId.get(preparedRecord.recordId);
     if (!outcome) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Missing Evidence outcome for Prepare record: ${preparedRecord.recordId}`,
@@ -1059,7 +1060,7 @@ function validateEvidencePayload(
       outcome.citationOccurrenceId !== preparedRecord.citationOccurrenceId ||
       outcome.seedId !== preparedRecord.seedId
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Evidence outcome changed Prepare record identity: ${preparedRecord.recordId}`,
@@ -1068,7 +1069,7 @@ function validateEvidencePayload(
   }
   for (const outcome of payload.records) {
     if (!ledgerByRecordId.has(outcome.recordId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Evidence outcome is outside the Prepare ledger: ${outcome.recordId}`,
@@ -1100,7 +1101,7 @@ function validateEvidencePayload(
       query.familyId !== run.familyId ||
       query.text !== run.queryText
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["bm25Runs"],
         `BM25 run does not preserve its exact family query: ${run.bm25RunId}`,
@@ -1113,7 +1114,7 @@ function validateEvidencePayload(
         corpus.chunks.map((chunk) => chunk.chunkId),
       )
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["bm25Runs"],
         `BM25 run does not name its exact ordered chunk corpus: ${run.bm25RunId}`,
@@ -1126,7 +1127,7 @@ function validateEvidencePayload(
         component.bm25RunId === run.bm25RunId ||
         component.corpusId !== run.corpusId
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["bm25Runs"],
           `Union BM25 run references an invalid component run: ${run.bm25RunId}`,
@@ -1148,7 +1149,7 @@ function validateEvidencePayload(
         bm25Run.candidates.map((candidate) => candidate.chunkId),
       )
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["rerankRuns"],
         `Rerank run does not reference one immutable BM25 candidate set: ${run.rerankRunId}`,
@@ -1159,7 +1160,7 @@ function validateEvidencePayload(
   for (const selection of payload.selections) {
     const bm25Run = bm25RunsById.get(selection.bm25RunId);
     if (!bm25Run) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["selections"],
         `Selection references an unknown BM25 run: ${selection.selectionId}`,
@@ -1200,7 +1201,7 @@ function validateEvidencePayload(
       !expectedChunkIds ||
       !sameIdentifierSequence(selection.selectedChunkIds, expectedChunkIds)
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["selections"],
         `Selection does not preserve the top entries of its declared ranking: ${selection.selectionId}`,
@@ -1216,7 +1217,7 @@ function validateEvidencePayload(
             !corpus.chunks.some((chunk) => chunk.chunkId === chunkId),
         )
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["selections"],
           `Scope-pinned selection references chunks outside its corpus: ${selection.selectionId}`,
@@ -1240,7 +1241,7 @@ function validateEvidencePayload(
       (outcome.primaryQuerySource != null &&
         outcome.primaryQuerySource !== query.source)
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Evidence outcome references a dangling or cross-family query: ${outcome.recordId}`,
@@ -1255,7 +1256,7 @@ function validateEvidencePayload(
         fallbackQuery.familyId !== outcome.familyId ||
         fallbackQuery.source !== "scope-family-tracked-claim"
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Evidence outcome references a dangling or cross-family fallback query: ${outcome.recordId}`,
@@ -1278,7 +1279,7 @@ function validateEvidencePayload(
     if (outcome.bm25RunId) usedBm25RunIds.add(outcome.bm25RunId);
     for (const componentBm25RunId of outcome.componentBm25RunIds ?? []) {
       if (!bm25RunsById.has(componentBm25RunId)) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Evidence outcome references an unknown component BM25 run: ${outcome.recordId}`,
@@ -1294,7 +1295,7 @@ function validateEvidencePayload(
 
   for (const query of payload.queries) {
     if (!usedQueryIds.has(query.queryId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["queries"],
         `Evidence query has no prepared record outcome: ${query.queryId}`,
@@ -1303,7 +1304,7 @@ function validateEvidencePayload(
   }
   for (const corpus of payload.corpora) {
     if (!usedCorpusIds.has(corpus.corpusId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["corpora"],
         `Evidence corpus has no record outcome: ${corpus.corpusId}`,
@@ -1312,7 +1313,7 @@ function validateEvidencePayload(
   }
   for (const run of payload.bm25Runs) {
     if (!usedBm25RunIds.has(run.bm25RunId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["bm25Runs"],
         `BM25 run has no record outcome: ${run.bm25RunId}`,
@@ -1321,7 +1322,7 @@ function validateEvidencePayload(
   }
   for (const run of payload.rerankRuns) {
     if (!usedRerankRunIds.has(run.rerankRunId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["rerankRuns"],
         `Rerank run has no record outcome: ${run.rerankRunId}`,
@@ -1330,7 +1331,7 @@ function validateEvidencePayload(
   }
   for (const selection of payload.selections) {
     if (!usedSelectionIds.has(selection.selectionId)) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["selections"],
         `Final selection has no record outcome: ${selection.selectionId}`,
@@ -1371,7 +1372,7 @@ function validateEvidenceOutcomeReferences(
           canonicalSha256(bm25Run.queryText) !== query.contentHash)) ||
       (selection != null && selection.bm25RunId !== bm25Run?.bm25RunId))
   ) {
-    addEvidenceIssue(
+    addIssue(
       context,
       ["records"],
       `Evidence outcome products do not share one query and corpus: ${outcome.recordId}`,
@@ -1381,7 +1382,7 @@ function validateEvidenceOutcomeReferences(
   for (const componentBm25RunId of outcome.componentBm25RunIds ?? []) {
     const component = bm25RunsById.get(componentBm25RunId);
     if (component && component.corpusId !== outcome.corpusId) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Evidence outcome component BM25 runs must share its corpus: ${outcome.recordId}`,
@@ -1399,7 +1400,7 @@ function validateEvidenceOutcomeReferences(
       outcome.failure != null ||
       outcome.finalSelectionId == null
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Retrieved Evidence requires matched BM25 and a nonempty exact final selection: ${outcome.recordId}`,
@@ -1415,7 +1416,7 @@ function validateEvidenceOutcomeReferences(
       outcome.rerankRunId != null ||
       outcome.failure != null
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `No lexical matches must retain BM25 without claiming a final selection: ${outcome.recordId}`,
@@ -1429,7 +1430,7 @@ function validateEvidenceOutcomeReferences(
       outcome.rerankRunId != null ||
       outcome.finalSelectionId != null
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Retrieval failure must remain typed and cannot claim a ranking: ${outcome.recordId}`,
@@ -1443,7 +1444,7 @@ function validateEvidenceOutcomeReferences(
     outcome.finalSelectionId != null ||
     outcome.failure != null
   ) {
-    addEvidenceIssue(
+    addIssue(
       context,
       ["records"],
       `Unavailable seed text cannot claim retrieval products: ${outcome.recordId}`,
@@ -1452,7 +1453,7 @@ function validateEvidenceOutcomeReferences(
 
   if (!rerankingPolicy.enabled) {
     if (outcome.rerankStatus !== "disabled" || outcome.rerankRunId != null) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Disabled reranking cannot carry execution provenance: ${outcome.recordId}`,
@@ -1463,7 +1464,7 @@ function validateEvidenceOutcomeReferences(
       selection.rankingSource !== "bm25" &&
       selection.rankingSource !== "bm25_with_scope_pins"
     ) {
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Disabled reranking requires deterministic BM25 selection: ${outcome.recordId}`,
@@ -1481,7 +1482,7 @@ function validateEvidenceOutcomeReferences(
           selection?.rankingSource !== "reranked_with_scope_pins") ||
         selection.rerankRunId !== rerankRun.rerankRunId
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Completed reranking must use its separate immutable ranking: ${outcome.recordId}`,
@@ -1495,7 +1496,7 @@ function validateEvidenceOutcomeReferences(
         (selection?.rankingSource !== "bm25" &&
           selection?.rankingSource !== "bm25_with_scope_pins")
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Nonfatal rerank failure must remain explicit while selecting from BM25: ${outcome.recordId}`,
@@ -1509,7 +1510,7 @@ function validateEvidenceOutcomeReferences(
         outcome.finalSelectionId != null ||
         selection != null
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `No-candidate rerank status requires an empty BM25 result: ${outcome.recordId}`,
@@ -1521,7 +1522,7 @@ function validateEvidenceOutcomeReferences(
         outcome.retrievalStatus !== "seed_text_unavailable" &&
         outcome.retrievalStatus !== "seed_acquisition_failed"
       ) {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Unavailable rerank status requires unavailable seed text: ${outcome.recordId}`,
@@ -1530,7 +1531,7 @@ function validateEvidenceOutcomeReferences(
       break;
     case "not_attempted_retrieval_failure":
       if (outcome.retrievalStatus !== "retrieval_failed") {
-        addEvidenceIssue(
+        addIssue(
           context,
           ["records"],
           `Rerank retrieval-failure status requires typed retrieval failure: ${outcome.recordId}`,
@@ -1538,19 +1539,11 @@ function validateEvidenceOutcomeReferences(
       }
       break;
     case "disabled":
-      addEvidenceIssue(
+      addIssue(
         context,
         ["records"],
         `Enabled reranking cannot emit disabled status: ${outcome.recordId}`,
       );
       break;
   }
-}
-
-function addEvidenceIssue(
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  message: string,
-): void {
-  context.addIssue({ code: "custom", path, message });
 }
