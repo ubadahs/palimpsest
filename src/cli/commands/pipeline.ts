@@ -71,6 +71,7 @@ export function parseCanonicalPipelineArgs(
   let stopAfterStage: StageKey | undefined;
   let discoverNeighborhoodLimit: number | undefined;
   let discoverProbeBudget: number | undefined;
+  let modelConcurrency: number | undefined;
   let discoverMinFamilies: number | undefined;
   let discoverMaxFamilies: number | undefined;
   let discoverMaxPreparedRecords: number | undefined;
@@ -119,6 +120,10 @@ export function parseCanonicalPipelineArgs(
         break;
       case "--probe-budget":
         discoverProbeBudget = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--model-concurrency":
+        modelConcurrency = readPositiveInteger(argv, index, flag);
         index++;
         break;
       case "--min-families":
@@ -251,6 +256,7 @@ export function parseCanonicalPipelineArgs(
     stopAfterStage,
     discoverNeighborhoodLimit,
     discoverProbeBudget,
+    modelConcurrency,
     discoverMinFamilies,
     discoverMaxFamilies,
     discoverMaxPreparedRecords,
@@ -289,6 +295,7 @@ Options:
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
   --neighborhood-limit <n>          Total citing-work observation cap (across paginated requests)
   --probe-budget <n>                Discover citing-paper probe budget (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget})
+  --model-concurrency <n>           Model requests in flight per stage (default ${CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency})
   --min-families <n>                Adaptive portfolio minimum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})
   --max-families <n>                Adaptive portfolio maximum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies})
   --max-prepared-records <n>        Prepared-record budget for portfolio (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords})

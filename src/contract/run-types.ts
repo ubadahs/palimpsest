@@ -45,6 +45,7 @@ export type AnalysisRunStageStatus = z.infer<
 export const CANONICAL_RUN_CONFIG_DEFAULTS = {
   stopAfterStage: "report" as const satisfies StageKey,
   forceRefresh: false,
+  modelConcurrency: 6,
   discover: {
     neighborhoodProvider: "openalex",
     neighborhoodQuery: "works-citing-seed",
@@ -90,6 +91,17 @@ export const analysisRunConfigSchema = z
     forceRefresh: z
       .boolean()
       .default(CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh),
+    /**
+     * Model requests in flight at once within a stage. Changes wall time
+     * only: results are appended in input order, so artifacts hash the same
+     * at any value. Kept modest to stay under provider rate limits.
+     */
+    modelConcurrency: z
+      .number()
+      .int()
+      .min(1)
+      .max(32)
+      .default(CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency),
 
     discover: z
       .object({

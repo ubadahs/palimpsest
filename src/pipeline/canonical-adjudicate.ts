@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
+import { pMap } from "../shared/concurrency.js";
 import { compareCodeUnits } from "../shared/order.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
@@ -55,6 +56,8 @@ const canonicalAdjudicateOptionsSchema = z
     recordedAt: z.string().datetime({ offset: true }),
     evidenceArtifactUri: z.string().min(1).optional(),
     prepareArtifactUri: z.string().min(1).optional(),
+    /** Model requests in flight at once; results keep input order. */
+    concurrency: z.number().int().positive().optional(),
   })
   .strict();
 export type CanonicalAdjudicateOptions = z.input<
@@ -173,12 +176,19 @@ export async function runCanonicalAdjudicate(
     (left, right) => compareCodeUnits(left.recordId, right.recordId),
   );
 
-  const outcomes: AdjudicateRecordOutcome[] = [];
-  const promptHashes = new Set<string>();
-  const modelProvenance: LeanArtifactProvenance["models"] = [];
-  const responseArtifacts: ArtifactReference[] = [];
+  const adjudicate = adapters.adjudicate;
 
-  for (const evidenceOutcome of orderedEvidenceRecords) {
+  /** Everything one record contributes to the artifact, in one value. */
+  type RecordAdjudication = {
+    outcome: AdjudicateRecordOutcome;
+    /** Present only when the record reached the model. */
+    execution?: ModelExecution;
+    promptContentHash?: string;
+  };
+
+  async function adjudicateRecord(
+    evidenceOutcome: EvidenceRecordOutcome,
+  ): Promise<RecordAdjudication> {
     const prepareRecord = prepareById.get(evidenceOutcome.recordId);
     if (!prepareRecord) {
       throw new CanonicalAdjudicateBoundaryError(
@@ -203,17 +213,15 @@ export async function runCanonicalAdjudicate(
     });
 
     if (!gate.eligible) {
-      outcomes.push(
-        buildNotAdjudicatedOutcome({
+      return {
+        outcome: buildNotAdjudicatedOutcome({
           prepareRecord,
           gateCode: gate.gateCode,
           reason: gate.reason,
         }),
-      );
-      continue;
+      };
     }
 
-    const adjudicate = adapters.adjudicate;
     if (!adjudicate) {
       throw new CanonicalAdjudicateBoundaryError(
         `Canonical Adjudicate requires an adapter for eligible record: ${prepareRecord.recordId}`,
@@ -226,20 +234,18 @@ export async function runCanonicalAdjudicate(
     });
     const packetQuality = assessAdjudicatePacketQuality(packet);
     if (!packetQuality.ok) {
-      outcomes.push(
-        buildNotAdjudicatedOutcome({
+      return {
+        outcome: buildNotAdjudicatedOutcome({
           prepareRecord,
           gateCode: "manual_review_extraction_limited",
           reason:
             packetQuality.gateReason ??
             "Adjudicate packet failed citation-scope quality checks",
         }),
-      );
-      continue;
+      };
     }
     const promptText = buildCanonicalAdjudicatePrompt(packet);
     const promptContentHash = hashCanonicalAdjudicatePrompt(promptText);
-    promptHashes.add(promptContentHash);
 
     const adapterInput: CanonicalAdjudicateAdapterInput = {
       purpose: "categorical_adjudication",
@@ -262,15 +268,7 @@ export async function runCanonicalAdjudicate(
       promptContentHash,
       expectedRequestHash,
     });
-
-    modelProvenance.push({
-      provider: adapterResult.execution.provider,
-      model: adapterResult.execution.model,
-      requestHash: adapterResult.execution.requestHash,
-      requestArtifact: adapterResult.execution.requestArtifact,
-      responseArtifact: adapterResult.execution.responseArtifact,
-    });
-    responseArtifacts.push(adapterResult.execution.responseArtifact);
+    const modeled = { execution: adapterResult.execution, promptContentHash };
 
     if (adapterResult.status === "failed") {
       if (
@@ -284,30 +282,30 @@ export async function runCanonicalAdjudicate(
           adapterResult.reason,
         );
       }
-      outcomes.push(
-        buildFailedOutcome({
+      return {
+        ...modeled,
+        outcome: buildFailedOutcome({
           prepareRecord,
           failureCode:
             adapterResult.reasonCode as AdjudicateNonfatalFailureCode,
           reason: adapterResult.reason,
           execution: adapterResult.execution,
         }),
-      );
-      continue;
+      };
     }
 
     const parsedOutput = canonicalAdjudicateModelOutputSchema.safeParse(
       adapterResult.rawOutput,
     );
     if (!parsedOutput.success) {
-      outcomes.push(
-        buildInvalidOutputOutcome({
+      return {
+        ...modeled,
+        outcome: buildInvalidOutputOutcome({
           prepareRecord,
           reason: `Malformed adjudication output: ${parsedOutput.error.issues[0]?.message ?? "invalid JSON shape"}`,
           execution: adapterResult.execution,
         }),
-      );
-      continue;
+      };
     }
 
     const referenceError = validateModelReferences({
@@ -315,25 +313,51 @@ export async function runCanonicalAdjudicate(
       selectedChunkIds: gate.selection.selectedChunkIds,
     });
     if (referenceError) {
-      outcomes.push(
-        buildInvalidOutputOutcome({
+      return {
+        ...modeled,
+        outcome: buildInvalidOutputOutcome({
           prepareRecord,
           reason: referenceError,
           execution: adapterResult.execution,
         }),
-      );
-      continue;
+      };
     }
 
-    outcomes.push(
-      buildAdjudicatedOutcome({
+    return {
+      ...modeled,
+      outcome: buildAdjudicatedOutcome({
         prepareRecord,
         output: parsedOutput.data,
         selectedChunkIds: gate.selection.selectedChunkIds,
         execution: adapterResult.execution,
         packet,
       }),
-    );
+    };
+  }
+
+  // Records are independent, so eligible ones call the model side by side.
+  // Results come back in record order, so the artifact is the same at any
+  // concurrency; only the wall time changes.
+  const adjudications = await pMap(orderedEvidenceRecords, adjudicateRecord, {
+    concurrency: options.concurrency ?? 1,
+  });
+
+  const outcomes: AdjudicateRecordOutcome[] = [];
+  const promptHashes = new Set<string>();
+  const modelProvenance: LeanArtifactProvenance["models"] = [];
+  const responseArtifacts: ArtifactReference[] = [];
+  for (const { outcome, execution, promptContentHash } of adjudications) {
+    outcomes.push(outcome);
+    if (!execution || !promptContentHash) continue;
+    promptHashes.add(promptContentHash);
+    modelProvenance.push({
+      provider: execution.provider,
+      model: execution.model,
+      requestHash: execution.requestHash,
+      requestArtifact: execution.requestArtifact,
+      responseArtifact: execution.responseArtifact,
+    });
+    responseArtifacts.push(execution.responseArtifact);
   }
 
   // Complete Evidence accounting: every Evidence record must appear once.

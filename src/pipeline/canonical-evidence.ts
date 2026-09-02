@@ -7,6 +7,7 @@ import {
   uniqueSortedById,
 } from "../shared/order.js";
 import { createBoundaryParser, formatZodFailure } from "../shared/boundary.js";
+import { dedupeInFlight, pMap } from "../shared/concurrency.js";
 
 import {
   buildEvidenceBm25RunId,
@@ -75,6 +76,8 @@ const canonicalEvidenceOptionsSchema = z
     bm25CandidateLimit: z.number().int().positive().default(20),
     selectionLimit: z.number().int().positive().default(5),
     reranking: evidenceRerankingPolicySchema,
+    /** Model requests in flight at once; results keep input order. */
+    concurrency: z.number().int().positive().optional(),
   })
   .strict()
   .superRefine((options, context) => {
@@ -222,33 +225,38 @@ export async function runCanonicalEvidence(
   const familiesById = new Map(
     scopeArtifact.payload.families.map((family) => [family.familyId, family]),
   );
-  const computations: RecordEvidenceComputation[] = [];
-  for (const record of prepareArtifact.payload.records) {
-    const family = familiesById.get(record.familyId);
-    if (!family) {
-      throw new CanonicalEvidenceBoundaryError(
-        `Prepare record has no Scope family: ${record.recordId}`,
-      );
-    }
-    const materialization = materializationsBySeedId.get(family.seedId);
-    if (!materialization) {
-      throw new CanonicalEvidenceBoundaryError(
-        `Scope family has no seed materialization: ${family.familyId}`,
-      );
-    }
-    computations.push(
-      await retrieveRecordEvidence({
+  // BM25 is synchronous and memoized before any await, so concurrent records
+  // share corpora and runs safely; only the reranker call runs side by side.
+  const rerankInFlight = new Map<string, Promise<unknown>>();
+  const computations = await pMap(
+    prepareArtifact.payload.records,
+    (record) => {
+      const family = familiesById.get(record.familyId);
+      if (!family) {
+        throw new CanonicalEvidenceBoundaryError(
+          `Prepare record has no Scope family: ${record.recordId}`,
+        );
+      }
+      const materialization = materializationsBySeedId.get(family.seedId);
+      if (!materialization) {
+        throw new CanonicalEvidenceBoundaryError(
+          `Scope family has no seed materialization: ${family.familyId}`,
+        );
+      }
+      return retrieveRecordEvidence({
         record,
         family,
         materialization,
         corporaBySeedId,
         bm25WorkByContent,
         unionRunsByComponents,
+        rerankInFlight,
         adapters,
         options,
-      }),
-    );
-  }
+      });
+    },
+    { concurrency: options.concurrency ?? 1 },
+  );
 
   const preparedRecords = prepareArtifact.payload.records.map((record) => ({
     recordId: record.recordId,
@@ -429,6 +437,8 @@ async function retrieveRecordEvidence(input: {
   corporaBySeedId: Map<string, EvidenceChunkCorpus>;
   bm25WorkByContent: Map<string, EvidenceBm25Run>;
   unionRunsByComponents: Map<string, EvidenceBm25Run>;
+  /** Identical rerank requests issued concurrently share one model call. */
+  rerankInFlight: Map<string, Promise<unknown>>;
   adapters: CanonicalEvidenceAdapters;
   options: z.output<typeof canonicalEvidenceOptionsSchema>;
 }): Promise<RecordEvidenceComputation> {
@@ -575,46 +585,56 @@ async function retrieveRecordEvidence(input: {
   const chunksById = new Map(
     corpus.chunks.map((chunk) => [chunk.chunkId, chunk]),
   );
+  const rerankInput: CanonicalEvidenceRerankerInput = {
+    purpose: "relevance_only",
+    familyId: family.familyId,
+    bm25RunId: bm25Run.bm25RunId,
+    query: {
+      queryId: query.queryId,
+      familyId: query.familyId,
+      text: query.text,
+      contentHash: query.contentHash,
+      source: query.source,
+    },
+    topN: options.reranking.topN,
+    candidates: bm25Run.candidates.map((candidate) => {
+      const chunk = chunksById.get(candidate.chunkId);
+      if (!chunk) {
+        throw new Error("BM25 returned a chunk outside its corpus");
+      }
+      return {
+        chunkId: chunk.chunkId,
+        text: chunk.text,
+        sourceBlockId: chunk.sourceBlockId,
+        sourceBlockKind: chunk.sourceBlockKind,
+        ...(chunk.sourceSectionTitle
+          ? { sourceSectionTitle: chunk.sourceSectionTitle }
+          : {}),
+        ...(chunk.sourceSectionRole
+          ? { sourceSectionRole: chunk.sourceSectionRole }
+          : {}),
+        ...(chunk.sourceCitesOtherWork != null
+          ? { sourceCitesOtherWork: chunk.sourceCitesOtherWork }
+          : {}),
+        charOffsetStart: chunk.charOffsetStart,
+        charOffsetEnd: chunk.charOffsetEnd,
+        bm25Score: candidate.rawScore,
+        bm25Rank: candidate.rank,
+      };
+    }),
+  };
+  // The BM25 run id is content-derived, so equal ids mean equal candidates.
   const adapterResult = parseBoundary(
     canonicalEvidenceRerankerResultSchema,
-    await reranker({
-      purpose: "relevance_only",
-      familyId: family.familyId,
-      bm25RunId: bm25Run.bm25RunId,
-      query: {
-        queryId: query.queryId,
-        familyId: query.familyId,
-        text: query.text,
-        contentHash: query.contentHash,
-        source: query.source,
-      },
-      topN: options.reranking.topN,
-      candidates: bm25Run.candidates.map((candidate) => {
-        const chunk = chunksById.get(candidate.chunkId);
-        if (!chunk) {
-          throw new Error("BM25 returned a chunk outside its corpus");
-        }
-        return {
-          chunkId: chunk.chunkId,
-          text: chunk.text,
-          sourceBlockId: chunk.sourceBlockId,
-          sourceBlockKind: chunk.sourceBlockKind,
-          ...(chunk.sourceSectionTitle
-            ? { sourceSectionTitle: chunk.sourceSectionTitle }
-            : {}),
-          ...(chunk.sourceSectionRole
-            ? { sourceSectionRole: chunk.sourceSectionRole }
-            : {}),
-          ...(chunk.sourceCitesOtherWork != null
-            ? { sourceCitesOtherWork: chunk.sourceCitesOtherWork }
-            : {}),
-          charOffsetStart: chunk.charOffsetStart,
-          charOffsetEnd: chunk.charOffsetEnd,
-          bm25Score: candidate.rawScore,
-          bm25Rank: candidate.rank,
-        };
+    await dedupeInFlight(
+      input.rerankInFlight,
+      canonicalSerialize({
+        bm25RunId: bm25Run.bm25RunId,
+        queryContentHash: query.contentHash,
+        topN: options.reranking.topN,
       }),
-    }),
+      () => reranker(rerankInput),
+    ),
     `reranker result for ${family.familyId}`,
   );
   throwIfFatalRerankFailure(adapterResult);

@@ -1621,3 +1621,44 @@ describe("canonical Adjudicate", () => {
     expect(artifact.payload.method.calibrationStatus).toBe("uncalibrated");
   });
 });
+
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("adjudicate concurrency", () => {
+  it("produces the same artifact whether records run one at a time or side by side", async () => {
+    const ancestors = await buildEvidenceAncestors({ multipleClaims: true });
+    const run = async (concurrency: number) => {
+      const calls: CanonicalAdjudicateAdapterInput[] = [];
+      const base = adjudicateAdapter("F", calls);
+      let inFlight = 0;
+      let peak = 0;
+      const result = await runCanonicalAdjudicate(
+        ancestors.evidence,
+        ancestors.prepare,
+        {
+          adjudicate: async (input) => {
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+            // Finish in reverse order so completion order differs from input.
+            await tick(input.recordId.endsWith("a") ? 8 : 1);
+            inFlight -= 1;
+            return base(input);
+          },
+        },
+        { recordedAt: "2026-07-17T09:40:00.000Z", concurrency },
+      );
+      return { result, peak, calls: calls.length };
+    };
+
+    const sequential = await run(1);
+    const parallel = await run(4);
+
+    expect(sequential.peak).toBe(1);
+    expect(parallel.calls).toBe(sequential.calls);
+    expect(parallel.result.payload).toEqual(sequential.result.payload);
+    expect(parallel.result.provenanceInputs).toEqual(
+      sequential.result.provenanceInputs,
+    );
+    expect(parallel.result.decisions).toEqual(sequential.result.decisions);
+  });
+});
