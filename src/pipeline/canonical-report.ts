@@ -1562,12 +1562,12 @@ function buildDecisionSummaries(
   );
 }
 
-function count(
+function count<U extends ReportCount["unit"]>(
   metricId: string,
   value: number,
-  unit: ReportCount["unit"],
+  unit: U,
   population: string,
-): ReportCount {
+): ReportCount & { unit: U } {
   return buildReportCount({
     metricId,
     count: value,

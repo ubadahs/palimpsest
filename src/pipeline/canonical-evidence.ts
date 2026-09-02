@@ -6,7 +6,7 @@ import {
   uniqueSorted,
   uniqueSortedById,
 } from "../shared/order.js";
-import { createBoundaryParser } from "../shared/boundary.js";
+import { createBoundaryParser, formatZodFailure } from "../shared/boundary.js";
 
 import {
   buildEvidenceBm25RunId,
@@ -1145,8 +1145,3 @@ function errorMessage(error: unknown): string {
 }
 
 const parseBoundary = createBoundaryParser(CanonicalEvidenceBoundaryError);
-
-function formatZodFailure(label: string, error: z.ZodError): string {
-  const issue = error.issues[0];
-  return `${label} at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? error.message}`;
-}

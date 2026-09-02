@@ -48,6 +48,8 @@ import {
   sha256DigestSchema as primitiveSha256DigestSchema,
   stableIdentifierSchema as primitiveStableIdentifierSchema,
 } from "../../src/contract/lean-artifact-primitives.js";
+import { computeLeanArtifactId } from "../../src/contract/artifacts/envelope.js";
+import { deriveCanonicalStageSummary } from "../../src/contract/selectors.js";
 import {
   buildStableId,
   canonicalSha256,
@@ -1393,6 +1395,103 @@ describe("lean stage artifact contracts", () => {
     if (!parsed.ok) {
       expect(parsed.error).toMatch(/candidateId|contentHash|artifactId/);
     }
+  });
+
+  it("rejects a report whose input lineage was swapped, dropped, or corrupted", () => {
+    const report = buildAllStageArtifacts().report;
+    if (report.canonicalStage !== "report") {
+      throw new Error("Expected report artifact");
+    }
+    const [first, second, ...rest] = report.inputArtifacts;
+    if (!first || !second) throw new Error("Report needs at least two inputs");
+    const variants: Array<[string, ArtifactReference[]]> = [
+      ["swapped", [second, first, ...rest]],
+      ["dropped", [second, ...rest]],
+      [
+        "corrupted",
+        [
+          { ...first, contentHash: canonicalSha256({ tampered: true }) },
+          second,
+          ...rest,
+        ],
+      ],
+    ];
+
+    for (const [label, inputArtifacts] of variants) {
+      // Re-derive identity so only the lineage check can reject it.
+      const tampered = {
+        ...report,
+        inputArtifacts,
+        artifactId: computeLeanArtifactId({ ...report, inputArtifacts }),
+      };
+      const parsed = parseLeanStageArtifact(tampered);
+      expect(parsed.ok, label).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.error, label).toMatch(/exact canonical inputs/);
+      }
+    }
+  });
+
+  it("rejects a funnel count relabelled with another unit", () => {
+    const report = buildAllStageArtifacts().report;
+    if (report.canonicalStage !== "report") {
+      throw new Error("Expected report artifact");
+    }
+    const funnel = report.payload.funnel;
+    const tampered = {
+      ...report,
+      payload: {
+        ...report.payload,
+        funnel: {
+          ...funnel,
+          discover: {
+            ...funnel.discover,
+            seeds: { ...funnel.discover.seeds, unit: "candidates" },
+          },
+        },
+      },
+    };
+    const parsed = parseLeanStageArtifact(tampered);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toMatch(/unit/);
+    }
+  });
+
+  it("summarizes Adjudicate from its record statuses and verdicts", () => {
+    const adjudicate = buildAllStageArtifacts().adjudicate;
+    if (adjudicate.canonicalStage !== "adjudicate") {
+      throw new Error("Expected adjudicate artifact");
+    }
+    const records = adjudicate.payload.records;
+    const expected = (label: string, value: number) => ({
+      label,
+      value: String(value),
+    });
+
+    const summary = deriveCanonicalStageSummary("adjudicate", adjudicate);
+
+    expect(summary.metrics).toEqual(
+      expect.arrayContaining([
+        expected("Records", records.length),
+        expected(
+          "Adjudicated",
+          records.filter((record) => record.status === "adjudicated").length,
+        ),
+        expected(
+          "F",
+          records.filter(
+            (record) =>
+              record.status === "adjudicated" && record.verdict === "F",
+          ).length,
+        ),
+        expected(
+          "Not adjudicated",
+          records.filter((record) => record.status === "not_adjudicated")
+            .length,
+        ),
+      ]),
+    );
   });
 
   it("rejects model provenance when Adjudicate has no modeled outcomes", () => {

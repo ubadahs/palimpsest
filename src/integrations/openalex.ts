@@ -139,7 +139,6 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
       ) ?? undefined,
     title: work.display_name,
     authors: (work.authorships ?? []).map((a) => a.author.display_name),
-    abstract: undefined,
     source: "openalex",
     fullTextHints,
     paperType: work.type ?? undefined,

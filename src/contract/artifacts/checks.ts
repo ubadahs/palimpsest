@@ -102,10 +102,6 @@ export function sameArtifactReference(
   return left != null && canonicalSerialize(left) === canonicalSerialize(right);
 }
 
-export function sortedUniqueIdentifiers(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareCodeUnits);
-}
-
 export function findDuplicate(values: readonly string[]): string | undefined {
   const seen = new Set<string>();
   for (const value of values) {
