@@ -40,7 +40,7 @@ Scope consumes verified Discover output, explicitly accounts for every candidate
 
 ### Prepare
 
-Prepare consumes Scope and its exact Discover ancestor. It emits exactly one stable record for every family × citation-occurrence pair, preserving both the complete family ledger and the occurrence-local claim set. Deterministic role classification prefers verified support-span text; occurrence-local claims missing a verified span are queued as `manual_review_extraction_limited`. Classification failures and ambiguous roles remain typed records; they are not sampled away.
+Prepare consumes Scope and its exact Discover ancestor. It emits exactly one stable record for every family × citation-occurrence pair, preserving both the complete family ledger and the occurrence-local claim set. Deterministic role classification prefers verified support-span text and takes the weakest per-claim extraction confidence as the occurrence confidence, so low-information citations reach `skip_low_information` rather than the manual-review queue. Occurrence-local claims missing a verified span are queued as `manual_review_extraction_limited`, and an unclear role stays in manual review even when the citing paper is a review. Classification failures and ambiguous roles remain typed records; they are not sampled away.
 
 ### Evidence
 
