@@ -58,6 +58,7 @@ export {
   reportLineageSchema,
   reportRateSchema,
   reportRecordTraceSchema,
+  reportSelectionAuditRowSchema,
   type CanonicalReportMethod,
   type ReportArtifactPayload,
   type ReportCount,
@@ -68,6 +69,7 @@ export {
   type ReportLineage,
   type ReportRate,
   type ReportRecordTrace,
+  type ReportSelectionAuditRow,
   type ReportInterpretationStatus,
 } from "./canonical-report.js";
 

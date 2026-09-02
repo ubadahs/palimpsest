@@ -284,6 +284,14 @@ const discoverFunnelCountsSchema = z
     seeds: reportCountSchema,
     /** Sampling design: how many citing papers each stratum returned and how many were probed. */
     probeStratumCounts: z.array(reportProbeStratumCountSchema),
+    /**
+     * The sampling denominator, stated rather than implied: what the citation
+     * index said the whole citing neighborhood was, and whether pagination
+     * reached all of it. Every rate below is over what was observed, not over
+     * this, and a reader cannot judge that without seeing both.
+     */
+    providerReportedNeighborhoodTotal: reportCountSchema,
+    neighborhoodCoverage: z.array(reportStatusCountSchema),
     returnedCitingPaperObservations: reportCountSchema,
     probed: reportCountSchema,
     notProbed: reportCountSchema,
@@ -310,6 +318,15 @@ const discoverFunnelCountsSchema = z
     deferredByFamilyCap: reportCountSchema,
     deferredByRecordBudget: reportCountSchema,
     deferredByNovelty: reportCountSchema,
+    /**
+     * Where the citing papers went and how their text was reached. A run that
+     * lost most of its neighborhood to paywalls is a different result from one
+     * that lost it to parse failures, and the F/D/E/U rates cannot say which.
+     */
+    materializationChannelCounts: z.array(reportStatusCountSchema),
+    materializationLossReasonCounts: z.array(reportStatusCountSchema),
+    harvestLossReasonCounts: z.array(reportStatusCountSchema),
+    bibliographyMatchMethodCounts: z.array(reportStatusCountSchema),
   })
   .strict();
 const scopeFunnelCountsSchema = z
@@ -604,6 +621,21 @@ const reportAdjudicationTraceSchema = z.discriminatedUnion("status", [
     .strict(),
 ]);
 
+/**
+ * Why Prepare classified this record the way it did. The signals are the
+ * deterministic cues that fired plus, when the regex pass was unclear, the
+ * model's answer — the only way to tell a well-supported role from a lucky one
+ * without reopening the Prepare artifact.
+ */
+const reportClassificationTraceSchema = z
+  .object({
+    status: z.enum(["classified", "ambiguous", "failed"]),
+    citationRole: z.string().min(1).optional(),
+    evaluationMode: z.string().min(1).optional(),
+    signals: z.array(z.string().min(1)),
+  })
+  .strict();
+
 export const reportRecordTraceSchema = z
   .object({
     recordId: stableIdentifierSchema,
@@ -612,11 +644,44 @@ export const reportRecordTraceSchema = z
     prepareArtifact: reportPrepareArtifactReferenceSchema,
     evidenceArtifact: reportEvidenceArtifactReferenceSchema,
     adjudicateArtifact: reportAdjudicateArtifactReferenceSchema,
+    classification: reportClassificationTraceSchema,
     evidence: reportEvidenceTraceSchema,
     adjudication: reportAdjudicationTraceSchema,
   })
   .strict();
 export type ReportRecordTrace = z.infer<typeof reportRecordTraceSchema>;
+
+/**
+ * One row per Discover candidate: what the adaptive portfolio scored it and
+ * what it decided. Without this, "was selection actually discriminating, or
+ * did it take the first twenty?" cannot be answered from the artifact.
+ */
+export const reportSelectionAuditRowSchema = z
+  .object({
+    candidateId: stableIdentifierSchema,
+    seedId: stableIdentifierSchema,
+    rank: z.number().int().positive(),
+    selectedForScope: z.boolean(),
+    reason: z.string().min(1),
+    claimShape: z.string().min(1),
+    uniqueCitingPaperCount: z.number().int().nonnegative(),
+    specificityScore: z.number(),
+    confidenceAggregate: z.number(),
+    componentScores: z
+      .object({
+        prevalence: z.number(),
+        specificity: z.number(),
+        confidence: z.number(),
+        novelty: z.number(),
+        utility: z.number(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ReportSelectionAuditRow = z.infer<
+  typeof reportSelectionAuditRowSchema
+>;
 
 const reportDecisionSummarySchema = z
   .object({
@@ -744,6 +809,8 @@ export const reportArtifactPayloadSchema = z
     familyMutations: z.array(reportFamilyMutationSchema),
     recordTraces: z.array(reportRecordTraceSchema),
     decisionSummaries: z.array(reportDecisionSummarySchema),
+    /** Per-candidate selection scores, so the portfolio can be second-guessed. */
+    selectionAudit: z.array(reportSelectionAuditRowSchema),
   })
   .strict()
   .superRefine(validateReportPayload);
@@ -1528,7 +1595,7 @@ function validateOrderedUniqueStatusCounts(
   }
 }
 
-function summarizeStatuses(
+export function summarizeStatuses(
   statuses: readonly string[],
 ): Array<{ status: string; count: number }> {
   const counts = new Map<string, number>();

@@ -159,7 +159,7 @@ const mention = {
   citedPaperId: "seed-paper",
   mentionIndex: 0,
   targetRefIds: ["seed-ref"],
-  identityStrength: "weak_context_fallback" as const,
+  locationQuality: "exact_dom" as const,
   citationMarker: "[1]",
   rawContext: "The seed showed claim A and claim B [1].",
   isBundledCitation: false,

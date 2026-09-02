@@ -4,6 +4,7 @@ import { compareCodeUnits } from "../shared/order.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
+import { summarizeStatuses } from "../contract/canonical-report.js";
 
 import {
   adjudicateArtifactSchema,
@@ -42,6 +43,7 @@ import {
   type ReportLineage,
   type ReportRate,
   type ReportRecordTrace,
+  type ReportSelectionAuditRow,
   type ScopeArtifact,
 } from "../contract/lean-artifacts.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
@@ -143,6 +145,7 @@ export function runCanonicalReport(
     adjudicateArtifact,
     lineage,
   });
+  const selectionAudit = buildSelectionAudit(discoverArtifact);
   const decisionSummaries = buildDecisionSummaries([
     discoverArtifact,
     scopeArtifact,
@@ -170,6 +173,7 @@ export function runCanonicalReport(
     familyMutations,
     recordTraces,
     decisionSummaries,
+    selectionAudit,
   });
 
   const decisions = [
@@ -429,6 +433,40 @@ function buildFunnelCounts(input: {
   const probeStratumCounts = [...strata.entries()]
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([stratum, counts]) => ({ stratum, ...counts }));
+  // The sampling denominator the provider reported, and whether pagination
+  // reached all of it. Both are on the Discover queries and neither reached
+  // the report before.
+  const providerReportedNeighborhoodTotal = discover.neighborhoodQueries.reduce(
+    (total, query) => total + (query.providerReportedTotal ?? 0),
+    0,
+  );
+  const neighborhoodCoverage = summarizeStatuses(
+    discover.neighborhoodQueries.map((query) => query.coverage),
+  );
+  const materializationChannelCounts = summarizeStatuses(
+    citingPapers.flatMap((paper) =>
+      paper.acquisition ? [paper.acquisition.accessChannel] : [],
+    ),
+  );
+  const materializationLossReasonCounts = summarizeStatuses(
+    citingPapers.flatMap((paper) =>
+      paper.materialization.status === "succeeded"
+        ? []
+        : [paper.materialization.reasonCode ?? paper.materialization.status],
+    ),
+  );
+  const harvestLossReasonCounts = summarizeStatuses(
+    citingPapers.flatMap((paper) =>
+      paper.harvest.status === "succeeded"
+        ? []
+        : [paper.harvest.reasonCode ?? paper.harvest.status],
+    ),
+  );
+  const bibliographyMatchMethodCounts = summarizeStatuses(
+    citingPapers.flatMap((paper) =>
+      paper.bibliographyMatch ? [paper.bibliographyMatch.method] : [],
+    ),
+  );
   const probed = citingPapers.filter(
     (paper) => paper.probe.status === "selected",
   ).length;
@@ -762,6 +800,17 @@ function buildFunnelCounts(input: {
   return {
     discover: {
       probeStratumCounts,
+      neighborhoodCoverage,
+      materializationChannelCounts,
+      materializationLossReasonCounts,
+      harvestLossReasonCounts,
+      bibliographyMatchMethodCounts,
+      providerReportedNeighborhoodTotal: count(
+        "discover.provider_reported_neighborhood_total",
+        providerReportedNeighborhoodTotal,
+        "citing_paper_observations",
+        "Citing works the provider reported for the seed, across all neighborhood queries",
+      ),
       seeds: count(
         "discover.seeds",
         discover.seeds.length,
@@ -1322,6 +1371,46 @@ function buildRates(funnel: ReportFunnelCounts): ReportRate[] {
   );
 }
 
+/**
+ * Every Discover candidate with the scores the adaptive portfolio gave it and
+ * the decision it took. Deferred candidates are included: the interesting
+ * question is whether the selected ones scored differently.
+ */
+function buildSelectionAudit(
+  discoverArtifact: DiscoverArtifact,
+): ReportSelectionAuditRow[] {
+  const candidatesById = new Map(
+    discoverArtifact.payload.claimCandidates.map((candidate) => [
+      candidate.candidateId,
+      candidate,
+    ]),
+  );
+  return discoverArtifact.payload.candidateDispositions
+    .map((disposition) => {
+      const candidate = candidatesById.get(disposition.candidateId);
+      if (!candidate) {
+        throw new CanonicalReportBoundaryError(
+          `Candidate disposition references an unknown candidate: ${disposition.candidateId}`,
+        );
+      }
+      return {
+        candidateId: disposition.candidateId,
+        seedId: candidate.seedId,
+        rank: disposition.rank,
+        selectedForScope: disposition.selectedForScope,
+        reason: disposition.reason,
+        claimShape: disposition.annotation.claimShape,
+        uniqueCitingPaperCount: disposition.annotation.uniqueCitingPaperCount,
+        specificityScore: disposition.annotation.specificityScore,
+        confidenceAggregate: disposition.annotation.confidenceAggregate,
+        ...(disposition.componentScores
+          ? { componentScores: disposition.componentScores }
+          : {}),
+      };
+    })
+    .sort((left, right) => left.rank - right.rank);
+}
+
 function buildRecordTraces(input: {
   prepareArtifact: PrepareArtifact;
   evidenceArtifact: EvidenceArtifact;
@@ -1404,6 +1493,15 @@ function buildRecordTraces(input: {
       prepareArtifact: input.lineage.prepareArtifact,
       evidenceArtifact: input.lineage.evidenceArtifact,
       adjudicateArtifact: input.lineage.adjudicateArtifact,
+      classification:
+        prepareRecord.classification.status === "failed"
+          ? { status: "failed" as const, signals: [] }
+          : {
+              status: prepareRecord.classification.status,
+              citationRole: prepareRecord.classification.citationRole,
+              evaluationMode: prepareRecord.classification.evaluationMode,
+              signals: prepareRecord.classification.signals,
+            },
       evidence: {
         retrievalStatus: evidenceRecord.retrievalStatus,
         rerankStatus: evidenceRecord.rerankStatus,

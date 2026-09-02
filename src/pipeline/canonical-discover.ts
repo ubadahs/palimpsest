@@ -287,6 +287,27 @@ export const canonicalMentionHarvestResultSchema = z
         .strict(),
     ]),
     mentions: z.array(harvestedMentionInputSchema),
+    /** How the text was obtained; absent when materialization did not succeed. */
+    acquisition: z
+      .object({
+        accessChannel: z.enum(["open_access", "institutional_proxy"]),
+        fullTextFormat: z.string().min(1).optional(),
+        selectedUrl: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    /** Which bibliography entry was taken to be the seed, and how. */
+    bibliographyMatch: z
+      .object({
+        method: z.enum([
+          "doi",
+          "author_year_exact_title",
+          "author_year_title_overlap",
+        ]),
+        refId: z.string().min(1),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((result, context) => {
@@ -734,6 +755,10 @@ export async function runCanonicalDiscover(
       citationMentions.push(...paperMentions);
       citingPapers.push({
         ...paperBase,
+        ...(harvest.acquisition ? { acquisition: harvest.acquisition } : {}),
+        ...(harvest.bibliographyMatch
+          ? { bibliographyMatch: harvest.bibliographyMatch }
+          : {}),
         materialization: harvest.materialization,
         harvest: {
           ...harvest.harvest,
@@ -1257,12 +1282,6 @@ function createCitationOccurrence(input: {
     citationMarker: input.mention.citationMarker,
     rawContext: input.mention.rawContext,
   };
-  const identityStrength = input.mention.sourceLocator
-    ? ("strong_source_locator" as const)
-    : input.mention.charOffsetStart != null &&
-        input.mention.charOffsetEnd != null
-      ? ("strong_source_offsets" as const)
-      : ("weak_context_fallback" as const);
   return {
     mentionId: buildCitationOccurrenceId(identity),
     ...identity,
@@ -1275,7 +1294,7 @@ function createCitationOccurrence(input: {
     ...(input.mention.citationGroupOrdinal != null
       ? { citationGroupOrdinal: input.mention.citationGroupOrdinal }
       : {}),
-    identityStrength,
+    locationQuality: input.mention.locationQuality ?? "missing",
     ...(input.mention.sectionTitle
       ? { sectionTitle: input.mention.sectionTitle }
       : {}),
