@@ -7,7 +7,13 @@ export type DetailedRankedDocument<TDocument> = RankedDocument<TDocument> & {
   rank: number;
 };
 
-const BM25_TOKEN_PATTERN = String.raw`\b[\p{L}\p{N}][\p{L}\p{N}-]{1,}\b`;
+/**
+ * Token = a run of letters/digits with internal hyphens, or a number with an
+ * internal decimal point. Unicode-aware lookarounds replace `\b`, which is
+ * ASCII-only in JavaScript and dropped Greek letters (β-catenin → catenin).
+ * Single-character tokens are kept so "5 mM" and "day 7" retain their numbers.
+ */
+const BM25_TOKEN_PATTERN = String.raw`(?<![\p{L}\p{N}])(?:\p{N}+(?:\.\p{N}+)+|[\p{L}\p{N}]+)(?:-[\p{L}\p{N}]+)*(?![\p{L}\p{N}])`;
 
 const BM25_STOP_WORDS = [
   "the",
@@ -60,9 +66,6 @@ const BM25_STOP_WORDS = [
   "also",
   "et",
   "al",
-  "figure",
-  "fig",
-  "table",
 ] as const;
 
 export type Bm25ScoringConfiguration = {
@@ -70,7 +73,7 @@ export type Bm25ScoringConfiguration = {
   k1: number;
   b: number;
   tokenizer: {
-    version: "unicode-alphanumeric-hyphen-stopwords-v1";
+    version: "unicode-token-plural-fold-stopwords-v2";
     tokenPattern: string;
     lowercase: true;
     stopWords: readonly string[];
@@ -83,13 +86,32 @@ export const BM25_DEFAULT_SCORING_CONFIGURATION: Bm25ScoringConfiguration = {
   k1: 1.2,
   b: 0.75,
   tokenizer: {
-    version: "unicode-alphanumeric-hyphen-stopwords-v1",
+    version: "unicode-token-plural-fold-stopwords-v2",
     tokenPattern: BM25_TOKEN_PATTERN,
     lowercase: true,
     stopWords: BM25_STOP_WORDS,
   },
   tieBreaker: "document-id-code-unit-ascending",
 };
+
+/**
+ * Light plural folding so "neurons"/"neuron" and "cells"/"cell" share a term.
+ * Deliberately conservative: only a trailing "s" on longer alphabetic tokens
+ * that do not end in "ss", "us", or "is".
+ */
+function foldPlural(token: string): string {
+  if (
+    token.length > 3 &&
+    token.endsWith("s") &&
+    !token.endsWith("ss") &&
+    !token.endsWith("us") &&
+    !token.endsWith("is") &&
+    /^\p{L}+$/u.test(token)
+  ) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
 
 export function tokenizeBm25Text(
   text: string,
@@ -98,7 +120,7 @@ export function tokenizeBm25Text(
   const tokenPattern = new RegExp(configuration.tokenizer.tokenPattern, "gu");
   const stopWords = new Set(configuration.tokenizer.stopWords);
   const matches = text.toLowerCase().match(tokenPattern) ?? [];
-  return matches.filter((token) => !stopWords.has(token));
+  return matches.filter((token) => !stopWords.has(token)).map(foldPlural);
 }
 
 type IndexedDocument<TDocument> = {
@@ -107,15 +129,22 @@ type IndexedDocument<TDocument> = {
   length: number;
 };
 
-function buildIndex<TDocument>(
-  documents: readonly TDocument[],
-  getText: (document: TDocument) => string,
-  configuration: Bm25ScoringConfiguration,
-): {
+export type Bm25Index<TDocument> = {
   indexedDocuments: IndexedDocument<TDocument>[];
   documentFrequencies: Map<string, number>;
   averageLength: number;
-} {
+  configuration: Bm25ScoringConfiguration;
+};
+
+/**
+ * Tokenize and index a corpus once so many queries can be ranked against it
+ * without re-tokenizing every document per query.
+ */
+export function buildBm25Index<TDocument>(
+  documents: readonly TDocument[],
+  getText: (document: TDocument) => string,
+  configuration: Bm25ScoringConfiguration = BM25_DEFAULT_SCORING_CONFIGURATION,
+): Bm25Index<TDocument> {
   const indexedDocuments: IndexedDocument<TDocument>[] = [];
   const documentFrequencies = new Map<string, number>();
   let totalLength = 0;
@@ -144,26 +173,8 @@ function buildIndex<TDocument>(
     documentFrequencies,
     averageLength:
       indexedDocuments.length > 0 ? totalLength / indexedDocuments.length : 0,
+    configuration,
   };
-}
-
-export function rankDocumentsByBm25<TDocument>(
-  query: string,
-  documents: TDocument[],
-  getText: (document: TDocument) => string,
-  limit: number,
-): RankedDocument<TDocument>[] {
-  const idsByDocument = new Map<TDocument, string>();
-  documents.forEach((document, index) => {
-    idsByDocument.set(document, String(index).padStart(12, "0"));
-  });
-  return rankDocumentsByBm25Detailed(
-    query,
-    documents,
-    getText,
-    (document) => idsByDocument.get(document)!,
-    limit,
-  ).map(({ document, score }) => ({ document, score }));
 }
 
 export function rankDocumentsByBm25Detailed<TDocument>(
@@ -174,15 +185,29 @@ export function rankDocumentsByBm25Detailed<TDocument>(
   limit: number,
   configuration: Bm25ScoringConfiguration = BM25_DEFAULT_SCORING_CONFIGURATION,
 ): DetailedRankedDocument<TDocument>[] {
-  if (documents.length === 0) {
+  return rankBm25Index(
+    buildBm25Index(documents, getText, configuration),
+    query,
+    getDocumentId,
+    limit,
+  );
+}
+
+export function rankBm25Index<TDocument>(
+  index: Bm25Index<TDocument>,
+  query: string,
+  getDocumentId: (document: TDocument) => string,
+  limit: number,
+): DetailedRankedDocument<TDocument>[] {
+  const {
+    indexedDocuments,
+    documentFrequencies,
+    averageLength,
+    configuration,
+  } = index;
+  if (indexedDocuments.length === 0) {
     return [];
   }
-
-  const { indexedDocuments, documentFrequencies, averageLength } = buildIndex(
-    documents,
-    getText,
-    configuration,
-  );
   const queryTerms = tokenizeBm25Text(query, configuration);
   if (queryTerms.length === 0) {
     return [];
@@ -228,13 +253,6 @@ export function rankDocumentsByBm25Detailed<TDocument>(
     }));
 
   return ranked;
-}
-
-export function buildRetrievalQuery(parts: string[]): string {
-  return parts
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .join(" ");
 }
 
 function compareCodeUnits(left: string, right: string): number {
