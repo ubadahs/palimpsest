@@ -931,8 +931,11 @@ export function buildCanonicalDiscoverAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "attributed-claim-extraction",
           model,
           prompt,
@@ -941,64 +944,64 @@ export function buildCanonicalDiscoverAdapters(
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.extraction },
         });
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model: result.record.model,
-          ...modelExecutionTelemetry(result.record),
-          promptId: CANONICAL_EXTRACTION_PROMPT_ID,
-          promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-attributed-claim-extraction-response",
-            object: result.object,
-          },
-          store,
-          requestRole: "normalized-attributed-claim-extraction-request",
-          responseRole: "normalized-attributed-claim-extraction-response",
-          canonicalStage: "discover",
-        });
-        return {
-          status: "completed" as const,
-          reason:
-            result.object.reason ??
-            (result.object.claims.length === 0
-              ? "Mention contains no in-scope empirical attribution."
-              : `Extracted ${String(result.object.claims.length)} attributed claim(s).`),
-          claims: result.object.claims.map((claim) => ({
-            text: claim.text.trim(),
-            ...(claim.supportSpanText
-              ? { supportSpanText: claim.supportSpanText }
-              : {}),
-            ...(claim.confidence ? { confidence: claim.confidence } : {}),
-          })),
-          execution,
-        };
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model,
-          promptId: CANONICAL_EXTRACTION_PROMPT_ID,
-          promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-attributed-claim-extraction-failure",
-            error: mapped.reason,
-          },
-          store,
-          requestRole: "normalized-attributed-claim-extraction-request",
-          responseRole: "normalized-attributed-claim-extraction-failure",
-          canonicalStage: "discover",
-        });
         return {
           status: "failed" as const,
           reasonCode: mapped.reasonCode,
           reason: mapped.reason,
-          execution,
+          execution: contentAddressedModelExecution({
+            provider: "anthropic",
+            model,
+            promptId: CANONICAL_EXTRACTION_PROMPT_ID,
+            promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
+            promptText: prompt,
+            requestBody,
+            responseBody: {
+              role: "normalized-attributed-claim-extraction-failure",
+              error: mapped.reason,
+            },
+            store,
+            requestRole: "normalized-attributed-claim-extraction-request",
+            responseRole: "normalized-attributed-claim-extraction-failure",
+            canonicalStage: "discover",
+          }),
         };
       }
+
+      const execution = contentAddressedModelExecution({
+        provider: "anthropic",
+        model: result.record.model,
+        ...modelExecutionTelemetry(result.record),
+        promptId: CANONICAL_EXTRACTION_PROMPT_ID,
+        promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
+        promptText: prompt,
+        requestBody,
+        responseBody: {
+          role: "normalized-attributed-claim-extraction-response",
+          object: result.object,
+        },
+        store,
+        requestRole: "normalized-attributed-claim-extraction-request",
+        responseRole: "normalized-attributed-claim-extraction-response",
+        canonicalStage: "discover",
+      });
+      return {
+        status: "completed" as const,
+        reason:
+          result.object.reason ??
+          (result.object.claims.length === 0
+            ? "Mention contains no in-scope empirical attribution."
+            : `Extracted ${String(result.object.claims.length)} attributed claim(s).`),
+        claims: result.object.claims.map((claim) => ({
+          text: claim.text.trim(),
+          ...(claim.supportSpanText
+            ? { supportSpanText: claim.supportSpanText }
+            : {}),
+          ...(claim.confidence ? { confidence: claim.confidence } : {}),
+        })),
+        execution,
+      };
     },
 
     canonicalizeClaims: async ({ seed, claims }) => {
@@ -1045,8 +1048,11 @@ export function buildCanonicalDiscoverAdapters(
           responseRole: String(responseBody["role"]),
           canonicalStage: "discover",
         });
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "claim-canonicalization",
           model,
           prompt,
@@ -1055,24 +1061,6 @@ export function buildCanonicalDiscoverAdapters(
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.canonicalization },
         });
-        const execution = executionFor(
-          {
-            role: "normalized-claim-canonicalization-response",
-            object: result.object,
-          },
-          result.record,
-        );
-        return {
-          status: "completed" as const,
-          clusters: result.object.clusters.map((cluster) => ({
-            canonicalClaim: cluster.canonicalClaim,
-            claimRecordIds: cluster.claims.flatMap((handle) => {
-              const claim = claims[handle - 1];
-              return claim ? [claim.claimRecordId] : [];
-            }),
-          })),
-          execution,
-        };
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
         return {
@@ -1085,6 +1073,25 @@ export function buildCanonicalDiscoverAdapters(
           }),
         };
       }
+
+      const execution = executionFor(
+        {
+          role: "normalized-claim-canonicalization-response",
+          object: result.object,
+        },
+        result.record,
+      );
+      return {
+        status: "completed" as const,
+        clusters: result.object.clusters.map((cluster) => ({
+          canonicalClaim: cluster.canonicalClaim,
+          claimRecordIds: cluster.claims.flatMap((handle) => {
+            const claim = claims[handle - 1];
+            return claim ? [claim.claimRecordId] : [];
+          }),
+        })),
+        execution,
+      };
     },
   };
 }
@@ -1349,8 +1356,11 @@ export function buildCanonicalScopeAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "seed-grounding",
           model,
           promptPrefix: promptParts.prefix,
@@ -1360,53 +1370,53 @@ export function buildCanonicalScopeAdapters(
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
         });
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model: result.record.model,
-          ...modelExecutionTelemetry(result.record),
-          promptId: CANONICAL_SCOPE_GROUNDING_PROMPT_ID,
-          promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-scope-grounding-response",
-            object: result.object,
-          },
-          store,
-          requestRole: "normalized-scope-grounding-request",
-          responseRole: "normalized-scope-grounding-response",
-          canonicalStage: "scope",
-        });
-        return {
-          status: "completed" as const,
-          rawOutput: result.object,
-          execution,
-        };
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model,
-          promptId: CANONICAL_SCOPE_GROUNDING_PROMPT_ID,
-          promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-scope-grounding-failure",
-            error: mapped.reason,
-          },
-          store,
-          requestRole: "normalized-scope-grounding-request",
-          responseRole: "normalized-scope-grounding-failure",
-          canonicalStage: "scope",
-        });
         return {
           status: "failed" as const,
           reasonCode: mapped.reasonCode,
           reason: mapped.reason,
-          execution,
+          execution: contentAddressedModelExecution({
+            provider: "anthropic",
+            model,
+            promptId: CANONICAL_SCOPE_GROUNDING_PROMPT_ID,
+            promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
+            promptText: prompt,
+            requestBody,
+            responseBody: {
+              role: "normalized-scope-grounding-failure",
+              error: mapped.reason,
+            },
+            store,
+            requestRole: "normalized-scope-grounding-request",
+            responseRole: "normalized-scope-grounding-failure",
+            canonicalStage: "scope",
+          }),
         };
       }
+
+      const execution = contentAddressedModelExecution({
+        provider: "anthropic",
+        model: result.record.model,
+        ...modelExecutionTelemetry(result.record),
+        promptId: CANONICAL_SCOPE_GROUNDING_PROMPT_ID,
+        promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
+        promptText: prompt,
+        requestBody,
+        responseBody: {
+          role: "normalized-scope-grounding-response",
+          object: result.object,
+        },
+        store,
+        requestRole: "normalized-scope-grounding-request",
+        responseRole: "normalized-scope-grounding-response",
+        canonicalStage: "scope",
+      });
+      return {
+        status: "completed" as const,
+        rawOutput: result.object,
+        execution,
+      };
     },
   };
 }
@@ -1451,8 +1461,30 @@ export function buildCanonicalPrepareAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
+      const modelExecution = (
+        responseBody: Record<string, unknown>,
+        record?: LLMCallRecord,
+      ) =>
+        contentAddressedModelExecution({
+          provider: "anthropic",
+          model: record?.model ?? model,
+          ...(record ? modelExecutionTelemetry(record) : {}),
+          promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
+          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
+          promptText: prompt,
+          requestBody,
+          responseBody,
+          store,
+          requestRole: "normalized-citation-role-request",
+          responseRole: String(responseBody["role"]),
+          canonicalStage: "prepare",
+        });
+
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "citation-role-classification",
           model,
           prompt,
@@ -1460,54 +1492,31 @@ export function buildCanonicalPrepareAdapters(
           context: { stageKey: "prepare" },
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.roleClassification },
         });
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model: result.record.model,
-          ...modelExecutionTelemetry(result.record),
-          promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
-          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-citation-role-response",
-            object: result.object,
-          },
-          store,
-          requestRole: "normalized-citation-role-request",
-          responseRole: "normalized-citation-role-response",
-          canonicalStage: "prepare",
-        });
-        return applyPrepareModelRole(deterministic, {
-          citationRole: result.object.citationRole,
-          rationale: result.object.rationale,
-          signals: [`model-role:${result.object.citationRole}`],
-          execution,
-        });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model,
-          promptId: CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID,
-          promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-citation-role-failure",
-            error: mapped.reason,
-          },
-          store,
-          requestRole: "normalized-citation-role-request",
-          responseRole: "normalized-citation-role-failure",
-          canonicalStage: "prepare",
-        });
         return applyPrepareModelRole(deterministic, {
           citationRole: "unclear",
           rationale: `Model role fallback failed (${mapped.reasonCode}): ${mapped.reason}`,
           signals: [`model-role:${mapped.reasonCode}`],
-          execution,
+          execution: modelExecution({
+            role: "normalized-citation-role-failure",
+            error: mapped.reason,
+          }),
         });
       }
+
+      return applyPrepareModelRole(deterministic, {
+        citationRole: result.object.citationRole,
+        rationale: result.object.rationale,
+        signals: [`model-role:${result.object.citationRole}`],
+        execution: modelExecution(
+          {
+            role: "normalized-citation-role-response",
+            object: result.object,
+          },
+          result.record,
+        ),
+      });
     },
   };
 }
@@ -1539,8 +1548,11 @@ function buildCanonicalEvidenceAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "evidence-rerank",
           model,
           prompt,
@@ -1548,63 +1560,63 @@ function buildCanonicalEvidenceAdapters(
           context: { stageKey: "evidence" },
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.rerank },
         });
-        const parsed = mapRerankResponse(result.object, input.candidates);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model: result.record.model,
-          ...modelExecutionTelemetry(result.record),
-          promptId: CANONICAL_EVIDENCE_RERANK_PROMPT_ID,
-          promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-evidence-rerank-response",
-            object: result.object,
-            mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
-          },
-          store,
-          requestRole: "normalized-evidence-rerank-request",
-          responseRole: "normalized-evidence-rerank-response",
-          canonicalStage: "evidence",
-        });
-        if (!parsed.ok) {
-          return {
-            status: "failed" as const,
-            reasonCode: "invalid_response" as const,
-            reason: parsed.error,
-            execution,
-          };
-        }
-        return {
-          status: "completed" as const,
-          rawOutput: parsed.data,
-          execution,
-        };
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model,
-          promptId: CANONICAL_EVIDENCE_RERANK_PROMPT_ID,
-          promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
-          promptText: prompt,
-          requestBody,
-          responseBody: {
-            role: "normalized-evidence-rerank-failure",
-            error: mapped.reason,
-          },
-          store,
-          requestRole: "normalized-evidence-rerank-request",
-          responseRole: "normalized-evidence-rerank-failure",
-          canonicalStage: "evidence",
-        });
         return {
           status: "failed" as const,
           reasonCode: mapped.reasonCode,
           reason: mapped.reason,
+          execution: contentAddressedModelExecution({
+            provider: "anthropic",
+            model,
+            promptId: CANONICAL_EVIDENCE_RERANK_PROMPT_ID,
+            promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
+            promptText: prompt,
+            requestBody,
+            responseBody: {
+              role: "normalized-evidence-rerank-failure",
+              error: mapped.reason,
+            },
+            store,
+            requestRole: "normalized-evidence-rerank-request",
+            responseRole: "normalized-evidence-rerank-failure",
+            canonicalStage: "evidence",
+          }),
+        };
+      }
+
+      const parsed = mapRerankResponse(result.object, input.candidates);
+      const execution = contentAddressedModelExecution({
+        provider: "anthropic",
+        model: result.record.model,
+        ...modelExecutionTelemetry(result.record),
+        promptId: CANONICAL_EVIDENCE_RERANK_PROMPT_ID,
+        promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
+        promptText: prompt,
+        requestBody,
+        responseBody: {
+          role: "normalized-evidence-rerank-response",
+          object: result.object,
+          mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
+        },
+        store,
+        requestRole: "normalized-evidence-rerank-request",
+        responseRole: "normalized-evidence-rerank-response",
+        canonicalStage: "evidence",
+      });
+      if (!parsed.ok) {
+        return {
+          status: "failed" as const,
+          reasonCode: "invalid_response" as const,
+          reason: parsed.error,
           execution,
         };
       }
+      return {
+        status: "completed" as const,
+        rawOutput: parsed.data,
+        execution,
+      };
     },
   };
 }
@@ -1641,8 +1653,11 @@ export function buildCanonicalAdjudicateAdapters(
           forceRefresh: deps.forceRefresh === true,
         }),
       };
+      // Only the provider call is guarded: a failure after it is a programmer
+      // error, and swallowing one here would report it as a provider outage.
+      let result;
       try {
-        const result = await deps.llmClient.generateObject({
+        result = await deps.llmClient.generateObject({
           purpose: "adjudication",
           model,
           prompt: promptText,
@@ -1651,77 +1666,77 @@ export function buildCanonicalAdjudicateAdapters(
           ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
         });
-        const parsed = mapAdjudicateResponse(result.object, input.packet);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model: result.record.model,
-          ...modelExecutionTelemetry(result.record),
-          promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-          promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-          promptText,
-          requestBody,
-          responseBody: {
-            role: "normalized-canonical-adjudicate-response",
-            object: result.object,
-            mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
-          },
-          store,
-          requestRole: "normalized-canonical-adjudicate-request",
-          responseRole: "normalized-canonical-adjudicate-response",
-          requestHash: expectedRequestHash,
-          canonicalStage: "adjudicate",
-        });
-        // Ensure prompt content hash matches the adapter input prompt text.
-        if (
-          execution.promptContentHash !== canonicalSha256(promptText) ||
-          execution.promptId !== input.promptId ||
-          execution.promptVersion !== input.promptVersion
-        ) {
-          return {
-            status: "failed" as const,
-            reasonCode: "invalid_response" as const,
-            reason: "Adjudicate adapter execution provenance mismatch.",
-            execution,
-          };
-        }
-        if (!parsed.ok) {
-          return {
-            status: "completed" as const,
-            rawOutput: { mappingError: parsed.error },
-            execution,
-          };
-        }
-        return {
-          status: "completed" as const,
-          rawOutput: parsed.data,
-          execution,
-        };
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
-        const execution = contentAddressedModelExecution({
-          provider: "anthropic",
-          model,
-          promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-          promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-          promptText,
-          requestBody,
-          responseBody: {
-            role: "normalized-canonical-adjudicate-failure",
-            error: mapped.reason,
-          },
-          store,
-          requestRole: "normalized-canonical-adjudicate-request",
-          responseRole: "normalized-canonical-adjudicate-failure",
-          requestHash: expectedRequestHash,
-          canonicalStage: "adjudicate",
-        });
         return {
           status: "failed" as const,
           reasonCode: mapped.reasonCode,
           reason: mapped.reason,
+          execution: contentAddressedModelExecution({
+            provider: "anthropic",
+            model,
+            promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
+            promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
+            promptText,
+            requestBody,
+            responseBody: {
+              role: "normalized-canonical-adjudicate-failure",
+              error: mapped.reason,
+            },
+            store,
+            requestRole: "normalized-canonical-adjudicate-request",
+            responseRole: "normalized-canonical-adjudicate-failure",
+            requestHash: expectedRequestHash,
+            canonicalStage: "adjudicate",
+          }),
+        };
+      }
+
+      const parsed = mapAdjudicateResponse(result.object, input.packet);
+      const execution = contentAddressedModelExecution({
+        provider: "anthropic",
+        model: result.record.model,
+        ...modelExecutionTelemetry(result.record),
+        promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
+        promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
+        promptText,
+        requestBody,
+        responseBody: {
+          role: "normalized-canonical-adjudicate-response",
+          object: result.object,
+          mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
+        },
+        store,
+        requestRole: "normalized-canonical-adjudicate-request",
+        responseRole: "normalized-canonical-adjudicate-response",
+        requestHash: expectedRequestHash,
+        canonicalStage: "adjudicate",
+      });
+      // Ensure prompt content hash matches the adapter input prompt text.
+      if (
+        execution.promptContentHash !== canonicalSha256(promptText) ||
+        execution.promptId !== input.promptId ||
+        execution.promptVersion !== input.promptVersion
+      ) {
+        return {
+          status: "failed" as const,
+          reasonCode: "invalid_response" as const,
+          reason: "Adjudicate adapter execution provenance mismatch.",
           execution,
         };
       }
+      if (!parsed.ok) {
+        return {
+          status: "completed" as const,
+          rawOutput: { mappingError: parsed.error },
+          execution,
+        };
+      }
+      return {
+        status: "completed" as const,
+        rawOutput: parsed.data,
+        execution,
+      };
     },
   };
 }

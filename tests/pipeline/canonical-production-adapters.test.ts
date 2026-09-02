@@ -717,19 +717,31 @@ describe("canonical production adapter seams", () => {
     });
   });
 
-  it("keeps a record gated when the model reply cannot be parsed", async () => {
+  it("keeps a record gated when the provider call fails", async () => {
     const adapter = prepareAdapterFor(() =>
-      Promise.resolve(roleClassifierReply("not json at all")),
+      Promise.reject(new Error("429 rate limit exceeded")),
     );
     const result = await adapter.classifyCitation(unclearRoleInput());
 
     expect(result).toMatchObject({
       status: "ambiguous",
       evaluationMode: "manual_review_role_ambiguous",
+      execution: { kind: "model" },
     });
     expect((result as { signals: string[] }).signals).toContain(
-      "model-role:invalid_response",
+      "model-role:rate_limited",
     );
+  });
+
+  it("surfaces a reply the output schema should have made impossible", async () => {
+    // Structured output guarantees the shape, so a violation here is a bug in
+    // this code, not a provider failure. It must not become a silent gate.
+    const adapter = prepareAdapterFor(() =>
+      Promise.resolve(roleClassifierReply({ citationRole: "not_a_role" })),
+    );
+    await expect(
+      adapter.classifyCitation(unclearRoleInput()),
+    ).rejects.toThrow();
   });
 
   it("does not send a missing-support-span record to the model", async () => {
@@ -872,7 +884,7 @@ describe("canonical production adapter seams", () => {
   it("uses legacy budget thinking for Haiku extraction when enabled", async () => {
     const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
-        text: JSON.stringify({ claims: [], reason: "None." }),
+        object: { claims: [], reason: "None." },
         record: {
           purpose: "attributed-claim-extraction" as const,
           model: params.model ?? "claude-haiku-4-5",
@@ -922,11 +934,16 @@ describe("canonical production adapter seams", () => {
   it("uses adaptive thinking for Opus adjudication when enabled", async () => {
     const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
-        text: JSON.stringify({
-          fidelityLabel: "F",
+        object: {
+          citingAssertion: "The citer restates the seed finding.",
+          sourceStatement: "The seed reports the same finding.",
+          verdict: "F",
+          mutationKinds: [],
+          direction: "none",
           rationale: "Faithful.",
-          occurrenceLocalClaimIds: [],
-        }),
+          confidence: "high",
+          citedChunks: [1],
+        },
         record: {
           purpose: "adjudication" as const,
           model: params.model ?? "claude-opus-4-6",
