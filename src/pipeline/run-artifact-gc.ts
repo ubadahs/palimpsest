@@ -47,8 +47,14 @@ export function findOrphanedRunArtifacts(
   database: Database.Database,
   options: { runId?: string | undefined } = {},
 ): RunArtifactGcResult {
+  // A live run is still writing provenance the current attempt has not yet
+  // referenced from any artifact, so collecting it would delete the run's own
+  // inputs out from under it.
   const runs = listAnalysisRuns(database).filter(
-    (run) => options.runId == null || run.id === options.runId,
+    (run) =>
+      run.status !== "running" &&
+      run.status !== "queued" &&
+      (options.runId == null || run.id === options.runId),
   );
   const orphaned: OrphanedRunArtifacts[] = [];
   let fileCount = 0;

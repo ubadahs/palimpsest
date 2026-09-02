@@ -58,7 +58,8 @@ function printRunsGcHelp(): void {
 Delete the artifact files a resumed or re-run pipeline left behind: superseded
 stage attempts the run registry no longer points at, and the provenance blobs
 only those attempts referenced. The current attempt of every stage, the run
-inputs, logs, cost summary, and human review sidecar are never touched.
+inputs, logs, cost summary, and human review sidecar are never touched, and a
+run that is still queued or running is skipped entirely.
 
 Options:
   --run-id <uuid>  Limit collection to one run (default: every registered run).

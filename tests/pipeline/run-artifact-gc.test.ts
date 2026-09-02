@@ -17,6 +17,7 @@ import {
 } from "../../src/pipeline/run-artifact-gc.js";
 import {
   createAnalysisRun,
+  setRunStatus,
   updateStageStatus,
 } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
@@ -51,6 +52,9 @@ describe("run artifact garbage collection", () => {
         runRoot,
         config: analysisRunConfigSchema.parse({}),
       });
+
+      // Collection only considers finished runs: a live one is still writing.
+      setRunStatus(database, "run-1", "succeeded");
 
       const discoverDir = join(runRoot, "00-discover");
       const provenanceDir = join(runRoot, "provenance");
@@ -124,6 +128,42 @@ describe("run artifact garbage collection", () => {
     }
   });
 
+  it("leaves a live run alone even when it has unreferenced files", () => {
+    const root = mkdtempSync(join(tmpdir(), "runs-gc-live-"));
+    tempRoots.push(root);
+    const database = openDatabase(join(root, "gc.sqlite"));
+    runMigrations(database);
+    const runRoot = join(root, "data", "runs", "run-live");
+
+    try {
+      createAnalysisRun(database, {
+        id: "run-live",
+        seedDoi: "10.1234/seed",
+        seedDois: ["10.1234/seed"],
+        targetStage: "report",
+        runRoot,
+        config: analysisRunConfigSchema.parse({}),
+      });
+      setRunStatus(database, "run-live", "running", "scope");
+      const provenanceDir = join(runRoot, "provenance");
+      mkdirSync(provenanceDir, { recursive: true });
+      writeFileSync(
+        join(provenanceDir, `${provenanceId("c")}.json`),
+        '{"role":"in flight"}',
+        "utf8",
+      );
+
+      // The blob is unreferenced only because Scope has not written its
+      // artifact yet; collecting it would delete the run's own input.
+      expect(findOrphanedRunArtifacts(database).fileCount).toBe(0);
+      expect(existsSync(join(provenanceDir, `${provenanceId("c")}.json`))).toBe(
+        true,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
   it("leaves a run whose every attempt is still referenced alone", () => {
     const root = mkdtempSync(join(tmpdir(), "runs-gc-clean-"));
     tempRoots.push(root);
@@ -140,6 +180,7 @@ describe("run artifact garbage collection", () => {
         runRoot,
         config: analysisRunConfigSchema.parse({}),
       });
+      setRunStatus(database, "run-2", "succeeded");
       const discoverDir = join(runRoot, "00-discover");
       mkdirSync(discoverDir, { recursive: true });
       const stem = "20260902T100000Z_only";

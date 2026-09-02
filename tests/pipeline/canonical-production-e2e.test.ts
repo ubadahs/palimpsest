@@ -340,12 +340,12 @@ function productionPathAdjudicateAdapters(): CanonicalAdjudicateAdapters {
 /** Answers the citation-role fallback; every other purpose is stubbed above. */
 function roleClassifierLlmClient(): LLMClient {
   return {
-    generateText: () =>
+    generateObject: () =>
       Promise.resolve({
-        text: JSON.stringify({
+        object: {
           citationRole: "substantive_attribution",
           rationale: "The sentence credits a measured result to the seed.",
-        }),
+        },
         record: {
           purpose: "citation-role-classification" as const,
           model: "fixture-haiku",
@@ -363,13 +363,13 @@ function roleClassifierLlmClient(): LLMClient {
           estimatedCostUsd: 0,
         },
       }),
-    generateObject: () => {
-      throw new Error("not used");
+    generateText: () => {
+      throw new Error("canonical adapters use structured outputs");
     },
     getLedger: () => {
       throw new Error("not used");
     },
-  };
+  } as unknown as LLMClient;
 }
 
 function buildProductionPathAdapters(
