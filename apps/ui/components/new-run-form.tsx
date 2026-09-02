@@ -53,6 +53,7 @@ type FormState = {
     effort: "low" | "medium" | "high" | "max";
   };
   forceRefresh: boolean;
+  modelConcurrency: number;
 };
 
 function parseSeedDois(text: string): string[] {
@@ -120,12 +121,14 @@ const defaultState: FormState = {
     effort: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
   },
   forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
+  modelConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency,
 };
 
 function flattenConfig(s: FormState) {
   return {
     stopAfterStage: s.targetStage,
     forceRefresh: s.forceRefresh,
+    modelConcurrency: s.modelConcurrency,
     discover: {
       neighborhoodLimit: s.discover.neighborhoodLimit,
       probeBudget: s.discover.probeBudget,
@@ -160,10 +163,13 @@ export function NewRunForm() {
   const [seedPdfFile, setSeedPdfFile] = useState<File | null>(null);
   const [state, setState] = useState<FormState>(defaultState);
 
-  function update<K extends "seedDoisText" | "targetStage" | "forceRefresh">(
-    key: K,
-    value: FormState[K],
-  ): void {
+  function update<
+    K extends
+      | "seedDoisText"
+      | "targetStage"
+      | "forceRefresh"
+      | "modelConcurrency",
+  >(key: K, value: FormState[K]): void {
     setState((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -752,6 +758,24 @@ export function NewRunForm() {
                     </span>
                   </label>
                 </div>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Model concurrency
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Model requests in flight per stage. Changes wall time only;
+                    artifacts are identical at any value.
+                  </span>
+                  <Input
+                    max={32}
+                    min={1}
+                    type="number"
+                    value={state.modelConcurrency}
+                    onChange={(event) =>
+                      update("modelConcurrency", Number(event.target.value))
+                    }
+                  />
+                </label>
               </div>
             </details>
           </div>

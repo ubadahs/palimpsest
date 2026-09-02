@@ -1192,3 +1192,37 @@ describe("canonical Discover claim canonicalization", () => {
     );
   });
 });
+
+const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("discover extraction concurrency", () => {
+  it("produces the same artifact whether extraction runs one at a time or side by side", async () => {
+    const run = async (concurrency: number) => {
+      const base = buildFixtureAdapters();
+      let inFlight = 0;
+      let peak = 0;
+      const result = await runCanonicalDiscover(
+        { ...fixtureOptions(), concurrency },
+        {
+          ...base,
+          extractAttributedClaims: async (input) => {
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+            await tick(input.mention.mentionIndex === 0 ? 6 : 1);
+            inFlight -= 1;
+            return base.extractAttributedClaims(input);
+          },
+        },
+      );
+      return { result, peak };
+    };
+    const sequential = await run(1);
+    const parallel = await run(3);
+    expect(sequential.peak).toBe(1);
+    expect(parallel.peak).toBeGreaterThan(1);
+    expect(parallel.result.payload).toEqual(sequential.result.payload);
+    expect(parallel.result.provenanceInputs).toEqual(
+      sequential.result.provenanceInputs,
+    );
+  });
+});

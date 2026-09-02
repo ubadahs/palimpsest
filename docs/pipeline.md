@@ -60,6 +60,8 @@ Report consumes and tamper-verifies the full five-artifact chain. It writes auth
 
 ## Run behavior
 
+Within a stage, model calls run side by side: `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, grounding, rerank, or adjudication requests are in flight. Results are appended in input order, so an artifact is byte-identical at any concurrency and the setting never enters identity. Scope sends the seed text as a cached prompt prefix, so its first grounding call per seed runs alone and the rest fan out once the cache is written; identical rerank requests issued at the same time share one call. Provider fetches and GROBID parsing stay sequential. A fatal provider error stops new dispatch, so it costs at most `modelConcurrency` calls.
+
 Fresh and resumed runs create or use `data/runs/<runId>/`. Every succeeded stage is reloaded through its current-version schema and checked for content-hash and lineage consistency before a later stage runs. A failed stage blocks downstream stages.
 
 Old SQLite rows and run directories from the former seven-stage executor are unsupported and may need deletion/recreation. Do not attempt to convert old shortlist, screening, extraction, classification, curation, or support-style adjudication artifacts into this pipeline. Legacy orchestration modules have been deleted from the source tree.

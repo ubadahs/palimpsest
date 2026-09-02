@@ -119,6 +119,8 @@ export type CanonicalPipelineCliOverrides = {
   /** Total citing-work observation cap across paginated provider requests. */
   discoverNeighborhoodLimit?: number | undefined;
   discoverProbeBudget: number | undefined;
+  /** Model requests in flight at once within a stage. */
+  modelConcurrency?: number | undefined;
   discoverMinFamilies: number | undefined;
   discoverMaxFamilies: number | undefined;
   discoverMaxPreparedRecords: number | undefined;
@@ -308,6 +310,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
               : {}),
           },
           probeBudget: runConfig.discover.probeBudget,
+          concurrency: runConfig.modelConcurrency,
           candidateSelection: runConfig.discover.candidateSelection,
           recordedAt,
         },
@@ -322,14 +325,14 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   scope: defineStage({
     stageKey: "scope",
-    run: ({ chain, adapters, recordedAt }) =>
+    run: ({ chain, adapters, recordedAt, runConfig }) =>
       runCanonicalScope(
         requireChain(
           chain.discover,
           "Scope requires a validated Discover artifact.",
         ),
         adapters.scope,
-        { recordedAt },
+        { recordedAt, concurrency: runConfig.modelConcurrency },
       ),
     build: buildCanonicalScopeArtifact,
     count: (artifact) => artifact.payload.families.length,
@@ -375,6 +378,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
         adapters.evidence,
         {
           recordedAt,
+          concurrency: runConfig.modelConcurrency,
           bm25CandidateLimit: runConfig.evidence.bm25CandidateLimit,
           selectionLimit: runConfig.evidence.selectionLimit,
           reranking: runConfig.evidence.rerankEnabled
@@ -391,7 +395,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   adjudicate: defineStage({
     stageKey: "adjudicate",
-    run: ({ chain, adapters, recordedAt }) =>
+    run: ({ chain, adapters, recordedAt, runConfig }) =>
       runCanonicalAdjudicate(
         requireChain(
           chain.evidence,
@@ -402,7 +406,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
           "Adjudicate requires validated Evidence and Prepare artifacts.",
         ),
         adapters.adjudicate,
-        { recordedAt },
+        { recordedAt, concurrency: runConfig.modelConcurrency },
       ),
     build: buildCanonicalAdjudicateArtifact,
     count: (artifact) => artifact.payload.records.length,
@@ -457,6 +461,9 @@ function buildConfigFromCli(
     ...(args.forceRefresh != null ? { forceRefresh: args.forceRefresh } : {}),
     ...(args.stopAfterStage != null
       ? { stopAfterStage: args.stopAfterStage }
+      : {}),
+    ...(args.modelConcurrency != null
+      ? { modelConcurrency: args.modelConcurrency }
       : {}),
     discover: {
       ...base.discover,

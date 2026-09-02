@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primitives.js";
 import { createBoundaryParser } from "../shared/boundary.js";
+import { pMap } from "../shared/concurrency.js";
 import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
 import { findDuplicate } from "../contract/artifacts/checks.js";
 
@@ -104,6 +105,8 @@ const canonicalDiscoverOptionsSchema = z
     probeBudget: z.number().int().nonnegative(),
     candidateSelection: adaptivePortfolioPolicySchema,
     recordedAt: z.string().datetime({ offset: true }),
+    /** Model requests in flight at once; results keep input order. */
+    concurrency: z.number().int().positive().optional(),
   })
   .strict();
 export type CanonicalDiscoverOptions = z.infer<
@@ -490,6 +493,12 @@ export async function runCanonicalDiscover(
   const claimExtractionObservations: DiscoverArtifactPayload["claimExtractionObservations"] =
     [];
   const attributedClaimRecords: DiscoverAttributedClaimRecord[] = [];
+  const pendingExtractions: Array<{
+    seedId: string;
+    request: Parameters<
+      CanonicalDiscoverAdapters["extractAttributedClaims"]
+    >[0];
+  }> = [];
   const decisions: AppendOnlyDecision[] = [];
   const inputArtifacts: ArtifactReference[] = [];
   const responseArtifacts: ArtifactReference[] = [];
@@ -773,75 +782,93 @@ export async function runCanonicalDiscover(
         },
       });
 
-      for (const mention of paperMentions) {
-        const extraction = parseAdapterOutput(
-          canonicalClaimExtractionResultSchema,
-          await adapters.extractAttributedClaims({
+      pendingExtractions.push(
+        ...paperMentions.map((mention) => ({
+          seedId,
+          request: {
             seed: resolution,
             citingPaper: observation.paper,
             mention,
-          }),
-          `attributed-claim extraction for ${mention.mentionId}`,
-        );
-        throwIfFatal(extraction);
-        const execution = extraction.execution;
-        responseArtifacts.push(execution.responseArtifact);
-        prompts.push({
-          promptId: execution.promptId,
-          version: execution.promptVersion,
-          contentHash: execution.promptContentHash,
-        });
-        models.push({
-          provider: execution.provider,
-          model: execution.model,
-          requestHash: execution.requestHash,
-          requestArtifact: execution.requestArtifact,
-          responseArtifact: execution.responseArtifact,
-        });
-
-        const extractionId = buildClaimExtractionObservationId({
-          seedId,
-          mentionId: mention.mentionId,
-        });
-        const provenanceArtifacts = uniqueSortedArtifactReferences([
-          execution.requestArtifact,
-          execution.responseArtifact,
-        ]);
-        if (extraction.status === "failed") {
-          claimExtractionObservations.push({
-            extractionId,
-            seedId,
-            mentionId: mention.mentionId,
-            status: "failed",
-            reason: extraction.reason,
-            claimRecordIds: [],
-            provenanceArtifacts,
-            execution,
-          });
-          continue;
-        }
-
-        const records = buildAttributedClaimRecords({
-          claims: extraction.claims,
-          seedId,
-          mentionId: mention.mentionId,
-          extractionId,
-          rawContext: mention.rawContext,
-          provenanceArtifacts,
-        });
-        attributedClaimRecords.push(...records);
-        claimExtractionObservations.push({
-          extractionId,
-          seedId,
-          mentionId: mention.mentionId,
-          status: records.length > 0 ? "claims_extracted" : "no_claims",
-          reason: extraction.reason,
-          claimRecordIds: records.map((record) => record.claimRecordId),
-          provenanceArtifacts,
-          execution,
-        });
-      }
+          },
+        })),
+      );
     }
+  }
+
+  // Extraction fans out only after every paper is harvested: provider and
+  // parser traffic above stays sequential and gentle, while the model calls,
+  // which dominate wall time, run side by side. Results keep input order, so
+  // the artifact is the same at any concurrency.
+  const extractions = await pMap(
+    pendingExtractions,
+    async ({ seedId, request }) => {
+      const extraction = parseAdapterOutput(
+        canonicalClaimExtractionResultSchema,
+        await adapters.extractAttributedClaims(request),
+        `attributed-claim extraction for ${request.mention.mentionId}`,
+      );
+      throwIfFatal(extraction);
+      return { seedId, mention: request.mention, extraction };
+    },
+    { concurrency: options.concurrency ?? 1 },
+  );
+  for (const { seedId, mention, extraction } of extractions) {
+    const execution = extraction.execution;
+    responseArtifacts.push(execution.responseArtifact);
+    prompts.push({
+      promptId: execution.promptId,
+      version: execution.promptVersion,
+      contentHash: execution.promptContentHash,
+    });
+    models.push({
+      provider: execution.provider,
+      model: execution.model,
+      requestHash: execution.requestHash,
+      requestArtifact: execution.requestArtifact,
+      responseArtifact: execution.responseArtifact,
+    });
+
+    const extractionId = buildClaimExtractionObservationId({
+      seedId,
+      mentionId: mention.mentionId,
+    });
+    const provenanceArtifacts = uniqueSortedArtifactReferences([
+      execution.requestArtifact,
+      execution.responseArtifact,
+    ]);
+    if (extraction.status === "failed") {
+      claimExtractionObservations.push({
+        extractionId,
+        seedId,
+        mentionId: mention.mentionId,
+        status: "failed",
+        reason: extraction.reason,
+        claimRecordIds: [],
+        provenanceArtifacts,
+        execution,
+      });
+      continue;
+    }
+
+    const records = buildAttributedClaimRecords({
+      claims: extraction.claims,
+      seedId,
+      mentionId: mention.mentionId,
+      extractionId,
+      rawContext: mention.rawContext,
+      provenanceArtifacts,
+    });
+    attributedClaimRecords.push(...records);
+    claimExtractionObservations.push({
+      extractionId,
+      seedId,
+      mentionId: mention.mentionId,
+      status: records.length > 0 ? "claims_extracted" : "no_claims",
+      reason: extraction.reason,
+      claimRecordIds: records.map((record) => record.claimRecordId),
+      provenanceArtifacts,
+      execution,
+    });
   }
 
   const citingTitleByMentionId = new Map<string, string>();
