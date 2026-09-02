@@ -92,6 +92,7 @@ export function renderCanonicalReportMarkdown(
   lines.push("");
   appendCountLines(lines, [
     payload.funnel.discover.seeds,
+    payload.funnel.discover.providerReportedNeighborhoodTotal,
     payload.funnel.discover.returnedCitingPaperObservations,
     payload.funnel.discover.probed,
     payload.funnel.discover.notProbed,
@@ -132,6 +133,40 @@ export function renderCanonicalReportMarkdown(
   if (payload.funnel.discover.probeStratumCounts.length === 0) {
     lines.push("- No citing papers returned.");
   }
+  lines.push("");
+  appendStatusTable(
+    lines,
+    "Neighborhood coverage",
+    payload.funnel.discover.neighborhoodCoverage,
+    "No neighborhood queries recorded.",
+  );
+  appendStatusTable(
+    lines,
+    "Full-text access channel",
+    payload.funnel.discover.materializationChannelCounts,
+    "No citing paper text was materialized.",
+  );
+  appendStatusTable(
+    lines,
+    "Materialization loss reasons",
+    payload.funnel.discover.materializationLossReasonCounts,
+    "Every probed citing paper materialized.",
+  );
+  appendStatusTable(
+    lines,
+    "Harvest loss reasons",
+    payload.funnel.discover.harvestLossReasonCounts,
+    "Every materialized citing paper yielded occurrences.",
+  );
+  appendStatusTable(
+    lines,
+    "Bibliography match method",
+    payload.funnel.discover.bibliographyMatchMethodCounts,
+    "No seed bibliography entry was matched.",
+  );
+  lines.push(
+    "Rates below are over observed citing papers, not over the provider-reported total; the sample is stratified and unweighted.",
+  );
   lines.push("");
   lines.push(
     "Adaptive portfolio selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics; cross-citer paraphrases are merged by the Discover equivalence pass.",
@@ -376,6 +411,45 @@ export function renderCanonicalReportMarkdown(
     }
   }
   lines.push("");
+  lines.push("### Candidate selection");
+  lines.push("");
+  if (payload.selectionAudit.length === 0) {
+    lines.push("- No claim candidates were scored.");
+  } else {
+    lines.push(
+      "| rank | scoped | shape | citers | specificity | confidence | utility |",
+    );
+    lines.push("|---|---|---|---|---|---|---|");
+    for (const row of payload.selectionAudit) {
+      const scores = row.componentScores;
+      lines.push(
+        `| ${String(row.rank)} | ${row.selectedForScope ? "yes" : "no"} | \`${row.claimShape}\` | ${String(row.uniqueCitingPaperCount)} | ${row.specificityScore.toFixed(2)} | ${row.confidenceAggregate.toFixed(2)} | ${scores ? scores.utility.toFixed(3) : "—"} |`,
+      );
+    }
+    lines.push("");
+    lines.push(
+      "Selection is discriminating only if the scoped rows score differently from the deferred ones; compare the columns, do not assume it.",
+    );
+  }
+  lines.push("");
+  lines.push("### Citation-role signals");
+  lines.push("");
+  const signalCounts = new Map<string, number>();
+  for (const trace of payload.recordTraces) {
+    for (const signal of trace.classification.signals) {
+      signalCounts.set(signal, (signalCounts.get(signal) ?? 0) + 1);
+    }
+  }
+  if (signalCounts.size === 0) {
+    lines.push("- No classification signal fired on any record.");
+  } else {
+    for (const [signal, count] of [...signalCounts.entries()].sort(
+      ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
+    )) {
+      lines.push(`- \`${signal}\`: ${String(count)}`);
+    }
+  }
+  lines.push("");
 
   return `${lines.join("\n")}`;
 }
@@ -392,6 +466,25 @@ function extractValidatedPayload(
     return reportArtifactSchema.parse(input).payload;
   }
   return reportArtifactPayloadSchema.parse(input);
+}
+
+/** A small "how many of each" table, or a line saying there were none. */
+function appendStatusTable(
+  lines: string[],
+  title: string,
+  counts: ReadonlyArray<{ status: string; count: number }>,
+  emptyMessage: string,
+): void {
+  lines.push(`${title}:`);
+  lines.push("");
+  if (counts.length === 0) {
+    lines.push(`- ${emptyMessage}`);
+  } else {
+    for (const entry of counts) {
+      lines.push(`- \`${entry.status}\`: ${String(entry.count)}`);
+    }
+  }
+  lines.push("");
 }
 
 function appendCountLines(lines: string[], counts: ReportCount[]): void {

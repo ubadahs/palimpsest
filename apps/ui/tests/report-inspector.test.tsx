@@ -180,6 +180,16 @@ function buildPayload(): StageInspectorPayload<"report"> {
       funnel: {
         discover: {
           probeStratumCounts: [],
+          neighborhoodCoverage: [],
+          materializationChannelCounts: [],
+          materializationLossReasonCounts: [],
+          harvestLossReasonCounts: [],
+          bibliographyMatchMethodCounts: [],
+          providerReportedNeighborhoodTotal: count(
+            "discover.provider_reported_neighborhood_total",
+            40,
+            "citing_paper_observations",
+          ),
           seeds: count("discover.seeds", 1, "seeds"),
           returnedCitingPaperObservations: count(
             "discover.returned_citing_paper_observations",
