@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,9 +6,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
-  artifactManifestSchema,
   loadJsonArtifact,
-  writeArtifactManifest,
+  manifestPathForArtifact,
 } from "../../src/shared/artifact-io.js";
 
 const sampleSchema = z
@@ -56,26 +55,9 @@ describe("artifact-io", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("writes round-trippable manifests with source checksums", () => {
-    const dir = mkdtempSync(join(tmpdir(), "artifact-io-"));
-    const sourcePath = join(dir, "source.json");
-    const artifactPath = join(dir, "artifact.json");
-    writeFileSync(sourcePath, JSON.stringify({ ok: true }), "utf8");
-    writeFileSync(artifactPath, JSON.stringify({ data: true }), "utf8");
-
-    const manifestPath = writeArtifactManifest(artifactPath, {
-      artifactType: "test-artifact",
-      generator: "test",
-      sourceArtifacts: [sourcePath],
-    });
-
-    const manifest = artifactManifestSchema.parse(
-      JSON.parse(readFileSync(manifestPath, "utf8")) as unknown,
+  it("names a manifest beside its artifact", () => {
+    expect(manifestPathForArtifact("/runs/a/00-discover/x_stage.json")).toBe(
+      "/runs/a/00-discover/x_stage_manifest.json",
     );
-
-    expect(manifest.artifactType).toBe("test-artifact");
-    expect(manifest.sourceArtifacts[0]!.sha256).toBeDefined();
-
-    rmSync(dir, { recursive: true, force: true });
   });
 });

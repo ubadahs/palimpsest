@@ -4,7 +4,6 @@ import {
   adjudicateArtifactSchema,
   artifactReferenceSchema,
   appendOnlyDecisionSchema,
-  appendOnlyExclusionSchema,
   buildAttributedClaimRecordId,
   buildClaimCandidateId,
   buildClaimExtractionObservationId,
@@ -17,7 +16,6 @@ import {
   buildScopedFamilyId,
   buildSeedId,
   createAppendOnlyDecision,
-  createAppendOnlyExclusion,
   buildReportCount,
   buildReportRate,
   createLeanStageArtifact,
@@ -39,7 +37,6 @@ import {
   scopeArtifactSchema,
   stableIdentifierSchema,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type LeanArtifactProvenance,
   type LeanExecutionMetadata,
@@ -84,7 +81,6 @@ function baseEnvelope(createdAt = "2026-07-16T12:00:00.000Z") {
     provenance,
     execution: deterministicExecution,
     decisions: [] as AppendOnlyDecision[],
-    exclusions: [] as AppendOnlyExclusion[],
   };
 }
 
@@ -346,11 +342,6 @@ function buildAllStageArtifacts() {
             conditionCount: 0,
             genericLanguagePenalty: 0,
             claimShape: "atomic",
-            lexicalFingerprint: {
-              wordShingleHash: canonicalSha256("word"),
-              charShingleHash: canonicalSha256("char"),
-              wordShingles: ["intervention changed measured"],
-            },
           },
         },
       ],
@@ -479,14 +470,6 @@ function buildAllStageArtifacts() {
     seed: discover.payload.seeds[0]!,
     citingPaper: discover.payload.citingPapers[0]!,
     citationOccurrence,
-    context: {
-      verbatim: {
-        text: citationOccurrence.rawContext,
-        sourceOccurrenceId: citationOccurrence.mentionId,
-        sourceArtifacts: citationOccurrence.observationProvenance.artifacts,
-      },
-      derived: [],
-    },
     classification: {
       status: "classified" as const,
       citationRole: "substantive_attribution" as const,
@@ -1238,7 +1221,6 @@ function buildAllStageArtifacts() {
       familyMutations: [],
       recordTraces: [],
       decisionSummaries: [],
-      exclusionSummaries: [],
     },
   });
   return { discover, scope, prepare, evidence, adjudicate, report };
@@ -1682,7 +1664,7 @@ describe("citation-instance and decision provenance", () => {
     ).not.toBe(recordId);
   });
 
-  it("uses append-only, reasoned decisions and exclusions with stable IDs", () => {
+  it("uses append-only, reasoned decisions with stable IDs", () => {
     const firstDecision = createAppendOnlyDecision({
       recordId,
       decisionType: "scope",
@@ -1708,27 +1690,12 @@ describe("citation-instance and decision provenance", () => {
       evidenceArtifacts: [],
       supersedesDecisionId: firstDecision.decisionId,
     });
-    const exclusion = createAppendOnlyExclusion({
-      recordId,
-      reasonCode: "ambiguous_bundle",
-      reason:
-        "The seed attribution cannot be isolated from the citation bundle.",
-      recordedAt: "2026-07-16T12:03:00.000Z",
-      actor: {
-        kind: "human",
-        identifier: "reviewer-1",
-      },
-      evidenceArtifacts: [],
-      decisionId: revisedDecision.decisionId,
-    });
-
     expect(appendOnlyDecisionSchema.safeParse(firstDecision).success).toBe(
       true,
     );
     expect(appendOnlyDecisionSchema.safeParse(revisedDecision).success).toBe(
       true,
     );
-    expect(appendOnlyExclusionSchema.safeParse(exclusion).success).toBe(true);
     expect(revisedDecision.decisionId).not.toBe(firstDecision.decisionId);
     const retimedDecision = createAppendOnlyDecision({
       recordId,

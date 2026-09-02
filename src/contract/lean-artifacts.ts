@@ -95,7 +95,6 @@ export {
   type ReportArtifactPayload,
   type ReportCount,
   type ReportDecisionSummary,
-  type ReportExclusionSummary,
   type ReportFamilyMutation,
   type ReportFamilyMutationRecord,
   type ReportFunnelCounts,
@@ -165,59 +164,6 @@ export function createAppendOnlyDecision(
   return appendOnlyDecisionSchema.parse({
     ...input,
     decisionId: buildDecisionId(input),
-  });
-}
-
-const exclusionIdentitySchema = z
-  .object({
-    recordId: stableIdentifierSchema,
-    reasonCode: z.string().min(1),
-    reason: z.string().min(1),
-    recordedAt: z.string().datetime({ offset: true }),
-    actor: decisionActorSchema,
-    evidenceArtifacts: z.array(artifactReferenceSchema),
-    decisionId: stableIdentifierSchema.optional(),
-    supersedesExclusionId: stableIdentifierSchema.optional(),
-  })
-  .strict();
-export type AppendOnlyExclusionInput = z.infer<typeof exclusionIdentitySchema>;
-
-export function buildExclusionId(
-  input: AppendOnlyExclusionInput & { exclusionId?: string },
-): string {
-  return buildStableId("exclusion", {
-    recordId: input.recordId,
-    reasonCode: input.reasonCode,
-    reason: input.reason,
-    actor: input.actor,
-    evidenceArtifacts: sortedArtifactReferences(input.evidenceArtifacts),
-    decisionId: input.decisionId,
-    supersedesExclusionId: input.supersedesExclusionId,
-  });
-}
-
-export const appendOnlyExclusionSchema = exclusionIdentitySchema
-  .extend({
-    exclusionId: stableIdentifierSchema,
-  })
-  .strict()
-  .superRefine((exclusion, context) => {
-    if (exclusion.exclusionId !== buildExclusionId(exclusion)) {
-      context.addIssue({
-        code: "custom",
-        path: ["exclusionId"],
-        message: "exclusionId does not match the exclusion identity inputs",
-      });
-    }
-  });
-export type AppendOnlyExclusion = z.infer<typeof appendOnlyExclusionSchema>;
-
-export function createAppendOnlyExclusion(
-  input: AppendOnlyExclusionInput,
-): AppendOnlyExclusion {
-  return appendOnlyExclusionSchema.parse({
-    ...input,
-    exclusionId: buildExclusionId(input),
   });
 }
 
@@ -1019,13 +965,6 @@ export const discoverCandidateSelectionAnnotationSchema = z
       "compound",
       "citing_meta",
     ]),
-    lexicalFingerprint: z
-      .object({
-        wordShingleHash: z.string().min(1),
-        charShingleHash: z.string().min(1),
-        wordShingles: z.array(z.string()),
-      })
-      .strict(),
   })
   .strict();
 
@@ -1528,9 +1467,9 @@ export const scopedFamilySchema = z
 export type ScopedFamily = z.infer<typeof scopedFamilySchema>;
 
 /**
- * Stage-specific Scope agents will populate frozen family membership and
- * grounding. Excluded citation occurrences remain in the envelope's append-only
- * decisions and exclusions rather than disappearing from scientific history.
+ * Stage-specific Scope agents populate frozen family membership and grounding.
+ * Every citation occurrence Scope sees is accounted for in the envelope's
+ * append-only decisions rather than disappearing from scientific history.
  */
 export const scopeArtifactPayloadSchema = z
   .object({
@@ -1720,28 +1659,6 @@ const prepareLineageSchema = z
   })
   .strict();
 
-export const preparedContextSchema = z
-  .object({
-    verbatim: z
-      .object({
-        text: z.string(),
-        sourceOccurrenceId: stableIdentifierSchema,
-        sourceArtifacts: z.array(artifactReferenceSchema).min(1),
-      })
-      .strict(),
-    derived: z.array(
-      z
-        .object({
-          kind: z.enum(["expanded", "annotated"]),
-          text: z.string(),
-          implementation: z.string().min(1),
-          provenanceArtifacts: z.array(artifactReferenceSchema),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-
 export const preparedCitationInstanceSchema = z
   .object({
     recordId: stableIdentifierSchema,
@@ -1757,7 +1674,6 @@ export const preparedCitationInstanceSchema = z
     seed: discoverSeedSchema,
     citingPaper: discoverCitingPaperRecordSchema,
     citationOccurrence: discoverCitationOccurrenceSchema,
-    context: preparedContextSchema,
     classification: prepareClassificationSchema,
     lineage: prepareLineageSchema,
   })
@@ -2758,7 +2674,6 @@ const commonLeanArtifactEnvelopeSchema = z
     provenance: leanArtifactProvenanceSchema,
     execution: leanExecutionMetadataSchema,
     decisions: z.array(appendOnlyDecisionSchema),
-    exclusions: z.array(appendOnlyExclusionSchema),
   })
   .strict();
 
@@ -2850,19 +2765,17 @@ type LeanArtifactIdentityInput = Pick<
 
 /**
  * Hash scientific content and append-only provenance semantically. Envelope
- * creation time and decision/exclusion recording times are observational and
+ * creation time and decision recording times are observational and
  * deliberately excluded; their stable IDs still bind every substantive field.
  */
 export function computeLeanArtifactContentHash(input: {
   payload: unknown;
   decisions: readonly AppendOnlyDecision[];
-  exclusions: readonly AppendOnlyExclusion[];
 }): string {
   return canonicalSha256({
     contentVersion: 1,
     payload: input.payload,
     decisions: input.decisions.map(decisionContentForHash),
-    exclusions: input.exclusions.map(exclusionContentForHash),
   });
 }
 
@@ -2947,24 +2860,12 @@ function validateLeanArtifactIdentity(
     });
   }
 
-  const duplicateExclusionId = findDuplicate(
-    artifact.exclusions.map((exclusion) => exclusion.exclusionId),
-  );
-  if (duplicateExclusionId) {
-    context.addIssue({
-      code: "custom",
-      path: ["exclusions"],
-      message: `Duplicate append-only exclusion ID: ${duplicateExclusionId}`,
-    });
-  }
-
   const expectedContentHash = computeLeanArtifactContentHash(artifact);
   if (artifact.contentHash !== expectedContentHash) {
     context.addIssue({
       code: "custom",
       path: ["contentHash"],
-      message:
-        "contentHash does not match payload and decision/exclusion records",
+      message: "contentHash does not match payload and decision records",
     });
   }
 
@@ -3784,18 +3685,6 @@ function validatePreparedRecordReferences(
       context,
       ["citationOccurrence", "citedPaperId"],
       "Prepared occurrence does not cite its resolved Discover seed paper",
-    );
-  }
-  if (
-    record.context.verbatim.sourceOccurrenceId !== occurrence.mentionId ||
-    record.context.verbatim.text !== occurrence.rawContext ||
-    canonicalSerialize(record.context.verbatim.sourceArtifacts) !==
-      canonicalSerialize(occurrence.observationProvenance.artifacts)
-  ) {
-    addPrepareIssue(
-      context,
-      ["context", "verbatim"],
-      "Verbatim context must exactly preserve the Discover occurrence",
     );
   }
   if (record.classification.status !== "failed") {
@@ -4660,13 +4549,6 @@ function validateEvidenceArtifactLineage(
       "Evidence must reference exact canonical Prepare and Scope inputs",
     );
   }
-  if (artifact.exclusions.length !== 0) {
-    addEvidenceIssue(
-      context,
-      ["exclusions"],
-      "Evidence performs complete accounting and cannot exclude Prepare records",
-    );
-  }
   if (artifact.decisions.length !== artifact.payload.records.length * 3) {
     addEvidenceIssue(
       context,
@@ -5210,19 +5092,6 @@ function decisionContentForHash(decision: AppendOnlyDecision) {
     actor: decision.actor,
     evidenceArtifacts: sortedArtifactReferences(decision.evidenceArtifacts),
     supersedesDecisionId: decision.supersedesDecisionId,
-  };
-}
-
-function exclusionContentForHash(exclusion: AppendOnlyExclusion) {
-  return {
-    exclusionId: exclusion.exclusionId,
-    recordId: exclusion.recordId,
-    reasonCode: exclusion.reasonCode,
-    reason: exclusion.reason,
-    actor: exclusion.actor,
-    evidenceArtifacts: sortedArtifactReferences(exclusion.evidenceArtifacts),
-    decisionId: exclusion.decisionId,
-    supersedesExclusionId: exclusion.supersedesExclusionId,
   };
 }
 

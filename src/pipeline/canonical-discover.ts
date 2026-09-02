@@ -25,7 +25,6 @@ import {
   leanArtifactVersion,
   sha256DigestSchema,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverArtifactPayload,
@@ -427,7 +426,6 @@ type CanonicalDiscoverProvenanceInputs = {
 export type CanonicalDiscoverResult = {
   payload: DiscoverArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
   provenanceInputs: CanonicalDiscoverProvenanceInputs;
 };
 
@@ -897,7 +895,6 @@ export async function runCanonicalDiscover(
     decisions: [...decisions].sort((left, right) =>
       compareCodeUnits(left.decisionId, right.decisionId),
     ),
-    exclusions: [],
     provenanceInputs: {
       inputArtifacts: uniqueSortedArtifactReferences(inputArtifacts),
       prompts: uniqueSorted(prompts),
@@ -937,7 +934,6 @@ export function buildCanonicalDiscoverArtifact(input: {
       responseArtifacts: input.result.provenanceInputs.responseArtifacts,
     },
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return discoverArtifactSchema.parse(artifact);

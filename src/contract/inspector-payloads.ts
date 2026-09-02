@@ -150,7 +150,6 @@ export type ReportInspectorSummary = {
   funnel: ReportArtifact["payload"]["funnel"];
   rates: ReportArtifact["payload"]["rates"];
   decisionSummaries: ReportArtifact["payload"]["decisionSummaries"];
-  exclusionSummaries: ReportArtifact["payload"]["exclusionSummaries"];
   records: ReportInspectorRecordRow[];
   families: MutationFamilyView[];
 };

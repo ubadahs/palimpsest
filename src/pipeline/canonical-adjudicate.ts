@@ -31,7 +31,6 @@ import {
   type AdjudicateNonfatalFailureCode,
   type AdjudicateRecordOutcome,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type EvidenceArtifact,
   type EvidenceChunk,
@@ -97,7 +96,6 @@ type CanonicalAdjudicateProvenanceInputs = {
 export type CanonicalAdjudicateResult = {
   payload: AdjudicateArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
   provenanceInputs: CanonicalAdjudicateProvenanceInputs;
 };
 
@@ -378,7 +376,6 @@ export async function runCanonicalAdjudicate(
   return {
     payload,
     decisions,
-    exclusions: [],
     provenanceInputs,
   };
 }
@@ -422,7 +419,6 @@ export function buildCanonicalAdjudicateArtifact(input: {
           replayableFromInputs: true,
         },
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return parseBoundary(
@@ -524,7 +520,7 @@ function evaluateAdjudicationGate(input: {
     return classificationGate;
   }
 
-  const contextText = prepareRecord.context.verbatim.text.trim();
+  const contextText = prepareRecord.citationOccurrence.rawContext.trim();
   if (contextText.length === 0) {
     return {
       eligible: false,
@@ -828,99 +824,44 @@ function buildAdjudicateLineage(
   };
 }
 
+/**
+ * One decision per record. The earlier three-per-record ledger (gate, model,
+ * final) restated the same `record.status` three times with three wordings; the
+ * outcome, its reason, and the model that produced it are all on the record.
+ */
 function createAdjudicateDecisions(
   payload: AdjudicateArtifactPayload,
   recordedAt: string,
   lineage: AdjudicateLineage,
 ): AppendOnlyDecision[] {
   const baseArtifacts = [lineage.evidenceArtifact, lineage.prepareArtifact];
-  return payload.records.flatMap((record) => {
-    const modelArtifacts =
-      record.status === "adjudicated" ||
-      record.status === "adjudication_failed" ||
-      record.status === "invalid_output"
-        ? [record.execution.requestArtifact, record.execution.responseArtifact]
-        : [];
-    const gateOutcome =
-      record.status === "not_adjudicated" ? record.gateCode : "eligible";
-    const gateReason =
-      record.status === "not_adjudicated"
-        ? record.reason
-        : "Record passed deterministic adjudicability gates";
-    const modelOutcome =
-      record.status === "not_adjudicated"
-        ? "not_attempted"
-        : record.status === "adjudicated"
-          ? "completed"
-          : record.status;
-    const modelReason =
-      record.status === "not_adjudicated"
-        ? "Model adjudication was not attempted because the record was gated"
-        : record.status === "adjudicated"
-          ? `Categorical verdict ${record.verdict} recorded (confidence does not alter routing)`
-          : record.reason;
-    const finalOutcome = record.status;
-    const finalReason =
-      record.status === "adjudicated"
-        ? `Final categorical verdict ${record.verdict}`
-        : record.reason;
-
-    return [
-      createAppendOnlyDecision({
-        recordId: record.recordId,
-        decisionType: "adjudicate_gate_outcome",
-        outcome: gateOutcome,
-        reason: gateReason,
-        recordedAt,
-        actor: {
-          kind: "deterministic",
-          identifier: "canonical-adjudicate-gate-v1",
-        },
-        evidenceArtifacts: baseArtifacts,
-      }),
-      createAppendOnlyDecision({
-        recordId: record.recordId,
-        decisionType: "adjudicate_model_outcome",
-        outcome: modelOutcome,
-        reason: modelReason,
-        recordedAt,
-        actor:
-          record.status === "not_adjudicated"
-            ? {
-                kind: "deterministic",
-                identifier: "canonical-adjudicate-gate-v1",
-              }
-            : {
-                kind: "model",
-                identifier: `${record.execution.provider}/${record.execution.model}`,
-              },
-        evidenceArtifacts: uniqueSortedArtifactReferences([
-          ...baseArtifacts,
-          ...modelArtifacts,
-        ]),
-      }),
-      createAppendOnlyDecision({
-        recordId: record.recordId,
-        decisionType: "adjudicate_final_outcome",
-        outcome: finalOutcome,
-        reason: finalReason,
-        recordedAt,
-        actor:
-          record.status === "not_adjudicated"
-            ? {
-                kind: "deterministic",
-                identifier: "canonical-adjudicate-gate-v1",
-              }
-            : {
-                kind: "model",
-                identifier: `${record.execution.provider}/${record.execution.model}`,
-              },
-        evidenceArtifacts: uniqueSortedArtifactReferences([
-          ...baseArtifacts,
-          ...modelArtifacts,
-        ]),
-      }),
-    ];
+  return payload.records.map((record) => {
+    const gated = record.status === "not_adjudicated";
+    return createAppendOnlyDecision({
+      recordId: record.recordId,
+      decisionType: "adjudicate_outcome",
+      outcome: gated ? record.gateCode : record.status,
+      reason:
+        record.status === "adjudicated"
+          ? `Final categorical verdict ${record.verdict}`
+          : record.reason,
+      recordedAt,
+      actor: gated
+        ? { kind: "deterministic", identifier: "canonical-adjudicate-gate-v1" }
+        : {
+            kind: "model",
+            identifier: `${record.execution.provider}/${record.execution.model}`,
+          },
+      evidenceArtifacts: uniqueSortedArtifactReferences(
+        gated
+          ? baseArtifacts
+          : [
+              ...baseArtifacts,
+              record.execution.requestArtifact,
+              record.execution.responseArtifact,
+            ],
+      ),
+    });
   });
 }
 

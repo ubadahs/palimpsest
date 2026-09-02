@@ -80,7 +80,7 @@ export function buildCanonicalAdjudicatePacket(
   const seedRefLabel = prepareRecord.citationOccurrence.seedRefLabel;
   const rawMarker = prepareRecord.citationOccurrence.citationMarker;
   const window = extractCitingWindow(
-    prepareRecord.context.verbatim.text,
+    prepareRecord.citationOccurrence.rawContext,
     seedRefLabel ?? rawMarker,
     800,
     seedRefLabel ? [rawMarker] : [],

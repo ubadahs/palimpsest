@@ -796,8 +796,7 @@ describe("canonical Adjudicate", () => {
     expect(
       result.payload.records.map((record) => record.recordId).sort(),
     ).toEqual(evidence.payload.records.map((record) => record.recordId).sort());
-    expect(result.exclusions).toEqual([]);
-    expect(result.decisions).toHaveLength(evidence.payload.records.length * 3);
+    expect(result.decisions).toHaveLength(evidence.payload.records.length);
   });
 
   it("allows fully gated runs without a model adapter", async () => {
@@ -1491,7 +1490,7 @@ describe("canonical Adjudicate", () => {
         name: "remove modeled decision request provenance",
         mutate: (value) => {
           const decision = value.decisions.find(
-            (entry) => entry.decisionType === "adjudicate_model_outcome",
+            (entry) => entry.decisionType === "adjudicate_outcome",
           )!;
           const modeledRecord = value.payload.records.find(
             (record) => record.status === "adjudicated",
@@ -1511,7 +1510,7 @@ describe("canonical Adjudicate", () => {
         name: "swap modeled decision response provenance",
         mutate: (value) => {
           const decision = value.decisions.find(
-            (entry) => entry.decisionType === "adjudicate_final_outcome",
+            (entry) => entry.decisionType === "adjudicate_outcome",
           )!;
           const modeledRecord = value.payload.records.find(
             (record) => record.status === "adjudicated",
