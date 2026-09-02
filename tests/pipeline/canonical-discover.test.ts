@@ -801,6 +801,38 @@ describe("canonical Discover", () => {
     );
   });
 
+  it("accepts a no-mentions harvest only with its reason code", () => {
+    const harvest = (extra: Record<string, unknown>) => ({
+      materialization: {
+        status: "succeeded",
+        reason: "Full text materialized",
+        provenanceArtifacts: [artifactReference("materialization", "p1")],
+      },
+      harvest: {
+        status: "no_mentions",
+        reason: "Seed bibliography entry found but no in-text mentions.",
+        provenanceArtifacts: [artifactReference("mention-harvest", "p1")],
+        ...extra,
+      },
+      mentions: [],
+    });
+
+    expect(
+      canonicalMentionHarvestResultSchema.safeParse(
+        harvest({ reasonCode: "no_in_text_mentions" }),
+      ).success,
+    ).toBe(true);
+    expect(
+      canonicalMentionHarvestResultSchema.safeParse(
+        harvest({ reasonCode: "not_found" }),
+      ).success,
+    ).toBe(true);
+    // Without a code the Report could not say why the paper was lost.
+    expect(
+      canonicalMentionHarvestResultSchema.safeParse(harvest({})).success,
+    ).toBe(false);
+  });
+
   it("rejects half-present and non-increasing citation offsets", () => {
     const harvest = successfulHarvest(
       "offset-fixture",
