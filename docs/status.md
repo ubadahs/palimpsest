@@ -40,7 +40,7 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
 Landed as code, still unmeasured:
 
 - **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). The measured loss it targets — 28 records gated `manual_review_role_ambiguous` in the 2026-09-02 replay — has not been re-measured.
-- **Structured outputs.** Every canonical model call uses provider-enforced structured output. Whether Opus adjudicates as well through a tool schema, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
+- **Structured outputs.** Every canonical model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
 - **Instrumented ledger.** `cost-summary.json` now records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
 - **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. No blinded labels exist yet, so `calibrationStatus` stays `uncalibrated`.
 
@@ -73,4 +73,4 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
-- LLM purposes are limited to `attributed-claim-extraction`, `claim-canonicalization`, `seed-grounding`, `evidence-rerank`, and `adjudication`.
+- LLM purposes are limited to `attributed-claim-extraction`, `claim-canonicalization`, `seed-grounding`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.
