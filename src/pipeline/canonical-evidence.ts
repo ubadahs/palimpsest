@@ -23,7 +23,6 @@ import {
   prepareArtifactSchema,
   scopeArtifactSchema,
   type AppendOnlyDecision,
-  type AppendOnlyExclusion,
   type ArtifactReference,
   type EvidenceArtifact,
   type EvidenceArtifactPayload,
@@ -144,7 +143,6 @@ type CanonicalEvidenceProvenanceInputs = {
 export type CanonicalEvidenceResult = {
   payload: EvidenceArtifactPayload;
   decisions: AppendOnlyDecision[];
-  exclusions: AppendOnlyExclusion[];
   provenanceInputs: CanonicalEvidenceProvenanceInputs;
 };
 
@@ -340,7 +338,6 @@ export async function runCanonicalEvidence(
   return {
     payload,
     decisions,
-    exclusions: [],
     provenanceInputs: {
       prompts: uniqueSorted(
         executions.map((execution) => ({
@@ -409,7 +406,6 @@ export function buildCanonicalEvidenceArtifact(input: {
           replayableFromInputs: true,
         },
     decisions: input.result.decisions,
-    exclusions: input.result.exclusions,
     payload: input.result.payload,
   });
   return parseBoundary(

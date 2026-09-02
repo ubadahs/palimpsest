@@ -136,7 +136,6 @@ const reportCountUnitSchema = z.enum([
   "rerank_runs",
   "selections",
   "decisions",
-  "exclusions",
 ]);
 export type ReportCountUnit = z.infer<typeof reportCountUnitSchema>;
 
@@ -628,18 +627,6 @@ const reportDecisionSummarySchema = z
   .strict();
 export type ReportDecisionSummary = z.infer<typeof reportDecisionSummarySchema>;
 
-const reportExclusionSummarySchema = z
-  .object({
-    stage: stageKeySchema,
-    reasonCode: z.string().min(1),
-    count: z.number().int().nonnegative(),
-    unit: z.literal("exclusions"),
-  })
-  .strict();
-export type ReportExclusionSummary = z.infer<
-  typeof reportExclusionSummarySchema
->;
-
 export const REQUIRED_REPORT_RATE_METRIC_IDS = [
   "scope_selection_rate",
   "retrieval_coverage",
@@ -755,7 +742,6 @@ export const reportArtifactPayloadSchema = z
     familyMutations: z.array(reportFamilyMutationSchema),
     recordTraces: z.array(reportRecordTraceSchema),
     decisionSummaries: z.array(reportDecisionSummarySchema),
-    exclusionSummaries: z.array(reportExclusionSummarySchema),
   })
   .strict()
   .superRefine(validateReportPayload);
@@ -1642,7 +1628,6 @@ export function validateReportArtifactLineage(
       evidenceArtifacts: ArtifactReference[];
       supersedesDecisionId?: string | undefined;
     }>;
-    exclusions: unknown[];
     provenance: {
       models: unknown[];
       prompts: unknown[];
@@ -1687,14 +1672,6 @@ export function validateReportArtifactLineage(
   }
 
   validateReportDecisions(artifact, expectedInputs, context);
-  if (artifact.exclusions.length !== 0) {
-    context.addIssue({
-      code: "custom",
-      path: ["exclusions"],
-      message:
-        "Canonical Report performs complete accounting and cannot add report-stage exclusions",
-    });
-  }
 
   if (
     artifact.execution.kind !== "deterministic" ||

@@ -14,7 +14,6 @@ import {
   buildDecisionId,
   computeLeanArtifactContentHash,
   computeLeanArtifactId,
-  createAppendOnlyExclusion,
   hashCanonicalAdjudicateRequest,
   reportArtifactPayloadSchema,
   reportArtifactSchema,
@@ -2037,39 +2036,5 @@ describe("canonical Report", () => {
     );
     rehashArtifact(missingLineage);
     expect(reportArtifactSchema.safeParse(missingLineage).success).toBe(false);
-  });
-
-  it("forbids Report-stage exclusions", async () => {
-    const chain = await buildChain();
-    const result = runCanonicalReport(
-      chain.discover,
-      chain.scope,
-      chain.prepare,
-      chain.evidence,
-      chain.adjudicate,
-      { recordedAt: "2026-07-17T10:50:00.000Z" },
-    );
-    const artifact = buildCanonicalReportArtifact({
-      result,
-      runId: chain.discover.runId,
-      createdAt: "2026-07-17T10:51:00.000Z",
-    });
-    const tampered = structuredClone(artifact);
-    tampered.exclusions.push(
-      createAppendOnlyExclusion({
-        recordId: tampered.decisions[0]!.recordId,
-        reasonCode: "forbidden_report_exclusion",
-        reason: "Report must not exclude an upstream record.",
-        recordedAt: "2026-07-17T10:50:00.000Z",
-        actor: {
-          kind: "deterministic",
-          identifier: "canonical-audit-report-v1",
-        },
-        evidenceArtifacts: tampered.inputArtifacts,
-        decisionId: tampered.decisions[0]!.decisionId,
-      }),
-    );
-    rehashArtifact(tampered);
-    expect(reportArtifactSchema.safeParse(tampered).success).toBe(false);
   });
 });

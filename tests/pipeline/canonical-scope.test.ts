@@ -382,11 +382,6 @@ function splitEquivalentCandidate(
     conditionCount: 0,
     genericLanguagePenalty: 0,
     claimShape: "atomic" as const,
-    lexicalFingerprint: {
-      wordShingleHash: canonicalSha256("word"),
-      charShingleHash: canonicalSha256("char"),
-      wordShingles: ["fixture claim text"],
-    },
   };
   const candidateDispositions = [
     ...splitCandidates.map((candidate, index) => ({
@@ -442,7 +437,6 @@ function splitEquivalentCandidate(
       ),
       ...scopeDecisions,
     ],
-    exclusions: discover.exclusions,
     payload: {
       ...discover.payload,
       claimCandidates,
@@ -1112,7 +1106,6 @@ describe("canonical Scope", () => {
       );
     }
     expect(artifact.execution.replayableFromInputs).toBe(false);
-    expect(artifact.exclusions).toEqual([]);
   });
 
   it("rejects a tampered Discover artifact before adapter execution", async () => {
