@@ -34,6 +34,8 @@ import {
   type ReportCount,
   type ReportDecisionSummary,
   type ReportExclusionSummary,
+  type ReportFamilyMutation,
+  type ReportFamilyMutationRecord,
   type ReportFunnelCounts,
   type ReportLineage,
   type ReportRate,
@@ -155,6 +157,13 @@ export function runCanonicalReport(
     adjudicateArtifact,
   ]);
 
+  const familyMutations = buildFamilyMutations({
+    discoverArtifact,
+    prepareArtifact,
+    evidenceArtifact,
+    adjudicateArtifact,
+  });
+
   const payload = reportArtifactPayloadSchema.parse({
     lineage,
     method: canonicalReportMethod,
@@ -164,6 +173,7 @@ export function runCanonicalReport(
     replayableFromInputs: true,
     funnel,
     rates,
+    familyMutations,
     recordTraces,
     decisionSummaries,
     exclusionSummaries,
@@ -415,6 +425,19 @@ function buildFunnelCounts(input: {
   const discover = discoverArtifact.payload;
   const citingPapers = discover.citingPapers;
   const returnedCitingPaperObservations = citingPapers.length;
+  const strata = new Map<string, { returned: number; probed: number }>();
+  for (const paper of citingPapers) {
+    const key = paper.probe.stratum
+      ? `${paper.probe.stratum.yearBand}::${paper.probe.stratum.paperType}`
+      : "unknown::unknown";
+    const bucket = strata.get(key) ?? { returned: 0, probed: 0 };
+    bucket.returned += 1;
+    if (paper.probe.status === "selected") bucket.probed += 1;
+    strata.set(key, bucket);
+  }
+  const probeStratumCounts = [...strata.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([stratum, counts]) => ({ stratum, ...counts }));
   const probed = citingPapers.filter(
     (paper) => paper.probe.status === "selected",
   ).length;
@@ -692,6 +715,12 @@ function buildFunnelCounts(input: {
   );
   const uniqueClaimUnitKeys = new Set<string>();
   const uniqueAdjudicatedClaimUnitKeys = new Set<string>();
+  const uniqueUnitsByVerdict = {
+    F: new Set<string>(),
+    D: new Set<string>(),
+    E: new Set<string>(),
+    U: new Set<string>(),
+  };
   let packetsWithVerifiedSupportSpans = 0;
   let packetsMissingSupportSpans = 0;
   for (const outcome of adjudicateRecords) {
@@ -709,6 +738,7 @@ function buildFunnelCounts(input: {
     uniqueClaimUnitKeys.add(unitKey);
     if (outcome.status === "adjudicated") {
       uniqueAdjudicatedClaimUnitKeys.add(unitKey);
+      uniqueUnitsByVerdict[outcome.verdict].add(unitKey);
     }
     const allVerified =
       prepareRecord.occurrenceSourceClaimRecords.length > 0 &&
@@ -742,6 +772,7 @@ function buildFunnelCounts(input: {
 
   return {
     discover: {
+      probeStratumCounts,
       seeds: count(
         "discover.seeds",
         discover.seeds.length,
@@ -1119,6 +1150,32 @@ function buildFunnelCounts(input: {
         "unique_claim_units",
         "Distinct family × citing-paper × claim-record units across Adjudicate outcomes",
       ),
+      uniqueClaimUnitVerdictCounts: {
+        F: count(
+          "adjudicate.unique_claim_units_verdict_F",
+          uniqueUnitsByVerdict.F.size,
+          "unique_claim_units",
+          "Unique family × citing-paper × claim units with at least one F record",
+        ),
+        D: count(
+          "adjudicate.unique_claim_units_verdict_D",
+          uniqueUnitsByVerdict.D.size,
+          "unique_claim_units",
+          "Unique family × citing-paper × claim units with at least one D record",
+        ),
+        E: count(
+          "adjudicate.unique_claim_units_verdict_E",
+          uniqueUnitsByVerdict.E.size,
+          "unique_claim_units",
+          "Unique family × citing-paper × claim units with at least one E record",
+        ),
+        U: count(
+          "adjudicate.unique_claim_units_verdict_U",
+          uniqueUnitsByVerdict.U.size,
+          "unique_claim_units",
+          "Unique family × citing-paper × claim units with at least one U record",
+        ),
+      },
       uniqueAdjudicatedClaimUnits: count(
         "adjudicate.unique_adjudicated_claim_units",
         uniqueAdjudicatedClaimUnitKeys.size,
@@ -1176,8 +1233,24 @@ function buildRates(funnel: ReportFunnelCounts): ReportRate[] {
     )?.count ?? 0;
   const adjudicated = funnel.adjudicate.adjudicated.count;
   const totalRecords = funnel.adjudicate.totalRecordOutcomes.count;
+  const uniqueAdjudicated = funnel.adjudicate.uniqueAdjudicatedClaimUnits.count;
+  const uniqueRate = (verdict: "F" | "D" | "E" | "U") =>
+    buildReportRate({
+      metricId: `verdict_${verdict}_unique_rate`,
+      numerator: funnel.adjudicate.uniqueClaimUnitVerdictCounts[verdict].count,
+      denominator: uniqueAdjudicated,
+      unit: `${verdict}_unique_claim_units / unique_adjudicated_claim_units`,
+      populationLabel: `Share of unique adjudicated claim units with at least one ${verdict} record; repeated citations of one claim count once`,
+      numeratorDefinition: `Unique family × citing-paper × claim units with an adjudicated ${verdict} record`,
+      denominatorDefinition:
+        "Unique family × citing-paper × claim units with at least one adjudicated record",
+    });
 
   const rates: ReportRate[] = [
+    uniqueRate("F"),
+    uniqueRate("D"),
+    uniqueRate("E"),
+    uniqueRate("U"),
     buildReportRate({
       metricId: "adjudication_coverage",
       numerator: adjudicated,
@@ -1455,6 +1528,174 @@ function countBy<T>(
   predicate: (item: T) => boolean,
 ): number {
   return items.reduce((sum, item) => (predicate(item) ? sum + 1 : sum), 0);
+}
+
+function buildFamilyMutations(input: {
+  discoverArtifact: DiscoverArtifact;
+  prepareArtifact: PrepareArtifact;
+  evidenceArtifact: EvidenceArtifact;
+  adjudicateArtifact: AdjudicateArtifact;
+}): ReportFamilyMutation[] {
+  const adjudicateById = new Map(
+    input.adjudicateArtifact.payload.records.map((record) => [
+      record.recordId,
+      record,
+    ]),
+  );
+  const selectionSourceById = new Map(
+    input.evidenceArtifact.payload.selections.map((selection) => [
+      selection.selectionId,
+      selection.rankingSource,
+    ]),
+  );
+  const rankingSourceByRecordId = new Map(
+    input.evidenceArtifact.payload.records.flatMap((record) =>
+      record.finalSelectionId != null
+        ? [
+            [
+              record.recordId,
+              selectionSourceById.get(record.finalSelectionId),
+            ] as const,
+          ]
+        : [],
+    ),
+  );
+  const equivalenceByCandidateId = new Map(
+    input.discoverArtifact.payload.claimCandidates.map((candidate) => [
+      candidate.candidateId,
+      candidate.equivalence?.method,
+    ]),
+  );
+
+  type FamilyAccumulator = {
+    exemplar: PrepareArtifact["payload"]["records"][number];
+    rows: ReportFamilyMutationRecord[];
+    unitKeys: Set<string>;
+  };
+  const byFamily = new Map<string, FamilyAccumulator>();
+  for (const prepareRecord of input.prepareArtifact.payload.records) {
+    const adjudicateRecord = adjudicateById.get(prepareRecord.recordId);
+    if (!adjudicateRecord) {
+      throw new CanonicalReportBoundaryError(
+        `Prepare record has no Adjudicate outcome: ${prepareRecord.recordId}`,
+      );
+    }
+    const paper = prepareRecord.citingPaper.paper;
+    const occurrence = prepareRecord.citationOccurrence;
+    const claims = prepareRecord.occurrenceSourceClaimRecords;
+    const citingRestatement =
+      claims.map((claim) => claim.extractedClaimText).join("\n") ||
+      prepareRecord.family.trackedClaim;
+    const rankingSource = rankingSourceByRecordId.get(prepareRecord.recordId);
+    const row: ReportFamilyMutationRecord = {
+      recordId: prepareRecord.recordId,
+      citationOccurrenceId: prepareRecord.citationOccurrenceId,
+      citingPaperId: paper.paperId,
+      citingPaperTitle: paper.title,
+      ...(paper.doi ? { citingPaperDoi: paper.doi } : {}),
+      ...(paper.publicationYear != null
+        ? { citingPaperYear: paper.publicationYear }
+        : {}),
+      ...(occurrence.sectionTitle
+        ? { sectionTitle: occurrence.sectionTitle }
+        : {}),
+      citingRestatement,
+      supportSpanTexts: claims.flatMap((claim) =>
+        claim.supportSpan ? [claim.supportSpan.text] : [],
+      ),
+      status: adjudicateRecord.status,
+      ...(rankingSource ? { rankingSource } : {}),
+    };
+    if (adjudicateRecord.status === "adjudicated") {
+      row.verdict = adjudicateRecord.verdict;
+      row.mutationKinds = [...adjudicateRecord.mutationKinds];
+      row.direction = adjudicateRecord.direction;
+      row.citingAssertion = adjudicateRecord.citingAssertion;
+      row.sourceStatement = adjudicateRecord.sourceStatement;
+      row.evidenceSufficiency = adjudicateRecord.evidenceSufficiency;
+    } else if (adjudicateRecord.status === "not_adjudicated") {
+      row.gateCode = adjudicateRecord.gateCode;
+    }
+    const entry = byFamily.get(prepareRecord.familyId) ?? {
+      exemplar: prepareRecord,
+      rows: [],
+      unitKeys: new Set<string>(),
+    };
+    entry.rows.push(row);
+    entry.unitKeys.add(
+      [
+        paper.paperId,
+        claims
+          .map((claim) => normalizeDiscoverClaimText(claim.extractedClaimText))
+          .sort(compareCodeUnits)
+          .join(""),
+      ].join(" "),
+    );
+    byFamily.set(prepareRecord.familyId, entry);
+  }
+
+  const families = [...byFamily.entries()].map(([familyId, entry]) => {
+    const family = entry.exemplar.family;
+    const seed = entry.exemplar.seed;
+    const rows = [...entry.rows].sort(
+      (left, right) =>
+        (left.citingPaperYear ?? Number.POSITIVE_INFINITY) -
+          (right.citingPaperYear ?? Number.POSITIVE_INFINITY) ||
+        compareCodeUnits(left.citingPaperTitle, right.citingPaperTitle) ||
+        compareCodeUnits(left.recordId, right.recordId),
+    );
+    const verdictCounts = {
+      F: 0,
+      D: 0,
+      E: 0,
+      U: 0,
+      not_adjudicated: 0,
+      failed: 0,
+    };
+    for (const row of rows) {
+      if (row.status === "adjudicated" && row.verdict) {
+        verdictCounts[row.verdict] += 1;
+      } else if (row.status === "not_adjudicated") {
+        verdictCounts.not_adjudicated += 1;
+      } else {
+        verdictCounts.failed += 1;
+      }
+    }
+    const equivalenceMethod = family.candidateIds
+      .map((candidateId) => equivalenceByCandidateId.get(candidateId))
+      .find((method) => method != null);
+    const grounding = family.grounding;
+    const spans =
+      grounding.status === "grounded" || grounding.status === "ambiguous"
+        ? grounding.evidenceSpans.map((span) => ({
+            blockId: span.blockId,
+            ...(span.sectionTitle ? { sectionTitle: span.sectionTitle } : {}),
+            text: span.text,
+          }))
+        : [];
+    const mutation: ReportFamilyMutation = {
+      familyId,
+      seedId: family.seedId,
+      seedDoi: seed.doi,
+      ...(seed.resolution.status === "resolved"
+        ? { seedTitle: seed.resolution.paper.title }
+        : {}),
+      trackedClaim: family.trackedClaim,
+      ...(equivalenceMethod ? { equivalenceMethod } : {}),
+      groundingStatus: grounding.status,
+      verifiedSeedGroundingSpans: spans,
+      verdictCounts,
+      uniqueClaimUnits: entry.unitKeys.size,
+      records: rows,
+    };
+    return mutation;
+  });
+
+  return families.sort(
+    (left, right) =>
+      compareCodeUnits(left.trackedClaim, right.trackedClaim) ||
+      compareCodeUnits(left.familyId, right.familyId),
+  );
 }
 
 function countStatuses<Status extends string>(

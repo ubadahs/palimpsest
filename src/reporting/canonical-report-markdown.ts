@@ -36,6 +36,54 @@ export function renderCanonicalReportMarkdown(
   );
   lines.push("");
 
+  lines.push("## Claim families and their restatements");
+  lines.push("");
+  lines.push(
+    "Each family is one seed finding. Restatements are listed in citing-paper order (year, then title). Verdicts are uncalibrated.",
+  );
+  lines.push("");
+  if (payload.familyMutations.length === 0) {
+    lines.push("- No families were scoped.");
+    lines.push("");
+  }
+  for (const family of payload.familyMutations) {
+    lines.push(`### ${family.trackedClaim}`);
+    lines.push("");
+    lines.push(
+      `Seed: ${family.seedTitle ?? family.seedDoi} (\`${family.seedDoi}\`) · grounding \`${family.groundingStatus}\`${family.equivalenceMethod ? ` · equivalence \`${family.equivalenceMethod}\`` : ""} · ${String(family.records.length)} records, ${String(family.uniqueClaimUnits)} unique claim units · F ${String(family.verdictCounts.F)}, D ${String(family.verdictCounts.D)}, E ${String(family.verdictCounts.E)}, U ${String(family.verdictCounts.U)}, gated ${String(family.verdictCounts.not_adjudicated)}, failed ${String(family.verdictCounts.failed)}`,
+    );
+    lines.push("");
+    for (const span of family.verifiedSeedGroundingSpans.slice(0, 3)) {
+      lines.push(
+        `> Seed${span.sectionTitle ? ` (${span.sectionTitle})` : ""}: ${span.text}`,
+      );
+    }
+    if (family.verifiedSeedGroundingSpans.length > 0) lines.push("");
+    for (const record of family.records) {
+      const year =
+        record.citingPaperYear != null
+          ? String(record.citingPaperYear)
+          : "n.d.";
+      const outcome =
+        record.status === "adjudicated"
+          ? `**${record.verdict ?? "?"}**${record.mutationKinds && record.mutationKinds.length > 0 ? ` (${record.direction ?? "shifted"}: ${record.mutationKinds.join(", ")})` : ""}`
+          : record.status === "not_adjudicated"
+            ? `gated: ${record.gateCode ?? "unknown"}`
+            : record.status;
+      lines.push(
+        `- ${year} · ${record.citingPaperTitle}${record.citingPaperDoi ? ` (\`${record.citingPaperDoi}\`)` : ""} · ${outcome}`,
+      );
+      lines.push(
+        `  - Restatement: ${record.citingRestatement.replace(/\n/g, " / ")}`,
+      );
+      if (record.citingAssertion && record.sourceStatement) {
+        lines.push(`  - Citing asserts: ${record.citingAssertion}`);
+        lines.push(`  - Seed evidence says: ${record.sourceStatement}`);
+      }
+    }
+    lines.push("");
+  }
+
   lines.push("## Run and funnel coverage");
   lines.push("");
   lines.push(`Run ID: \`${payload.lineage.runId}\``);
@@ -73,7 +121,20 @@ export function renderCanonicalReportMarkdown(
   ]);
   lines.push("");
   lines.push(
-    "Adaptive portfolio selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics, not claim consolidations.",
+    "Probe sampling design (year band :: paper type → probed / returned):",
+  );
+  lines.push("");
+  for (const stratum of payload.funnel.discover.probeStratumCounts) {
+    lines.push(
+      `- \`${stratum.stratum}\`: ${String(stratum.probed)} / ${String(stratum.returned)}`,
+    );
+  }
+  if (payload.funnel.discover.probeStratumCounts.length === 0) {
+    lines.push("- No citing papers returned.");
+  }
+  lines.push("");
+  lines.push(
+    "Adaptive portfolio selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics; cross-citer paraphrases are merged by the Discover equivalence pass.",
   );
   lines.push("");
   lines.push("### Scope");
@@ -187,6 +248,27 @@ export function renderCanonicalReportMarkdown(
     "verdict_D_rate",
     "verdict_E_rate",
     "verdict_U_rate",
+  ] as const) {
+    appendRateLine(lines, requireRate(payload.rates, metricId));
+  }
+  lines.push("");
+  lines.push("### By unique claim unit");
+  lines.push("");
+  lines.push(
+    "The same citing paper restating the same claim several times counts once here; a unit is counted under every verdict its records received.",
+  );
+  lines.push("");
+  appendCountLines(lines, [
+    payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts.F,
+    payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts.D,
+    payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts.E,
+    payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts.U,
+  ]);
+  for (const metricId of [
+    "verdict_F_unique_rate",
+    "verdict_D_unique_rate",
+    "verdict_E_unique_rate",
+    "verdict_U_unique_rate",
   ] as const) {
     appendRateLine(lines, requireRate(payload.rates, metricId));
   }

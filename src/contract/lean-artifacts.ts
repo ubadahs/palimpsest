@@ -95,6 +95,8 @@ export {
   type ReportCount,
   type ReportDecisionSummary,
   type ReportExclusionSummary,
+  type ReportFamilyMutation,
+  type ReportFamilyMutationRecord,
   type ReportFunnelCounts,
   type ReportLineage,
   type ReportRate,
@@ -595,6 +597,14 @@ export const discoverCitingPaperRecordSchema = z
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
     probe: paperDispositionSchema.extend({
       status: z.enum(["selected", "not_selected"]),
+      /** Sampling stratum used by the deterministic probe budget. */
+      stratum: z
+        .object({
+          yearBand: z.string().min(1),
+          paperType: z.string().min(1),
+        })
+        .strict()
+        .optional(),
     }),
     materialization: paperDispositionSchema.extend({
       status: z.enum(["not_attempted", "succeeded", "unavailable", "failed"]),

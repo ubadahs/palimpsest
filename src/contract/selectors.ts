@@ -659,7 +659,43 @@ function tallyVerdict(
  */
 export function buildReportInspectorFamilies(
   records: readonly ReportInspectorRecordRow[],
+  familyMutations?: StageArtifactMap["report"]["payload"]["familyMutations"],
 ): MutationFamilyView[] {
+  // When the canonical Report carries family mutations, they are the source
+  // of membership and order; the UI is a reader, not a second producer.
+  if (familyMutations) {
+    const rowsById = new Map(records.map((row) => [row.recordId, row]));
+    return familyMutations.map((family) => {
+      const rows = family.records.map((record) => {
+        const row = rowsById.get(record.recordId);
+        if (!row) {
+          throw new Error(
+            `Report family record has no inspector row: ${record.recordId}`,
+          );
+        }
+        return row;
+      });
+      const head = rows[0]!;
+      const view: MutationFamilyView = {
+        familyId: family.familyId,
+        seedId: family.seedId,
+        trackedClaim: family.trackedClaim,
+        seedTitle: family.seedTitle ?? head.seedTitle,
+        seedDoi: family.seedDoi,
+        groundingStatus: family.groundingStatus,
+        verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
+        recordCount: rows.length,
+        uniqueClaimUnits: family.uniqueClaimUnits,
+        verdictCounts: { ...family.verdictCounts },
+        records: rows,
+      };
+      if (family.equivalenceMethod) {
+        view.equivalenceMethod = family.equivalenceMethod;
+      }
+      return view;
+    });
+  }
+
   const byFamily = new Map<string, ReportInspectorRecordRow[]>();
   for (const record of records) {
     const group = byFamily.get(record.familyId) ?? [];
@@ -913,7 +949,10 @@ function buildReportInspectorPayload(
     evidence,
     adjudicate,
   });
-  const families = buildReportInspectorFamilies(records);
+  const families = buildReportInspectorFamilies(
+    records,
+    artifact.payload.familyMutations,
+  );
 
   return {
     stageKey: "report",

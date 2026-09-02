@@ -236,7 +236,11 @@ export function FamiliesBrowser({
                   {family.trackedClaim}
                 </p>
                 <p className="mt-1 text-xs text-[var(--text-muted)]">
-                  {family.recordCount} records · {shortId(family.familyId)}
+                  {family.recordCount} records
+                  {family.uniqueClaimUnits != null
+                    ? ` · ${String(family.uniqueClaimUnits)} unique units`
+                    : ""}{" "}
+                  · {shortId(family.familyId)}
                 </p>
                 <div className="mt-2">
                   <FamilyVerdictChips family={family} />

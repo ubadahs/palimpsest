@@ -769,6 +769,7 @@ function buildAllStageArtifacts() {
       replayableFromInputs: true,
       funnel: {
         discover: {
+          probeStratumCounts: [],
           seeds: buildReportCount({
             metricId: "discover.seeds",
             count: 0,
@@ -1065,6 +1066,32 @@ function buildAllStageArtifacts() {
             unit: "unique_claim_units",
             population: "Unique claim units",
           }),
+          uniqueClaimUnitVerdictCounts: {
+            F: buildReportCount({
+              metricId: "adjudicate.unique_claim_units_verdict_F",
+              count: 0,
+              unit: "unique_claim_units",
+              population: "Unique units F",
+            }),
+            D: buildReportCount({
+              metricId: "adjudicate.unique_claim_units_verdict_D",
+              count: 0,
+              unit: "unique_claim_units",
+              population: "Unique units D",
+            }),
+            E: buildReportCount({
+              metricId: "adjudicate.unique_claim_units_verdict_E",
+              count: 0,
+              unit: "unique_claim_units",
+              population: "Unique units E",
+            }),
+            U: buildReportCount({
+              metricId: "adjudicate.unique_claim_units_verdict_U",
+              count: 0,
+              unit: "unique_claim_units",
+              population: "Unique units U",
+            }),
+          },
           uniqueAdjudicatedClaimUnits: buildReportCount({
             metricId: "adjudicate.unique_adjudicated_claim_units",
             count: 0,
@@ -1165,6 +1192,42 @@ function buildAllStageArtifacts() {
           numeratorDefinition: "U verdicts",
           denominatorDefinition: "Adjudicated records only",
         }),
+        buildReportRate({
+          metricId: "verdict_F_unique_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "U_verdicts / adjudicated_records",
+          populationLabel: "U rate",
+          numeratorDefinition: "U verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_D_unique_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "U_verdicts / adjudicated_records",
+          populationLabel: "U rate",
+          numeratorDefinition: "U verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_E_unique_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "U_verdicts / adjudicated_records",
+          populationLabel: "U rate",
+          numeratorDefinition: "U verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
+        buildReportRate({
+          metricId: "verdict_U_unique_rate",
+          numerator: 0,
+          denominator: 0,
+          unit: "U_verdicts / adjudicated_records",
+          populationLabel: "U rate",
+          numeratorDefinition: "U verdicts",
+          denominatorDefinition: "Adjudicated records only",
+        }),
       ].sort((left, right) =>
         left.metricId < right.metricId
           ? -1
@@ -1172,6 +1235,7 @@ function buildAllStageArtifacts() {
             ? 1
             : 0,
       ),
+      familyMutations: [],
       recordTraces: [],
       decisionSummaries: [],
       exclusionSummaries: [],

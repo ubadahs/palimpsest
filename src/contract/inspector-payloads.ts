@@ -131,6 +131,10 @@ export type MutationFamilyView = {
   groundingStatus?: string;
   verifiedSeedGroundingSpans: ReportInspectorGroundingSpan[];
   recordCount: number;
+  /** Distinct citing-paper × claim units, from the canonical Report. */
+  uniqueClaimUnits?: number;
+  /** How Discover judged the member claims equivalent. */
+  equivalenceMethod?: "model" | "exact_normalized_text";
   verdictCounts: MutationFamilyVerdictCounts;
   /** Chronological citing-paper restatements (year → title → recordId). */
   records: ReportInspectorRecordRow[];
