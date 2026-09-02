@@ -9,9 +9,9 @@
 
 import { createHash } from "node:crypto";
 
-import { generateObject, generateText } from "ai";
+import { generateObject, generateText, jsonSchema, type JSONSchema7 } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import type { z } from "zod";
+import { z } from "zod";
 
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
 import type { StageKey } from "../contract/lean-stages.js";
@@ -40,6 +40,8 @@ export type LLMProviderErrorClass =
   | "authorization"
   | "rate_limit"
   | "network_or_transport"
+  /** The request itself was rejected (bad schema, bad parameter); retrying cannot help. */
+  | "invalid_request"
   | "unknown";
 
 type LLMCallContext = {
@@ -285,6 +287,55 @@ class LLMProviderError extends Error {
 }
 
 /**
+ * Anthropic structured output accepts a subset of JSON Schema: no numeric,
+ * string, or array bounds, no `oneOf`, no `not`, no `default`. Zod expresses
+ * all of those, so the schema sent to the provider is the shape only and the
+ * bounds are enforced by validating the reply against the Zod schema locally.
+ */
+export function toProviderJsonSchema(schema: z.ZodType): JSONSchema7 {
+  const raw = z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<
+    string,
+    unknown
+  >;
+  return stripUnsupportedKeywords(raw) as JSONSchema7;
+}
+
+const UNSUPPORTED_SCHEMA_KEYWORDS = new Set([
+  "$schema",
+  "default",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "format",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+]);
+
+function stripUnsupportedKeywords(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripUnsupportedKeywords);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (UNSUPPORTED_SCHEMA_KEYWORDS.has(key)) continue;
+    // `z.never()` becomes `{ not: {} }`; an empty items schema is the closest
+    // thing the provider accepts, and local validation still rejects entries.
+    if (key === "not") continue;
+    if (key === "oneOf") {
+      out["anyOf"] = stripUnsupportedKeywords(value);
+      continue;
+    }
+    out[key] = stripUnsupportedKeywords(value);
+  }
+  return out;
+}
+
+/**
  * Produce a short hash of a Zod schema for cache-key differentiation.
  * Uses JSON.stringify on the schema's internal definition so that two
  * structurally identical schemas yield the same fingerprint.
@@ -363,6 +414,18 @@ export function classifyProviderError(error: unknown): {
   ) {
     return {
       classification: "network_or_transport",
+      fatal: false,
+      message,
+    };
+  }
+
+  if (
+    /invalid_request_error|output_config|is not supported|invalid schema|\b400\b/i.test(
+      normalized,
+    )
+  ) {
+    return {
+      classification: "invalid_request",
       fatal: false,
       message,
     };
@@ -833,7 +896,12 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       } catch (error) {
         if (attempt >= MAX_RETRIES) throw error;
         const classification = classifyProviderError(error);
-        if (classification.fatal) throw error;
+        if (
+          classification.fatal ||
+          classification.classification === "invalid_request"
+        ) {
+          throw error;
+        }
         const delayMs = RETRY_BASE_MS * 2 ** attempt + Math.random() * 500;
         console.error(
           `[llm-client] ${purpose} transient error (${classification.classification}), retry ${String(attempt + 1)}/${String(MAX_RETRIES)} in ${String(Math.round(delayMs))}ms`,
@@ -1165,7 +1233,19 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           () =>
             generateObject({
               model: anthropic(modelId),
-              schema: params.schema,
+              // The provider sees a constraint-free schema it can enforce;
+              // the full Zod schema validates the reply locally.
+              schema: jsonSchema<z.infer<T>>(
+                toProviderJsonSchema(params.schema),
+                {
+                  validate: (value) => {
+                    const parsed = params.schema.safeParse(value);
+                    return parsed.success
+                      ? { success: true, value: parsed.data as z.infer<T> }
+                      : { success: false, error: parsed.error };
+                  },
+                },
+              ),
               maxOutputTokens:
                 params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
               ...(promptInput.prompt != null

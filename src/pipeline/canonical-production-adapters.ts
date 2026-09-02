@@ -319,6 +319,8 @@ function mapLlmFailureCode(error: unknown): {
         reasonCode: /timeout/i.test(reason) ? "timeout" : "transport",
         reason,
       };
+    case "invalid_request":
+      return { reasonCode: "invalid_response", reason };
     default:
       return { reasonCode: "invalid_response", reason };
   }
