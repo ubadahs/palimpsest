@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   adjudicateArtifactSchema,
+  buildCitationGroupKey,
   buildReportDecisionRecordId,
   buildReportCount,
   buildReportRate,
@@ -463,13 +464,7 @@ function buildFunnelCounts(input: {
     discover.citationMentions.map((mention) => mention.citingPaperId),
   ).size;
   const uniqueCitationGroups = new Set(
-    discover.citationMentions.map((mention) => {
-      const group =
-        mention.citationGroupOrdinal != null
-          ? String(mention.citationGroupOrdinal)
-          : String(mention.mentionIndex);
-      return `${mention.citingPaperId}:${group}`;
-    }),
+    discover.citationMentions.map(buildCitationGroupKey),
   ).size;
   const deferredByFamilyCap = countBy(
     discover.candidateDispositions,
