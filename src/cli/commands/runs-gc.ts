@@ -13,12 +13,12 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-export type RunsGcOptions = {
+type RunsGcOptions = {
   runId: string | undefined;
   dryRun: boolean;
 };
 
-export function parseRunsGcArgs(argv: string[]): RunsGcOptions {
+function parseRunsGcArgs(argv: string[]): RunsGcOptions {
   let runId: string | undefined;
   let dryRun = false;
 

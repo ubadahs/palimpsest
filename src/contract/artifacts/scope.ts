@@ -17,6 +17,7 @@ import { modelExecutionSchema } from "../model-execution.js";
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
   addDuplicateIdentifierIssue,
+  addIssue,
   addSortedUniqueIdentifierIssue,
   hasArtifactReference,
   normalizeWhitespace,
@@ -527,7 +528,7 @@ function validateScopePayload(
   for (const decision of scopedDecisions) {
     const family = familiesById.get(decision.familyId);
     if (!family) {
-      addScopeIssue(
+      addIssue(
         context,
         ["candidateDecisions"],
         `Scoped candidate references an unknown family: ${decision.familyId}`,
@@ -535,14 +536,14 @@ function validateScopePayload(
       continue;
     }
     if (family.seedId !== decision.seedId) {
-      addScopeIssue(
+      addIssue(
         context,
         ["candidateDecisions"],
         `Scoped candidate and family belong to different seeds: ${decision.candidateId}`,
       );
     }
     if (!family.candidateIds.includes(decision.candidateId)) {
-      addScopeIssue(
+      addIssue(
         context,
         ["candidateDecisions"],
         `Scoped candidate is missing from its family: ${decision.candidateId}`,
@@ -566,7 +567,7 @@ function validateScopePayload(
       familyDecisions.flatMap((decision) => decision.memberMentionIds),
     );
     if (!sameIdentifierSequence(family.candidateIds, expectedCandidateIds)) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Family candidate references are incomplete or dangling: ${family.familyId}`,
@@ -578,7 +579,7 @@ function validateScopePayload(
         expectedClaimRecordIds,
       )
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Family source claim references are incomplete or dangling: ${family.familyId}`,
@@ -590,7 +591,7 @@ function validateScopePayload(
         expectedMentionIds,
       )
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Family occurrence membership must exactly equal its Discover candidate membership: ${family.familyId}`,
@@ -599,7 +600,7 @@ function validateScopePayload(
 
     const materialization = materializationsBySeedId.get(family.seedId);
     if (!materialization) {
-      addScopeIssue(
+      addIssue(
         context,
         ["seedMaterializations"],
         `Family has no seed materialization outcome: ${family.familyId}`,
@@ -613,7 +614,7 @@ function validateScopePayload(
         payload.discoverArtifact,
       )
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Family does not reference the immutable Discover input: ${family.familyId}`,
@@ -623,7 +624,7 @@ function validateScopePayload(
       materialization,
     )) {
       if (!hasArtifactReference(family.provenanceArtifacts, reference)) {
-        addScopeIssue(
+        addIssue(
           context,
           ["families"],
           `Family is missing seed-materialization provenance ${reference.artifactId}: ${family.familyId}`,
@@ -636,7 +637,7 @@ function validateScopePayload(
         family.grounding.modelExecution.responseArtifact,
       ]) {
         if (!hasArtifactReference(family.provenanceArtifacts, reference)) {
-          addScopeIssue(
+          addIssue(
             context,
             ["families"],
             `Family is missing grounding provenance ${reference.artifactId}: ${family.familyId}`,
@@ -648,7 +649,7 @@ function validateScopePayload(
 
   for (const materialization of payload.seedMaterializations) {
     if (!familySeedIds.has(materialization.seedId)) {
-      addScopeIssue(
+      addIssue(
         context,
         ["seedMaterializations"],
         `Seed materialization has no scoped family: ${materialization.seedId}`,
@@ -664,7 +665,7 @@ function validateFamilyGroundingAgainstSeedText(
 ): void {
   if (materialization.status === "seed_text_unavailable") {
     if (family.grounding.status !== "seed_text_unavailable") {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding must preserve seed-text unavailability: ${family.familyId}`,
@@ -674,7 +675,7 @@ function validateFamilyGroundingAgainstSeedText(
   }
   if (materialization.status === "acquisition_failed") {
     if (family.grounding.status !== "acquisition_failed") {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding must preserve seed acquisition failure: ${family.familyId}`,
@@ -686,7 +687,7 @@ function validateFamilyGroundingAgainstSeedText(
     family.grounding.status === "seed_text_unavailable" ||
     family.grounding.status === "acquisition_failed"
   ) {
-    addScopeIssue(
+    addIssue(
       context,
       ["families"],
       `Materialized seed text cannot have an unavailable grounding outcome: ${family.familyId}`,
@@ -700,7 +701,7 @@ function validateFamilyGroundingAgainstSeedText(
   for (const span of family.grounding.evidenceSpans) {
     const block = blocksById.get(span.blockId);
     if (!block) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding evidence references an unknown seed-text block: ${span.blockId}`,
@@ -716,7 +717,7 @@ function validateFamilyGroundingAgainstSeedText(
       relativeEnd <= relativeStart ||
       exactText !== span.text
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding evidence is not an exact span of seed-text block ${span.blockId}`,
@@ -726,7 +727,7 @@ function validateFamilyGroundingAgainstSeedText(
       span.blockKind !== block.blockKind ||
       span.sectionTitle !== block.sectionTitle
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding evidence locator metadata differs from seed-text block ${span.blockId}`,
@@ -738,21 +739,13 @@ function validateFamilyGroundingAgainstSeedText(
         materialization.seedTextArtifact,
       )
     ) {
-      addScopeIssue(
+      addIssue(
         context,
         ["families"],
         `Grounding evidence does not reference its immutable seed-text artifact: ${span.blockId}`,
       );
     }
   }
-}
-
-function addScopeIssue(
-  context: z.RefinementCtx,
-  path: (string | number)[],
-  message: string,
-): void {
-  context.addIssue({ code: "custom", path, message });
 }
 
 function scopeMaterializationArtifactReferences(
