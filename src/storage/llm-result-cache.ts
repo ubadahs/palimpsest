@@ -68,9 +68,6 @@ export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
 
 export type CachedLLMResult = {
   cacheKey: string;
-  purpose: LLMPurpose;
-  model: string;
-  keyVersion: string;
   responseText: string;
   createdAt: string;
   lastHitAt: string | undefined;
@@ -94,9 +91,6 @@ export function getCachedLLMResult(
 
   return {
     cacheKey: row["cache_key"] as string,
-    purpose: row["purpose"] as LLMPurpose,
-    model: row["model"] as string,
-    keyVersion: row["key_version"] as string,
     responseText: row["response_text"] as string,
     createdAt: row["created_at"] as string,
     lastHitAt: now,
@@ -125,17 +119,10 @@ export function storeLLMResult(
   entry: Omit<CachedLLMResult, "lastHitAt">,
 ): void {
   db.prepare(
-    `INSERT INTO llm_result_cache (cache_key, purpose, model, key_version, response_text, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO llm_result_cache (cache_key, response_text, created_at)
+     VALUES (?, ?, ?)
      ON CONFLICT(cache_key) DO UPDATE SET
        response_text = excluded.response_text,
        created_at = excluded.created_at`,
-  ).run(
-    entry.cacheKey,
-    entry.purpose,
-    entry.model,
-    entry.keyVersion,
-    entry.responseText,
-    entry.createdAt,
-  );
+  ).run(entry.cacheKey, entry.responseText, entry.createdAt);
 }

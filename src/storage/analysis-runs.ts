@@ -25,7 +25,6 @@ import {
 type RunRow = {
   id: string;
   seed_doi: string;
-  tracked_claim: string | null;
   target_stage: string;
   status: string;
   current_stage: string | null;
@@ -40,7 +39,6 @@ type StageRow = {
   stage_key: string;
   stage_order: number;
   status: string;
-  input_artifact_path: string | null;
   primary_artifact_path: string | null;
   report_artifact_path: string | null;
   manifest_path: string | null;
@@ -49,7 +47,6 @@ type StageRow = {
   error_message: string | null;
   started_at: string | null;
   finished_at: string | null;
-  exit_code: number | null;
   process_id: number | null;
 };
 
@@ -59,7 +56,6 @@ export type CreateAnalysisRunInput = {
   /** Exact DOI input order persisted for canonical Discover and resume. */
   seedDois: [string, ...string[]];
   /** Manual claim ingestion is not supported by canonical DOI-first runs. */
-  trackedClaim?: string;
   targetStage: StageKey;
   runRoot: string;
   config: AnalysisRunConfig;
@@ -69,7 +65,6 @@ function toRun(row: RunRow): AnalysisRun {
   return analysisRunSchema.parse({
     id: row.id,
     seedDoi: row.seed_doi,
-    trackedClaim: row.tracked_claim ?? undefined,
     targetStage: row.target_stage,
     status: row.status,
     currentStage: row.current_stage ?? undefined,
@@ -86,7 +81,6 @@ function toStage(row: StageRow): AnalysisRunStage {
     stageKey: row.stage_key,
     stageOrder: row.stage_order,
     status: row.status,
-    inputArtifactPath: row.input_artifact_path ?? undefined,
     primaryArtifactPath: row.primary_artifact_path ?? undefined,
     reportArtifactPath: row.report_artifact_path ?? undefined,
     manifestPath: row.manifest_path ?? undefined,
@@ -97,7 +91,6 @@ function toStage(row: StageRow): AnalysisRunStage {
     errorMessage: row.error_message ?? undefined,
     startedAt: row.started_at ?? undefined,
     finishedAt: row.finished_at ?? undefined,
-    exitCode: row.exit_code ?? undefined,
     processId: row.process_id ?? undefined,
   });
 }
@@ -114,11 +107,6 @@ export function createAnalysisRun(
   database: Database.Database,
   input: CreateAnalysisRunInput,
 ): AnalysisRun {
-  if (input.trackedClaim?.trim()) {
-    throw new Error(
-      "Manual shortlist/tracked-claim ingestion is not supported; canonical runs must start from a DOI.",
-    );
-  }
   const config = analysisRunConfigSchema.parse(input.config);
   if (input.seedDois[0] !== input.seedDoi) {
     throw new Error(
@@ -149,8 +137,8 @@ export function createAnalysisRun(
 
   const insertRun = database.prepare(`
     INSERT INTO analysis_runs (
-      id, seed_doi, tracked_claim, target_stage, status, current_stage, run_root, config_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      id, seed_doi, target_stage, status, current_stage, run_root, config_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertStage = database.prepare(`
@@ -163,7 +151,6 @@ export function createAnalysisRun(
     insertRun.run(
       input.id,
       input.seedDoi,
-      null,
       input.targetStage,
       "queued",
       null,
@@ -293,13 +280,11 @@ export function updateStageStatus(
   stageKey: StageKey,
   status: AnalysisRunStageStatus,
   options: {
-    inputArtifactPath?: string;
     primaryArtifactPath?: string;
     reportArtifactPath?: string;
     manifestPath?: string;
     summary?: AnalysisStageSummary;
     errorMessage?: string;
-    exitCode?: number;
     startedAt?: string;
     finishedAt?: string;
     processId?: number;
@@ -315,14 +300,14 @@ export function updateStageStatus(
       UPDATE analysis_run_stages
       SET
         status = ?,
-        input_artifact_path = COALESCE(?, input_artifact_path),
         primary_artifact_path = COALESCE(?, primary_artifact_path),
         report_artifact_path = COALESCE(?, report_artifact_path),
         manifest_path = COALESCE(?, manifest_path),
         summary_json = COALESCE(?, summary_json),
         error_message = ?,
-        exit_code = ?,
-        started_at = COALESCE(?, started_at),
+        -- A retry starts a new attempt, so 'running' resets the clock; every
+        -- other transition preserves the start of the attempt in progress.
+        started_at = CASE WHEN ? = 'running' THEN ? ELSE COALESCE(?, started_at) END,
         finished_at = ?,
         process_id = ?
       WHERE run_id = ? AND stage_key = ? AND family_index = 0
@@ -330,13 +315,13 @@ export function updateStageStatus(
     )
     .run(
       status,
-      options.inputArtifactPath ?? null,
       options.primaryArtifactPath ?? null,
       options.reportArtifactPath ?? null,
       options.manifestPath ?? null,
       options.summary ? JSON.stringify(options.summary) : null,
       options.errorMessage ?? null,
-      options.exitCode ?? null,
+      status,
+      options.startedAt ?? new Date().toISOString(),
       options.startedAt ?? null,
       options.finishedAt ?? null,
       options.processId ?? null,
@@ -344,24 +329,6 @@ export function updateStageStatus(
       stageKey,
     );
 
-  updateRunTimestamp(database, runId);
-}
-
-export function setStageInputArtifact(
-  database: Database.Database,
-  runId: string,
-  stageKey: StageKey,
-  inputArtifactPath: string,
-): void {
-  database
-    .prepare(
-      `
-      UPDATE analysis_run_stages
-      SET input_artifact_path = ?
-      WHERE run_id = ? AND stage_key = ?
-    `,
-    )
-    .run(inputArtifactPath, runId, stageKey);
   updateRunTimestamp(database, runId);
 }
 
@@ -386,7 +353,6 @@ export function markDownstreamStagesStale(
           WHEN status = 'succeeded' THEN 'stale'
           ELSE 'not_started'
         END,
-        input_artifact_path = NULL,
         primary_artifact_path = NULL,
         report_artifact_path = NULL,
         manifest_path = NULL,
@@ -394,7 +360,6 @@ export function markDownstreamStagesStale(
         error_message = NULL,
         started_at = NULL,
         finished_at = NULL,
-        exit_code = NULL,
         process_id = NULL
       WHERE run_id = ? AND stage_order >= ?
     `,
@@ -451,32 +416,6 @@ export function markRunInterrupted(
     });
     setRunStatus(database, runId, "interrupted", stageKey);
   })();
-}
-
-export function canRunFromStage(
-  stages: AnalysisRunStage[],
-  stageKey: StageKey,
-): { ok: true } | { ok: false; reason: string } {
-  const targetOrder = getStageDefinition(stageKey).order;
-
-  for (const stage of stages) {
-    if (stage.stageOrder >= targetOrder) {
-      break;
-    }
-
-    if (stage.status !== "succeeded") {
-      return {
-        ok: false,
-        reason: `Cannot start at ${stageKey} before ${stage.stageKey} succeeds.`,
-      };
-    }
-  }
-
-  return { ok: true };
-}
-
-export function parseStoredConfig(raw: string): AnalysisRunConfig {
-  return analysisRunConfigSchema.parse(JSON.parse(raw) as unknown);
 }
 
 /**

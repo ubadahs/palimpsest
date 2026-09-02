@@ -345,14 +345,8 @@ describe("fetchFullText acquisition policy", () => {
       });
       upsertRawPaper(database, {
         paperId: paper.id,
-        doi: paper.doi,
-        title: paper.title,
-        accessStatus: "open",
         rawFullText: PMC_XML,
         fullTextFormat: "jats_xml",
-        fetchSourceUrl: "https://example.com/legacy.xml",
-        fetchStatus: "ok",
-        fetchedAt: new Date().toISOString(),
       });
 
       const fetchUrl = vi.fn(async (url: string) =>

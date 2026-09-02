@@ -35,12 +35,11 @@ describe("db:gc", () => {
       runMigrations(database);
       database.exec(`
         INSERT INTO analysis_runs (
-          id, seed_doi, tracked_claim, target_stage, status, current_stage,
+          id, seed_doi, target_stage, status, current_stage,
           run_root, config_json, created_at, updated_at
         ) VALUES (
           'old-run',
           '10.1234/seed',
-          NULL,
           'report',
           'succeeded',
           NULL,
@@ -50,12 +49,11 @@ describe("db:gc", () => {
           datetime('now', '-120 days')
         );
         INSERT INTO analysis_runs (
-          id, seed_doi, tracked_claim, target_stage, status, current_stage,
+          id, seed_doi, target_stage, status, current_stage,
           run_root, config_json, created_at, updated_at
         ) VALUES (
           'fresh-run',
           '10.1234/seed-2',
-          NULL,
           'report',
           'succeeded',
           NULL,
@@ -68,12 +66,11 @@ describe("db:gc", () => {
       database
         .prepare(
           `INSERT INTO llm_result_cache
-             (cache_key, purpose, model, key_version, response_text, created_at, last_hit_at)
+             (cache_key, response_text, created_at, last_hit_at)
            VALUES
-             ('stale-key', 'adjudication', 'claude-opus-4-6', 'v1', '{}',
+             ('stale-key', '{}',
               datetime('now', '-120 days'), datetime('now', '-120 days')),
-             ('fresh-key', 'adjudication', 'claude-opus-4-6', 'v1', '{}',
-              datetime('now'), datetime('now'))`,
+             ('fresh-key', '{}', datetime('now'), datetime('now'))`,
         )
         .run();
 

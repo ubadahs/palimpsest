@@ -168,18 +168,9 @@ describe("paper cache integration", () => {
     const contentHash = computeContentHash(RAW_TEI);
     upsertRawPaper(database, {
       paperId: paper.id,
-      doi: paper.doi,
-      openalexId: undefined,
-      pmcid: undefined,
-      title: paper.title,
-      authorsJson: JSON.stringify(paper.authors),
-      accessStatus: "available",
       rawFullText: RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.fullTextHints.pdfUrl,
-      fetchStatus: "success",
       contentHash,
-      fetchedAt: new Date().toISOString(),
       acquisitionProvenanceJson: JSON.stringify({
         materializationSource: "network",
         attempts: [],
@@ -188,14 +179,12 @@ describe("paper cache integration", () => {
         selectedUrl: paper.fullTextHints.pdfUrl,
         fullTextFormat: "grobid_tei_xml",
       }),
-      metadataJson: undefined,
     });
     upsertParsedData(database, {
       paperId: paper.id,
       parserVersion: PARSED_PAPER_PARSER_VERSION,
       parserKind: "grobid_tei",
       contentHash,
-      sectionsJson: JSON.stringify(["Cached Section"]),
       refsJson: "[]",
       chunksJson: JSON.stringify([
         {
@@ -247,18 +236,9 @@ describe("paper cache integration", () => {
     const paper = makePaper();
     upsertRawPaper(database, {
       paperId: paper.id,
-      doi: paper.doi,
-      openalexId: undefined,
-      pmcid: undefined,
-      title: paper.title,
-      authorsJson: JSON.stringify(paper.authors),
-      accessStatus: "available",
       rawFullText: UPDATED_RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.fullTextHints.pdfUrl,
-      fetchStatus: "success",
       contentHash: computeContentHash(UPDATED_RAW_TEI),
-      fetchedAt: new Date().toISOString(),
       acquisitionProvenanceJson: JSON.stringify({
         materializationSource: "network",
         attempts: [],
@@ -267,14 +247,12 @@ describe("paper cache integration", () => {
         selectedUrl: paper.fullTextHints.pdfUrl,
         fullTextFormat: "grobid_tei_xml",
       }),
-      metadataJson: undefined,
     });
     upsertParsedData(database, {
       paperId: paper.id,
       parserVersion: PARSED_PAPER_PARSER_VERSION,
       parserKind: "grobid_tei",
       contentHash: computeContentHash(RAW_TEI),
-      sectionsJson: JSON.stringify(["Stale Section"]),
       refsJson: "[]",
       chunksJson: JSON.stringify([
         {
@@ -323,18 +301,9 @@ describe("paper cache integration", () => {
     const paper = makePaper();
     upsertRawPaper(database, {
       paperId: paper.id,
-      doi: paper.doi,
-      openalexId: undefined,
-      pmcid: undefined,
-      title: paper.title,
-      authorsJson: JSON.stringify(paper.authors),
-      accessStatus: "available",
       rawFullText: RAW_TEI,
       fullTextFormat: "grobid_tei_xml",
-      fetchSourceUrl: paper.fullTextHints.pdfUrl,
-      fetchStatus: "success",
       contentHash: computeContentHash(RAW_TEI),
-      fetchedAt: new Date().toISOString(),
       acquisitionProvenanceJson: JSON.stringify({
         materializationSource: "network",
         attempts: [],
@@ -343,7 +312,6 @@ describe("paper cache integration", () => {
         selectedUrl: paper.fullTextHints.pdfUrl,
         fullTextFormat: "grobid_tei_xml",
       }),
-      metadataJson: undefined,
     });
 
     const counters = { fetchPdf: 0, processPdfWithGrobid: 0 };

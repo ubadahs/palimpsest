@@ -1055,9 +1055,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               promptCachePolicy,
               cachePolicy: cacheAccessPolicy,
             }),
-            purpose: params.purpose,
-            model: modelId,
-            keyVersion: params.exactCache.keyVersion,
             responseText: result.text,
             createdAt: new Date().toISOString(),
           });
@@ -1169,9 +1166,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               promptCachePolicy,
               cachePolicy: cacheAccessPolicy,
             }),
-            purpose: params.purpose,
-            model: modelId,
-            keyVersion: params.exactCache.keyVersion,
             responseText: JSON.stringify(result.object),
             createdAt: new Date().toISOString(),
           });
