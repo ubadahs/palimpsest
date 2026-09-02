@@ -74,6 +74,7 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
   adjudicate: {
     model: "claude-opus-4-6",
     thinking: true,
+    effort: "high" as const,
   },
 };
 
@@ -206,6 +207,14 @@ export const analysisRunConfigSchema = z
         thinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking),
+        /**
+         * Adaptive thinking effort for models that support it. Exposed so the
+         * cheap experiment — does `medium` agree with `high`? — can be run
+         * without editing source.
+         */
+        effort: z
+          .enum(["low", "medium", "high", "max"])
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort),
       })
       .strict()
       .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate })),

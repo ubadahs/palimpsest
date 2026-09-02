@@ -10,7 +10,7 @@ vi.mock("@ai-sdk/anthropic", () => ({
   createAnthropic: () => (modelId: string) => ({ modelId }),
 }));
 
-import { generateText } from "ai";
+import { generateObject, generateText } from "ai";
 import {
   buildAnthropicThinkingProviderOptions,
   buildNormalizedLLMCallProvenance,
@@ -30,6 +30,7 @@ import {
 } from "../../src/storage/llm-result-cache.js";
 
 const generateTextMock = vi.mocked(generateText);
+const generateObjectMock = vi.mocked(generateObject);
 
 describe("resolvePromptCacheControl", () => {
   it("enables default caching for large seed-grounding prompts", () => {
@@ -364,6 +365,52 @@ describe("provider options and telemetry through generateText", () => {
     });
 
     expect(result.record.model).toBe("claude-opus-4-6");
+    expect(result.record.servedModel).toBe("claude-opus-4-6-20260214");
+  });
+
+  it("passes thinking, a cached prefix, and a token cap through generateObject", async () => {
+    const { z } = await import("zod");
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { verdict: "F" },
+      finishReason: "stop",
+      response: { modelId: "claude-opus-4-6-20260214" },
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as never);
+
+    const client = createLLMClient({
+      apiKey: "test-key",
+      defaultModel: "claude-opus-4-6",
+    });
+    const result = await client.generateObject({
+      purpose: "seed-grounding",
+      promptPrefix: "x".repeat(5_000),
+      promptSuffix: "which claim?",
+      schema: z.object({ verdict: z.string() }),
+      thinking: { type: "adaptive", effort: "medium" },
+      temperature: 0,
+    });
+
+    const call = generateObjectMock.mock.calls[0]![0] as {
+      maxOutputTokens?: number;
+      temperature?: number;
+      messages?: [{ content: { providerOptions?: unknown }[] }];
+      providerOptions?: {
+        anthropic?: { thinking?: { type: string }; effort?: string };
+      };
+    };
+    expect(call.maxOutputTokens).toBe(16_000);
+    expect(call.temperature).toBe(0);
+    // The seed text stays a cacheable prefix, as it is for generateText.
+    expect(call.messages?.[0]?.content[0]?.providerOptions).toEqual({
+      anthropic: { cacheControl: { type: "ephemeral", ttl: "5m" } },
+    });
+    expect(call.providerOptions?.anthropic).toMatchObject({
+      thinking: { type: "adaptive" },
+      effort: "medium",
+    });
+    expect(result.object).toEqual({ verdict: "F" });
+    expect(result.record.thinkingEffort).toBe("medium");
     expect(result.record.servedModel).toBe("claude-opus-4-6-20260214");
   });
 

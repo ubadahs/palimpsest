@@ -50,6 +50,7 @@ type FormState = {
   adjudicate: {
     model: string;
     thinking: boolean;
+    effort: "low" | "medium" | "high" | "max";
   };
   forceRefresh: boolean;
 };
@@ -116,6 +117,7 @@ const defaultState: FormState = {
   adjudicate: {
     model: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
     thinking: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking,
+    effort: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
   },
   forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
 };
@@ -666,6 +668,37 @@ export function NewRunForm() {
                   thinkingLabel="Extended thinking"
                   thinkingDescription="The judge model reasons step-by-step before each verdict."
                 />
+                {state.adjudicate.thinking ? (
+                  <label className="grid gap-2">
+                    <span className="text-sm font-semibold text-[var(--text)]">
+                      Thinking effort
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      How long the judge is allowed to reason. Lower is cheaper;
+                      whether it agrees with `high` is an open question.
+                    </span>
+                    <select
+                      className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
+                      onChange={(event) =>
+                        updateStage(
+                          "adjudicate",
+                          "effort",
+                          event.target
+                            .value as FormState["adjudicate"]["effort"],
+                        )
+                      }
+                      value={state.adjudicate.effort}
+                    >
+                      {(["low", "medium", "high", "max"] as const).map(
+                        (level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                ) : null}
               </div>
             </details>
 
