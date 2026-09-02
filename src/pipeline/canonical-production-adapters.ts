@@ -94,6 +94,10 @@ import { canonicalSha256 } from "../shared/stable-identity.js";
 const CANONICAL_EXTRACTION_PROMPT_ID =
   "canonical-attributed-claim-extraction" as const;
 const CANONICAL_EXTRACTION_PROMPT_VERSION = LLM_PROMPT_VERSIONS.extraction;
+const CANONICAL_CANONICALIZATION_PROMPT_ID =
+  "canonical-claim-canonicalization" as const;
+const CANONICAL_CANONICALIZATION_PROMPT_VERSION =
+  LLM_PROMPT_VERSIONS.canonicalization;
 const CANONICAL_SCOPE_GROUNDING_PROMPT_ID =
   "canonical-scope-grounding" as const;
 const CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION = LLM_PROMPT_VERSIONS.grounding;
@@ -112,6 +116,7 @@ function mapLlmCallThinking(
 function llmRequestProvenanceFields(params: {
   purpose:
     | "attributed-claim-extraction"
+    | "claim-canonicalization"
     | "seed-grounding"
     | "evidence-rerank"
     | "adjudication";
@@ -989,6 +994,90 @@ export function buildCanonicalDiscoverAdapters(
         };
       }
     },
+
+    canonicalizeClaims: async ({ seed, claims }) => {
+      const prompt = buildClaimCanonicalizationPrompt({
+        seedTitle: seed.paper.title,
+        seedDoi: seed.paper.doi,
+        claims,
+      });
+      const model = deps.runConfig.discover.canonicalizationModel;
+      const thinking = mapLlmCallThinking(
+        model,
+        deps.runConfig.discover.canonicalizationThinking,
+        8000,
+      );
+      const requestBody = {
+        seedId: seed.paper.paperId,
+        claimRecordIds: claims.map((claim) => claim.claimRecordId),
+        llm: llmRequestProvenanceFields({
+          purpose: "claim-canonicalization",
+          model,
+          prompt,
+          promptVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION,
+          exactCacheKeyVersion: LLM_CACHE_VERSIONS.canonicalization,
+          ...(thinking != null ? { thinking } : {}),
+          forceRefresh: deps.forceRefresh === true,
+        }),
+      };
+      const executionFor = (responseBody: Record<string, unknown>) =>
+        contentAddressedModelExecution({
+          provider: "anthropic",
+          model,
+          promptId: CANONICAL_CANONICALIZATION_PROMPT_ID,
+          promptVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION,
+          promptText: prompt,
+          requestBody,
+          responseBody,
+          store,
+          requestRole: "normalized-claim-canonicalization-request",
+          responseRole: String(responseBody["role"]),
+          canonicalStage: "discover",
+        });
+      try {
+        const result = await deps.llmClient.generateText({
+          purpose: "claim-canonicalization",
+          model,
+          prompt,
+          context: { stageKey: "discover" },
+          ...(thinking != null ? { thinking } : {}),
+          exactCache: { keyVersion: LLM_CACHE_VERSIONS.canonicalization },
+        });
+        const parsed = parseModelJson(
+          result.text,
+          claimCanonicalizationOutputSchema,
+        );
+        const execution = executionFor({
+          role: "normalized-claim-canonicalization-response",
+          text: result.text,
+          parsed: parsed.ok ? parsed.data : { parseError: parsed.error },
+        });
+        if (!parsed.ok) {
+          return {
+            status: "failed" as const,
+            reasonCode: "invalid_response" as const,
+            reason: parsed.error,
+            execution,
+          };
+        }
+        return {
+          status: "completed" as const,
+          clusters: parsed.data.clusters,
+          execution,
+        };
+      } catch (error) {
+        const mapped = mapLlmFailureCode(error);
+        return {
+          status: "failed" as const,
+          reasonCode: mapped.reasonCode,
+          reason: mapped.reason,
+          execution: executionFor({
+            role: "normalized-claim-canonicalization-failure",
+            error: mapped.reason,
+          }),
+        };
+      }
+    },
   };
 }
 
@@ -1663,6 +1752,90 @@ export function parseCanonicalAttributedClaimExtractionResponse(
     const result =
       canonicalAttributedClaimExtractionOutputSchema.safeParse(parsed);
     if (result.success) return { ok: true, data: result.data };
+    const issue = result.error.issues[0];
+    return {
+      ok: false,
+      error: `${issue?.path.join(".") ?? "root"}: ${issue?.message ?? result.error.message}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "JSON parse failed",
+    };
+  }
+}
+
+function buildClaimCanonicalizationPrompt(input: {
+  seedTitle: string;
+  seedDoi?: string | undefined;
+  claims: Array<{
+    claimRecordId: string;
+    extractedClaimText: string;
+    citingPaperTitle: string;
+    sectionTitle?: string | undefined;
+  }>;
+}): string {
+  const claimLines = input.claims
+    .map((claim, index) => {
+      const where = claim.sectionTitle
+        ? `${claim.citingPaperTitle} — ${claim.sectionTitle}`
+        : claim.citingPaperTitle;
+      return `${String(index + 1)}. id=${claim.claimRecordId}\n   "${claim.extractedClaimText}"\n   (from: ${where})`;
+    })
+    .join("\n");
+
+  return `You are clustering claims that citing papers attribute to one seed paper, for a metascience project that measures how claims drift as they are cited.
+
+## Seed paper
+
+Title: ${input.seedTitle}
+DOI: ${input.seedDoi ?? "unknown"}
+
+## Attributed claims
+
+${claimLines}
+
+## Task
+
+Group the claims that attribute the SAME underlying finding of the seed paper. Claims belong together even when they differ in wording, strength, scope, certainty, population, or specificity; those differences are measured downstream and must not split a group. Split groups only when the claims concern different findings, variables, methods, or materials of the seed. A claim that shares no finding with any other stays in a group of one.
+
+Every claim id above must appear in exactly one group; do not invent ids.
+
+For each group write one canonicalClaim: a neutral, specific sentence naming the seed finding the group is about. Do not adopt any single citer's exaggeration or hedge; describe what the group has in common.
+
+Respond with JSON (no markdown fences):
+{
+  "clusters": [
+    { "canonicalClaim": "…", "claimRecordIds": ["…"] }
+  ]
+}
+
+Prompt template lineage: ${CANONICAL_CANONICALIZATION_PROMPT_ID}@${CANONICAL_CANONICALIZATION_PROMPT_VERSION}`;
+}
+
+const claimCanonicalizationOutputSchema = z
+  .object({
+    clusters: z.array(
+      z
+        .object({
+          canonicalClaim: z.string().trim().min(1),
+          claimRecordIds: z.array(z.string().min(1)).min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+/** Tolerant JSON extraction plus strict schema validation of a model reply. */
+function parseModelJson<T extends z.ZodType>(
+  rawText: string,
+  schema: T,
+): { ok: true; data: z.infer<T> } | { ok: false; error: string } {
+  try {
+    const jsonSlice = extractJsonFromModelText(rawText);
+    const parsed: unknown = JSON.parse(jsonSlice);
+    const result = schema.safeParse(parsed);
+    if (result.success) return { ok: true, data: result.data as z.infer<T> };
     const issue = result.error.issues[0];
     return {
       ok: false,

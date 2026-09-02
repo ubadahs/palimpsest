@@ -64,6 +64,10 @@ describe("config defaults contract", () => {
         extractionModel: CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
         extractionThinking:
           CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking,
+        canonicalizationModel:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
+        canonicalizationThinking:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationThinking,
       },
       scope: { ...CANONICAL_RUN_CONFIG_DEFAULTS.scope },
       prepare: { ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare },
