@@ -13,6 +13,7 @@ import type {
   HumanReviewState,
   ReportInspectorRecordRow,
 } from "palimpsest/contract";
+import { buildClaimUnitKey } from "palimpsest/contract";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,39 +75,80 @@ function hashString(value: string): number {
   return hash;
 }
 
+/** The Report's unit rule: one seed finding, one citing paper, one claim set. */
+function unitKeyOf(record: ReportInspectorRecordRow): string {
+  return buildClaimUnitKey({
+    familyId: record.familyId,
+    citingPaperId: record.citingPaperId,
+    claimTexts: record.occurrenceClaims.map(
+      (claim) => claim.extractedClaimText,
+    ),
+  });
+}
+
+type CalibrationSet = {
+  /** One record to show per unit in the set. */
+  representatives: Map<string, ReportInspectorRecordRow>;
+  /** Units with at least one saved review. */
+  reviewedUnits: Set<string>;
+};
+
 /**
- * The enriched labelling sample: every record the model did not call F, a
- * fixed sample of its F records spread across families, and anything already
- * reviewed so finished work stays in view. Membership uses the machine
- * verdict, which this component already holds; the order is by hash so the
- * reviewer cannot tell which records are which. About four in ten members
- * are non-F, against two in ten overall, and that enrichment is recorded in
- * the evaluation notes rather than hidden.
+ * The enriched labelling sample, counted in claim units rather than records:
+ * a citer that mentions the seed twice in one paragraph yields two records for
+ * one restatement, and a reviewer should judge it once. A unit is in the set
+ * when the model called any of its records something other than F, when it
+ * belongs to a fixed sample of F units spread across families, or when it
+ * already carries a review. Membership uses the machine verdict, which this
+ * component already holds; the order is by hash so nothing gives itself away.
+ * About four in ten units are non-F, against two in ten overall, and that
+ * enrichment is recorded in the evaluation notes.
  */
 function buildCalibrationSet(
   records: ReportInspectorRecordRow[],
-  reviewed: ReadonlySet<string>,
-): Set<string> {
-  const members = new Set<string>();
-  const fByFamily = new Map<string, ReportInspectorRecordRow[]>();
+  reviewedRecordIds: ReadonlySet<string>,
+): CalibrationSet {
+  const units = new Map<string, ReportInspectorRecordRow[]>();
   for (const record of records) {
-    if (reviewed.has(record.recordId)) members.add(record.recordId);
-    if (record.adjudicationStatus !== "adjudicated") continue;
-    if (record.verdict !== "F") {
-      members.add(record.recordId);
+    const key = unitKeyOf(record);
+    units.set(key, [...(units.get(key) ?? []), record]);
+  }
+  const representatives = new Map<string, ReportInspectorRecordRow>();
+  const reviewedUnits = new Set<string>();
+  const fUnitsByFamily = new Map<string, string[]>();
+  for (const [key, members] of units) {
+    const reviewed = members.find((record) =>
+      reviewedRecordIds.has(record.recordId),
+    );
+    const representative =
+      reviewed ??
+      [...members].sort(
+        (left, right) => hashString(left.recordId) - hashString(right.recordId),
+      )[0]!;
+    if (reviewed) {
+      reviewedUnits.add(key);
+      representatives.set(key, representative);
       continue;
     }
-    const bucket = fByFamily.get(record.familyId) ?? [];
-    bucket.push(record);
-    fByFamily.set(record.familyId, bucket);
+    const adjudicated = members.filter(
+      (record) => record.adjudicationStatus === "adjudicated",
+    );
+    if (adjudicated.length === 0) continue;
+    if (adjudicated.some((record) => record.verdict !== "F")) {
+      representatives.set(key, representative);
+      continue;
+    }
+    const familyId = representative.familyId;
+    fUnitsByFamily.set(familyId, [
+      ...(fUnitsByFamily.get(familyId) ?? []),
+      key,
+    ]);
   }
-  // Round-robin over families in hash order, one F per family per pass.
-  const families = [...fByFamily.entries()]
-    .map(([familyId, bucket]) => ({
+  // Round-robin over families in hash order, one F unit per family per pass.
+  const families = [...fUnitsByFamily.entries()]
+    .map(([familyId, keys]) => ({
       familyId,
-      bucket: bucket.sort(
-        (left, right) => hashString(left.recordId) - hashString(right.recordId),
-      ),
+      keys: keys.sort((left, right) => hashString(left) - hashString(right)),
     }))
     .sort(
       (left, right) => hashString(left.familyId) - hashString(right.familyId),
@@ -115,15 +157,22 @@ function buildCalibrationSet(
   for (let pass = 0; sampled < CALIBRATION_F_SAMPLE; pass++) {
     let added = false;
     for (const family of families) {
-      const record = family.bucket[pass];
-      if (!record || sampled >= CALIBRATION_F_SAMPLE) continue;
-      if (!members.has(record.recordId)) sampled += 1;
-      members.add(record.recordId);
+      const key = family.keys[pass];
+      if (!key || sampled >= CALIBRATION_F_SAMPLE) continue;
+      const members = units.get(key)!;
+      representatives.set(
+        key,
+        [...members].sort(
+          (left, right) =>
+            hashString(left.recordId) - hashString(right.recordId),
+        )[0]!,
+      );
+      sampled += 1;
       added = true;
     }
     if (!added) break;
   }
-  return members;
+  return { representatives, reviewedUnits };
 }
 
 function isMachineOutcomeFilter(filter: ReviewQueueFilter): boolean {
@@ -276,12 +325,9 @@ export function ReviewWorkspace({
 
   const queue = useMemo(() => {
     if (queueFilter === "calibration") {
-      return records
-        .filter(
-          (record) =>
-            calibrationSet.has(record.recordId) &&
-            !reviewByRecord.has(record.recordId),
-        )
+      return [...calibrationSet.representatives.entries()]
+        .filter(([key]) => !calibrationSet.reviewedUnits.has(key))
+        .map(([, record]) => record)
         .sort(
           (left, right) =>
             hashString(left.recordId) - hashString(right.recordId),
@@ -487,10 +533,12 @@ export function ReviewWorkspace({
 
   const reviewed = state ? state.progress.final + state.progress.draft : 0;
   const total = state?.progress.totalRecords ?? records.length;
-  const calibrationTotal = calibrationSet.size;
-  const calibrationReviewed = [...calibrationSet].filter((recordId) =>
-    reviewByRecord.has(recordId),
-  ).length;
+  const calibrationTotal = calibrationSet.representatives.size;
+  const calibrationReviewed = calibrationSet.reviewedUnits.size;
+  const activeUnitSize = activeRecord
+    ? records.filter((record) => unitKeyOf(record) === unitKeyOf(activeRecord))
+        .length
+    : 1;
   const machineChoice = activeRecord?.verdict
     ? VERDICT_CHOICES.find((choice) => choice.value === activeRecord.verdict)
     : undefined;
@@ -577,7 +625,7 @@ export function ReviewWorkspace({
           </span>
           <span className="text-xs text-[var(--text-muted)]">
             {state
-              ? `${String(calibrationReviewed)} of ${String(calibrationTotal)} in the calibration set`
+              ? `${String(calibrationReviewed)} of ${String(calibrationTotal)} claims in the calibration set`
               : ""}
             {state && state.progress.draft > 0
               ? ` · ${String(state.progress.draft)} draft`
@@ -744,12 +792,22 @@ export function ReviewWorkspace({
                   </span>
                 ) : null}
               </p>
+              <p className="mt-3 rounded-[14px] bg-[var(--panel-muted)] px-4 py-2 text-sm leading-6 text-[var(--text)]">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                  Claim being judged
+                </span>
+                <br />
+                {activeRecord.evaluatedClaimText}
+              </p>
               <blockquote className="mt-3 max-w-[72ch] text-[15px] leading-8 text-[var(--text)]">
                 {highlightedContext(activeRecord)}
               </blockquote>
               <p className="mt-2 text-xs text-[var(--text-muted)]">
-                Highlighted: the part attributed to the cited paper. Judge that
-                part only.
+                Highlighted: the part attributed to the cited paper. Judge the
+                claim above against it; the rest of the passage is context.
+                {activeUnitSize > 1
+                  ? ` This paragraph cites the paper ${String(activeUnitSize)} times for the same claim; one label covers all of them.`
+                  : ""}
               </p>
             </section>
 
