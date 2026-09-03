@@ -406,6 +406,12 @@ export function ReviewWorkspace({
     }
   }, [showMachineJudgment, activeRecordKey]);
 
+  // Revealing is per record. Moving on re-hides the model's verdict, so one
+  // peek cannot silently unblind the rest of a session.
+  useEffect(() => {
+    setShowMachineJudgment(false);
+  }, [activeRecordKey]);
+
   useEffect(() => {
     if (activeRecordId && activeRecordId !== selectedRecordId) {
       onSelectRecord(activeRecordId);
