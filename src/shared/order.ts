@@ -1,11 +1,12 @@
-import { canonicalSerialize, compareCodeUnits } from "./stable-identity.js";
+import { canonicalSerialize, compareCodeUnits } from "./canonical-serialize.js";
 
 /**
  * Deterministic ordering and deduplication for artifact content.
  *
  * Every canonical artifact is content-hashed, so any list inside one must be
  * ordered the same way on every machine. `compareCodeUnits` lives next to the
- * canonical serializer so this module depends on it, not the other way round.
+ * canonical serializer, which has no Node dependencies, so browser bundles
+ * can import this module without pulling in hashing.
  */
 export { compareCodeUnits };
 
