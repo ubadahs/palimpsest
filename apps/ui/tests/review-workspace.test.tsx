@@ -147,19 +147,19 @@ describe("review workspace", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/2 unreviewed of 2/i)).toBeTruthy();
+      expect(screen.getByText(/0 of 2 reviewed/i)).toBeTruthy();
     });
 
     // Blinded by default: no verdict filter and no machine badge is offered.
     expect(screen.getByText("blinded")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^D$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Model: D" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /show the model/i }));
     expect(screen.queryByText("Unsaved changes")).toBeNull();
     expect(screen.getByText("not blinded")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /^D$/i }));
-    expect(screen.getByText("Distortion paper")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Model: D" }));
+    expect(screen.getAllByText("Distortion paper").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Distorted claim").length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("Reviewer"), {
@@ -167,11 +167,14 @@ describe("review workspace", () => {
     });
     // Nothing saves until the reviewer has recorded their own verdict.
     expect(
-      (screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Save as draft",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
-    fireEvent.click(screen.getByRole("radio", { name: "F" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Faithful/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
 
     await waitFor(() => {
       expect(screen.getByText(/1 draft/i)).toBeTruthy();
@@ -209,16 +212,16 @@ describe("review workspace", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/2 unreviewed of 2/i)).toBeTruthy();
+      expect(screen.getByText(/0 of 2 reviewed/i)).toBeTruthy();
     });
     fireEvent.change(screen.getByLabelText("Reviewer"), {
       target: { value: "ubadah" },
     });
-    fireEvent.click(screen.getByRole("radio", { name: "E" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mark final" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Wrong/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save and next" }));
 
     await waitFor(() => {
-      expect(screen.getByText(/1 final/i)).toBeTruthy();
+      expect(screen.getByText(/1 of 2 reviewed/i)).toBeTruthy();
     });
     const eventCall = vi
       .mocked(fetch)
@@ -254,21 +257,21 @@ describe("review workspace", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/2 unreviewed of 2/i)).toBeTruthy();
+      expect(screen.getByText(/0 of 2 reviewed/i)).toBeTruthy();
     });
-    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /show the model/i }));
     // Re-hiding does not un-see it.
-    fireEvent.click(screen.getByRole("checkbox", { name: /hide machine/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /show the model/i }));
     expect(screen.getByText("not blinded")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Reviewer"), {
       target: { value: "ubadah" },
     });
-    fireEvent.click(screen.getByRole("radio", { name: "F" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mark final" }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Faithful/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save and next" }));
 
     await waitFor(() => {
-      expect(screen.getByText(/1 final/i)).toBeTruthy();
+      expect(screen.getByText(/1 of 2 reviewed/i)).toBeTruthy();
     });
     const eventCall = vi
       .mocked(fetch)
@@ -315,7 +318,7 @@ describe("review workspace", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/different Report artifact\/hash/i)).toBeTruthy();
+      expect(screen.getByText(/different Report than the one/i)).toBeTruthy();
     });
   });
 });
