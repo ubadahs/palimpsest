@@ -35,6 +35,7 @@ import {
 } from "./review-form";
 
 type ReviewQueueFilter =
+  | "calibration"
   | "all"
   | "unreviewed"
   | "draft"
@@ -46,6 +47,7 @@ type ReviewQueueFilter =
   | "not_adjudicated";
 
 const QUEUE_FILTER_LABELS: Record<ReviewQueueFilter, string> = {
+  calibration: "Calibration set",
   unreviewed: "To review",
   draft: "Drafts",
   final: "Done",
@@ -58,6 +60,71 @@ const QUEUE_FILTER_LABELS: Record<ReviewQueueFilter, string> = {
 };
 
 const REVIEWER_STORAGE_KEY = "palimpsest.reviewer";
+
+/** How many machine-F records the calibration set samples across families. */
+const CALIBRATION_F_SAMPLE = 20;
+
+/** FNV-1a: a stable, dependency-free order that is not the record order. */
+function hashString(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+/**
+ * The enriched labelling sample: every record the model did not call F, a
+ * fixed sample of its F records spread across families, and anything already
+ * reviewed so finished work stays in view. Membership uses the machine
+ * verdict, which this component already holds; the order is by hash so the
+ * reviewer cannot tell which records are which. About four in ten members
+ * are non-F, against two in ten overall, and that enrichment is recorded in
+ * the evaluation notes rather than hidden.
+ */
+function buildCalibrationSet(
+  records: ReportInspectorRecordRow[],
+  reviewed: ReadonlySet<string>,
+): Set<string> {
+  const members = new Set<string>();
+  const fByFamily = new Map<string, ReportInspectorRecordRow[]>();
+  for (const record of records) {
+    if (reviewed.has(record.recordId)) members.add(record.recordId);
+    if (record.adjudicationStatus !== "adjudicated") continue;
+    if (record.verdict !== "F") {
+      members.add(record.recordId);
+      continue;
+    }
+    const bucket = fByFamily.get(record.familyId) ?? [];
+    bucket.push(record);
+    fByFamily.set(record.familyId, bucket);
+  }
+  // Round-robin over families in hash order, one F per family per pass.
+  const families = [...fByFamily.entries()]
+    .map(([familyId, bucket]) => ({
+      familyId,
+      bucket: bucket.sort(
+        (left, right) => hashString(left.recordId) - hashString(right.recordId),
+      ),
+    }))
+    .sort(
+      (left, right) => hashString(left.familyId) - hashString(right.familyId),
+    );
+  let sampled = 0;
+  for (let pass = 0; sampled < CALIBRATION_F_SAMPLE; pass++) {
+    let added = false;
+    for (const family of families) {
+      const record = family.bucket[pass];
+      if (!record || sampled >= CALIBRATION_F_SAMPLE) continue;
+      if (!members.has(record.recordId)) sampled += 1;
+      members.add(record.recordId);
+      added = true;
+    }
+    if (!added) break;
+  }
+  return members;
+}
 
 function isMachineOutcomeFilter(filter: ReviewQueueFilter): boolean {
   return (
@@ -138,7 +205,7 @@ export function ReviewWorkspace({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [queueFilter, setQueueFilter] =
-    useState<ReviewQueueFilter>("unreviewed");
+    useState<ReviewQueueFilter>("calibration");
   const [form, setForm] = useState<ReviewFormState>(emptyReviewForm());
   const [baseline, setBaseline] = useState<ReviewFormState>(emptyReviewForm());
   // Blinded by default: the 2026-07-21 review was done outside this tool
@@ -202,7 +269,24 @@ export function ReviewWorkspace({
     void loadState();
   }, [loadState]);
 
+  const calibrationSet = useMemo(
+    () => buildCalibrationSet(records, new Set(reviewByRecord.keys())),
+    [records, reviewByRecord],
+  );
+
   const queue = useMemo(() => {
+    if (queueFilter === "calibration") {
+      return records
+        .filter(
+          (record) =>
+            calibrationSet.has(record.recordId) &&
+            !reviewByRecord.has(record.recordId),
+        )
+        .sort(
+          (left, right) =>
+            hashString(left.recordId) - hashString(right.recordId),
+        );
+    }
     return records.filter((record) => {
       const review = reviewByRecord.get(record.recordId);
       if (queueFilter === "unreviewed") return review == null;
@@ -221,7 +305,7 @@ export function ReviewWorkspace({
       }
       return true;
     });
-  }, [queueFilter, records, reviewByRecord]);
+  }, [calibrationSet, queueFilter, records, reviewByRecord]);
 
   const activeRecordId =
     selectedRecordId &&
@@ -350,9 +434,13 @@ export function ReviewWorkspace({
           setForm(next);
           setBaseline(next);
         }
-        // A final save moves on. In the "To review" queue the record drops
-        // out on its own; elsewhere step to the next one explicitly.
-        if (status === "final" && queueFilter !== "unreviewed") {
+        // A final save moves on. In the working queues the record drops out
+        // on its own; elsewhere step to the next one explicitly.
+        if (
+          status === "final" &&
+          queueFilter !== "unreviewed" &&
+          queueFilter !== "calibration"
+        ) {
           const next = queue[activeIndex + 1];
           if (next) onSelectRecord(next.recordId);
         }
@@ -399,6 +487,10 @@ export function ReviewWorkspace({
 
   const reviewed = state ? state.progress.final + state.progress.draft : 0;
   const total = state?.progress.totalRecords ?? records.length;
+  const calibrationTotal = calibrationSet.size;
+  const calibrationReviewed = [...calibrationSet].filter((recordId) =>
+    reviewByRecord.has(recordId),
+  ).length;
   const machineChoice = activeRecord?.verdict
     ? VERDICT_CHOICES.find((choice) => choice.value === activeRecord.verdict)
     : undefined;
@@ -484,8 +576,11 @@ export function ReviewWorkspace({
               : "Loading…"}
           </span>
           <span className="text-xs text-[var(--text-muted)]">
+            {state
+              ? `${String(calibrationReviewed)} of ${String(calibrationTotal)} in the calibration set`
+              : ""}
             {state && state.progress.draft > 0
-              ? `${String(state.progress.draft)} draft`
+              ? ` · ${String(state.progress.draft)} draft`
               : ""}
           </span>
         </div>
@@ -496,7 +591,10 @@ export function ReviewWorkspace({
           <div
             className="h-full rounded-full bg-[var(--accent)] transition-[width]"
             style={{
-              width: total > 0 ? `${String((reviewed / total) * 100)}%` : "0%",
+              width:
+                calibrationTotal > 0
+                  ? `${String((calibrationReviewed / calibrationTotal) * 100)}%`
+                  : "0%",
             }}
           />
         </div>
@@ -505,6 +603,7 @@ export function ReviewWorkspace({
       <div className="flex max-w-full gap-2 overflow-x-auto pb-1">
         {(
           [
+            "calibration",
             "unreviewed",
             "draft",
             "final",
@@ -584,9 +683,11 @@ export function ReviewWorkspace({
           {queue.length === 0 ? (
             <Card>
               <CardContent className="p-4 text-sm text-[var(--text-muted)]">
-                {queueFilter === "unreviewed"
-                  ? "Nothing left to review here."
-                  : "No records in this list."}
+                {queueFilter === "calibration"
+                  ? "The calibration set is done. Thank you."
+                  : queueFilter === "unreviewed"
+                    ? "Nothing left to review here."
+                    : "No records in this list."}
               </CardContent>
             </Card>
           ) : null}
