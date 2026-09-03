@@ -19,5 +19,6 @@ export * from "./run-types.js";
 export * from "./stage-groups.js";
 export * from "./inspector-payloads.js";
 export * from "./human-review.js";
+export * from "./claim-unit.js";
 export * from "./lean-stages.js";
 export * from "./workflow.js";
