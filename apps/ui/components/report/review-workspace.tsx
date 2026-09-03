@@ -333,9 +333,22 @@ export function ReviewWorkspace({
             hashString(left.recordId) - hashString(right.recordId),
         );
     }
+    if (queueFilter === "unreviewed") {
+      // One entry per claim unit: a paragraph that cites the paper twice for
+      // the same claim is judged once, and a unit with any label is done.
+      const seen = new Set<string>();
+      return records.filter((record) => {
+        const key = unitKeyOf(record);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return !records.some(
+          (sibling) =>
+            unitKeyOf(sibling) === key && reviewByRecord.has(sibling.recordId),
+        );
+      });
+    }
     return records.filter((record) => {
       const review = reviewByRecord.get(record.recordId);
-      if (queueFilter === "unreviewed") return review == null;
       if (queueFilter === "draft") return review?.status === "draft";
       if (queueFilter === "final") return review?.status === "final";
       if (queueFilter === "not_adjudicated") {
