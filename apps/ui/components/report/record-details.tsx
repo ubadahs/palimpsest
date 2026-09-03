@@ -19,10 +19,12 @@ export function outcomeBadgeVariant(
 export function EvidencePassages({
   record,
   hideMachineJudgment = false,
+  heading = "Selected evidence",
 }: {
   record: ReportInspectorRecordRow;
   /** While blinded, hide which passages the adjudicator cited and how they were ranked. */
   hideMachineJudgment?: boolean;
+  heading?: string;
 }) {
   if (record.evidencePassages.length === 0) {
     return null;
@@ -30,7 +32,7 @@ export function EvidencePassages({
   return (
     <section className="space-y-3">
       <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-        Selected evidence
+        {heading}
         {record.rankingSource && !hideMachineJudgment
           ? ` · ${humanizeCode(record.rankingSource)}`
           : ""}
