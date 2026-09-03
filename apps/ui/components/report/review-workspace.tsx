@@ -98,8 +98,9 @@ type CalibrationSet = {
  * a citer that mentions the seed twice in one paragraph yields two records for
  * one restatement, and a reviewer should judge it once. A unit is in the set
  * when the model called any of its records something other than F, when it
- * belongs to a fixed sample of F units spread across families, or when it
- * already carries a review. Membership uses the machine verdict, which this
+ * belongs to a fixed sample of F units spread across families (drawn from
+ * all F units, so it does not refill as work is saved), or when it already
+ * carries a review. Membership uses the machine verdict, which this
  * component already holds; the order is by hash so nothing gives itself away.
  * About four in ten units are non-F, against two in ten overall, and that
  * enrichment is recorded in the evaluation notes.
@@ -113,36 +114,35 @@ function buildCalibrationSet(
     const key = unitKeyOf(record);
     units.set(key, [...(units.get(key) ?? []), record]);
   }
+  const byHash = (left: { recordId: string }, right: { recordId: string }) =>
+    hashString(left.recordId) - hashString(right.recordId);
   const representatives = new Map<string, ReportInspectorRecordRow>();
   const reviewedUnits = new Set<string>();
   const fUnitsByFamily = new Map<string, string[]>();
+
+  // Classify every unit first. The F sample below is drawn from all F units,
+  // reviewed or not, so the set is fixed for the run and shrinks as work is
+  // saved instead of refilling itself with fresh F records.
   for (const [key, members] of units) {
     const reviewed = members.find((record) =>
       reviewedRecordIds.has(record.recordId),
     );
-    const representative =
-      reviewed ??
-      [...members].sort(
-        (left, right) => hashString(left.recordId) - hashString(right.recordId),
-      )[0]!;
-    if (reviewed) {
-      reviewedUnits.add(key);
-      representatives.set(key, representative);
-      continue;
-    }
+    if (reviewed) reviewedUnits.add(key);
+    const representative = reviewed ?? [...members].sort(byHash)[0]!;
     const adjudicated = members.filter(
       (record) => record.adjudicationStatus === "adjudicated",
     );
-    if (adjudicated.length === 0) continue;
     if (adjudicated.some((record) => record.verdict !== "F")) {
       representatives.set(key, representative);
-      continue;
+    } else if (adjudicated.length > 0) {
+      const familyId = representative.familyId;
+      fUnitsByFamily.set(familyId, [
+        ...(fUnitsByFamily.get(familyId) ?? []),
+        key,
+      ]);
+    } else if (reviewed) {
+      representatives.set(key, representative);
     }
-    const familyId = representative.familyId;
-    fUnitsByFamily.set(familyId, [
-      ...(fUnitsByFamily.get(familyId) ?? []),
-      key,
-    ]);
   }
   // Round-robin over families in hash order, one F unit per family per pass.
   const families = [...fUnitsByFamily.entries()]
@@ -162,15 +162,22 @@ function buildCalibrationSet(
       const members = units.get(key)!;
       representatives.set(
         key,
-        [...members].sort(
-          (left, right) =>
-            hashString(left.recordId) - hashString(right.recordId),
-        )[0]!,
+        members.find((record) => reviewedRecordIds.has(record.recordId)) ??
+          [...members].sort(byHash)[0]!,
       );
       sampled += 1;
       added = true;
     }
     if (!added) break;
+  }
+  // Work done outside the sample still counts and stays visible under Done.
+  for (const [key, members] of units) {
+    if (reviewedUnits.has(key) && !representatives.has(key)) {
+      representatives.set(
+        key,
+        members.find((record) => reviewedRecordIds.has(record.recordId))!,
+      );
+    }
   }
   return { representatives, reviewedUnits };
 }
