@@ -33,7 +33,7 @@ npm run test:live-smoke   # optional; requires PALIMPSEST_LIVE_SMOKE=1 and crede
 
 Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six canonical keys.
 
-Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded Kestrin replay fixtures under `fixtures/pipeline/kestrin-replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
+Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded replay fixtures under `fixtures/pipeline/replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
 
 ## Landed, still unmeasured
 
