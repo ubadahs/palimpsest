@@ -33,7 +33,7 @@ npm run test:live-smoke   # optional; requires PALIMPSEST_LIVE_SMOKE=1 and crede
 
 Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six canonical keys.
 
-Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded Kestrin replay fixtures under `fixtures/pipeline/kestrin-replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
+Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded replay fixtures under `fixtures/pipeline/replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
 
 ## From the September 2026 plan
 
@@ -43,7 +43,7 @@ Landed as code, still unmeasured:
 - **Structured outputs.** Every canonical model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
 - **Instrumented ledger.** `cost-summary.json` now records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
 - **Side-by-side model calls.** Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`). Artifacts are identical at any concurrency; only wall time changes.
-- **Repeat runs.** A repeated run of one seed was compared offline. The write-up stays outside the repository.
+- **Repeat runs.** A repeated run of one seed was compared offline. Evaluation write-ups are kept outside the repository.
 - **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. No blinded labels exist yet, so `calibrationStatus` stays `uncalibrated`.
 
 Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).

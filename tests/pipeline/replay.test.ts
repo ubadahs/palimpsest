@@ -23,7 +23,7 @@ import {
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../fixtures/pipeline/kestrin-replay",
+  "../../fixtures/pipeline/replay",
 );
 const SEED_DOI = "10.1000/jin.20210042";
 const PVALB_CLAIM =
@@ -56,7 +56,7 @@ function modelExecution(key: string) {
     model: "fixture-model",
     promptId: "canonical-attributed-claim-extraction",
     promptVersion: "v1",
-    promptContentHash: canonicalSha256({ prompt: "kestrin-replay" }),
+    promptContentHash: canonicalSha256({ prompt: "replay" }),
     requestHash: canonicalSha256({ key, direction: "request" }),
     requestArtifact: artifactReference("model-request", key),
     responseArtifact: artifactReference("model-response", key),
@@ -77,7 +77,7 @@ function harvestFromFixtureXml(xmlPath: string, paperId: string) {
   return {
     materialization: {
       status: "succeeded" as const,
-      reason: "Recorded Kestrin fixture materialized",
+      reason: "Recorded replay fixture materialized",
       provenanceArtifacts: [
         artifactReference("raw-full-text", paperId),
         artifactReference("parsed-full-text", paperId),
@@ -106,7 +106,7 @@ function harvestFromFixtureXml(xmlPath: string, paperId: string) {
       citationMarker: mention.citationMarker,
       rawContext: mention.rawContext,
       ...(mention.sectionTitle ? { sectionTitle: mention.sectionTitle } : {}),
-      seedRefLabel: "Harlow, 2020",
+      seedRefLabel: "Marlowe et al., 2021",
       isBundledCitation: mention.isBundledCitation,
       bundleSize: mention.bundleSize,
       bundleRefIds: mention.bundleRefIds,
@@ -130,12 +130,13 @@ function buildReplayAdapters(): CanonicalDiscoverAdapters {
       Promise.resolve({
         status: "resolved",
         paper: {
-          paperId: "kestrin-seed",
+          paperId: "seed-paper",
           providerRecordId: "https://openalex.org/Wseed",
-          title: "Visual experience and Kestrin circuit maturation",
+          title:
+            "Laminar organization of inhibitory neuron subtypes in the north relay field",
           doi,
-          authors: ["Harlow L"],
-          publicationYear: 2020,
+          authors: ["Marlowe R", "Okafor T", "Lindqvist H"],
+          publicationYear: 2021,
         },
         execution: externalExecution("openalex", `resolve-${doi}`),
       }),
@@ -236,7 +237,7 @@ function buildReplayAdapters(): CanonicalDiscoverAdapters {
           : CALMIC_CLAIM;
       return Promise.resolve({
         status: "completed",
-        reason: "Recorded Kestrin claim extraction",
+        reason: "Recorded replay claim extraction",
         claims: [
           {
             text,
@@ -255,7 +256,7 @@ function buildReplayAdapters(): CanonicalDiscoverAdapters {
   };
 }
 
-describe("Kestrin recorded Discover replay", () => {
+describe("Recorded Discover replay", () => {
   it("emits one seed occurrence per citation group with Lorn portfolio coverage", async () => {
     const options = {
       seeds: [
@@ -278,13 +279,10 @@ describe("Kestrin recorded Discover replay", () => {
       }),
       recordedAt: "2026-07-19T12:00:00.000Z",
     };
-    const result = await runCanonicalDiscover(
-      options,
-      buildReplayAdapters(),
-    );
+    const result = await runCanonicalDiscover(options, buildReplayAdapters());
     const artifact = buildCanonicalDiscoverArtifact({
       result,
-      runId: "run-kestrin-replay",
+      runId: "run-replay",
       createdAt: "2026-07-19T12:05:00.000Z",
       configuration: {
         contentHash: canonicalSha256(options),
