@@ -93,7 +93,7 @@ describe("rankDocumentsByBm25Detailed", () => {
 
   it("ranks identically from a prebuilt index", () => {
     const documents: TestDocument[] = [
-      { id: "a", text: "Pvalb neurons in the ventral relay" },
+      { id: "a", text: "Pvalb neurons in the ventral relay nucleus" },
       { id: "b", text: "Calb1 neurons in the interrelay leaflet" },
     ];
     const index = buildBm25Index(documents, (document) => document.text);

@@ -46,7 +46,7 @@ import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../fixtures/pipeline/vrn-replay",
+  "../../fixtures/pipeline/replay",
 );
 const SEED_DOI = "10.1000/jin.20210042";
 const tempRoots: string[] = [];
@@ -130,7 +130,7 @@ function harvestFromFixture(xmlName: string, paperId: string) {
       citationMarker: mention.citationMarker,
       rawContext: mention.rawContext,
       ...(mention.sectionTitle ? { sectionTitle: mention.sectionTitle } : {}),
-      seedRefLabel: "Belicova, 2020",
+      seedRefLabel: "Marlowe et al., 2021",
       isBundledCitation: mention.isBundledCitation,
       bundleSize: mention.bundleSize,
       bundleRefIds: mention.bundleRefIds,
@@ -154,12 +154,13 @@ function productionPathDiscoverAdapters(): CanonicalDiscoverAdapters {
       Promise.resolve({
         status: "resolved",
         paper: {
-          paperId: "vrn-seed",
+          paperId: "seed-paper",
           providerRecordId: "https://openalex.org/Wseed",
-          title: "Visual experience and VRN circuit maturation",
+          title:
+            "Laminar organization of inhibitory neuron subtypes in the ventral relay nucleus",
           doi,
-          authors: ["Belicova L"],
-          publicationYear: 2020,
+          authors: ["Marlowe R", "Okafor T", "Lindqvist H"],
+          publicationYear: 2021,
         },
         execution: externalExecution("openalex", `resolve-${doi}`),
       }),

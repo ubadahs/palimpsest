@@ -27,7 +27,7 @@ import {
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../fixtures/pipeline/vrn-replay",
+  "../../fixtures/pipeline/replay",
 );
 const SEED_DOI = "10.1000/jin.20210042";
 const BUNDLED_LANDING = "https://fixture.test/bundled.html";
@@ -65,10 +65,11 @@ function seedPaper(): ResolvedPaper {
   return {
     id: "https://openalex.org/Wseed20210042",
     doi: SEED_DOI,
-    title: "Visual experience and VRN circuit maturation",
-    authors: ["Belicova L"],
+    title:
+      "Laminar organization of inhibitory neuron subtypes in the ventral relay nucleus",
+    authors: ["Marlowe R", "Okafor T", "Lindqvist H"],
     source: "openalex",
-    publicationYear: 2020,
+    publicationYear: 2021,
     paperType: "article",
     fullTextHints: {
       providerAvailability: "unavailable",

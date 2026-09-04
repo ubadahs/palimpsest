@@ -33,7 +33,7 @@ npm run test:live-smoke   # optional; requires PALIMPSEST_LIVE_SMOKE=1 and crede
 
 Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six canonical keys.
 
-Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded VRN replay fixtures under `fixtures/pipeline/vrn-replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
+Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded replay fixtures under `fixtures/pipeline/replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
 
 ## From the September 2026 plan
 
@@ -43,7 +43,7 @@ Landed as code, still unmeasured:
 - **Structured outputs.** Every canonical model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
 - **Instrumented ledger.** `cost-summary.json` now records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
 - **Side-by-side model calls, measured.** Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`). The same seed took 68 minutes sequentially and 14 minutes six-wide, with no rate limits and a single prompt-cache write for the seed text. Artifacts are identical at any concurrency; only wall time changes.
-- **Self-agreement, measured once.** Two cache-bypassed runs of the same seed agreed on 29 of 32 matched adjudicated records (F 24/24, D 4/6). Mutation kinds overlapped but never matched exactly; direction always matched. Candidate clustering varied more than verdicts (25 to 38 candidates from the same 120 claims). See `evaluations/vrn/2026-09-02-replay-92ba153-repeat.md`.
+- **Self-agreement, measured once.** Two cache-bypassed runs of the same seed agreed on 29 of 32 matched adjudicated records (F 24/24, D 4/6). Mutation kinds overlapped but never matched exactly; direction always matched. Candidate clustering varied more than verdicts (25 to 38 candidates from the same 120 claims). Evaluation write-ups are kept outside the repository.
 - **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. No blinded labels exist yet, so `calibrationStatus` stays `uncalibrated`.
 
 Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
