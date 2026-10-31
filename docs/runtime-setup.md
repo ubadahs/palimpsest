@@ -6,7 +6,7 @@ This guide covers dependencies for the runnable canonical pipeline:
 discover → scope → prepare → evidence → adjudicate → report
 ```
 
-Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`, `runs:gc`, and `pipeline` only.
+Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`, `runs:gc`, `pipeline`, and `eval`. `eval` reads whichever provider keys its config names (`ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `DJEV_ENDPOINT`, `DJEV_API_KEY`). Its datasets and trials stay under `data/evaluations/`. See [evaluation.md](./evaluation.md).
 
 ## What you need
 

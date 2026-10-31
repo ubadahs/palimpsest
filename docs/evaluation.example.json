@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "evaluation-experiment-config-v1",
+  "promptRevision": "evaluation-prompts-v2",
+  "tasks": ["role", "rerank", "span", "adjudication"],
+  "repetitions": 1,
+  "maxRequests": 3000,
+  "providers": [
+    {
+      "id": "haiku",
+      "kind": "anthropic",
+      "model": "claude-haiku-4-5",
+      "tasks": ["role", "rerank", "span"],
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 1,
+      "pricePerMillionOutputTokensUsd": 5
+    },
+    {
+      "id": "opus",
+      "kind": "anthropic",
+      "model": "claude-opus-4-6",
+      "tasks": ["adjudication"],
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 5,
+      "pricePerMillionOutputTokensUsd": 25
+    },
+    {
+      "id": "jev",
+      "kind": "jev",
+      "model": "typesafe-ai/jev",
+      "tasks": ["role", "rerank", "adjudication"],
+      "endpoint": "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
+      "apiKeyEnv": "AI_GATEWAY_API_KEY",
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 0.04,
+      "pricePerMillionOutputTokensUsd": 0
+    },
+    {
+      "id": "djev",
+      "kind": "djev",
+      "model": "dgemma",
+      "tasks": ["role", "rerank", "span", "adjudication"],
+      "endpointEnv": "DJEV_ENDPOINT",
+      "apiKeyEnv": "DJEV_API_KEY",
+      "concurrency": 6,
+      "maxContextCharacters": 12000,
+      "inferenceSettings": { "steps": 1, "samples": 1 }
+    },
+    {
+      "id": "bm25",
+      "kind": "bm25",
+      "model": "canonical-bm25-v1",
+      "tasks": ["rerank"]
+    },
+    {
+      "id": "rules",
+      "kind": "rules",
+      "model": "canonical-role-regex-v1",
+      "tasks": ["role"]
+    }
+  ]
+}

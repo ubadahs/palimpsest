@@ -18,6 +18,8 @@ Old seven-stage UI/run state is unsupported. Existing local database rows or run
 - `/runs/new` — DOI-first run creation
 - `/runs/[runId]` — run overview, six-stage rail, live logs, and artifacts
 - `/runs/[runId]/stages/[stageKey]` — canonical stage inspection
+- `/evaluations` — frozen datasets
+- `/evaluations/[datasetId]` — blind annotation and saved experiment results
 
 ## Report explorer
 
@@ -46,6 +48,12 @@ The completed-run overview links into this explorer with cautious “received F�
 - `GET /api/runs/[runId]/review` — current report-bound review state/progress/head
 - `POST /api/runs/[runId]/review/events` — append a draft/final review revision
 - `GET /api/runs/[runId]/review/export?format=json|csv` — lineage-bound review export
+- `GET /api/evaluations` — frozen datasets
+- `GET /api/evaluations/[datasetId]` — one dataset
+- `GET /api/evaluations/[datasetId]/experiments` — saved experiments
+- `POST /api/evaluations/[datasetId]/annotations` — append a blind annotation
+- `POST /api/evaluations/[datasetId]/reveal` — record exposure before showing machine output
+- `POST /api/evaluations/[datasetId]/results` — build a report from the annotation snapshot
 
 `stageKey` accepts only `discover`, `scope`, `prepare`, `evidence`, `adjudicate`, or `report`.
 

@@ -24,6 +24,7 @@ Historical POC conception docs (shortlist/pre-screen era) live under [`archive/p
 - [pipeline-concepts.md](./pipeline-concepts.md) — main objects that move through the stages
 - [artifact-workflow.md](./artifact-workflow.md) — artifact roles, names, run layout, manifests
 - [status.md](./status.md) — what is implemented in the repo today
+- [evaluation.md](./evaluation.md) — freeze a report and compare providers locally; datasets stay gitignored
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
 - [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
 

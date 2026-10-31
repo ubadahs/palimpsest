@@ -51,6 +51,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               Dashboard
             </Link>
             <Link
+              href="/evaluations"
+              className={cn(
+                "rounded-full border px-4 py-2 transition",
+                pathname?.startsWith("/evaluations")
+                  ? "border-[var(--border-strong)] bg-[var(--panel-muted)] text-[var(--text)]"
+                  : "border-[var(--border)] hover:bg-[var(--panel-muted)] hover:text-[var(--text)]",
+              )}
+            >
+              Evaluations
+            </Link>
+            <Link
               href="/runs/new"
               className={cn(
                 "rounded-full border px-4 py-2 font-semibold transition",

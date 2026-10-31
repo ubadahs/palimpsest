@@ -12,7 +12,9 @@
     "./storage": "./src/storage/index.ts",
     "./contract": "./src/contract/index.ts",
     "./contract/server": "./src/contract/server.ts",
-    "./review": "./src/review/index.ts"
+    "./review": "./src/review/index.ts",
+    "./evaluation": "./src/evaluation/types.ts",
+    "./evaluation/server": "./src/evaluation/index.ts"
   },
   "scripts": {
     "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
