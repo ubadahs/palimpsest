@@ -3,6 +3,7 @@ import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import { runPipelineCommand } from "./commands/pipeline.js";
 import { runRunsGcCommand } from "./commands/runs-gc.js";
+import { runEvalCommand } from "./commands/eval.js";
 
 function printHelp(): void {
   console.info(`Palimpsest
@@ -13,6 +14,7 @@ Available commands:
   db:gc         Delete aged analysis-run and LLM-cache rows (not artifact dirs)
   runs:gc       Delete superseded run artifacts and unreferenced provenance blobs
   pipeline      Run canonical six stages: discover → scope → prepare → evidence → adjudicate → report
+  eval          Build datasets, validate, run/resume experiments, and report results
 `);
 }
 
@@ -50,6 +52,11 @@ async function main(): Promise<void> {
 
   if (command === "pipeline") {
     await runPipelineCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "eval") {
+    await runEvalCommand(process.argv.slice(3));
     return;
   }
 

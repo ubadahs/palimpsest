@@ -54,6 +54,8 @@ npm run ui:dev
 
 Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. Old local database rows and run directories from the superseded seven-stage executor are unsupported; delete/recreate them rather than attempting to resume or bridge them.
 
+`eval` freezes a finished report into local cases under `data/evaluations/` and compares providers. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
+
 ## Output
 
 The final `report` stage writes authoritative JSON funnel/rate/trace accounting and a deterministic Markdown rendering under `data/runs/<run>/05-report/`. Canonical Adjudicate's `F`/`D`/`E`/`U` outcomes are **uncalibrated**; a runnable pipeline is not a validated method or a basis for trust claims.
@@ -68,6 +70,7 @@ The runnable production pipeline is `discover → scope → prepare → evidence
 - [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests
 - [docs/runtime-setup.md](docs/runtime-setup.md) — environment variables, required services, failure and fallback behavior
 - [docs/status.md](docs/status.md) — what is implemented in the repo today
+- [docs/evaluation.md](docs/evaluation.md) — local evaluation commands; datasets stay out of git
 - [docs/ui-setup.md](docs/ui-setup.md) — running the local UI
 - [docs/README.md](docs/README.md) — full documentation map
 
