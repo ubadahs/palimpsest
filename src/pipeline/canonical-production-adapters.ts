@@ -31,6 +31,7 @@ import type { ResolvedPaper } from "../domain/common.js";
 import { isReviewPaperType } from "../domain/attribution-signal.js";
 import { inferSectionRoles } from "../domain/section-patterns.js";
 import { annotateCitingContext } from "../shared/citation-context-window.js";
+import { CITATION_ROLE_DEFINITIONS } from "../shared/scientific-rubrics.js";
 import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
@@ -2015,7 +2016,7 @@ Rules:
  * content, because the question is what this citer is doing with the seed, not
  * whether it is right.
  */
-function buildCitationRolePrompt(
+export function buildCitationRolePrompt(
   input: CanonicalPrepareClassifierInput,
 ): string {
   const occurrence = input.citationOccurrence;
@@ -2040,25 +2041,25 @@ function buildCitationRolePrompt(
 ${section}${refLabel}${bundle}
 
 Citing context (sentences attributed to the cited reference are wrapped in ▶ ... ◀):
-${annotateCitingContext(occurrence.rawContext, occurrence.citationMarker, occurrence.seedRefLabel)}
+${annotateCitingContext(
+  occurrence.rawContext,
+  occurrence.citationMarker,
+  occurrence.seedRefLabel,
+  input.occurrenceSourceClaimRecords.flatMap((claim) =>
+    claim.supportSpan ? [claim.supportSpan] : [],
+  ),
+)}
 
 Text the extractor bound to the cited reference:
 ${spans}
 
-Choose exactly one role:
-- substantive_attribution — the citing text credits a specific finding, result, or measurement to the cited work.
-- background_context — the citing text uses the cited work to establish general knowledge, motivation, or framing.
-- methods_materials — the citing text uses the cited work for a method, protocol, reagent, dataset, or tool.
-- acknowledgment_or_low_information — the citation carries no attributed content (a bare "see also", a list of examples).
-- unclear — the context genuinely does not say which of the above it is.
-
-Pick "unclear" only when the context is too thin to decide; a heading that does not match a familiar pattern is not by itself a reason.
+${CITATION_ROLE_DEFINITIONS}
 
 Respond with JSON (no markdown fences):
 { "citationRole": "...", "rationale": "one sentence" }`;
 }
 
-const citationRoleResponseSchema = z
+export const citationRoleResponseSchema = z
   .object({
     citationRole: z.enum([
       "substantive_attribution",
@@ -2071,9 +2072,17 @@ const citationRoleResponseSchema = z
   })
   .strict();
 
-function buildRelevanceRerankPrompt(
-  input: CanonicalEvidenceRerankerInput,
-): string {
+export function buildRelevanceRerankPrompt(input: {
+  query: { text: string };
+  topN: number;
+  candidates: readonly {
+    text: string;
+    sourceBlockKind: string;
+    sourceSectionTitle?: string | undefined;
+    sourceSectionRole?: string | undefined;
+    sourceCitesOtherWork?: boolean | undefined;
+  }[];
+}): string {
   // The reranker is an independent ranking: BM25 scores and ranks are withheld
   // so it cannot anchor on the ordering it exists to correct. Block kind and
   // section let it prefer the seed's own results over its background prose.
@@ -2115,7 +2124,7 @@ Use only candidate numbers from the list above, each at most once. Ranks must be
  * repeated numbers are dropped, results are ordered by score, and ranks are
  * reassigned contiguously before the contract schema is applied.
  */
-const rerankModelResponseSchema = z
+export const rerankModelResponseSchema = z
   .object({
     results: z
       .array(
@@ -2169,7 +2178,7 @@ function mapRerankResponse(
 }
 
 /** Model reply with chunks referenced by number; mapped to ids before the contract schema. */
-const adjudicateModelResponseSchema = z
+export const adjudicateModelResponseSchema = z
   .object({
     citingAssertion: z.string().min(1),
     sourceStatement: z.string().min(1),

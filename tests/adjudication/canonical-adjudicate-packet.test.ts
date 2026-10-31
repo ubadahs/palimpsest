@@ -73,6 +73,16 @@ describe("canonical adjudicate packet quality", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("fails closed on an unverified single-sentence citation target", () => {
+    const result = assessAdjudicatePacketQuality(
+      basePacket({
+        markedCitingContext: "Quill et al. 2021 reported a result.",
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.gateReason).toMatch(/citation target/i);
+  });
+
   it("pins quantifier, proxy-endpoint, and bundle kernel guidance in the prompt", () => {
     const prompt = buildCanonicalAdjudicatePrompt(
       basePacket({ isBundled: true, bundleSize: 3 }),

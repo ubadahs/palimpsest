@@ -411,13 +411,13 @@ export function buildCanonicalEvidenceArtifact(input: {
     execution: hasModelExecution
       ? {
           kind: "model",
-          implementation: input.implementation ?? "canonical-evidence-v1",
+          implementation: input.implementation ?? "canonical-evidence-v2",
           replayableFromInputs: false,
           responseArtifacts: input.result.provenanceInputs.responseArtifacts,
         }
       : {
           kind: "deterministic",
-          implementation: input.implementation ?? "canonical-evidence-v1",
+          implementation: input.implementation ?? "canonical-evidence-v2",
           replayableFromInputs: true,
         },
     decisions: input.result.decisions,
@@ -575,6 +575,28 @@ async function retrieveRecordEvidence(input: {
       selection,
       retrievalStatus: "retrieved",
       rerankStatus: "disabled",
+    };
+  }
+
+  // Scope pins take precedence over every ranking. When they fill the packet,
+  // no reranker output can change the selected chunks or their order.
+  const pinnedSelection = buildFinalSelection(
+    bm25Run,
+    undefined,
+    options.selectionLimit,
+    family,
+    corpus,
+  );
+  if (pinnedSelection.pinnedChunkIds?.length === options.selectionLimit) {
+    return {
+      query,
+      fallbackQuery,
+      componentBm25Runs,
+      corpus,
+      bm25Run,
+      selection: pinnedSelection,
+      retrievalStatus: "retrieved",
+      rerankStatus: "skipped_pins_fill_selection",
     };
   }
 
@@ -1113,6 +1135,8 @@ function rerankReason(
       return "Reranking was enabled but exact Scope seed text was unavailable, so no reranker call was made.";
     case "not_attempted_retrieval_failure":
       return "Reranking was enabled but deterministic retrieval failed before candidates existed.";
+    case "skipped_pins_fill_selection":
+      return "Reranking was skipped because verified Scope pins already filled every selected evidence slot.";
     case "completed":
       return "The relevance-only reranker produced a separate immutable ranking of the supplied BM25 candidates.";
     case "failed":

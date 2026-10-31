@@ -16,11 +16,11 @@ export const LLM_CACHE_VERSIONS = {
   /** Cross-citer claim equivalence clustering per seed. */
   canonicalization: "canonicalization-2026-09-02-v2",
   /** Citation-role fallback for occurrences the regex pass leaves unclear. */
-  roleClassification: "role-classification-2026-09-02-v1",
+  roleClassification: "role-classification-2026-09-23-v2",
   /** LLM-based evidence reranking. */
   rerank: "rerank-2026-09-02-v2",
   /** Citation fidelity adjudication. */
-  adjudication: "adjudication-2026-09-02-v10",
+  adjudication: "adjudication-2026-09-23-v11",
 } as const;
 
 export const LLM_PROMPT_VERSIONS = {
@@ -31,7 +31,7 @@ export const LLM_PROMPT_VERSIONS = {
   /** Claim equivalence clustering prompt template. */
   canonicalization: "2026-09-02-v2",
   /** Citation-role fallback prompt template. */
-  roleClassification: "2026-09-02-v1",
+  roleClassification: "2026-09-23-v2",
   /** Categorical adjudication prompt template. */
-  adjudication: "v4",
+  adjudication: "v5",
 } as const;

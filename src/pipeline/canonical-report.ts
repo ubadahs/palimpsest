@@ -251,7 +251,7 @@ export function buildCanonicalReportArtifact(input: {
     provenance,
     execution: {
       kind: "deterministic",
-      implementation: input.implementation ?? "canonical-report-v1",
+      implementation: input.implementation ?? "canonical-report-v2",
       replayableFromInputs: true,
     },
     decisions: input.result.decisions,
@@ -264,7 +264,7 @@ export function buildCanonicalReportArtifact(input: {
   );
 }
 
-function verifyReportAncestors(input: {
+export function verifyReportAncestors(input: {
   discoverArtifact: DiscoverArtifact;
   scopeArtifact: ScopeArtifact;
   prepareArtifact: PrepareArtifact;
@@ -613,6 +613,10 @@ function buildFunnelCounts(input: {
   const rerankDisabled = countBy(
     evidenceRecords,
     (record) => record.rerankStatus === "disabled",
+  );
+  const rerankSkippedPinnedSelection = countBy(
+    evidenceRecords,
+    (record) => record.rerankStatus === "skipped_pins_fill_selection",
   );
   const rerankCompleted = countBy(
     evidenceRecords,
@@ -1076,6 +1080,12 @@ function buildFunnelCounts(input: {
         rerankDisabled,
         "family_occurrence_records",
         "Evidence records whose reranking policy was disabled",
+      ),
+      rerankSkippedPinnedSelection: count(
+        "evidence.rerank_skipped_pinned_selection",
+        rerankSkippedPinnedSelection,
+        "family_occurrence_records",
+        "Evidence records whose Scope pins filled the selection before model dispatch",
       ),
       rerankCompleted: count(
         "evidence.rerank_completed",

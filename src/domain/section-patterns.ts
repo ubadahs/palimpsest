@@ -42,6 +42,9 @@ export const RESULTS_SECTION_RE = /\b(?:results?|findings)\b/i;
 export const DISCUSSION_SECTION_RE =
   /\b(?:discussion|conclusions?|perspectives?|outlook|limitations|summary)\b/i;
 
+const REPORTED_FINDING_RE =
+  /\b(?:we\s+(?:found|identified|observed|showed|demonstrated)|our\s+(?:results|data)\s+(?:show|showed|demonstrate|demonstrated)|(?:results?|findings?)\s+(?:show|showed|reveal|revealed)|revealed)\b/i;
+
 export type SectionRole =
   | "abstract"
   | "introduction"
@@ -80,8 +83,10 @@ export function classifySectionRole(
  * known heading set the current role; unrecognized subsection titles (the
  * usual case for results subsections, which carry descriptive headings under
  * a parent "Results" the parser does not preserve) inherit it. An
- * unrecognized section that follows the abstract or introduction opens the
- * results. Captions keep their own role and do not move the cursor.
+ * unrecognized section after the abstract or introduction opens the results.
+ * When methods come first and the parser drops the "Results" heading, a new
+ * descriptive section reporting a finding opens results. Captions keep their
+ * own role and do not move the cursor.
  */
 export function inferSectionRoles(
   blocks: ReadonlyArray<{
@@ -91,6 +96,7 @@ export function inferSectionRoles(
       | "figure_caption"
       | "table_caption";
     sectionTitle?: string | undefined;
+    text?: string | undefined;
   }>,
 ): SectionRole[] {
   let current: SectionRole = "other";
@@ -113,7 +119,8 @@ export function inferSectionRoles(
       newSection &&
       (current === "abstract" ||
         current === "introduction" ||
-        current === "other")
+        current === "other" ||
+        (current === "methods" && REPORTED_FINDING_RE.test(block.text ?? "")))
     ) {
       current = "results";
     }

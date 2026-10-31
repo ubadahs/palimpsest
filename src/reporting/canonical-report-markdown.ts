@@ -215,6 +215,9 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.evidence.bm25MatchedRuns,
     payload.funnel.evidence.bm25NoMatchRuns,
     payload.funnel.evidence.rerankDisabled,
+    ...(payload.funnel.evidence.rerankSkippedPinnedSelection
+      ? [payload.funnel.evidence.rerankSkippedPinnedSelection]
+      : []),
     payload.funnel.evidence.rerankCompleted,
     payload.funnel.evidence.rerankFailed,
     payload.funnel.evidence.rerankNotAttempted,

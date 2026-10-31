@@ -12,6 +12,7 @@ import {
 import { assessEvidenceLimitation } from "../shared/evidence-limitation.js";
 import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
 import { mutationDirectionSchema } from "../contract/canonical-adjudicate.js";
+import { adjudicationVerdictDefinitions } from "../shared/scientific-rubrics.js";
 
 export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
@@ -79,17 +80,27 @@ export function buildCanonicalAdjudicatePacket(
   // numeric-marker journals still center the window on the citing sentence.
   const seedRefLabel = prepareRecord.citationOccurrence.seedRefLabel;
   const rawMarker = prepareRecord.citationOccurrence.citationMarker;
-  const window = extractCitingWindow(
+  // Support-span offsets refer to the full citing context. Mark before
+  // trimming the window so a repeated year elsewhere cannot redirect it.
+  const markedFullContext = annotateCitingContext(
     prepareRecord.citationOccurrence.rawContext,
-    seedRefLabel ?? rawMarker,
+    rawMarker,
+    seedRefLabel,
+    prepareRecord.occurrenceSourceClaimRecords.flatMap((claim) =>
+      claim.supportSpan ? [claim.supportSpan] : [],
+    ),
+  );
+  const window = extractCitingWindow(
+    markedFullContext,
+    markedFullContext.includes("▶") ? "▶" : (seedRefLabel ?? rawMarker),
     800,
     seedRefLabel ? [rawMarker] : [],
   );
-  const markedCitingContext = annotateCitingContext(
-    window,
-    prepareRecord.citationOccurrence.citationMarker,
-    prepareRecord.citationOccurrence.seedRefLabel,
-  );
+  // Keep the full marked text when a window would cut a multi-sentence mark.
+  const markedCitingContext =
+    markedFullContext.includes("▶") && !assessCitationScopeAnnotation(window).ok
+      ? markedFullContext
+      : window;
 
   const chunksById = new Map(
     selectedChunks.map((chunk) => [chunk.chunkId, chunk]),
@@ -168,6 +179,16 @@ export function assessAdjudicatePacketQuality(
       ok: false,
       gateReason:
         "Occurrence-local claims lack exact-verified support spans and are reserved for manual review",
+    };
+  }
+  if (
+    packet.occurrenceClaims.length > 0 &&
+    !packet.markedCitingContext.includes("▶")
+  ) {
+    return {
+      ok: false,
+      gateReason:
+        "Citation target could not be verified against the support span and resolved reference",
     };
   }
   const markerQuality = assessCitationScopeAnnotation(
@@ -262,11 +283,7 @@ Compare the citing paper's attribution to the selected cited-paper chunks.
 Return JSON with:
 - citingAssertion: one concise sentence stating what the citing paper attributes to the seed
 - sourceStatement: one concise sentence stating what the selected cited chunks actually say
-- verdict: one of F, D, E, U using these definitions only:
-  - F (faithful): the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel
-  - D (distortion): a real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered
-  - E (error): the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel
-  - U (uncertain): exact cited evidence is present, but genuine scientific or attribution ambiguity prevents a defensible F/D/E judgment. Do not use U for missing evidence or tool failure.
+${adjudicationVerdictDefinitions()}
 - mutationKinds: for D only, one to three of ${mutationKindSchema.options.join(" | ")}; an empty array for F, E, and U
 - direction: one of ${mutationDirectionSchema.options.join(" | ")} — how the citing version moved relative to the source (strengthened = stronger, broader, or more certain; weakened = hedged or narrowed; shifted = changed entity, endpoint, or population). Use none for F.
 - rationale: 2-3 sentences explaining the comparison without advocacy

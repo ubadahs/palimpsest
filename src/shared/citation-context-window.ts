@@ -15,8 +15,9 @@ const ABBREVIATION_RE =
  * surrounding sentences remain for the adjudicator to reason about — but the
  * attributed sentence(s) are visually marked.
  *
- * If the context is short enough that the marker position is unambiguous,
- * or if the marker can't be found, returns the text unchanged.
+ * Without verified spans, a single-sentence context is left unchanged. With
+ * spans, an unverifiable reference target is left unmarked for the caller's
+ * manual-review gate.
  */
 /**
  * @param rawContext      Full paragraph or context window.
@@ -24,18 +25,95 @@ const ABBREVIATION_RE =
  * @param seedRefLabel    Author-year label from the matched bibliography entry
  *   (e.g. "Adeyemi and Okonkwo, 2009"). When provided, used as the primary match
  *   pattern — this is the ground truth from reference resolution, not a guess.
+ * @param verifiedSupportSpans  Exact offsets into rawContext for claims bound
+ *   to this reference. When present, no year-only fallback may mark a different
+ *   citation sentence.
  */
 export function annotateCitingContext(
   rawContext: string,
   citationMarker: string,
   seedRefLabel?: string,
+  verifiedSupportSpans?: readonly {
+    text: string;
+    charOffsetStart: number;
+    charOffsetEnd: number;
+  }[],
 ): string {
   const sentences = splitSentences(rawContext);
-
-  if (sentences.length <= 1) {
+  if (
+    sentences.length === 0 ||
+    (!verifiedSupportSpans && sentences.length <= 1)
+  ) {
     return rawContext;
   }
 
+  const markerSentences = new Set<number>();
+  if (verifiedSupportSpans) {
+    // Offsets are exact-verified against the citing context by Discover. A
+    // generic year such as "2021" cannot safely identify the cited paper when
+    // another reference shares that year in the same paragraph.
+    const markerPosition = rawContext.indexOf(citationMarker);
+    const markerIsUnique =
+      citationMarker.length > 0 &&
+      markerPosition >= 0 &&
+      markerPosition === rawContext.lastIndexOf(citationMarker);
+    const normalizedLabel = seedRefLabel
+      ? normalizeReference(seedRefLabel)
+      : undefined;
+    const numericMarker = /^\[\s*\d+(?:[\s,;–-]*\d+)*\s*\]$/.test(
+      citationMarker,
+    );
+    for (const span of verifiedSupportSpans) {
+      if (
+        span.charOffsetStart < 0 ||
+        span.charOffsetEnd <= span.charOffsetStart ||
+        rawContext.slice(span.charOffsetStart, span.charOffsetEnd) !== span.text
+      )
+        continue;
+      for (let index = 0; index < sentences.length; index++) {
+        const sentence = sentences[index]!;
+        if (
+          span.charOffsetStart >= sentence.end ||
+          span.charOffsetEnd <= sentence.start
+        )
+          continue;
+        const matchesReference =
+          (normalizedLabel != null &&
+            normalizedLabel.length > 0 &&
+            normalizeReference(sentence.text).includes(normalizedLabel)) ||
+          (markerIsUnique &&
+            (normalizedLabel == null || numericMarker) &&
+            sentence.text.includes(citationMarker));
+        if (matchesReference) markerSentences.add(index);
+      }
+    }
+  } else {
+    findMarkerSentences(
+      sentences,
+      citationMarker,
+      seedRefLabel,
+      markerSentences,
+    );
+  }
+
+  if (markerSentences.size === 0) return rawContext;
+  return markSentences(sentences, markerSentences);
+}
+
+function normalizeReference(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findMarkerSentences(
+  sentences: SentenceSpan[],
+  citationMarker: string,
+  seedRefLabel: string | undefined,
+  markerSentences: Set<number>,
+): void {
   // Primary pattern: the seed paper's author-year label (ground truth from
   // reference resolution). Falls back to the raw citation marker.
   const primaryPattern = seedRefLabel ?? citationMarker;
@@ -58,7 +136,6 @@ export function annotateCitingContext(
   }
 
   // Find sentences that contain any of our patterns (prefer earlier patterns).
-  const markerSentences = new Set<number>();
   for (const pat of patterns) {
     for (let i = 0; i < sentences.length; i++) {
       if (sentences[i]!.text.includes(pat)) {
@@ -71,14 +148,13 @@ export function annotateCitingContext(
       break;
     }
   }
+}
 
-  if (markerSentences.size === 0) {
-    return rawContext;
-  }
-  // When every sentence is attributed to the seed the whole window is wrapped;
-  // leaving it unmarked would make the packet gate reject the richest cases.
-
-  // Rebuild with ▶ / ◀ around attributed sentences.
+function markSentences(
+  sentences: SentenceSpan[],
+  markerSentences: ReadonlySet<number>,
+): string {
+  // When every sentence is attributed to the seed the whole window is wrapped.
   const parts: string[] = [];
   let inMarked = false;
   for (let i = 0; i < sentences.length; i++) {

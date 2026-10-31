@@ -991,6 +991,10 @@ function buildAllStageArtifacts() {
             "evidence.rerank_disabled",
             "Rerank disabled",
           ),
+          rerankSkippedPinnedSelection: zeroFamilyOccurrence(
+            "evidence.rerank_skipped_pinned_selection",
+            "Rerank skipped because pins fill the selection",
+          ),
           rerankCompleted: zeroFamilyOccurrence(
             "evidence.rerank_completed",
             "Rerank completed",
