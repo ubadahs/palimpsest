@@ -20,6 +20,7 @@ export const evidenceRerankStatusSchema = z.enum([
   "not_attempted_no_candidates",
   "not_attempted_unavailable",
   "not_attempted_retrieval_failure",
+  "skipped_pins_fill_selection",
   "completed",
   "failed",
 ]);

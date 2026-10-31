@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-10-31
 
 This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
 
@@ -17,7 +17,7 @@ The public CLI, SQLite run registry, local UI, artifact layout, resume logic, an
 | `discover` | Runnable | Paginates the citing neighborhood, stratifies probing, emits one seed occurrence per exact citation group carrying the parser's own `locationQuality`, records each citing paper's access channel and bibliography match method, exact-verifies claim support spans into offset-bound `supportSpan` fields, clusters paraphrased claims across citers into one candidate per seed finding, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
 | `scope` | Runnable | Accounts for every Discover candidate, freezes exact family and occurrence membership, materializes seed text once per seed, and records verified grounding without excluding a family. |
 | `prepare` | Runnable | Produces one stable record for every scoped family × citation occurrence with complete and occurrence-local claim membership plus typed classification. A free deterministic regex pass runs first; only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku by default). Missing verified support spans, and roles neither pass can settle, remain queued for manual review. |
-| `evidence` | Runnable | Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), reciprocal-rank fusion, content-hash reuse, and an immutable relevance-rerank version that is on by default and sees section role and third-party-citation flags. Grounding pins lead the selection in both branches. One outcome per Prepare record. |
+| `evidence` | Runnable | Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), reciprocal-rank fusion, content-hash reuse, and an immutable relevance-rerank version that is on by default and sees section role and third-party-citation flags. Grounding pins lead the selection; reranking is skipped with a typed reason when pins fill every selected slot. One outcome per Prepare record. |
 | `adjudicate` | Runnable, uncalibrated | Applies deterministic gates (including broken citation-scope markers and missing verified spans) and one categorical model call per eligible record; emits `F`/`D`/`E`/`U` or a typed non-verdict plus evidence-sufficiency diagnostics; `D` outcomes also carry categorical `mutationKinds` and a `direction`. Manual-review roles are not auto-broadened to the model. |
 | `report` | Runnable, deterministic | Verifies the five upstream artifacts and writes authoritative JSON: `familyMutations` (each seed finding with its citing restatements in order, verdicts, and mutation kinds), funnel/rate/trace accounting (including unique claim units and per-unique-unit verdict rates, probe strata, the provider-reported neighborhood total and its coverage, access channel, materialization and harvest loss reasons, bibliography match method, verdicts by evidence regime, support-span coverage, evidence-sufficiency diagnostics, portfolio deferrals, and manual-review splits), `selectionAudit` (per-candidate portfolio scores), per-record citation-role signals, plus Markdown rendered from that JSON. |
 
@@ -39,12 +39,13 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
 
 Landed as code, still unmeasured:
 
-- **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). The loss this pass targets has not been re-measured.
+- **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). When a specific finding also motivates a method or framing, the fallback rubric prefers substantive attribution. The loss this pass targets has not been re-measured.
 - **Structured outputs.** Every canonical model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
 - **Instrumented ledger.** `cost-summary.json` now records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
 - **Side-by-side model calls.** Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`). Artifacts are identical at any concurrency; only wall time changes.
-- **Repeat runs.** A repeated run of one seed was compared offline. Evaluation write-ups are kept outside the repository.
-- **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. No blinded labels exist yet, so `calibrationStatus` stays `uncalibrated`.
+- **Repeat runs.** A repeated run of one seed was compared offline. The write-up stays outside the repository.
+- **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. Local labels do not calibrate Adjudicate, so `calibrationStatus` stays `uncalibrated`.
+- **Citation targeting and pin-filled packets.** Markers are anchored to exact verified support spans and the resolved reference before the window is cut. An unverified target stays unmarked and is gated to manual review. When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip. A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.
 
 Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
 

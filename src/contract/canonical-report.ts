@@ -372,6 +372,10 @@ const evidenceFunnelCountsSchema = z
     bm25MatchedRuns: countOf("bm25_runs"),
     bm25NoMatchRuns: countOf("bm25_runs"),
     rerankDisabled: countOf("family_occurrence_records"),
+    /** Absent from reports written before pin-filled rerank skipping existed. */
+    rerankSkippedPinnedSelection: countOf(
+      "family_occurrence_records",
+    ).optional(),
     rerankCompleted: countOf("family_occurrence_records"),
     rerankFailed: countOf("family_occurrence_records"),
     rerankNotAttempted: countOf("family_occurrence_records"),
@@ -487,7 +491,7 @@ const reportEvidenceTraceSchema = z
         code: "custom",
         path: ["rerankRunId"],
         message:
-          "Completed/failed reranking requires rerankRunId; disabled/not-attempted reranking forbids it",
+          "Completed/failed reranking requires rerankRunId; disabled/skipped/not-attempted reranking forbids it",
       });
     }
 
@@ -513,6 +517,7 @@ const reportEvidenceTraceSchema = z
       }
       if (
         (trace.rerankStatus === "disabled" ||
+          trace.rerankStatus === "skipped_pins_fill_selection" ||
           trace.rerankStatus === "failed") &&
         trace.rankingSource !== "bm25" &&
         trace.rankingSource !== "bm25_with_scope_pins"
@@ -521,11 +526,23 @@ const reportEvidenceTraceSchema = z
           code: "custom",
           path: ["rankingSource"],
           message:
-            "BM25 (optionally with Scope pins) must be the final ranking source when reranking is disabled or failed",
+            "BM25 (optionally with Scope pins) must be the final ranking source when reranking is disabled, skipped, or failed",
+        });
+      }
+      if (
+        trace.rerankStatus === "skipped_pins_fill_selection" &&
+        trace.rankingSource !== "bm25_with_scope_pins"
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["rankingSource"],
+          message:
+            "Pin-filled rerank skip requires a scope-pinned BM25 selection",
         });
       }
       if (
         trace.rerankStatus !== "disabled" &&
+        trace.rerankStatus !== "skipped_pins_fill_selection" &&
         trace.rerankStatus !== "completed" &&
         trace.rerankStatus !== "failed"
       ) {
@@ -533,7 +550,7 @@ const reportEvidenceTraceSchema = z
           code: "custom",
           path: ["rerankStatus"],
           message:
-            "Retrieved Evidence traces allow only disabled, completed, or failed rerank status",
+            "Retrieved Evidence traces allow only disabled, skipped, completed, or failed rerank status",
         });
       }
       return;
@@ -1257,6 +1274,7 @@ function validateFunnelPartitions(
   );
   assertCountEqual(
     evidence.rerankDisabled.count +
+      (evidence.rerankSkippedPinnedSelection?.count ?? 0) +
       evidence.rerankCompleted.count +
       evidence.rerankFailed.count +
       evidence.rerankNotAttempted.count,
@@ -1351,6 +1369,9 @@ function validateTraceAccounting(
   const rerankDisabled = traces.filter(
     (trace) => trace.evidence.rerankStatus === "disabled",
   ).length;
+  const rerankSkippedPinnedSelection = traces.filter(
+    (trace) => trace.evidence.rerankStatus === "skipped_pins_fill_selection",
+  ).length;
   const rerankCompleted = traces.filter(
     (trace) => trace.evidence.rerankStatus === "completed",
   ).length;
@@ -1365,6 +1386,13 @@ function validateTraceAccounting(
     rerankDisabled,
     ["funnel", "evidence", "rerankDisabled"],
     "Rerank-disabled count must match per-record traces",
+    context,
+  );
+  assertCountEqual(
+    evidence.rerankSkippedPinnedSelection?.count ?? 0,
+    rerankSkippedPinnedSelection,
+    ["funnel", "evidence", "rerankSkippedPinnedSelection"],
+    "Pin-filled rerank-skip count must match per-record traces",
     context,
   );
   assertCountEqual(

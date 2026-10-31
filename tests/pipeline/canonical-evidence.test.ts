@@ -585,6 +585,7 @@ async function runEvidenceFixture(
     blocks?: typeof SOURCE_BLOCKS;
     rerankEnabled?: boolean;
     rerankVariant?: RerankVariant;
+    selectionLimit?: number;
     model?: string;
     classificationFailure?: boolean;
     secondClaim?: string;
@@ -612,6 +613,9 @@ async function runEvidenceFixture(
       reranking: rerankEnabled
         ? { enabled: true, topN: 3 }
         : { enabled: false },
+      ...(options.selectionLimit != null
+        ? { selectionLimit: options.selectionLimit }
+        : {}),
     },
   );
   return { ...ancestors, result, calls };
@@ -966,6 +970,39 @@ describe("canonical Evidence", () => {
       kind: "deterministic",
       replayableFromInputs: true,
     });
+  });
+
+  it("skips reranking when verified pins fill the selection without changing its packet", async () => {
+    const disabled = await runEvidenceFixture({ selectionLimit: 1 });
+    const enabled = await runEvidenceFixture({
+      rerankEnabled: true,
+      selectionLimit: 1,
+    });
+    expect(enabled.calls).toEqual([]);
+    expect(enabled.result.payload.rerankRuns).toEqual([]);
+    expect(enabled.result.provenanceInputs.models).toEqual([]);
+    expect(
+      enabled.result.payload.records.map((record) => record.rerankStatus),
+    ).toEqual(["skipped_pins_fill_selection", "skipped_pins_fill_selection"]);
+    expect(
+      enabled.result.payload.selections.map(
+        (selection) => selection.selectedChunkIds,
+      ),
+    ).toEqual(
+      disabled.result.payload.selections.map(
+        (selection) => selection.selectedChunkIds,
+      ),
+    );
+    for (const selection of enabled.result.payload.selections) {
+      expect(selection.selectedChunkIds).toEqual(selection.pinnedChunkIds);
+      expect(selection.rankingSource).toBe("bm25_with_scope_pins");
+    }
+    const artifact = buildCanonicalEvidenceArtifact({
+      result: enabled.result,
+      runId: enabled.result.payload.lineage.runId,
+      createdAt: "2026-07-17T08:35:00.000Z",
+    });
+    expect(artifact.payload.records).toEqual(enabled.result.payload.records);
   });
 
   it("adds an immutable reranked version without mutating BM25", async () => {

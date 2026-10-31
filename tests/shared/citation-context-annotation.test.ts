@@ -74,6 +74,35 @@ describe("annotateCitingContext", () => {
     expect(result).toContain("Result B was also shown (2009).");
   });
 
+  it("uses a verified support span and reference identity instead of an ambiguous year", () => {
+    const span =
+      "cells were assigned identity based on a single gene (Pell et al. 2021)";
+    const ctx =
+      `Earlier work classified neurons differently. The cited work found ${span}. ` +
+      "A broader approach was proposed (Quill et al. 2021).";
+    const start = ctx.indexOf(span);
+    const result = annotateCitingContext(ctx, "2021", "Pell et al., 2021", [
+      {
+        text: span,
+        charOffsetStart: start,
+        charOffsetEnd: start + span.length,
+      },
+    ]);
+    expect(result).toMatch(/▶ The cited work found .*Pell.* ◀/);
+    expect(result).not.toMatch(/▶[^◀]*Quill/);
+  });
+
+  it("leaves an unverifiable citation target unmarked", () => {
+    const ctx =
+      "One result cited another paper (Quill et al. 2021). Another result followed.";
+    const span = "One result cited another paper";
+    expect(
+      annotateCitingContext(ctx, "2021", "Pell et al., 2021", [
+        { text: span, charOffsetStart: 0, charOffsetEnd: span.length },
+      ]),
+    ).toBe(ctx);
+  });
+
   it("fails closed on punctuation-only scope markers", () => {
     expect(
       assessCitationScopeAnnotation("Prior work. ▶ 2021). ◀ Later work."),

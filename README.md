@@ -60,7 +60,7 @@ The final `report` stage writes authoritative JSON funnel/rate/trace accounting 
 
 ## Pipeline
 
-The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
+The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims and skips reranking when verified grounding pins already fill the packet. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
 
 ## Where To Read
 

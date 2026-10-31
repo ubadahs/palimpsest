@@ -92,4 +92,24 @@ describe("inferSectionRoles", () => {
       "discussion",
     ]);
   });
+
+  it("detects a descriptive results section after methods when findings are reported", () => {
+    const roles = inferSectionRoles([
+      body("Statistics"),
+      body("Quantification and imaging"),
+      {
+        ...body("Identification of distinct subtypes of Calmic cells"),
+        text: "We first measured the cells. This revealed four distinct types.",
+      },
+      body("Transcriptomically distinct cells organize into sublaminae"),
+      body("Discussion"),
+    ]);
+    expect(roles).toEqual([
+      "methods",
+      "methods",
+      "results",
+      "results",
+      "discussion",
+    ]);
+  });
 });

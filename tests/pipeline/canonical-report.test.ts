@@ -422,6 +422,7 @@ async function buildChain(
     classifier?: "mixed" | "default";
     adjudicateVariant?: "F" | "D" | "U" | "nonfatal_failure" | "malformed";
     reranking?: boolean;
+    selectionLimit?: number;
     runId?: string;
   } = {},
 ) {
@@ -494,6 +495,9 @@ async function buildChain(
       reranking: options.reranking
         ? { enabled: true, topN: 3 }
         : { enabled: false },
+      ...(options.selectionLimit != null
+        ? { selectionLimit: options.selectionLimit }
+        : {}),
     },
   );
   const evidence = buildCanonicalEvidenceArtifact({
@@ -1687,6 +1691,30 @@ describe("canonical Report", () => {
         field,
       ).toBe(false);
     }
+  });
+
+  it("counts pin-filled rerank skips separately from completed model calls", async () => {
+    const chain = await buildChain({
+      classifier: "default",
+      reranking: true,
+      selectionLimit: 1,
+    });
+    const result = runCanonicalReport(
+      chain.discover,
+      chain.scope,
+      chain.prepare,
+      chain.evidence,
+      chain.adjudicate,
+      { recordedAt: "2026-07-17T10:50:00.000Z" },
+    );
+    expect(
+      result.payload.funnel.evidence.rerankSkippedPinnedSelection?.count,
+    ).toBe(chain.evidence.payload.records.length);
+    expect(result.payload.funnel.evidence.rerankCompleted.count).toBe(0);
+    expect(chain.evidence.payload.rerankRuns).toEqual([]);
+    expect(
+      result.payload.recordTraces.map((trace) => trace.evidence.rerankStatus),
+    ).toEqual(["skipped_pins_fill_selection", "skipped_pins_fill_selection"]);
   });
 
   it("emits exactly one per-record trace and rejects missing or duplicate traces", async () => {

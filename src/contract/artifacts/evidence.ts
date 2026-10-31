@@ -1474,6 +1474,23 @@ function validateEvidenceOutcomeReferences(
   }
 
   switch (outcome.rerankStatus) {
+    case "skipped_pins_fill_selection":
+      if (
+        outcome.rerankRunId != null ||
+        selection?.rankingSource !== "bm25_with_scope_pins" ||
+        selection.pinnedChunkIds?.length !== selection.selectionLimit ||
+        !sameIdentifierSequence(
+          selection.selectedChunkIds,
+          selection.pinnedChunkIds,
+        )
+      ) {
+        addIssue(
+          context,
+          ["records"],
+          `Skipped reranking requires a complete, pin-only BM25 selection: ${outcome.recordId}`,
+        );
+      }
+      break;
     case "completed":
       if (
         !rerankRun ||
