@@ -28,8 +28,7 @@ const FIXTURE_ROOT = join(
 const SEED_DOI = "10.1000/jin.20210042";
 const PVALB_CLAIM =
   "Lorn+ relay cells increase burst rate after a patterned stimulus.";
-const CALMIC_CLAIM =
-  "Calmic interneurons play an important role in the brain.";
+const CALMIC_CLAIM = "Calmic interneurons play an important role in the brain.";
 
 function artifactReference(role: string, key: string): ArtifactReference {
   return {

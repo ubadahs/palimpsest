@@ -276,7 +276,7 @@ function productionPathScopeAdapters(): CanonicalScopeAdapters {
             sectionTitle: "Results",
             blockKind: "body_paragraph" as const,
             charOffsetStart: 0,
-            charOffsetEnd: 100,
+            charOffsetEnd: 87,
           },
         ],
         execution: {

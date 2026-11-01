@@ -80,7 +80,8 @@ function record(
     citingPaperYear: 2026,
     seedRefLabel: "Marlowe et al., 2021",
     sectionTitle: "Introduction",
-    citationContext: "Prior work demonstrated dorsal contact to Kestrin neurons.",
+    citationContext:
+      "Prior work demonstrated dorsal contact to Kestrin neurons.",
     classificationStatus: "classified",
     citationRole: "substantive_attribution",
     evaluationMode: "fidelity_specific_claim",

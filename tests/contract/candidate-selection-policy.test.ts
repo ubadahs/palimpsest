@@ -262,8 +262,7 @@ describe("adaptive portfolio candidate selection", () => {
           id: mentionId,
           paperId: `calmic-${String(index)}`,
           group: 0,
-          context:
-            "Calmic interneurons play an important role in the brain.",
+          context: "Calmic interneurons play an important role in the brain.",
         }),
         claim: claim({
           id: claimId,
@@ -447,8 +446,8 @@ describe("adaptive portfolio candidate selection", () => {
 
     const selected = dispositions.filter((entry) => entry.selectedForScope);
     expect(selected.map((entry) => entry.candidateId).sort()).toEqual([
-      "cand_nexil",
       "cand_lorn",
+      "cand_nexil",
     ]);
     expect(
       dispositions.find((entry) => entry.candidateId === "cand_brinol")
@@ -461,7 +460,8 @@ describe("adaptive portfolio candidate selection", () => {
       id: "m_atomic",
       paperId: "p-atomic",
       group: 0,
-      context: "Lorn neurons increase burst rate 2-fold after a patterned stimulus.",
+      context:
+        "Lorn neurons increase burst rate 2-fold after a patterned stimulus.",
     });
     const compoundMention = mention({
       id: "m_compound",
