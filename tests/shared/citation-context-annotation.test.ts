@@ -56,7 +56,11 @@ describe("annotateCitingContext", () => {
       "In Fictophila, mutation of subunit-Q led to miscount (Marr et al., 2009). " +
       "In C. fictus, foldin disruption expands spans (Adeyemi and Okonkwo, 2009). " +
       "Foldin II localizes at mid-stage (Ibarra et al., 2004; Adeyemi and Okonkwo, 2009).";
-    const result = annotateCitingContext(ctx, "2009", "Adeyemi and Okonkwo, 2009");
+    const result = annotateCitingContext(
+      ctx,
+      "2009",
+      "Adeyemi and Okonkwo, 2009",
+    );
     expect(result).toContain("▶");
     // Adeyemi sentences should be wrapped, Marr should NOT.
     expect(result).toMatch(/▶.*Adeyemi and Okonkwo.*◀/);

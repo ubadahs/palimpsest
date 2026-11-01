@@ -259,7 +259,7 @@ describe("chunkScopeSeedText", () => {
           sectionRole: "results",
           citationMentionCount: 0,
           charOffsetStart: 58,
-          charOffsetEnd: 117,
+          charOffsetEnd: 116,
         },
       ],
       execution: { kind: "deterministic", implementation: "fixture" },
