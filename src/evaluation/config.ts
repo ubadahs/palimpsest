@@ -34,8 +34,15 @@ export const providerConfigSchema = z.object({
       }),
     ])
     .optional(),
+  /**
+   * What an Anthropic adjudicator reads from the seed paper: the chunks the
+   * run selected (the default, and what production does) or its whole text.
+   */
+  adjudicationEvidence: z.enum(["selected_chunks", "seed_text"]).optional(),
   pricePerMillionInputTokensUsd: z.number().nonnegative().optional(),
   pricePerMillionOutputTokensUsd: z.number().nonnegative().optional(),
+  /** Defaults to a tenth of the input price; newer models charge less. */
+  pricePerMillionCacheReadTokensUsd: z.number().nonnegative().optional(),
   instanceHourlyUsd: z.number().nonnegative().optional(),
   billingWindowSeconds: z.number().positive().optional(),
 });

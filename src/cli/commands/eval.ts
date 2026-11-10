@@ -39,15 +39,20 @@ function required(args: string[], flag: string): string {
 export async function runEvalCommand(args: string[]): Promise<void> {
   const [command, ...flags] = args;
   if (command === "dataset") {
-    const dataset = buildEvaluationDataset({
+    const { dataset, heldBackRecordIds } = buildEvaluationDataset({
       reportPaths: values(flags, "--report"),
       name: required(flags, "--name"),
+      mutationsPath: one(flags, "--mutations"),
     });
     console.info(
       JSON.stringify(
         {
           datasetId: dataset.datasetId,
           cases: dataset.cases.length,
+          constructedCases: dataset.cases.filter(
+            (item) => item.task === "adjudication" && item.constructed,
+          ).length,
+          recordsHeldBackByCurrentPacketGate: heldBackRecordIds.length,
           validation: validateEvaluationDataset(dataset.datasetId),
         },
         null,

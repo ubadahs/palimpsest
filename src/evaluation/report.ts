@@ -1,11 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  humanReviewEventLogSchema,
-  projectHumanReviewRecords,
-} from "../contract/human-review.js";
 import { buildStableId, canonicalSha256 } from "../shared/stable-identity.js";
-import { importedReviewsSchema, validateEvaluationDataset } from "./dataset.js";
+import { validateEvaluationDataset } from "./dataset.js";
+import {
+  constructedCaseIds,
+  constructedScoreMarkdown,
+  scoreConstructedCases,
+} from "./constructed-scoring.js";
+import {
+  importedReviewsSchema,
+  importedUnitVerdicts,
+} from "./imported-labels.js";
+import {
+  repeatAgreement,
+  repeatAgreementMarkdown,
+} from "./repeat-agreement.js";
 import {
   atomicJson,
   atomicText,
@@ -14,6 +23,7 @@ import {
   loadAnnotationLog,
   loadDataset,
 } from "./storage.js";
+import { callCostUsd } from "./providers.js";
 import { loadExperiment, loadTrials, type Trial } from "./runner.js";
 import {
   buildOptimizationAnalysis,
@@ -28,7 +38,7 @@ import {
 } from "./types.js";
 
 type Label = { value: AnnotationValue; exposed: boolean };
-const REPORT_BUILDER_VERSION = "evaluation-report-build-v7";
+const REPORT_BUILDER_VERSION = "evaluation-report-build-v9";
 
 function importedLabels(
   datasetId: string,
@@ -38,56 +48,20 @@ function importedLabels(
   const result = new Map<string, Label>();
   if (!existsSync(path)) return result;
   const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-  const imported = importedReviewsSchema.parse(raw);
-  const byUnit = new Map<string, { verdict: string; blinded: boolean }[]>();
-  for (const item of imported) {
-    const log = humanReviewEventLogSchema.parse({
-      schemaVersion: "human-review-events-v2",
-      lineage: item.lineage,
-      events: item.events,
-    });
-    const records = projectHumanReviewRecords(log.events);
-    for (const record of records) {
-      if (
-        record.status !== "final" ||
-        record.assessment.eligibleForAdjudication !== "yes" ||
-        record.assessment.inScope !== "yes" ||
-        record.assessment.citingSpanValid !== "yes" ||
-        record.assessment.citedEvidenceValid !== "yes" ||
-        record.assessment.evidenceSufficiency !== "sufficient" ||
-        !["F", "D", "E", "U"].includes(record.assessment.humanVerdict)
-      )
-        continue;
-      const unitKey = item.recordUnitKeys[record.recordId];
-      if (!unitKey)
-        throw new Error(
-          `Imported review references unknown record ${record.recordId}`,
-        );
-      const labels = byUnit.get(unitKey) ?? [];
-      labels.push({
-        verdict: record.assessment.humanVerdict,
-        blinded: record.assessment.blinded,
-      });
-      byUnit.set(unitKey, labels);
-    }
-  }
+  const verdicts = importedUnitVerdicts(importedReviewsSchema.parse(raw));
   for (const item of cases) {
     if (item.task !== "adjudication") continue;
-    const labels = byUnit.get(item.unitKey) ?? [];
-    if (
-      labels.length &&
-      new Set(labels.map((label) => label.verdict)).size === 1
-    ) {
-      result.set(item.caseId, {
-        value: {
-          task: "adjudication",
-          verdict: labels[0]!.verdict as "F" | "D" | "E" | "U",
-          packetQuality: "valid",
-          evidenceSufficiency: "sufficient",
-        },
-        exposed: labels.some((label) => !label.blinded),
-      });
-    }
+    const unit = verdicts.get(item.unitKey);
+    if (!unit) continue;
+    result.set(item.caseId, {
+      value: {
+        task: "adjudication",
+        verdict: unit.verdict,
+        packetQuality: "valid",
+        evidenceSufficiency: "sufficient",
+      },
+      exposed: unit.exposed,
+    });
   }
   return result;
 }
@@ -357,6 +331,16 @@ export function generateEvaluationReport(experimentId: string): {
     dataset.datasetId,
     dataset.cases,
   );
+  const constructedIds = constructedCaseIds(dataset.cases);
+  const providerIds = experiment.config.providers.map(
+    (provider) => provider.id,
+  );
+  const constructedCases = scoreConstructedCases(
+    dataset.cases,
+    trials,
+    providerIds,
+  );
+  const repeats = repeatAgreement(trials, providerIds);
   const groups: Record<string, unknown>[] = [];
   for (const provider of experiment.config.providers)
     for (const task of experiment.config.tasks) {
@@ -403,8 +387,11 @@ export function generateEvaluationReport(experimentId: string): {
             })
           : scoredRaw;
       const blind = scored.filter((row) => !row.label.exposed);
+      // Behavior on real records only; constructed cases are scored apart.
       const successfulPredictions = rows
-        .filter((row) => row.status === "success")
+        .filter(
+          (row) => row.status === "success" && !constructedIds.has(row.caseId),
+        )
         .flatMap((row) => {
           const output = prediction(row);
           return output ? [{ row, output }] : [];
@@ -470,30 +457,7 @@ export function generateEvaluationReport(experimentId: string): {
           (call): call is Record<string, unknown> =>
             typeof call === "object" && call != null,
         );
-      const callCost = (call: Record<string, unknown>): number | null => {
-        if (
-          typeof call.inputTokens !== "number" ||
-          typeof call.outputTokens !== "number" ||
-          provider.pricePerMillionInputTokensUsd == null ||
-          provider.pricePerMillionOutputTokensUsd == null
-        )
-          return null;
-        const read =
-          typeof call.promptCacheReadTokens === "number"
-            ? call.promptCacheReadTokens
-            : 0;
-        const write =
-          typeof call.promptCacheWriteTokens === "number"
-            ? call.promptCacheWriteTokens
-            : 0;
-        const uncached = Math.max(0, call.inputTokens - read - write);
-        return (
-          ((uncached + read * 0.1 + write * 1.25) *
-            provider.pricePerMillionInputTokensUsd +
-            call.outputTokens * provider.pricePerMillionOutputTokensUsd) /
-          1_000_000
-        );
-      };
+      const callCost = (call: unknown) => callCostUsd(call, provider);
       const costs = calls.map(callCost);
       const newCosts = newCalls.map(callCost);
       const knownCostUsd = costs.reduce<number>(
@@ -989,6 +953,8 @@ export function generateEvaluationReport(experimentId: string): {
       "experiment creation to last newly completed trial; excludes imported compatible trials and includes any pause between resumed attempts",
     pairedDifferences,
     groups,
+    constructedCases,
+    repeatAgreement: repeats,
     optimization: optimizationAnalysis,
   };
   const base = join(experimentDir(experimentId), "reports", report.reportId);
@@ -1072,6 +1038,8 @@ export function generateEvaluationReport(experimentId: string): {
     `Adjudication units with conflicting predictions were excluded from categorical agreement; see unitPredictionConflicts in JSON.`,
     `Conflicting cases excluded: ${conflicts.length}. Unknown labels remain unknown.`,
     "",
+    ...constructedScoreMarkdown(constructedCases),
+    ...repeatAgreementMarkdown(repeats),
   );
   if (optimizationAnalysis) {
     const analysis = optimizationAnalysis as {

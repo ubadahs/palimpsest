@@ -10,6 +10,14 @@ Classify the finding attributed to this reference, not the citing paper's neighb
 
 Pick "unclear" only when the context is too thin to decide; a heading that does not match a familiar pattern is not by itself a reason.`;
 
+/**
+ * Where compression ends and distortion begins; shared by every adjudication
+ * prompt. Spelling the boundary out in more rules has made models stricter
+ * than human reviewers, not closer to them, so change this text only against
+ * labelled cases.
+ */
+export const FIDELITY_BOUNDARY_GUIDANCE = `Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs.`;
+
 export function adjudicationVerdictDefinitions(): string {
   return `- verdict: one of F, D, E, U using these definitions only:
   - F (faithful): the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel

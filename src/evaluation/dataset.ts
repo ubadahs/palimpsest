@@ -14,6 +14,8 @@ import {
 } from "../contract/selectors.js";
 import type { StageArtifactMap } from "../contract/inspector-payloads.js";
 import type { StageKey } from "../contract/lean-stages.js";
+import type { SeedSectionRole } from "../contract/artifacts/seed-section-role.js";
+import { inferSectionRoles } from "../domain/section-patterns.js";
 import { verifyReportAncestors } from "../pipeline/canonical-report.js";
 import { buildCitationRolePrompt } from "../pipeline/canonical-production-adapters.js";
 import { classifyPrepareOccurrenceDeterministically } from "../pipeline/canonical-prepare.js";
@@ -24,12 +26,36 @@ import {
 } from "../review/human-review-store.js";
 import { buildStableId, canonicalSha256 } from "../shared/stable-identity.js";
 import { compareCodeUnits } from "../shared/order.js";
+import {
+  buildConstructedCases,
+  mutationFileSchema,
+} from "./constructed-cases.js";
+import {
+  importedReviewsSchema,
+  importedUnitVerdicts,
+  type ImportedReviews,
+} from "./imported-labels.js";
 import { atomicJson, datasetDir, loadDataset } from "./storage.js";
 import {
   datasetSchema,
   type EvaluationCase,
   type EvaluationDataset,
+  type SeedDocument,
 } from "./types.js";
+
+const BUILDER_VERSION = "evaluation-build-v3";
+
+function withCaseId<T extends Omit<EvaluationCase, "caseId">>(
+  input: T,
+): T & { caseId: string } {
+  return {
+    ...input,
+    caseId: buildStableId("eval-case", {
+      builderVersion: BUILDER_VERSION,
+      input,
+    }),
+  };
+}
 
 type AncestorStage =
   | "discover"
@@ -102,23 +128,23 @@ function loadChain(reportPath: string): { chain: Chain; runRoot: string } {
   };
 }
 
-function casesFromChain(chain: Chain): EvaluationCase[] {
+/**
+ * Cases as the current code would build them from one run's artifacts. A
+ * record the run adjudicated but today's packet gate would hold back is not a
+ * case: no model would be asked about it now.
+ */
+function casesFromChain(chain: Chain): {
+  cases: EvaluationCase[];
+  heldBackRecordIds: string[];
+} {
   const { prepare, evidence, adjudicate, report } = chain;
   const hashes = Object.fromEntries(
     [chain.discover, chain.scope, prepare, evidence, adjudicate, report].map(
       (artifact) => [artifact.canonicalStage, artifact.contentHash],
     ),
   );
-  const withId = <T extends Omit<EvaluationCase, "caseId">>(
-    input: T,
-  ): T & { caseId: string } => ({
-    ...input,
-    caseId: buildStableId("eval-case", {
-      builderVersion: "evaluation-build-v2",
-      input,
-    }),
-  });
   const cases: EvaluationCase[] = [];
+  const heldBackRecordIds: string[] = [];
   const seenRoles = new Set<string>();
   const seenSpans = new Set<string>();
   const evidenceByRecord = new Map(
@@ -136,9 +162,24 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
       selection,
     ]),
   );
+  // Section roles are assigned again with the current rules, as the role and
+  // packet replays below are, so a case shows what the pipeline would hand a
+  // model today and not what an older run happened to label.
+  const roleByBlock = currentSectionRoles(chain);
   const chunkById = new Map(
     evidence.payload.corpora.flatMap((corpus) =>
-      corpus.chunks.map((chunk) => [chunk.chunkId, chunk] as const),
+      corpus.chunks.map((chunk) => {
+        const sourceSectionRole =
+          roleByBlock.get(`${chunk.seedId}\0${chunk.sourceBlockId}`) ??
+          chunk.sourceSectionRole;
+        return [
+          chunk.chunkId,
+          {
+            ...chunk,
+            ...(sourceSectionRole ? { sourceSectionRole } : {}),
+          },
+        ] as const;
+      }),
     ),
   );
   for (const record of prepare.payload.records) {
@@ -169,7 +210,7 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
       const role = deterministic.citationRole;
       const occurrence = record.citationOccurrence;
       cases.push(
-        withId({
+        withCaseId({
           ...base,
           task: "role",
           occurrenceId: record.citationOccurrenceId,
@@ -205,7 +246,7 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
     for (const claim of claims) {
       if (seenSpans.has(claim.claimRecordId)) continue;
       cases.push(
-        withId({
+        withCaseId({
           ...base,
           task: "span",
           claimRecordId: claim.claimRecordId,
@@ -254,7 +295,7 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
           return { chunkId: id, text: chunk.text };
         });
       cases.push(
-        withId({
+        withCaseId({
           ...base,
           task: "rerank",
           query: bm25.queryText,
@@ -278,17 +319,17 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
         selection,
         selectedChunks: selectedChunks.filter((chunk) => chunk != null),
       });
-      if (!assessAdjudicatePacketQuality(packet).ok)
-        throw new Error(
-          `Adjudicated record fails current packet gate: ${record.recordId}`,
-        );
+      if (!assessAdjudicatePacketQuality(packet).ok) {
+        heldBackRecordIds.push(record.recordId);
+        continue;
+      }
       const unitKey = buildClaimUnitKey({
         familyId: record.familyId,
         citingPaperId: record.citationOccurrence.citingPaperId,
         claimTexts: claims.map((claim) => claim.extractedClaimText),
       });
       cases.push(
-        withId({
+        withCaseId({
           ...base,
           task: "adjudication",
           unitKey,
@@ -298,59 +339,58 @@ function casesFromChain(chain: Chain): EvaluationCase[] {
       );
     }
   }
-  return cases.sort((a, b) => compareCodeUnits(a.caseId, b.caseId));
+  return { cases, heldBackRecordIds };
 }
 
-export function buildEvaluationDataset(input: {
-  reportPaths: string[];
-  name: string;
-}): EvaluationDataset {
-  if (input.reportPaths.length === 0)
-    throw new Error("At least one --report is required");
-  const chains = input.reportPaths.map(loadChain);
-  const sources = chains.map(({ chain }) => ({
-    runId: chain.report.runId,
-    reportArtifactId: chain.report.artifactId,
-    reportContentHash: chain.report.contentHash,
-  }));
-  if (new Set(sources.map((source) => source.runId)).size !== sources.length)
-    throw new Error("A run may be selected once only");
-  const seedDois = chains.flatMap(({ chain }) =>
-    chain.discover.payload.seeds.map((seed) => seed.doi.toLowerCase()),
-  );
-  if (new Set(seedDois).size !== seedDois.length)
-    throw new Error(
-      "Selected runs share a seed DOI; repeated runs are not independent scientific examples",
-    );
-  const cases = chains
-    .flatMap(({ chain }) => casesFromChain(chain))
-    .sort((a, b) => compareCodeUnits(a.caseId, b.caseId));
-  const datasetId = buildStableId("dataset", {
-    builderVersion: "evaluation-build-v2",
-    sources,
-    cases,
-  });
-  const dataset = datasetSchema.parse({
-    schemaVersion: "evaluation-dataset-v2",
-    builderVersion: "evaluation-build-v2",
-    datasetId,
-    name: input.name,
-    sources,
-    cases,
-  });
-  const dir = datasetDir(datasetId);
-  if (existsSync(join(dir, "dataset.json"))) {
-    const existing = loadDataset(datasetId);
-    if (
-      canonicalSha256({ ...existing, name: "" }) !==
-      canonicalSha256({ ...dataset, name: "" })
-    )
-      throw new Error("Dataset identity collision");
-    validateEvaluationDataset(datasetId);
-    return existing;
+/** Current section role of every seed block, keyed by seed and block. */
+function currentSectionRoles(chain: Chain): Map<string, SeedSectionRole> {
+  const roles = new Map<string, SeedSectionRole>();
+  for (const seed of chain.scope.payload.seedMaterializations) {
+    if (seed.status !== "materialized") continue;
+    const inferred = inferSectionRoles(seed.blocks);
+    seed.blocks.forEach((block, index) => {
+      roles.set(`${seed.seedId}\0${block.blockId}`, inferred[index]!);
+    });
   }
-  atomicJson(join(dir, "dataset.json"), dataset);
-  const observations = chains.flatMap(({ chain }) => ({
+  return roles;
+}
+
+/** The seed text Scope froze, one document per seed that has any. */
+function seedDocumentsFromChain(chain: Chain): SeedDocument[] {
+  const roles = currentSectionRoles(chain);
+  const seedById = new Map(
+    chain.discover.payload.seeds.map((seed) => [seed.seedId, seed]),
+  );
+  return chain.scope.payload.seedMaterializations.flatMap((materialization) => {
+    const seed = seedById.get(materialization.seedId);
+    if (materialization.status !== "materialized" || !seed) return [];
+    return [
+      {
+        seedDoi: seed.doi,
+        title:
+          seed.resolution.status === "resolved"
+            ? seed.resolution.paper.title
+            : seed.doi,
+        blocks: materialization.blocks.map((block) => {
+          const sectionRole = roles.get(
+            `${materialization.seedId}\0${block.blockId}`,
+          );
+          return {
+            blockId: block.blockId,
+            text: block.text,
+            blockKind: block.blockKind,
+            ...(block.sectionTitle ? { sectionTitle: block.sectionTitle } : {}),
+            ...(sectionRole ? { sectionRole } : {}),
+            citesOtherWork: (block.citationMentionCount ?? 0) > 0,
+          };
+        }),
+      },
+    ];
+  });
+}
+
+function historicalObservations(chains: readonly Chain[]) {
+  return chains.map((chain) => ({
     runId: chain.report.runId,
     role: chain.prepare.payload.records.map((record) => ({
       recordId: record.recordId,
@@ -382,8 +422,12 @@ export function buildEvaluationDataset(input: {
       verdict: record.status === "adjudicated" ? record.verdict : null,
     })),
   }));
-  atomicJson(join(dir, "historical-observations.json"), observations);
-  const reviews = chains.flatMap(({ chain, runRoot }) => {
+}
+
+function importedReviews(
+  chains: readonly { chain: Chain; runRoot: string }[],
+): ImportedReviews {
+  return chains.flatMap(({ chain, runRoot }) => {
     const path = resolveHumanReviewEventsPath({
       runRoot,
       reportArtifactId: chain.report.artifactId,
@@ -409,25 +453,97 @@ export function buildEvaluationDataset(input: {
     );
     return [{ lineage: log.lineage, events: log.events, recordUnitKeys }];
   });
+}
+
+function datasetIdentity(
+  dataset: Pick<
+    EvaluationDataset,
+    "builderVersion" | "sources" | "cases" | "seedDocuments"
+  >,
+): string {
+  return buildStableId("dataset", {
+    builderVersion: dataset.builderVersion,
+    sources: dataset.sources,
+    cases: dataset.cases,
+    ...(dataset.seedDocuments ? { seedDocuments: dataset.seedDocuments } : {}),
+  });
+}
+
+export function buildEvaluationDataset(input: {
+  reportPaths: string[];
+  name: string;
+  /** JSON file of mutations that add constructed positives to the dataset. */
+  mutationsPath?: string | undefined;
+}): { dataset: EvaluationDataset; heldBackRecordIds: string[] } {
+  if (input.reportPaths.length === 0)
+    throw new Error("At least one --report is required");
+  const chains = input.reportPaths.map(loadChain);
+  const sources = chains.map(({ chain }) => ({
+    runId: chain.report.runId,
+    reportArtifactId: chain.report.artifactId,
+    reportContentHash: chain.report.contentHash,
+  }));
+  if (new Set(sources.map((source) => source.runId)).size !== sources.length)
+    throw new Error("A run may be selected once only");
+  const seedDois = chains.flatMap(({ chain }) =>
+    chain.discover.payload.seeds.map((seed) => seed.doi.toLowerCase()),
+  );
+  if (new Set(seedDois).size !== seedDois.length)
+    throw new Error(
+      "Selected runs share a seed DOI; repeated runs are not independent scientific examples",
+    );
+  const reviews = importedReviews(chains);
+  const built = chains.map(({ chain }) => casesFromChain(chain));
+  const observed = built.flatMap((entry) => entry.cases);
+  const heldBackRecordIds = built.flatMap((entry) => entry.heldBackRecordIds);
+  const mutations = input.mutationsPath
+    ? mutationFileSchema.parse(
+        JSON.parse(readFileSync(input.mutationsPath, "utf8")) as unknown,
+      )
+    : [];
+  const cases = [
+    ...observed,
+    ...buildConstructedCases(
+      observed,
+      importedUnitVerdicts(reviews),
+      mutations,
+    ).map(withCaseId),
+  ].sort((a, b) => compareCodeUnits(a.caseId, b.caseId));
+  const content = {
+    builderVersion: BUILDER_VERSION,
+    sources,
+    cases,
+    seedDocuments: chains.flatMap(({ chain }) => seedDocumentsFromChain(chain)),
+  } as const;
+  const datasetId = datasetIdentity(content);
+  const dataset = datasetSchema.parse({
+    schemaVersion: "evaluation-dataset-v3",
+    datasetId,
+    name: input.name,
+    ...content,
+  });
+  const dir = datasetDir(datasetId);
+  if (existsSync(join(dir, "dataset.json"))) {
+    const existing = loadDataset(datasetId);
+    if (
+      canonicalSha256({ ...existing, name: "" }) !==
+      canonicalSha256({ ...dataset, name: "" })
+    )
+      throw new Error("Dataset identity collision");
+    validateEvaluationDataset(datasetId);
+    return { dataset: existing, heldBackRecordIds };
+  }
+  atomicJson(join(dir, "dataset.json"), dataset);
+  const observations = historicalObservations(chains.map(({ chain }) => chain));
+  atomicJson(join(dir, "historical-observations.json"), observations);
   atomicJson(join(dir, "imported-reviews.json"), reviews);
   atomicJson(join(dir, "imports.json"), {
     observationsHash: canonicalSha256(observations),
     reviewsHash: canonicalSha256(reviews),
   });
-  return dataset;
+  return { dataset, heldBackRecordIds };
 }
 
-export const importedReviewsSchema = z.array(
-  z.object({
-    lineage: z.object({
-      runId: z.string(),
-      reportArtifactId: z.string(),
-      reportContentHash: z.string(),
-    }),
-    events: z.array(z.unknown()),
-    recordUnitKeys: z.record(z.string(), z.string()),
-  }),
-);
 const importsSchema = z.object({
   observationsHash: z.string(),
   reviewsHash: z.string(),
@@ -438,17 +554,29 @@ export function validateEvaluationDataset(id: string): {
   importedReviewEvents: number;
 } {
   const dataset = loadDataset(id);
-  const expected = buildStableId("dataset", {
-    builderVersion: dataset.builderVersion,
-    sources: dataset.sources,
-    cases: dataset.cases,
-  });
-  if (expected !== dataset.datasetId)
+  if (datasetIdentity(dataset) !== dataset.datasetId)
     throw new Error("Dataset content or identity changed");
   const ids = dataset.cases.map((item) => item.caseId);
   if (new Set(ids).size !== ids.length)
     throw new Error("Duplicate case identity");
+  const byId = new Map(dataset.cases.map((item) => [item.caseId, item]));
+  const seedTextDois = new Set(
+    dataset.seedDocuments?.map((document) => document.seedDoi),
+  );
   for (const item of dataset.cases) {
+    if (
+      dataset.schemaVersion === "evaluation-dataset-v3" &&
+      item.task === "adjudication" &&
+      !seedTextDois.has(item.seedDoi)
+    )
+      throw new Error(`Missing seed text for adjudication case ${item.caseId}`);
+    if (item.task === "adjudication" && item.constructed) {
+      const source = byId.get(item.constructed.sourceCaseId);
+      if (source?.task !== "adjudication" || source.constructed)
+        throw new Error(
+          `Constructed case has no observed source: ${item.caseId}`,
+        );
+    }
     const { caseId, ...input } = item;
     if (
       caseId !==
@@ -459,7 +587,7 @@ export function validateEvaluationDataset(id: string): {
     )
       throw new Error(`Case changed: ${caseId}`);
     if (
-      dataset.schemaVersion === "evaluation-dataset-v2" &&
+      dataset.schemaVersion !== "evaluation-dataset-v1" &&
       item.task === "role" &&
       !item.roleInput
     )

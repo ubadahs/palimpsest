@@ -54,7 +54,7 @@ npm run ui:dev
 
 Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. Old local database rows and run directories from the superseded seven-stage executor are unsupported; delete/recreate them rather than attempting to resume or bridge them.
 
-`eval` freezes a finished report into local cases under `data/evaluations/` and compares providers. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
+`eval` freezes a finished report into local cases under `data/evaluations/` and compares providers on them. It can add constructed cases, whose right verdict is known because they edit a restatement a reviewer called faithful, and it can compare adjudicating from retrieved chunks with adjudicating from the whole cited paper. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
 
 ## Output
 
@@ -72,7 +72,7 @@ Model calls default to Claude Haiku 5.5 (claim extraction, citation roles, reran
 - [docs/artifact-workflow.md](docs/artifact-workflow.md) — artifact names, run layout, manifests
 - [docs/runtime-setup.md](docs/runtime-setup.md) — environment variables, required services, failure and fallback behavior
 - [docs/status.md](docs/status.md) — what is implemented in the repo today
-- [docs/evaluation.md](docs/evaluation.md) — local evaluation commands; datasets stay out of git
+- [docs/evaluation.md](docs/evaluation.md) — local evaluation: frozen cases, constructed cases, provider comparisons; datasets stay out of git
 - [docs/ui-setup.md](docs/ui-setup.md) — running the local UI
 - [docs/README.md](docs/README.md) — full documentation map
 

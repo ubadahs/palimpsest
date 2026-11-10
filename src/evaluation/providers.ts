@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   LLMProviderError,
+  type LLMCallRecord,
   type LLMClient,
 } from "../integrations/llm-client.js";
 import {
@@ -294,25 +295,42 @@ function systemQuestion(caseInput: EvaluationCase): {
   throw new Error("Rerank uses passage pair questions");
 }
 
-function price(call: ProviderCall, provider: ProviderConfig): ProviderCall {
-  if (
-    provider.pricePerMillionInputTokensUsd == null ||
-    provider.pricePerMillionOutputTokensUsd == null ||
-    call.inputTokens == null ||
-    call.outputTokens == null
-  )
-    return call;
-  const read = call.promptCacheReadTokens ?? 0;
-  const write = call.promptCacheWriteTokens ?? 0;
-  const uncached = Math.max(0, call.inputTokens - read - write);
-  return {
-    ...call,
-    costUsd:
-      ((uncached + read * 0.1 + write * 1.25) *
-        provider.pricePerMillionInputTokensUsd +
-        call.outputTokens * provider.pricePerMillionOutputTokensUsd) /
-      1_000_000,
-  };
+const callUsageSchema = z.object({
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  promptCacheReadTokens: z.number().optional(),
+  promptCacheWriteTokens: z.number().optional(),
+});
+
+/**
+ * Cost of one call at the provider's stated prices, or null when the prices
+ * or the call's token usage are unknown. Cache writes cost 1.25 times the
+ * input price on every model. Cache reads cost a tenth of it unless the
+ * provider states its own rate, which the newer models need.
+ */
+export function callCostUsd(
+  call: unknown,
+  provider: ProviderConfig,
+): number | null {
+  const usage = callUsageSchema.safeParse(call);
+  const input = provider.pricePerMillionInputTokensUsd;
+  const output = provider.pricePerMillionOutputTokensUsd;
+  if (!usage.success || input == null || output == null) return null;
+  const read = usage.data.promptCacheReadTokens ?? 0;
+  const write = usage.data.promptCacheWriteTokens ?? 0;
+  const uncached = Math.max(0, usage.data.inputTokens - read - write);
+  return (
+    (uncached * input +
+      read * (provider.pricePerMillionCacheReadTokensUsd ?? input * 0.1) +
+      write * input * 1.25 +
+      usage.data.outputTokens * output) /
+    1_000_000
+  );
+}
+
+function priceCall(call: ProviderCall, provider: ProviderConfig): ProviderCall {
+  const costUsd = callCostUsd(call, provider);
+  return costUsd == null ? call : { ...call, costUsd };
 }
 
 function validDistribution(
@@ -413,7 +431,10 @@ async function executeSystemOne(
           );
         const result = await budget.call(body, signal);
         const response = systemOneSchema.parse(result.body);
-        calls.push(...(result.retryCalls ?? []), price(result.call, provider));
+        calls.push(
+          ...(result.retryCalls ?? []),
+          priceCall(result.call, provider),
+        );
         exchanges.push({ request: body, response });
         for (const [index, candidate] of batch.entries()) {
           const answer = scoreAnswerSchema.safeParse(
@@ -494,7 +515,7 @@ async function executeSystemOne(
   const response = systemOneSchema.parse(result.body);
   const successfulCalls = [
     ...(result.retryCalls ?? []),
-    price(result.call, provider),
+    priceCall(result.call, provider),
   ];
   if (input.task === "span") {
     const answer = spanAnswerSchema.safeParse(response.answers.decision);
@@ -508,7 +529,7 @@ async function executeSystemOne(
         prediction: { span: null },
         calls: [
           ...successfulCalls.slice(0, -1),
-          price(
+          priceCall(
             {
               ...result.call,
               ...(answer.data.confidence != null
@@ -543,7 +564,7 @@ async function executeSystemOne(
       prediction: { span },
       calls: [
         ...successfulCalls.slice(0, -1),
-        price(
+        priceCall(
           {
             ...result.call,
             ...(answer.data.confidence != null
@@ -583,7 +604,7 @@ async function executeSystemOne(
         : { verdict: answer.data.choice },
     calls: [
       ...successfulCalls.slice(0, -1),
-      price(
+      priceCall(
         {
           ...result.call,
           ...(answer.data.confidence != null
@@ -596,6 +617,30 @@ async function executeSystemOne(
     ],
     diagnostics: { request: body, response },
   };
+}
+
+/** One Anthropic request as the harness records and prices it. */
+export function anthropicCall(
+  record: LLMCallRecord,
+  provider: ProviderConfig,
+  requestSequence?: number,
+): ProviderCall {
+  return priceCall(
+    {
+      servedModel: record.servedModel ?? record.model,
+      latencyMs: record.latencyMs,
+      ...(requestSequence != null ? { sequence: requestSequence } : {}),
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      ...(record.cacheReadTokens != null
+        ? { promptCacheReadTokens: record.cacheReadTokens }
+        : {}),
+      ...(record.cacheWriteTokens != null
+        ? { promptCacheWriteTokens: record.cacheWriteTokens }
+        : {}),
+    },
+    provider,
+  );
 }
 
 const anthropicSpanSchema = z.object({
@@ -699,22 +744,7 @@ export async function executeProviderCase(
     schema,
     ...(provider.thinking ? { thinking: provider.thinking } : {}),
   });
-  const call = price(
-    {
-      servedModel: result.record.servedModel ?? result.record.model,
-      latencyMs: result.record.latencyMs,
-      ...(requestSequence != null ? { sequence: requestSequence } : {}),
-      inputTokens: result.record.inputTokens,
-      outputTokens: result.record.outputTokens,
-      ...(result.record.cacheReadTokens != null
-        ? { promptCacheReadTokens: result.record.cacheReadTokens }
-        : {}),
-      ...(result.record.cacheWriteTokens != null
-        ? { promptCacheWriteTokens: result.record.cacheWriteTokens }
-        : {}),
-    },
-    provider,
-  );
+  const call = anthropicCall(result.record, provider, requestSequence);
   if (input.task === "role")
     return {
       prediction: {

@@ -1,5 +1,6 @@
 /** Browser-safe contracts for frozen cases and blind annotation. */
 import { z } from "zod";
+import { mutationKindSchema } from "../domain/taxonomy.js";
 
 export const evaluationTaskSchema = z.enum([
   "role",
@@ -86,11 +87,47 @@ export const spanCaseSchema = z.object({
   claim: z.string().min(1),
   context: z.string().min(1),
 });
+/**
+ * What an edit of a faithful restatement should earn. A distortion moves the
+ * meaning in one named way; a control changes only the wording, so anything
+ * but `F` on it is a false alarm.
+ */
+export const distortionExpectation = {
+  expectedVerdict: z.enum(["D", "E"]),
+  mutationKind: mutationKindSchema,
+  direction: z.enum(["strengthened", "weakened", "shifted"]),
+};
+export const controlExpectation = { expectedVerdict: z.literal("F") };
+
+const constructedProvenance = {
+  sourceCaseId: z.string().min(1),
+  /** Why the edit does, or does not, change what is attributed to the seed. */
+  rationale: z.string().min(1),
+  /**
+   * True when grounding pins fill the source's evidence packet, so the
+   * pipeline would select the same chunks whatever the citing wording. Only
+   * these cases compare chunk evidence with whole-paper evidence fairly.
+   */
+  evidencePinned: z.boolean(),
+};
+
+/**
+ * Marks a case made by editing a restatement a human labelled faithful, so
+ * the right verdict is known by construction. It is never shown to a blind
+ * reviewer or a provider.
+ */
+export const constructedLabelSchema = z.discriminatedUnion("expectedVerdict", [
+  z.object({ ...constructedProvenance, ...distortionExpectation }),
+  z.object({ ...constructedProvenance, ...controlExpectation }),
+]);
+export type ConstructedLabel = z.infer<typeof constructedLabelSchema>;
+
 export const adjudicationCaseSchema = z.object({
   ...caseBase,
   task: z.literal("adjudication"),
   unitKey: z.string().min(1),
   anthropicPrompt: z.string().min(1),
+  constructed: constructedLabelSchema.optional(),
   packet: z
     .object({
       citationRole: z.string(),
@@ -150,9 +187,36 @@ export type BlindEvaluationCase = BlindCaseBase &
       }
   );
 
+/** The seed paper's full text, stored once per seed for whole-paper adjudication. */
+export const seedDocumentSchema = z.object({
+  seedDoi: z.string().min(1),
+  title: z.string().min(1),
+  blocks: z
+    .array(
+      z.object({
+        blockId: z.string().min(1),
+        text: z.string().min(1),
+        blockKind: z.string().min(1),
+        sectionTitle: z.string().optional(),
+        sectionRole: z.string().optional(),
+        citesOtherWork: z.boolean(),
+      }),
+    )
+    .min(1),
+});
+export type SeedDocument = z.infer<typeof seedDocumentSchema>;
+
 export const datasetSchema = z.object({
-  schemaVersion: z.enum(["evaluation-dataset-v1", "evaluation-dataset-v2"]),
-  builderVersion: z.enum(["evaluation-build-v1", "evaluation-build-v2"]),
+  schemaVersion: z.enum([
+    "evaluation-dataset-v1",
+    "evaluation-dataset-v2",
+    "evaluation-dataset-v3",
+  ]),
+  builderVersion: z.enum([
+    "evaluation-build-v1",
+    "evaluation-build-v2",
+    "evaluation-build-v3",
+  ]),
   datasetId: z.string().min(1),
   name: z.string().min(1),
   sources: z
@@ -165,6 +229,8 @@ export const datasetSchema = z.object({
     )
     .min(1),
   cases: z.array(evaluationCaseSchema),
+  /** Present from v3 on. */
+  seedDocuments: z.array(seedDocumentSchema).optional(),
 });
 export type EvaluationDataset = z.infer<typeof datasetSchema>;
 

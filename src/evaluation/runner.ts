@@ -12,6 +12,11 @@ import {
   ProviderRequestError,
 } from "./providers.js";
 import {
+  adjudicateFromSeedText,
+  readsSeedText,
+  SEED_TEXT_PROMPT_CACHING,
+} from "./seed-text-provider.js";
+import {
   atomicJson,
   evaluationRoot,
   experimentDir,
@@ -239,6 +244,17 @@ export function createExperiment(
     config.providers.length
   )
     throw new Error("Provider IDs must be unique");
+  for (const provider of config.providers) {
+    if (provider.adjudicationEvidence !== "seed_text") continue;
+    if (provider.kind !== "anthropic")
+      throw new Error(
+        `${provider.id}: only Anthropic providers can adjudicate from seed text`,
+      );
+    if (!dataset.seedDocuments?.length)
+      throw new Error(
+        `${provider.id} adjudicates from seed text, which this dataset does not hold; rebuild it with the current builder`,
+      );
+  }
   if (config.optimization) planJevOptimization(datasetId, config);
   const experimentId = buildStableId("experiment", { datasetId, config });
   const dir = experimentDir(experimentId);
@@ -281,6 +297,26 @@ export function createExperiment(
     );
   }
   return experiment;
+}
+
+/**
+ * The first pending seed-text trial of each seed. Run alone, it writes the
+ * provider's prompt cache so the trials that follow read the seed text from
+ * it instead of each paying to write it.
+ */
+function seedTextPrimers(
+  trials: readonly Trial[],
+  cases: ReadonlyMap<string, EvaluationCase>,
+  provider: Experiment["config"]["providers"][number],
+): Trial[] {
+  const primed = new Set<string>();
+  return trials.filter((trial) => {
+    const item = cases.get(trial.caseId)!;
+    if (!readsSeedText(provider, item) || primed.has(item.seedDoi))
+      return false;
+    primed.add(item.seedDoi);
+    return true;
+  });
 }
 
 function isTerminal(status: Trial["status"]): boolean {
@@ -339,6 +375,9 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
       throw new Error(`Incompatible saved trial ${trial.trialId}`);
   }
   const cases = new Map(dataset.cases.map((item) => [item.caseId, item]));
+  const seedByDoi = new Map(
+    dataset.seedDocuments?.map((document) => [document.seedDoi, document]),
+  );
   const controller = new AbortController();
   const started = Date.now();
   const budgetPath = join(experimentDir(id), "request-budget.json");
@@ -438,86 +477,98 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
               apiKey: process.env[provider.apiKeyEnv ?? "ANTHROPIC_API_KEY"]!,
               defaultModel: provider.model,
               forceRefresh: true,
+              ...(provider.adjudicationEvidence === "seed_text"
+                ? { promptCaching: SEED_TEXT_PROMPT_CACHING }
+                : {}),
             })
           : undefined;
-      let cursor = 0;
-      const worker = async () => {
-        while (
-          cursor < active.length &&
-          !controller.signal.aborted &&
-          !providerStopped
+      const stopped = () => controller.signal.aborted || providerStopped;
+      const runTrial = async (plannedTrial: Trial): Promise<void> => {
+        const item = cases.get(plannedTrial.caseId)!;
+        const start = performance.now();
+        let outcome: Trial;
+        if (
+          (provider.kind === "jev" && item.task === "span") ||
+          (provider.kind === "bm25" && item.task !== "rerank") ||
+          (provider.kind === "rules" && item.task !== "role")
         ) {
-          const plannedTrial = active[cursor++]!;
-          const item = cases.get(plannedTrial.caseId)!;
-          const start = performance.now();
-          let outcome: Trial;
-          if (
-            (provider.kind === "jev" && item.task === "span") ||
-            (provider.kind === "bm25" && item.task !== "rerank") ||
-            (provider.kind === "rules" && item.task !== "role")
-          ) {
+          outcome = {
+            ...plannedTrial,
+            status: "unsupported",
+            error: `${provider.kind} does not support ${item.task}`,
+            durationMs: 0,
+            completedAt: new Date().toISOString(),
+          };
+        } else {
+          try {
+            const sequence =
+              provider.kind === "anthropic" ? countRequest() : undefined;
+            const result = readsSeedText(provider, item)
+              ? await adjudicateFromSeedText({
+                  item,
+                  seed: seedByDoi.get(item.seedDoi),
+                  provider,
+                  llm,
+                  requestSequence: sequence,
+                })
+              : await executeProviderCase(
+                  item,
+                  provider,
+                  budget,
+                  llm,
+                  controller.signal,
+                  sequence,
+                );
             outcome = {
               ...plannedTrial,
-              status: "unsupported",
-              error: `${provider.kind} does not support ${item.task}`,
-              durationMs: 0,
+              status: "success",
+              prediction: result.prediction,
+              calls: result.calls,
+              ...(result.diagnostics !== undefined
+                ? { diagnostics: result.diagnostics }
+                : {}),
+              durationMs: performance.now() - start,
               completedAt: new Date().toISOString(),
             };
-          } else {
-            try {
-              const sequence =
-                provider.kind === "anthropic" ? countRequest() : undefined;
-              const result = await executeProviderCase(
-                item,
-                provider,
-                budget,
-                llm,
-                controller.signal,
-                sequence,
-              );
-              outcome = {
-                ...plannedTrial,
-                status: "success",
-                prediction: result.prediction,
-                calls: result.calls,
-                ...(result.diagnostics !== undefined
-                  ? { diagnostics: result.diagnostics }
-                  : {}),
-                durationMs: performance.now() - start,
-                completedAt: new Date().toISOString(),
-              };
-            } catch (error) {
-              const classified = classifyProviderError(error);
-              if (classified.fatal) providerStopped = true;
-              outcome = {
-                ...plannedTrial,
-                status:
-                  controller.signal.aborted ||
-                  (providerStopped &&
-                    classified.message === "Error: Experiment cancelled")
-                    ? "cancelled"
-                    : classified.status,
-                error: classified.message,
-                ...(error instanceof ProviderRequestError
-                  ? {
-                      calls: error.partialCalls,
-                      ...(error.diagnostics !== undefined
-                        ? { diagnostics: error.diagnostics }
-                        : {}),
-                    }
-                  : {}),
-                durationMs: performance.now() - start,
-                completedAt: new Date().toISOString(),
-              };
-            }
+          } catch (error) {
+            const classified = classifyProviderError(error);
+            if (classified.fatal) providerStopped = true;
+            outcome = {
+              ...plannedTrial,
+              status:
+                controller.signal.aborted ||
+                (providerStopped &&
+                  classified.message === "Error: Experiment cancelled")
+                  ? "cancelled"
+                  : classified.status,
+              error: classified.message,
+              ...(error instanceof ProviderRequestError
+                ? {
+                    calls: error.partialCalls,
+                    ...(error.diagnostics !== undefined
+                      ? { diagnostics: error.diagnostics }
+                      : {}),
+                  }
+                : {}),
+              durationMs: performance.now() - start,
+              completedAt: new Date().toISOString(),
+            };
           }
-          atomicJson(trialPath(id, outcome.trialId), outcome);
-          saved.set(outcome.trialId, outcome);
         }
+        atomicJson(trialPath(id, outcome.trialId), outcome);
+        saved.set(outcome.trialId, outcome);
+      };
+      const primers = seedTextPrimers(active, cases, provider);
+      for (const trial of primers) if (!stopped()) await runTrial(trial);
+      const queue = active.filter((trial) => !primers.includes(trial));
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < queue.length && !stopped())
+          await runTrial(queue[cursor++]!);
       };
       await Promise.all(
         Array.from(
-          { length: Math.min(provider.concurrency, active.length) },
+          { length: Math.min(provider.concurrency, queue.length) },
           () => worker(),
         ),
       );

@@ -24,7 +24,7 @@ npm run test                  # run tests
 
 ```
 src/
-  adjudication/ Canonical adjudicate packet builders
+  adjudication/ Canonical adjudicate packet builders; seed-text (whole-paper) adjudication prompt, used by evaluation only
   classification/ Deterministic citation-function and evaluation-mode helpers
   cli/          Command entrypoints (index.ts dispatches to commands/)
   config/       Env loading (Zod-validated) and AppConfig construction
