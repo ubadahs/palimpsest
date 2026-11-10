@@ -169,6 +169,17 @@ Track the following metrics separately.
 - precision of flagged `D` and `E` cases
 - agreement on mutation kinds among units both sides called `D`
 
+Reviewed records hold few distortions, so agreement alone cannot show whether
+an adjudicator misses one. Constructed cases cover that gap: a restatement a
+reviewer called faithful is edited to distort it, or reworded without changing
+it, and the adjudicator is scored on both. Report them apart from human-label
+agreement, and have a reviewer check the edits blind before trusting them. See
+[evaluation.md](./evaluation.md).
+
+A model asked the same case twice does not always answer the same way. Measure
+that disagreement before comparing two adjudicators; a difference smaller than
+it is noise.
+
 ## Success Readout
 
 Use the metrics in this document together with [status.md](./status.md) and [adjudication-rubric.md](./adjudication-rubric.md). Do not treat runnable pipeline success as calibration success.

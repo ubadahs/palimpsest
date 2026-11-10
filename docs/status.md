@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-10-31
+**Last updated:** 2026-11-10
 
 This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
 
@@ -48,6 +48,8 @@ Landed as code, still unmeasured:
 - **Citation targeting and pin-filled packets.** Markers are anchored to exact verified support spans and the resolved reference before the window is cut. An unverified target stays unmarked and is gated to manual review. When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip. A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.
 
 A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history, and runs blind annotation plus resumable provider comparisons. Datasets, trials, and scores stay on disk. See [evaluation.md](./evaluation.md).
+
+Built for evaluation: constructed cases (`eval dataset --mutations`), which edit restatements a human labelled `F` so the expected verdict is known, as distortions that count missed distortions and wording-only controls that count false alarms; a repeat-agreement figure for run-to-run noise; and whole-paper adjudication (`adjudicationEvidence: "seed_text"`), which gives the adjudicator the seed's full text as a cached prefix and verifies the quotes it relies on. A comparison of three models on one seed used all three. Its write-up stays outside the repository, and one seed with one reviewer calibrates nothing. Production Adjudicate still reads selected chunks. The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`. The canonical run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, `claude-sonnet-5-5` for clustering and grounding, and `claude-opus-5-5` for adjudication at `high` effort. No canonical run has used them yet, so cost and behaviour on these models are unmeasured.
 
 Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
 

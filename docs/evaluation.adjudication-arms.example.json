@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "evaluation-experiment-config-v1",
+  "promptRevision": "evaluation-prompts-v2",
+  "tasks": ["adjudication"],
+  "repetitions": 2,
+  "maxRequests": 1800,
+  "providers": [
+    {
+      "id": "haiku-5-5-medium",
+      "kind": "anthropic",
+      "model": "claude-haiku-5-5",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "medium"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 0.1,
+      "pricePerMillionOutputTokensUsd": 0.5
+    },
+    {
+      "id": "haiku-5-5-medium-seed-text",
+      "kind": "anthropic",
+      "model": "claude-haiku-5-5",
+      "adjudicationEvidence": "seed_text",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "medium"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 0.1,
+      "pricePerMillionOutputTokensUsd": 0.5
+    },
+    {
+      "id": "sonnet-5-5-high",
+      "kind": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "high"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 2,
+      "pricePerMillionOutputTokensUsd": 10,
+      "pricePerMillionCacheReadTokensUsd": 0.1
+    },
+    {
+      "id": "sonnet-5-5-high-seed-text",
+      "kind": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "adjudicationEvidence": "seed_text",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "high"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 2,
+      "pricePerMillionOutputTokensUsd": 10,
+      "pricePerMillionCacheReadTokensUsd": 0.1
+    },
+    {
+      "id": "opus-5-5-medium",
+      "kind": "anthropic",
+      "model": "claude-opus-5-5",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "medium"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 4,
+      "pricePerMillionOutputTokensUsd": 20,
+      "pricePerMillionCacheReadTokensUsd": 0.2
+    },
+    {
+      "id": "opus-5-5-medium-seed-text",
+      "kind": "anthropic",
+      "model": "claude-opus-5-5",
+      "adjudicationEvidence": "seed_text",
+      "thinking": {
+        "type": "adaptive",
+        "effort": "medium"
+      },
+      "concurrency": 6,
+      "pricePerMillionInputTokensUsd": 4,
+      "pricePerMillionOutputTokensUsd": 20,
+      "pricePerMillionCacheReadTokensUsd": 0.2
+    }
+  ]
+}

@@ -128,7 +128,7 @@ export const mutationDirectionSchema = z.enum([
 ]);
 export type MutationDirection = z.infer<typeof mutationDirectionSchema>;
 
-function addMutationConsistencyIssues(
+export function addMutationConsistencyIssues(
   output: {
     verdict: z.infer<typeof fidelityTopLabelSchema>;
     mutationKinds: MutationKind[];
@@ -167,19 +167,27 @@ function addMutationConsistencyIssues(
 }
 
 /**
+ * The judgment itself, independent of how the model points at its evidence.
+ * Schemas built on these fields apply `addMutationConsistencyIssues`.
+ */
+export const adjudicateJudgmentFields = {
+  citingAssertion: z.string().min(1),
+  sourceStatement: z.string().min(1),
+  verdict: fidelityTopLabelSchema,
+  mutationKinds: z.array(mutationKindSchema).max(3),
+  direction: mutationDirectionSchema,
+  rationale: z.string().min(1),
+  confidence: confidenceSchema,
+};
+
+/**
  * Strict model JSON crossing the adapter boundary. Chunk IDs are checked
  * against the supplied packet after parse. The occurrence-local claim set is
  * fixed by the Prepare record and is not echoed by the model.
  */
 export const canonicalAdjudicateModelOutputSchema = z
   .object({
-    citingAssertion: z.string().min(1),
-    sourceStatement: z.string().min(1),
-    verdict: fidelityTopLabelSchema,
-    mutationKinds: z.array(mutationKindSchema).max(3),
-    direction: mutationDirectionSchema,
-    rationale: z.string().min(1),
-    confidence: confidenceSchema,
+    ...adjudicateJudgmentFields,
     citedChunkIds: z.array(stableIdentifierSchema).min(1),
   })
   .strict()
