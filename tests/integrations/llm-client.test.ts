@@ -25,6 +25,7 @@ import {
   toProviderJsonSchema,
   createLLMClient,
   modelSupportsAdaptiveThinking,
+  modelThinksByDefault,
   resolvePromptCacheControl,
   resolveThinkingConfig,
   schemaFingerprint,
@@ -100,6 +101,22 @@ describe("adaptive vs legacy thinking helpers", () => {
     expect(modelSupportsAdaptiveThinking("claude-haiku-4-5")).toBe(false);
   });
 
+  it("uses adaptive thinking for every family from 5 on", () => {
+    expect(modelSupportsAdaptiveThinking("claude-haiku-5-5")).toBe(true);
+    expect(modelSupportsAdaptiveThinking("claude-sonnet-5-5")).toBe(true);
+    expect(modelSupportsAdaptiveThinking("claude-opus-5-5")).toBe(true);
+    expect(modelSupportsAdaptiveThinking("claude-fable-5-1")).toBe(true);
+    expect(modelSupportsAdaptiveThinking("claude-opus-4-20250514")).toBe(false);
+    expect(
+      resolveThinkingConfig({
+        model: "claude-haiku-5-5",
+        enabled: true,
+        effort: "low",
+        budgetTokens: 4_000,
+      }),
+    ).toEqual({ type: "adaptive", effort: "low" });
+  });
+
   it("resolves adaptive+effort for 4.6+ and fixed budget for older models", () => {
     expect(
       resolveThinkingConfig({
@@ -133,6 +150,38 @@ describe("adaptive vs legacy thinking helpers", () => {
         budgetTokens: 10_000,
       }),
     ).toBeUndefined();
+  });
+
+  it("turns thinking off by sending nothing to models that think only when asked", () => {
+    for (const model of [
+      "claude-haiku-4-5",
+      "claude-opus-4-6",
+      "claude-opus-4-8",
+    ]) {
+      expect(modelThinksByDefault(model)).toBe(false);
+      expect(resolveThinkingConfig({ model, enabled: false })).toBeUndefined();
+    }
+  });
+
+  it("turns thinking off with the lowest effort on models that think by default", () => {
+    for (const model of [
+      "claude-haiku-5-5",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-fable-5-2",
+    ]) {
+      expect(modelThinksByDefault(model)).toBe(true);
+      expect(resolveThinkingConfig({ model, enabled: false })).toEqual({
+        type: "adaptive",
+        effort: "low",
+      });
+    }
+  });
+
+  it("refuses to turn thinking on for a budget-only model without a budget", () => {
+    expect(() =>
+      resolveThinkingConfig({ model: "claude-haiku-4-5", enabled: true }),
+    ).toThrow("needs a thinking budget");
   });
 
   it("builds Anthropic provider options for adaptive and legacy modes", () => {

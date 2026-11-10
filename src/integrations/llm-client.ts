@@ -63,7 +63,7 @@ export type ThinkingEffort = "low" | "medium" | "high" | "max";
 /**
  * Extended thinking configuration.
  *
- * - `adaptive` + `effort`: preferred for Sonnet/Opus 4.6+ (and newer).
+ * - `adaptive` + `effort`: Sonnet/Opus 4.6+ and every model from 5 on.
  * - `enabled` + `budgetTokens`: legacy fixed-budget mode for older models
  *   that do not support adaptive thinking (e.g. Haiku 4.5, Sonnet 4.5).
  */
@@ -493,42 +493,72 @@ export function resolvePromptCacheControl(params: {
   return policy.cacheControl;
 }
 
-/** True when the model prefers adaptive thinking (Sonnet/Opus 4.6+). */
-export function modelSupportsAdaptiveThinking(modelId: string): boolean {
-  const match = /claude-(?:sonnet|opus)(?:-(\d+))?(?:[.-](\d+))?/i.exec(
-    modelId,
-  );
-  if (!match) {
-    return false;
-  }
-  const major = Number(match[1] ?? "0");
-  const minor = Number(match[2] ?? "0");
-  if (!Number.isFinite(major) || major <= 0) {
-    return false;
-  }
-  return major > 4 || (major === 4 && minor >= 6);
+/** Family and version in a Claude model id such as `claude-sonnet-5-5`. */
+function claudeModelVersion(
+  modelId: string,
+): { family: string; major: number; minor: number } | undefined {
+  const match = /claude-([a-z]+)-(\d+)(?:[.-](\d{1,2})(?!\d))?/i.exec(modelId);
+  return match
+    ? {
+        family: match[1]!.toLowerCase(),
+        major: Number(match[2]),
+        minor: Number(match[3] ?? "0"),
+      }
+    : undefined;
 }
 
 /**
- * Resolve thinking for a call site. Adaptive+effort for 4.6+ models;
- * fixed budget for older models that still require it.
+ * True when the model takes adaptive thinking: Sonnet and Opus from 4.6, and
+ * every family from 5 on, where a fixed thinking budget is rejected.
+ */
+export function modelSupportsAdaptiveThinking(modelId: string): boolean {
+  const version = claudeModelVersion(modelId);
+  if (!version) {
+    return false;
+  }
+  const { family, major, minor } = version;
+  return (
+    major >= 5 ||
+    (major === 4 && minor >= 6 && (family === "sonnet" || family === "opus"))
+  );
+}
+
+/**
+ * True for models that think unless told otherwise: every family from 5 on.
+ * Earlier models think only when a request asks them to.
+ */
+export function modelThinksByDefault(modelId: string): boolean {
+  return (claudeModelVersion(modelId)?.major ?? 0) >= 5;
+}
+
+/**
+ * Thinking for a call site. On: adaptive with an effort level where the model
+ * takes it, a fixed budget on older models. Off: nothing is sent to a model
+ * that thinks only when asked. A model that thinks by default cannot always
+ * be told to stop (Opus 5.5 and Sonnet 5.5 reject it), so there "off" is the
+ * lowest effort, which keeps thinking short and skips it on simple requests.
  */
 export function resolveThinkingConfig(params: {
   model: string;
   enabled: boolean;
-  /** Soft guidance for adaptive mode. Defaults to `high`. */
+  /** Effort when thinking is on. Defaults to `high`. */
   effort?: ThinkingEffort;
-  /** Fixed budget for legacy models. Required when adaptive is unsupported. */
-  budgetTokens: number;
+  /** Budget for models without adaptive thinking; required to turn it on there. */
+  budgetTokens?: number;
 }): ThinkingConfig | undefined {
   if (!params.enabled) {
-    return undefined;
+    return modelThinksByDefault(params.model)
+      ? { type: "adaptive", effort: "low" }
+      : undefined;
   }
   if (modelSupportsAdaptiveThinking(params.model)) {
     return {
       type: "adaptive",
       effort: params.effort ?? "high",
     };
+  }
+  if (params.budgetTokens == null) {
+    throw new Error(`${params.model} needs a thinking budget to think`);
   }
   return {
     type: "enabled",
@@ -879,7 +909,7 @@ function resolveFullPrompt(params: PromptShapedRequest): string {
 
 export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   const anthropic = createAnthropic({ apiKey: options.apiKey });
-  const defaultModel = options.defaultModel ?? "claude-sonnet-4-6";
+  const defaultModel = options.defaultModel ?? "claude-sonnet-5-5";
   const calls: LLMCallRecord[] = [];
   const db = options.database;
   const forceRefresh = options.forceRefresh ?? false;

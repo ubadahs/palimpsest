@@ -46,7 +46,7 @@ describe.skipIf(!enabled)(
         const provider = providerConfigSchema.parse({
           id: "anthropic",
           kind: "anthropic",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-5-5",
         });
         const llm = createLLMClient({
           apiKey: process.env.ANTHROPIC_API_KEY!,

@@ -1459,6 +1459,8 @@ export function buildCanonicalPrepareAdapters(
 ): CanonicalPrepareAdapters {
   const store = deps.provenanceStore;
   const model = deps.runConfig.prepare.roleClassifierModel;
+  // Naming a citation's role is a quick judgment; no call asks for thinking.
+  const thinking = resolveThinkingConfig({ model, enabled: false });
 
   return {
     classifyCitation: async (input) => {
@@ -1486,6 +1488,7 @@ export function buildCanonicalPrepareAdapters(
           prompt,
           promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.roleClassification,
+          ...(thinking != null ? { thinking } : {}),
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1518,6 +1521,7 @@ export function buildCanonicalPrepareAdapters(
           prompt,
           schema: citationRoleResponseSchema,
           context: { stageKey: "prepare" },
+          ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.roleClassification },
         });
       } catch (error) {
@@ -1560,6 +1564,8 @@ function buildCanonicalEvidenceAdapters(
   }
   const store = deps.provenanceStore;
   const model = deps.runConfig.evidence.rerankModel;
+  // Ranking passages is a quick judgment; no call asks the reranker to think.
+  const thinking = resolveThinkingConfig({ model, enabled: false });
 
   return {
     rerank: async (input: CanonicalEvidenceRerankerInput) => {
@@ -1576,6 +1582,7 @@ function buildCanonicalEvidenceAdapters(
           prompt,
           promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.rerank,
+          ...(thinking != null ? { thinking } : {}),
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1589,6 +1596,7 @@ function buildCanonicalEvidenceAdapters(
           prompt,
           schema: rerankModelResponseSchema,
           context: { stageKey: "evidence" },
+          ...(thinking != null ? { thinking } : {}),
           exactCache: { keyVersion: LLM_CACHE_VERSIONS.rerank },
         });
       } catch (error) {
