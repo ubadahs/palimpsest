@@ -3,9 +3,10 @@
 import { Input } from "@/components/ui/input";
 
 const KNOWN_MODELS = [
-  { id: "claude-opus-4-6", label: "claude-opus-4-6", cost: "$5 / $25" },
-  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", cost: "$3 / $15" },
-  { id: "claude-haiku-4-5", label: "claude-haiku-4-5", cost: "$1 / $5" },
+  { id: "claude-fable-5-2", label: "claude-fable-5-2", cost: "$8 / $40" },
+  { id: "claude-opus-5-5", label: "claude-opus-5-5", cost: "$4 / $20" },
+  { id: "claude-sonnet-5-5", label: "claude-sonnet-5-5", cost: "$2 / $10" },
+  { id: "claude-haiku-5-5", label: "claude-haiku-5-5", cost: "$0.10 / $0.50" },
 ] as const;
 
 const selectClass =
@@ -61,7 +62,7 @@ export function ModelSelect({
       {!known ? (
         <Input
           autoComplete="off"
-          placeholder="Model ID, e.g. claude-sonnet-4-6"
+          placeholder="Model ID, e.g. claude-sonnet-5-5"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />

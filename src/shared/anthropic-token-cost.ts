@@ -1,8 +1,14 @@
 /** USD per 1M tokens (approximate list pricing; treat as estimates only). */
 const PRICING_USD_PER_MILLION: Record<
   string,
-  { input: number; output: number }
+  { input: number; output: number; cacheRead?: number }
 > = {
+  // From the 5.5 models on, cache reads cost less than a tenth of input.
+  "claude-fable-5-2": { input: 8, output: 40, cacheRead: 0.2 },
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
+  "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1 },
+  // Haiku 5.5 rates for prompts up to 100K tokens.
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
   "claude-opus-4-6": { input: 5, output: 25 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-opus-4-20250514": { input: 15, output: 75 },
@@ -73,7 +79,7 @@ export function estimateAnthropicUsd(
 
   const inputCost =
     uncachedInputTokens * price.input +
-    cacheReadTokens * price.input * CACHE_READ_MULTIPLIER +
+    cacheReadTokens * (price.cacheRead ?? price.input * CACHE_READ_MULTIPLIER) +
     (cacheWrite5mTokens + remainingAggregateWriteTokens) *
       price.input *
       CACHE_WRITE_5M_MULTIPLIER +

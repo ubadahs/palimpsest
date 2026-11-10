@@ -10,7 +10,7 @@ describe("analysis run config", () => {
     const config = analysisRunConfigSchema.parse({});
 
     expect(config).toStrictEqual(CANONICAL_RUN_CONFIG_DEFAULTS);
-    expect(config.discover.extractionModel).toBe("claude-haiku-4-5");
+    expect(config.discover.extractionModel).toBe("claude-haiku-5-5");
     expect(config.discover.probeBudget).toBe(100);
     expect(config.evidence.rerankEnabled).toBe(true);
   });

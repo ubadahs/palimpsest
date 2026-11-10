@@ -211,10 +211,11 @@ function prepareAdapterFor(
     object: unknown;
     record: ReturnType<typeof roleClassifierReply>["record"];
   }>,
+  runConfig: unknown = {},
 ) {
   return buildCanonicalPrepareAdapters({
     config: appConfig(),
-    runConfig: analysisRunConfigSchema.parse({}),
+    runConfig: analysisRunConfigSchema.parse(runConfig),
     llmClient: {
       generateObject,
       generateText: () => {
@@ -696,6 +697,30 @@ describe("canonical production adapter seams", () => {
     expect((result as { signals: string[] }).signals).toContain(
       "model-role:substantive_attribution",
     );
+  });
+
+  it("asks a model that thinks by default to keep it short, and an older one nothing", async () => {
+    const reply = () =>
+      Promise.resolve(
+        roleClassifierReply({
+          citationRole: "background_context",
+          rationale: "The sentence frames the topic.",
+        }),
+      );
+    const current = vi.fn((_params: GenerateObjectParams) => reply());
+    const legacy = vi.fn((_params: GenerateObjectParams) => reply());
+
+    await prepareAdapterFor(current).classifyCitation(unclearRoleInput());
+    await prepareAdapterFor(legacy, {
+      prepare: { roleClassifierModel: "claude-haiku-4-5" },
+    }).classifyCitation(unclearRoleInput());
+
+    expect(current.mock.calls[0]![0]).toMatchObject({
+      model: "claude-haiku-5-5",
+      thinking: { type: "adaptive", effort: "low" },
+    });
+    expect(legacy.mock.calls[0]![0].model).toBe("claude-haiku-4-5");
+    expect(legacy.mock.calls[0]![0]).not.toHaveProperty("thinking");
   });
 
   it("keeps a record gated when the model is also unclear", async () => {

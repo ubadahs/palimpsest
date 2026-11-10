@@ -64,6 +64,8 @@ The final `report` stage writes authoritative JSON funnel/rate/trace accounting 
 
 The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims and skips reranking when verified grounding pins already fill the packet. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
 
+Model calls default to Claude Haiku 5.5 (claim extraction, citation roles, reranking), Sonnet 5.5 (claim clustering, seed grounding), and Opus 5.5 (adjudication). Each can be changed in the run config.
+
 ## Where To Read
 
 - [docs/pipeline.md](docs/pipeline.md) — stage-by-stage workflow guide

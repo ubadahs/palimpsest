@@ -8,20 +8,21 @@
     {
       "id": "haiku",
       "kind": "anthropic",
-      "model": "claude-haiku-4-5",
+      "model": "claude-haiku-5-5",
       "tasks": ["role", "rerank", "span"],
       "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 1,
-      "pricePerMillionOutputTokensUsd": 5
+      "pricePerMillionInputTokensUsd": 0.1,
+      "pricePerMillionOutputTokensUsd": 0.5
     },
     {
       "id": "opus",
       "kind": "anthropic",
-      "model": "claude-opus-4-6",
+      "model": "claude-opus-5-5",
       "tasks": ["adjudication"],
       "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 5,
-      "pricePerMillionOutputTokensUsd": 25
+      "pricePerMillionInputTokensUsd": 4,
+      "pricePerMillionOutputTokensUsd": 20,
+      "pricePerMillionCacheReadTokensUsd": 0.2
     },
     {
       "id": "jev",
@@ -43,7 +44,10 @@
       "apiKeyEnv": "DJEV_API_KEY",
       "concurrency": 6,
       "maxContextCharacters": 12000,
-      "inferenceSettings": { "steps": 1, "samples": 1 }
+      "inferenceSettings": {
+        "steps": 1,
+        "samples": 1
+      }
     },
     {
       "id": "bm25",
