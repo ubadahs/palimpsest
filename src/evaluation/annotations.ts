@@ -18,6 +18,7 @@ import {
   loadAnnotationLog,
   loadDataset,
 } from "./storage.js";
+import { listGradingRequests } from "./grading-requests.js";
 import { loadExperiment, loadTrials } from "./runner.js";
 import { loadOptimizationResults } from "./optimization-report.js";
 import { validateJsSpan } from "./span.js";
@@ -26,6 +27,7 @@ import {
   type AnnotationEvent,
   type BlindEvaluationCase,
   type EvaluationCase,
+  type GradingRequest,
 } from "./types.js";
 
 export class EvaluationConflictError extends Error {}
@@ -354,6 +356,9 @@ export function blindCaseView(item: EvaluationCase): BlindEvaluationCase {
         occurrenceClaims: item.packet.occurrenceClaims.map((claim) => ({
           claimRecordId: claim.claimRecordId,
           claimText: claim.claimText,
+          ...(claim.supportSpanText != null
+            ? { supportSpanText: claim.supportSpanText }
+            : {}),
         })),
         selectedChunks: item.packet.selectedChunks.map((chunk) => ({
           chunkId: chunk.chunkId,
@@ -370,6 +375,7 @@ export function blindDatasetView(datasetId: string): {
   name: string;
   cases: BlindEvaluationCase[];
   annotations: AnnotationEvent[];
+  requests: GradingRequest[];
 } {
   const dataset = loadDataset(datasetId);
   return {
@@ -379,5 +385,6 @@ export function blindDatasetView(datasetId: string): {
     annotations: loadAnnotationLog(datasetId).events.filter(
       (event): event is AnnotationEvent => "value" in event,
     ),
+    requests: listGradingRequests(datasetId),
   };
 }

@@ -1,5 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { listDatasets } from "palimpsest/evaluation/server";
+import {
+  listDatasets,
+  openGradingRequests,
+} from "palimpsest/evaluation/server";
 import { allowMethods, handleApiError } from "@/lib/api-route";
 
 export default function handler(
@@ -13,6 +16,7 @@ export default function handler(
         datasetId: dataset.datasetId,
         name: dataset.name,
         sources: dataset.sources,
+        openRequests: openGradingRequests(dataset.datasetId).length,
         counts: Object.fromEntries(
           ["role", "rerank", "span", "adjudication"].map((task) => [
             task,

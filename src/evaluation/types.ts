@@ -138,7 +138,11 @@ export const adjudicationCaseSchema = z.object({
       citedPaperTitle: z.string(),
       occurrenceClaims: z.array(
         z
-          .object({ claimRecordId: z.string(), claimText: z.string() })
+          .object({
+            claimRecordId: z.string(),
+            claimText: z.string(),
+            supportSpanText: z.string().optional(),
+          })
           .passthrough(),
       ),
       selectedChunks: z.array(
@@ -181,7 +185,12 @@ export type BlindEvaluationCase = BlindCaseBase &
           familyTrackedClaim: string;
           citingPaperTitle: string;
           citedPaperTitle: string;
-          occurrenceClaims: { claimRecordId: string; claimText: string }[];
+          occurrenceClaims: {
+            claimRecordId: string;
+            claimText: string;
+            /** The exact citing text the claim was extracted from. */
+            supportSpanText?: string;
+          }[];
           selectedChunks: { chunkId: string; text: string }[];
         };
       }
@@ -233,6 +242,24 @@ export const datasetSchema = z.object({
   seedDocuments: z.array(seedDocumentSchema).optional(),
 });
 export type EvaluationDataset = z.infer<typeof datasetSchema>;
+
+/**
+ * Asks a reviewer for labels on a chosen set of cases and says why. It adds
+ * nothing to the dataset: the cases are already in it, and the labels land in
+ * its annotation log like any others.
+ */
+export const gradingRequestSchema = z.object({
+  schemaVersion: z.literal("evaluation-grading-request-v1"),
+  requestId: z.string().min(1),
+  datasetId: z.string().min(1),
+  title: z.string().min(1),
+  /** What the labels will decide. The reviewer reads it, so it must not hint at an answer. */
+  purpose: z.string().min(1),
+  /** Cases of one task, in the order the reviewer sees them. */
+  caseIds: z.array(z.string().min(1)).min(1),
+  createdAt: z.string().datetime(),
+});
+export type GradingRequest = z.infer<typeof gradingRequestSchema>;
 
 export const annotationValueSchema = z.discriminatedUnion("task", [
   z.object({ task: z.literal("role"), role: evaluationRoleSchema }),

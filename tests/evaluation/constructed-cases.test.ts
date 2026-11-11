@@ -175,8 +175,15 @@ describe("constructed cases", () => {
     );
   });
 
-  it("shows a blind reviewer nothing that marks it as constructed", () => {
+  it("shows a blind reviewer the edited source text and nothing that marks it as constructed", () => {
     const view = blindCaseView({ ...construct(), caseId: "case_built" });
+    expect(view).toMatchObject({
+      packet: {
+        occurrenceClaims: [
+          { supportSpanText: "reported three marker classes in human Norel" },
+        ],
+      },
+    });
     expect(JSON.stringify(view)).not.toMatch(
       /constructed|population_shifted|expectedVerdict|not human/,
     );

@@ -57,15 +57,33 @@ export function formatDuration(
   return `${String(minutes)}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+/** The server's own `error` text when it sent one, else the raw body. */
+async function errorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const body: unknown = JSON.parse(text);
+    if (body && typeof body === "object" && "error" in body)
+      return String(body.error);
+  } catch {
+    // Not JSON; the text itself is the message.
+  }
+  return text || `HTTP ${String(response.status)}`;
+}
+
 export async function fetchJson<T>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> {
   const response = await fetch(input, init);
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `HTTP ${String(response.status)}`);
-  }
-
+  if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as T;
+}
+
+/** Request options that POST `body` as JSON. */
+export function jsonPost(body: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
 }

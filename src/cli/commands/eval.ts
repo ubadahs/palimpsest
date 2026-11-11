@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config as loadEnv } from "dotenv";
+import { z } from "zod";
 import {
   buildEvaluationDataset,
   validateEvaluationDataset,
 } from "../../evaluation/dataset.js";
+import { createGradingRequest } from "../../evaluation/grading-requests.js";
 import { createExperiment, runExperiment } from "../../evaluation/runner.js";
 import { experimentConfigSchema } from "../../evaluation/config.js";
 import {
@@ -54,6 +56,32 @@ export async function runEvalCommand(args: string[]): Promise<void> {
           ).length,
           recordsHeldBackByCurrentPacketGate: heldBackRecordIds.length,
           validation: validateEvaluationDataset(dataset.datasetId),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (command === "request") {
+    const datasetId = required(flags, "--dataset");
+    const request = createGradingRequest(datasetId, {
+      title: required(flags, "--title"),
+      purpose: required(flags, "--purpose"),
+      caseIds: z
+        .array(z.string())
+        .parse(
+          JSON.parse(
+            readFileSync(required(flags, "--cases"), "utf8"),
+          ) as unknown,
+        ),
+    });
+    console.info(
+      JSON.stringify(
+        {
+          requestId: request.requestId,
+          cases: request.caseIds.length,
+          gradeAt: `/evaluations/${datasetId}/grade?request=${request.requestId}`,
         },
         null,
         2,
@@ -119,6 +147,6 @@ export async function runEvalCommand(args: string[]): Promise<void> {
     return;
   }
   throw new Error(
-    "Usage: eval dataset|validate|plan|run|status|report [options]",
+    "Usage: eval dataset|validate|request|plan|run|status|report [options]",
   );
 }

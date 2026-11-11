@@ -18,8 +18,9 @@ Old seven-stage UI/run state is unsupported. Existing local database rows or run
 - `/runs/new` — DOI-first run creation
 - `/runs/[runId]` — run overview, six-stage rail, live logs, and artifacts
 - `/runs/[runId]/stages/[stageKey]` — canonical stage inspection
-- `/evaluations` — frozen datasets
-- `/evaluations/[datasetId]` — blind annotation and saved experiment results
+- `/evaluations` — frozen datasets, those with open grading requests first
+- `/evaluations/[datasetId]` — what is waiting to be graded, and saved experiment results
+- `/evaluations/[datasetId]/grade?request=<id>` or `?task=<task>` — blind grader, one case at a time
 
 ## Report explorer
 
@@ -48,14 +49,23 @@ The completed-run overview links into this explorer with cautious “received F�
 - `GET /api/runs/[runId]/review` — current report-bound review state/progress/head
 - `POST /api/runs/[runId]/review/events` — append a draft/final review revision
 - `GET /api/runs/[runId]/review/export?format=json|csv` — lineage-bound review export
-- `GET /api/evaluations` — frozen datasets
-- `GET /api/evaluations/[datasetId]` — one dataset
+- `GET /api/evaluations` — frozen datasets with their count of open grading requests
+- `GET /api/evaluations/[datasetId]` — one dataset's blind cases, labels, and grading requests
 - `GET /api/evaluations/[datasetId]/experiments` — saved experiments
 - `POST /api/evaluations/[datasetId]/annotations` — append a blind annotation
 - `POST /api/evaluations/[datasetId]/reveal` — record exposure before showing machine output
 - `POST /api/evaluations/[datasetId]/results` — build a report from the annotation snapshot
 
 `stageKey` accepts only `discover`, `scope`, `prepare`, `evidence`, `adjudicate`, or `report`.
+
+## Grading
+
+Two places take human labels, and they share one set of answer controls (`components/ui/choice-grid.tsx`) and one remembered reviewer name (`lib/reviewer.ts`):
+
+- The Report explorer's **Review** tab labels the records of one run. Its store is the append-only review sidecar of that report.
+- The **Evaluations** grader (`components/evaluation/`) labels the frozen cases of a dataset. A queue is either a grading request, which is a named, ordered set of cases created with `eval request`, or every case of one kind of question. `lib/evaluation-client.ts` resolves the queue from the URL and derives progress from the annotation log.
+
+Both open blind: machine output stays hidden until the reviewer asks for it. Open grading requests are surfaced on the dashboard so the reviewer does not have to look for them.
 
 ## Execution model
 
