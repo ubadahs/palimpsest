@@ -9,6 +9,7 @@ How to judge the system is in [evaluation-protocol.md](./evaluation-protocol.md)
 ```bash
 npm run dev -- eval dataset --report data/runs/<run-id>/05-report/<canonical-report>.json --name <name> [--mutations <path>]
 npm run dev -- eval validate --dataset <dataset-id>
+npm run dev -- eval request --dataset <dataset-id> --title <title> --purpose <why> --cases <case-ids.json>
 npm run dev -- eval run --dataset <dataset-id> --config docs/evaluation.example.json
 npm run dev -- eval run --experiment <experiment-id>
 npm run dev -- eval plan --dataset <dataset-id> --config <path>
@@ -68,6 +69,27 @@ A model asked the same case twice does not always answer the same way. Set `"rep
 
 Credentials come from environment variables named in the config (`ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `DJEV_ENDPOINT`, `DJEV_API_KEY`) and are not written into experiment files. A missing key leaves those trials pending.
 
-The local UI has an Evaluations area for blind role, passage-relevance, span, and verdict labels. Enter a reviewer name before saving. Drafts and revisions are append-only. A reveal is recorded before machine observations are shown, and later labels from that reviewer are marked exposed. Reports bind to the annotation snapshot, so new labels create a new report revision without model calls.
-
 Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, prompt revision, and repetition match. Changed scientific inputs invalidate reuse. Concurrency and spacing do not.
+
+## Grading in the local UI
+
+The Evaluations area of the local UI (`npm run ui:dev`) is where a reviewer labels cases. A dataset's page lists what is waiting and links to a grader that shows one case at a time: the citing text, the cited passages, and the answer choices. The highlight covers everything the adjudicator is pointed at: the sentences attributed to the cited paper and each claim's source text, which can sit in a neighbouring sentence. There are four kinds of question: verdicts, citation roles, passage relevance, and claim spans.
+
+The grader opens at the first case the reviewer has not graded. A number or letter key picks an answer, Enter saves it as final and moves on, and the arrow keys step between cases. A note is optional. Enter a reviewer name before saving; the browser remembers it.
+
+Labels are blind. Machine answers stay hidden until the reviewer asks to see them; that reveal is recorded first, and later labels from that reviewer are marked exposed. Drafts and revisions are append-only. Reports bind to the annotation snapshot, so new labels create a new report revision without model calls.
+
+### Grading requests
+
+Most cases never need a human label. When a comparison turns on a few of them, `eval request` saves those cases as a named request, in the order given, with a sentence saying what the labels will decide:
+
+```bash
+npm run dev -- eval request --dataset <dataset-id> \
+  --title "Cases two providers disagree on" \
+  --purpose "Your labels decide which provider's reading is closer to yours." \
+  --cases case-ids.json
+```
+
+`case-ids.json` is a JSON array of case IDs, all of one kind of question. The command prints the path to open in the UI. Asking again for the same cases under the same title returns the saved request.
+
+Open requests appear on the dashboard, on the Evaluations list, and at the top of the dataset's page. A request stays open until every one of its cases has a final label. Requests live beside the dataset under `data/evaluations/` and show the reviewer nothing a blind case would not.

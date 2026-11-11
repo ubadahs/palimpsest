@@ -3,10 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { TASKS } from "@/lib/evaluation-client";
+import { fetchJson } from "@/lib/utils";
+
 type Summary = {
   datasetId: string;
   name: string;
   sources: { runId: string }[];
+  openRequests: number;
   counts: Record<string, number>;
 };
 
@@ -14,11 +18,13 @@ export default function EvaluationsPage() {
   const [datasets, setDatasets] = useState<Summary[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
-    void fetch("/api/evaluations")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text());
-        setDatasets((await response.json()) as Summary[]);
-      })
+    // Datasets with a request waiting come first.
+    fetchJson<Summary[]>("/api/evaluations")
+      .then((all) =>
+        setDatasets(
+          all.toSorted((left, right) => right.openRequests - left.openRequests),
+        ),
+      )
       .catch((cause: unknown) => setError(String(cause)));
   }, []);
   return (
@@ -26,7 +32,7 @@ export default function EvaluationsPage() {
       <div>
         <h2 className="font-[var(--font-instrument)] text-3xl">Evaluations</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Frozen cases, blind annotation, and saved experiment results.
+          Frozen cases to grade blind, and saved experiment results.
         </p>
       </div>
       {error ? <p role="alert">{error}</p> : null}
@@ -48,13 +54,21 @@ export default function EvaluationsPage() {
             href={`/evaluations/${dataset.datasetId}`}
           >
             <strong>{dataset.name}</strong>
+            {dataset.openRequests ? (
+              <span className="ml-3 rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--accent)]">
+                {dataset.openRequests === 1
+                  ? "1 request waiting for you"
+                  : `${String(dataset.openRequests)} requests waiting for you`}
+              </span>
+            ) : null}
             <p className="mt-1 text-xs text-[var(--text-muted)]">
               {dataset.datasetId}
             </p>
             <p className="mt-2 text-sm">
-              {Object.entries(dataset.counts)
-                .map(([task, count]) => `${task}: ${count}`)
-                .join(" · ")}
+              {TASKS.map(
+                ({ task, name }) =>
+                  `${String(dataset.counts[task] ?? 0)} ${name.toLowerCase()}`,
+              ).join(" · ")}
             </p>
           </Link>
         ))}

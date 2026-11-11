@@ -32,6 +32,7 @@ npm run dev -- pipeline --input dois.json --stop-after evidence  # stop after a 
 npm run dev -- pipeline --run-id <uuid>       # resume a canonical run
 npm run dev -- eval dataset --report <path> --name <name> [--mutations <path>]  # freeze cases from a report under data/evaluations; --mutations adds constructed cases
 npm run dev -- eval validate --dataset <id>    # offline integrity and coverage check
+npm run dev -- eval request --dataset <id> --title <title> --purpose <why> --cases <ids.json>  # save a set of cases for a reviewer to grade in the UI
 npm run dev -- eval plan --dataset <id> --config <path>  # offline plan for an optimization config
 npm run dev -- eval status --experiment <id>  # saved optimization progress, no provider calls
 npm run dev -- eval run --dataset <id> --config <path>  # launch a provider comparison

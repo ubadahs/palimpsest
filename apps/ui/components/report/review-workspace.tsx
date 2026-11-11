@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { recordOutcomeLabel } from "@/lib/report-format";
 import { cn } from "@/lib/utils";
+import { REVIEWER_STORAGE_KEY } from "@/lib/reviewer";
 import { VERDICT_ORDER } from "@/lib/verdict-tokens";
 
 import { EvidencePassages, outcomeBadgeVariant } from "./record-details";
@@ -59,8 +60,6 @@ const QUEUE_FILTER_LABELS: Record<ReviewQueueFilter, string> = {
   U: "Model: U",
   not_adjudicated: "Model: gated",
 };
-
-const REVIEWER_STORAGE_KEY = "palimpsest.reviewer";
 
 /** How many machine-F records the calibration set samples across families. */
 const CALIBRATION_F_SAMPLE = 20;

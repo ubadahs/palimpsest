@@ -8,6 +8,12 @@ import type {
 import { mutationKindValues } from "palimpsest/contract";
 
 import { Button } from "@/components/ui/button";
+import {
+  ChoiceGrid,
+  choiceForKey,
+  isTypingTarget,
+  type Choice,
+} from "@/components/ui/choice-grid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -111,14 +117,9 @@ export function buildHumanAssessment(
  * pipeline stores; the name and the one-line test are what a reviewer reads,
  * so nobody has to remember what F stands for mid-session.
  */
-export const VERDICT_CHOICES: ReadonlyArray<{
-  value: HumanAssessment["humanVerdict"];
-  code: string;
-  key: string;
-  name: string;
-  test: string;
-  tone: "success" | "danger" | "error" | "muted";
-}> = [
+export const VERDICT_CHOICES: ReadonlyArray<
+  Choice<HumanAssessment["humanVerdict"]>
+> = [
   {
     value: "F",
     code: "F",
@@ -200,39 +201,6 @@ export const MUTATION_KIND_LABELS: Record<
   },
 };
 
-const toneClasses: Record<
-  (typeof VERDICT_CHOICES)[number]["tone"],
-  { badge: string; ring: string }
-> = {
-  success: {
-    badge: "bg-[var(--success)] text-white",
-    ring: "border-[var(--success)]",
-  },
-  danger: {
-    badge: "bg-[var(--danger)] text-white",
-    ring: "border-[var(--danger)]",
-  },
-  error: {
-    badge: "bg-[rgba(151,100,44,0.9)] text-white",
-    ring: "border-[rgba(151,100,44,0.9)]",
-  },
-  muted: {
-    badge: "bg-[var(--border-strong)] text-white",
-    ring: "border-[var(--border-strong)]",
-  },
-};
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    target.isContentEditable
-  );
-}
-
 function ProblemToggle({
   checked,
   label,
@@ -306,10 +274,7 @@ export function HumanReviewForm({
         }
         return;
       }
-      const choice = VERDICT_CHOICES.find(
-        (entry) =>
-          entry.key === event.key || entry.code === event.key.toUpperCase(),
-      );
+      const choice = choiceForKey(VERDICT_CHOICES, event.key);
       if (choice) {
         event.preventDefault();
         setForm((current) => ({
@@ -353,56 +318,15 @@ export function HumanReviewForm({
         </p>
       </div>
 
-      <fieldset className="mt-4">
-        <legend className="sr-only">Your verdict</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {VERDICT_CHOICES.map((choice) => {
-            const selected = form.humanVerdict === choice.value;
-            const tone = toneClasses[choice.tone];
-            return (
-              <label
-                className={cn(
-                  "flex cursor-pointer gap-3 rounded-[18px] border-2 px-4 py-3 transition",
-                  selected
-                    ? cn(tone.ring, "bg-[var(--panel-muted)]")
-                    : "border-[var(--border)] bg-white hover:border-[var(--border-strong)]",
-                )}
-                key={choice.value}
-              >
-                <input
-                  checked={selected}
-                  className="sr-only"
-                  name="humanVerdict"
-                  onChange={() => chooseVerdict(choice.value)}
-                  type="radio"
-                  value={choice.value}
-                />
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-sm font-bold",
-                    tone.badge,
-                  )}
-                >
-                  {choice.code}
-                </span>
-                <span className="min-w-0">
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-base font-semibold text-[var(--text)]">
-                      {choice.name}
-                    </span>
-                    <kbd className="rounded border border-[var(--border)] px-1 font-mono text-[10px] text-[var(--text-muted)]">
-                      {choice.key}
-                    </kbd>
-                  </span>
-                  <span className="block text-sm leading-6 text-[var(--text-muted)]">
-                    {choice.test}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
+      <ChoiceGrid
+        choices={VERDICT_CHOICES}
+        className="mt-4"
+        legend="Your verdict"
+        name="humanVerdict"
+        onChange={chooseVerdict}
+        value={form.humanVerdict}
+      />
+      <div>
         <label
           className={cn(
             "mt-2 flex cursor-pointer items-center gap-3 rounded-[14px] border px-4 py-2 text-sm transition",
@@ -425,7 +349,7 @@ export function HumanReviewForm({
             why below.
           </span>
         </label>
-      </fieldset>
+      </div>
 
       {form.humanVerdict === "D" ? (
         <fieldset className="mt-5">
