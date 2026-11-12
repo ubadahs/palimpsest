@@ -49,6 +49,7 @@ function appConfig(): AppConfig {
       bioRxiv: "https://example.test/biorxiv",
       grobid: "https://example.test/grobid",
     },
+    grobidConcurrency: 2,
     openAlexEmail: undefined,
     semanticScholarApiKey: undefined,
     anthropicApiKey: undefined,

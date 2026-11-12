@@ -396,6 +396,7 @@ function createTempWorkspace(
       bioRxiv: "https://example.test/biorxiv",
       grobid: "https://example.test/grobid",
     },
+    grobidConcurrency: 2,
     openAlexEmail: undefined,
     semanticScholarApiKey: undefined,
     anthropicApiKey: undefined,
@@ -411,6 +412,8 @@ async function runFresh(options?: {
   forceRefresh?: boolean;
   cwd?: string;
   seedDois?: [string, ...string[]];
+  /** Pass what `--census` expands to. */
+  census?: boolean;
 }) {
   const workspace = createTempWorkspace(options?.seedDois);
   const previousCwd = process.cwd();
@@ -448,7 +451,10 @@ async function runFresh(options?: {
         seedPdfPath: undefined,
         forceRefresh: options?.forceRefresh ?? false,
         stopAfterStage: options?.stopAfterStage,
-        discoverProbeBudget: undefined,
+        discoverProbeBudget: options?.census ? "all" : undefined,
+        ...(options?.census
+          ? { discoverCandidateSelectionMode: "all" as const }
+          : {}),
         discoverMinFamilies: undefined,
         discoverMaxFamilies: undefined,
         discoverMaxPreparedRecords: undefined,
@@ -479,6 +485,18 @@ async function runFresh(options?: {
 }
 
 describe("canonical executor cutover", () => {
+  it("stores a census as probe budget all and selection mode all, and runs it", async () => {
+    const { database, result } = await runFresh({ census: true });
+    const run = getAnalysisRun(database, result.runId)!;
+    expect(run.status).toBe("succeeded");
+    expect(run.config.discover.probeBudget).toBe("all");
+    expect(run.config.discover.candidateSelection).toEqual({
+      mode: "all",
+      policyVersion: "all-candidates-v1",
+    });
+    database.close();
+  });
+
   it("runs all six stages with write/reload boundaries and exact directories", async () => {
     const { database, result } = await runFresh();
     const run = getAnalysisRun(database, result.runId)!;
@@ -1192,6 +1210,7 @@ describe("canonical executor cutover", () => {
             bioRxiv: "https://example.test/biorxiv",
             grobid: "https://example.test/grobid",
           },
+          grobidConcurrency: 2,
           openAlexEmail: undefined,
           semanticScholarApiKey: undefined,
           anthropicApiKey: undefined,
@@ -1472,6 +1491,7 @@ describe("canonical executor cutover", () => {
           bioRxiv: "https://example.test/biorxiv",
           grobid: "https://example.test/grobid",
         },
+        grobidConcurrency: 2,
         openAlexEmail: undefined,
         semanticScholarApiKey: undefined,
         anthropicApiKey: undefined,

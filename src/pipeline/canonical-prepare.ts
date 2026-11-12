@@ -4,6 +4,7 @@ import { uniqueSortedArtifactReferences } from "../contract/lean-artifact-primit
 import { compareCodeUnits, uniqueSorted } from "../shared/order.js";
 import { sameIdentifierSequence } from "../contract/artifacts/checks.js";
 import { createBoundaryParser } from "../shared/boundary.js";
+import { pMap } from "../shared/concurrency.js";
 
 import { classifyCitationFunction } from "../classification/classify-citation-function.js";
 import { deriveEvaluationMode } from "../classification/evaluation-mode.js";
@@ -43,6 +44,8 @@ export const canonicalPrepareOptionsSchema = z
   .object({
     recordedAt: z.string().datetime({ offset: true }),
     scopeArtifactUri: z.string().min(1).optional(),
+    /** Classifier requests in flight at once; results keep input order. */
+    concurrency: z.number().int().positive().optional(),
   })
   .strict();
 export type CanonicalPrepareOptions = z.infer<
@@ -170,6 +173,14 @@ export async function runCanonicalPrepare(
     ]),
   );
   const records: PreparedCitationInstance[] = [];
+  const pending: Array<{
+    family: ScopedFamily;
+    citationOccurrenceId: string;
+    citingPaper: DiscoverCitingPaperRecord;
+    occurrenceSourceCandidates: DiscoverClaimCandidate[];
+    occurrenceSourceClaimRecords: DiscoverAttributedClaimRecord[];
+    request: CanonicalPrepareClassifierInput;
+  }> = [];
   const preparedSeeds = new Map<string, DiscoverSeed>();
   const preparedCandidates = new Map<string, DiscoverClaimCandidate>();
   const preparedClaims = new Map<string, DiscoverAttributedClaimRecord>();
@@ -244,9 +255,13 @@ export async function runCanonicalPrepare(
           `Scoped pair has no occurrence-local source provenance: ${family.familyId} × ${citationOccurrenceId}`,
         );
       }
-      const classificationResult = parseBoundary(
-        canonicalPrepareClassificationResultSchema,
-        await adapters.classifyCitation({
+      pending.push({
+        family,
+        citationOccurrenceId,
+        citingPaper,
+        occurrenceSourceCandidates,
+        occurrenceSourceClaimRecords,
+        request: {
           family,
           sourceCandidates,
           sourceClaimRecords,
@@ -255,8 +270,22 @@ export async function runCanonicalPrepare(
           seed,
           citingPaper,
           citationOccurrence,
-        }),
-        `classification for ${family.familyId} × ${citationOccurrenceId}`,
+        },
+      });
+    }
+  }
+
+  // Role classification is the only model call in Prepare (the regex pass's
+  // unclear verdicts), so it fans out like every other stage's calls. pMap
+  // returns results in input order and everything below appends in that
+  // order, so the artifact is identical at any concurrency.
+  const classified = await pMap(
+    pending,
+    async (entry) => {
+      const classificationResult = parseBoundary(
+        canonicalPrepareClassificationResultSchema,
+        await adapters.classifyCitation(entry.request),
+        `classification for ${entry.family.familyId} × ${entry.citationOccurrenceId}`,
       );
       if (
         classificationResult.status === "failed" &&
@@ -268,65 +297,78 @@ export async function runCanonicalPrepare(
           classificationResult.reason,
         );
       }
-      const classification =
-        prepareClassificationSchema.parse(classificationResult);
-      const recordId = buildCitationInstanceRecordId({
-        familyId: family.familyId,
-        citationOccurrenceId,
-      });
-      preparedCitingPapers.set(citingPaper.citingPaperRecordId, citingPaper);
-      records.push({
-        recordId,
-        familyId: family.familyId,
-        citationOccurrenceId,
-        occurrenceSourceCandidateIds: occurrenceSourceCandidates.map(
-          (candidate) => candidate.candidateId,
-        ),
-        occurrenceSourceClaimRecordIds: occurrenceSourceClaimRecords.map(
-          (sourceClaim) => sourceClaim.claimRecordId,
-        ),
-        citationOccurrence,
-        classification,
-      });
+      return { ...entry, classificationResult };
+    },
+    { concurrency: options.concurrency ?? 1 },
+  );
 
-      const executionArtifacts = classificationExecutionArtifacts(
-        classification.execution,
-      );
-      const actor = classificationActor(classification.execution);
-      decisions.push(
-        createAppendOnlyDecision({
-          recordId,
-          decisionType: "prepare_classification_outcome",
-          outcome: classification.status,
-          reason: classificationReason(classification),
-          recordedAt: options.recordedAt,
-          actor,
-          evidenceArtifacts: uniqueSortedArtifactReferences([
-            lineage.scopeArtifact,
-            lineage.discoverArtifact,
-            ...executionArtifacts,
-          ]),
-        }),
-      );
-      if (classification.execution.kind === "model") {
-        hasModelExecution = true;
-        prompts.push({
-          promptId: classification.execution.promptId,
-          version: classification.execution.promptVersion,
-          contentHash: classification.execution.promptContentHash,
-        });
-        models.push({
-          provider: classification.execution.provider,
-          model: classification.execution.model,
-          requestHash: classification.execution.requestHash,
-          requestArtifact: classification.execution.requestArtifact,
-          responseArtifact: classification.execution.responseArtifact,
-        });
-        responseArtifacts.push(classification.execution.responseArtifact);
-      } else if (classification.execution.kind === "external") {
-        hasExternalExecution = true;
-        responseArtifacts.push(classification.execution.responseArtifact);
-      }
+  for (const {
+    family,
+    citationOccurrenceId,
+    citingPaper,
+    occurrenceSourceCandidates,
+    occurrenceSourceClaimRecords,
+    request: { citationOccurrence },
+    classificationResult,
+  } of classified) {
+    const classification =
+      prepareClassificationSchema.parse(classificationResult);
+    const recordId = buildCitationInstanceRecordId({
+      familyId: family.familyId,
+      citationOccurrenceId,
+    });
+    preparedCitingPapers.set(citingPaper.citingPaperRecordId, citingPaper);
+    records.push({
+      recordId,
+      familyId: family.familyId,
+      citationOccurrenceId,
+      occurrenceSourceCandidateIds: occurrenceSourceCandidates.map(
+        (candidate) => candidate.candidateId,
+      ),
+      occurrenceSourceClaimRecordIds: occurrenceSourceClaimRecords.map(
+        (sourceClaim) => sourceClaim.claimRecordId,
+      ),
+      citationOccurrence,
+      classification,
+    });
+
+    const executionArtifacts = classificationExecutionArtifacts(
+      classification.execution,
+    );
+    const actor = classificationActor(classification.execution);
+    decisions.push(
+      createAppendOnlyDecision({
+        recordId,
+        decisionType: "prepare_classification_outcome",
+        outcome: classification.status,
+        reason: classificationReason(classification),
+        recordedAt: options.recordedAt,
+        actor,
+        evidenceArtifacts: uniqueSortedArtifactReferences([
+          lineage.scopeArtifact,
+          lineage.discoverArtifact,
+          ...executionArtifacts,
+        ]),
+      }),
+    );
+    if (classification.execution.kind === "model") {
+      hasModelExecution = true;
+      prompts.push({
+        promptId: classification.execution.promptId,
+        version: classification.execution.promptVersion,
+        contentHash: classification.execution.promptContentHash,
+      });
+      models.push({
+        provider: classification.execution.provider,
+        model: classification.execution.model,
+        requestHash: classification.execution.requestHash,
+        requestArtifact: classification.execution.requestArtifact,
+        responseArtifact: classification.execution.responseArtifact,
+      });
+      responseArtifacts.push(classification.execution.responseArtifact);
+    } else if (classification.execution.kind === "external") {
+      hasExternalExecution = true;
+      responseArtifacts.push(classification.execution.responseArtifact);
     }
   }
 

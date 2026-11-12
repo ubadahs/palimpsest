@@ -5,7 +5,9 @@ import {
   classifyClaimShape,
   extractFidelityMarkers,
   selectAdaptivePortfolio,
+  selectCandidates,
   adaptivePortfolioPolicySchema,
+  candidateSelectionPolicySchema,
 } from "../../src/contract/candidate-selection-policy.js";
 import { defaultAdaptivePortfolioPolicy } from "../../src/contract/adaptive-portfolio-policy.js";
 import {
@@ -629,5 +631,83 @@ describe("adaptive portfolio candidate selection", () => {
     expect(deferred).toHaveLength(1);
     expect(deferred[0]?.bindingConstraint).toBe("max_prepared_records");
     expect(deferred[0]?.reason).toContain("max_prepared_records");
+  });
+});
+
+describe("candidate selection mode all", () => {
+  function census(count: number) {
+    const entries = Array.from({ length: count }, (_, index) => {
+      // Candidate i is restated by (i % 4) + 1 citing papers.
+      const papers = (index % 4) + 1;
+      const mentions = Array.from({ length: papers }, (_, paper) =>
+        mention({
+          id: `m${String(index)}_${String(paper)}`,
+          paperId: `paper-${String(index)}-${String(paper)}`,
+          group: 0,
+          context: `Finding ${String(index)} holds in setting ${String(paper)}.`,
+        }),
+      );
+      const claims = mentions.map((entry) =>
+        claim({
+          id: `c${entry.mentionId}`,
+          mentionId: entry.mentionId,
+          text: `Finding ${String(index)} holds.`,
+        }),
+      );
+      return {
+        mentions,
+        claims,
+        candidate: candidate({
+          id: `cand_${String(index).padStart(3, "0")}`,
+          text: `Finding ${String(index)} holds.`,
+          mentionIds: mentions.map((entry) => entry.mentionId),
+          claimIds: claims.map((entry) => entry.claimRecordId),
+        }),
+      };
+    });
+    return {
+      candidates: entries.map((entry) => entry.candidate),
+      mentions: entries.flatMap((entry) => entry.mentions) as never[],
+      claims: entries.flatMap((entry) => entry.claims) as never[],
+    };
+  }
+
+  it("selects every candidate with a reason, past any family cap or record budget", () => {
+    const input = census(60);
+    const dispositions = selectCandidates({
+      ...input,
+      policy: candidateSelectionPolicySchema.parse({ mode: "all" }),
+    });
+    expect(dispositions).toHaveLength(60);
+    expect(dispositions.every((entry) => entry.selectedForScope)).toBe(true);
+    expect(
+      dispositions.every((entry) => entry.bindingConstraint === "selected"),
+    ).toBe(true);
+    expect(dispositions[0]!.reason).toMatch(/mode "all" keeps every candidate/);
+    expect(dispositions.map((entry) => entry.rank)).toEqual(
+      Array.from({ length: 60 }, (_, index) => index + 1),
+    );
+    // The most-restated findings lead; ties fall back to candidate ID.
+    const citers = dispositions.map(
+      (entry) => entry.annotation.uniqueCitingPaperCount,
+    );
+    expect(citers).toEqual([...citers].sort((left, right) => right - left));
+    expect(dispositions[0]!.candidateId).toBe("cand_003");
+
+    // The default portfolio, on the same candidates, defers most of them.
+    const portfolio = selectCandidates({
+      ...input,
+      policy: defaultAdaptivePortfolioPolicy,
+    });
+    expect(
+      portfolio.filter((entry) => entry.selectedForScope).length,
+    ).toBeLessThanOrEqual(defaultAdaptivePortfolioPolicy.maxFamilies);
+  });
+
+  it("rejects portfolio settings on the all mode", () => {
+    expect(
+      candidateSelectionPolicySchema.safeParse({ mode: "all", maxFamilies: 5 })
+        .success,
+    ).toBe(false);
   });
 });

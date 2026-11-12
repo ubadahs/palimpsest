@@ -2,8 +2,15 @@ import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
 import {
-  adaptivePortfolioPolicySchema,
+  candidateSelectionPolicySchema,
   defaultAdaptivePortfolioPolicy,
+} from "./adaptive-portfolio-policy.js";
+
+export {
+  candidateSelectionModeValues,
+  defaultAllCandidatesPolicy,
+  type CandidateSelectionMode,
+  type CandidateSelectionPolicy,
 } from "./adaptive-portfolio-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeySchema, type StageKey } from "./lean-stages.js";
@@ -130,10 +137,13 @@ export const analysisRunConfigSchema = z
           .int()
           .positive()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit),
+        /**
+         * Citing works probed. `"all"` probes every enumerated work (up to
+         * `neighborhoodLimit`, which stays the one cap on the neighborhood),
+         * so a census never restates that cap as a number.
+         */
         probeBudget: z
-          .number()
-          .int()
-          .nonnegative()
+          .union([z.number().int().nonnegative(), z.literal("all")])
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget),
         /**
          * Citing papers fetched, parsed, and harvested at once. Changes wall
@@ -146,7 +156,7 @@ export const analysisRunConfigSchema = z
           .min(1)
           .max(32)
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency),
-        candidateSelection: adaptivePortfolioPolicySchema.default(
+        candidateSelection: candidateSelectionPolicySchema.default(
           () => CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection,
         ),
         fromYear: z.number().int().positive().optional(),

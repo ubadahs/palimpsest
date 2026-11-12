@@ -760,6 +760,51 @@ export type DiscoverAttributedClaimRecord = z.infer<
 >;
 
 /**
+ * One clustering request of the blocked equivalence pass. A request that
+ * failed falls back without merging (exact text in a block, no joins in a
+ * merge) and says why; a block of a single claim needs no request.
+ */
+function blockedClusteringCallSchemaWith<Shape extends z.ZodRawShape>(
+  extra: Shape,
+) {
+  return z.discriminatedUnion("outcome", [
+    z
+      .object({
+        ...extra,
+        blockIndex: z.number().int().nonnegative(),
+        outcome: z.literal("model"),
+        execution: modelExecutionSchema,
+        /** Set when unknown, duplicate, or omitted claims were repaired deterministically. */
+        repairNote: z.string().min(1).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...extra,
+        blockIndex: z.number().int().nonnegative(),
+        outcome: z.literal("fallback"),
+        execution: modelExecutionSchema,
+        fallbackReason: z.string().min(1),
+      })
+      .strict(),
+    z
+      .object({
+        ...extra,
+        blockIndex: z.number().int().nonnegative(),
+        outcome: z.literal("single_claim"),
+      })
+      .strict(),
+  ]);
+}
+const blockedClusteringCallSchema = blockedClusteringCallSchemaWith({});
+const blockedMergeCallSchema = blockedClusteringCallSchemaWith({
+  /** Merge rounds count from 1; each round runs over the clusters the last left. */
+  round: z.number().int().positive(),
+});
+export type BlockedClusteringCall = z.infer<typeof blockedClusteringCallSchema>;
+export type BlockedMergeCall = z.infer<typeof blockedMergeCallSchema>;
+
+/**
  * How a candidate's member claims were judged equivalent. Exact text grouping
  * is the deterministic fallback; the model method clusters paraphrases across
  * citers so that a family is one seed finding, not one wording of it.
@@ -779,6 +824,57 @@ export const discoverClaimEquivalenceSchema = z.discriminatedUnion("method", [
       repairNote: z.string().min(1).optional(),
     })
     .strict(),
+  /**
+   * Too many claims for one request: exact-text groups were split into
+   * BM25-similar blocks, each block clustered by the model, and the block
+   * clusters merged by further model calls over one representative claim per
+   * cluster. The candidate names every call that judged its members.
+   */
+  z
+    .object({
+      method: z.literal("blocked_model"),
+      /** Blocks the seed's claims were split into. */
+      blockCount: z.number().int().positive(),
+      /** The block calls that clustered this candidate's claims. */
+      blocks: z.array(blockedClusteringCallSchema).min(1),
+      /** Merge calls that saw a representative of this candidate's clusters. */
+      merges: z.array(blockedMergeCallSchema),
+    })
+    .strict()
+    .superRefine((equivalence, context) => {
+      const blockIndexes = equivalence.blocks.map((block) => block.blockIndex);
+      blockIndexes.forEach((blockIndex, index) => {
+        if (blockIndex >= equivalence.blockCount) {
+          context.addIssue({
+            code: "custom",
+            path: ["blocks", index, "blockIndex"],
+            message: "Block index is outside the seed's block count",
+          });
+        }
+        if (index > 0 && blockIndex <= blockIndexes[index - 1]!) {
+          context.addIssue({
+            code: "custom",
+            path: ["blocks", index, "blockIndex"],
+            message: "Blocks must be unique and in block order",
+          });
+        }
+      });
+      equivalence.merges.forEach((merge, index) => {
+        const prior = equivalence.merges[index - 1];
+        if (
+          prior &&
+          (merge.round < prior.round ||
+            (merge.round === prior.round &&
+              merge.blockIndex <= prior.blockIndex))
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["merges", index],
+            message: "Merges must be unique and in round, then block, order",
+          });
+        }
+      });
+    }),
 ]);
 export type DiscoverClaimEquivalence = z.infer<
   typeof discoverClaimEquivalenceSchema

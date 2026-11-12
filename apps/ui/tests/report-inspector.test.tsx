@@ -524,7 +524,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
       not_adjudicated: 1,
       failed: 0,
     },
-    records,
+    recordIds: records.map((row) => row.recordId),
   };
   if (head.seedDoi) family.seedDoi = head.seedDoi;
   if (head.groundingStatus) family.groundingStatus = head.groundingStatus;
@@ -630,5 +630,35 @@ describe("report inspector", () => {
     );
     expect(window.location.search).toContain("family=family_1");
     expect(window.location.search).not.toContain("record=");
+  });
+
+  it("pages a large family's restatements instead of rendering them all", () => {
+    const payload = buildPayload();
+    const many = Array.from({ length: 120 }, (_, index) =>
+      record({
+        recordId: `record_many_${String(index).padStart(3, "0")}`,
+        adjudicationStatus: "adjudicated",
+        verdict: "F",
+        evaluatedClaimText: `Restatement number ${String(index)}`,
+      }),
+    );
+    payload.summary.records = many;
+    payload.summary.families[0]!.recordIds = many.map((row) => row.recordId);
+    payload.summary.families[0]!.recordCount = many.length;
+    render(
+      <ReportInspector
+        defaultTab="families"
+        payload={payload}
+        runId="run-report-ui"
+      />,
+    );
+
+    expect(screen.getByText("Restatement number 49")).toBeTruthy();
+    expect(screen.queryByText("Restatement number 50")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 50 more of 70" }));
+    expect(screen.getByText("Restatement number 99")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show 20 more of 20" }),
+    ).toBeTruthy();
   });
 });

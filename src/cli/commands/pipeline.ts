@@ -87,7 +87,8 @@ export function parseCanonicalPipelineArgs(
   let forceRefresh: boolean | undefined;
   let stopAfterStage: StageKey | undefined;
   let discoverNeighborhoodLimit: number | undefined;
-  let discoverProbeBudget: number | undefined;
+  let discoverProbeBudget: number | "all" | undefined;
+  let census = false;
   let modelConcurrency: number | undefined;
   let discoverFetchConcurrency: number | undefined;
   let discoverMinFamilies: number | undefined;
@@ -140,8 +141,14 @@ export function parseCanonicalPipelineArgs(
         index++;
         break;
       case "--probe-budget":
-        discoverProbeBudget = readPositiveInteger(argv, index, flag);
+        discoverProbeBudget =
+          argv[index + 1] === "all"
+            ? "all"
+            : readPositiveInteger(argv, index, flag);
         index++;
+        break;
+      case "--census":
+        census = true;
         break;
       case "--model-concurrency":
         modelConcurrency = readPositiveInteger(argv, index, flag);
@@ -279,6 +286,23 @@ export function parseCanonicalPipelineArgs(
       "A fresh canonical pipeline run requires --input <dois.json> (DOI-first); use --run-id <uuid> to resume.",
     );
   }
+  if (census) {
+    const conflicting = [
+      discoverProbeBudget != null ? "--probe-budget" : undefined,
+      discoverMinFamilies != null ? "--min-families" : undefined,
+      discoverMaxFamilies != null ? "--max-families" : undefined,
+      discoverMaxPreparedRecords != null ? "--max-prepared-records" : undefined,
+    ].filter((name): name is string => name != null);
+    if (conflicting.length > 0) {
+      fail(
+        `--census probes every citer and keeps every family; it cannot be combined with ${conflicting.join(", ")}.`,
+      );
+    }
+    // A census is two settings, not a third: probe the whole enumerated
+    // neighborhood (neighborhoodLimit stays the only cap) and select every
+    // candidate.
+    discoverProbeBudget = "all";
+  }
   if (input && rerunFromStage) {
     fail("--rerun-from is only valid with --run-id.");
   }
@@ -300,6 +324,7 @@ export function parseCanonicalPipelineArgs(
     stopAfterStage,
     discoverNeighborhoodLimit,
     discoverProbeBudget,
+    ...(census ? { discoverCandidateSelectionMode: "all" as const } : {}),
     modelConcurrency,
     discoverFetchConcurrency,
     discoverMinFamilies,
@@ -342,7 +367,10 @@ Options:
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
   --neighborhood-limit <n>          Safety cap on citing works enumerated (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit})
-  --probe-budget <n>                Discover citing-paper probe budget (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget})
+  --probe-budget <n|all>            Discover citing-paper probe budget (default ${String(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget)});
+                                    all probes every enumerated citer
+  --census                          Analyze every citer: --probe-budget all plus candidate
+                                    selection mode "all" (every family, no caps)
   --model-concurrency <n>           Model requests in flight per stage (default ${CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency})
   --fetch-concurrency <n>           Citing papers fetched and parsed at once in Discover (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency})
   --min-families <n>                Adaptive portfolio minimum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})

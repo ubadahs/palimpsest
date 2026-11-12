@@ -10,6 +10,15 @@ import {
 } from "../contract/lean-artifacts.js";
 
 /**
+ * Runs with at most this many records list every restatement and trace every
+ * record in Markdown. Larger runs summarize per family, so the file grows with
+ * families rather than records; the JSON always holds every record.
+ */
+export const MARKDOWN_RECORD_DETAIL_LIMIT = 200;
+/** Restatements shown per verdict per family in a summarized report. */
+export const MARKDOWN_EXAMPLES_PER_VERDICT = 2;
+
+/**
  * Pure deterministic Markdown rendering of a validated canonical Report.
  * Formats already-validated JSON fields only; never derives a second set of
  * counts or rates.
@@ -37,53 +46,74 @@ export function renderCanonicalReportMarkdown(
   );
   lines.push("");
 
+  const detailed = payload.recordTraces.length <= MARKDOWN_RECORD_DETAIL_LIMIT;
   lines.push("## Claim families and their restatements");
   lines.push("");
   lines.push(
     "Each family is one seed finding. Restatements are listed in citing-paper order (year, then title). Verdicts are uncalibrated.",
   );
   lines.push("");
+  if (!detailed) {
+    lines.push(
+      `This run has ${String(payload.recordTraces.length)} records, more than the ${String(MARKDOWN_RECORD_DETAIL_LIMIT)} this file lists one by one, so each family shows its counts and up to ${String(MARKDOWN_EXAMPLES_PER_VERDICT)} illustrative restatements per verdict (D and E first, with the adjudicator's statements, then U and F; the earliest citing papers). Every restatement, with its verdict and the adjudicator's statements, is in \`familyMutations\` of the report JSON beside this file.`,
+    );
+    lines.push("");
+  }
   if (payload.familyMutations.length === 0) {
     lines.push("- No families were scoped.");
     lines.push("");
   }
-  for (const family of payload.familyMutations) {
+  payload.familyMutations.forEach((family, familyIndex) => {
+    const counts = family.verdictCounts;
+    const adjudicated = counts.F + counts.D + counts.E + counts.U;
     lines.push(`### ${family.trackedClaim}`);
     lines.push("");
     lines.push(
-      `Seed: ${family.seedTitle ?? family.seedDoi} (\`${family.seedDoi}\`) · grounding \`${family.groundingStatus}\`${family.equivalenceMethod ? ` · equivalence \`${family.equivalenceMethod}\`` : ""} · ${String(family.records.length)} records, ${String(family.uniqueClaimUnits)} unique claim units · F ${String(family.verdictCounts.F)}, D ${String(family.verdictCounts.D)}, E ${String(family.verdictCounts.E)}, U ${String(family.verdictCounts.U)}, gated ${String(family.verdictCounts.not_adjudicated)}, failed ${String(family.verdictCounts.failed)}`,
+      `Seed: ${family.seedTitle ?? family.seedDoi} (\`${family.seedDoi}\`) · grounding \`${family.groundingStatus}\`${family.equivalenceMethod ? ` · equivalence \`${family.equivalenceMethod}\`` : ""} · ${String(family.records.length)} records, ${String(family.uniqueClaimUnits)} unique claim units · F ${String(counts.F)}, D ${String(counts.D)}, E ${String(counts.E)}, U ${String(counts.U)}, gated ${String(counts.not_adjudicated)}, failed ${String(counts.failed)}`,
     );
     lines.push("");
-    for (const span of family.verifiedSeedGroundingSpans.slice(0, 3)) {
+    if (adjudicated > 0) {
+      lines.push(
+        `Share of the ${String(adjudicated)} adjudicated: ${(["D", "E", "U", "F"] as const).map((verdict) => `${verdict} ${formatPercent(counts[verdict] / adjudicated)}`).join(", ")}.`,
+      );
+      lines.push("");
+    }
+    for (const span of family.verifiedSeedGroundingSpans.slice(
+      0,
+      detailed ? 3 : 1,
+    )) {
       lines.push(
         `> Seed${span.sectionTitle ? ` (${span.sectionTitle})` : ""}: ${span.text}`,
       );
     }
     if (family.verifiedSeedGroundingSpans.length > 0) lines.push("");
-    for (const record of family.records) {
-      const year =
-        record.citingPaperYear != null
-          ? String(record.citingPaperYear)
-          : "n.d.";
-      const outcome =
-        record.status === "adjudicated"
-          ? `**${record.verdict ?? "?"}**${record.mutationKinds && record.mutationKinds.length > 0 ? ` (${record.direction ?? "shifted"}: ${record.mutationKinds.join(", ")})` : ""}`
-          : record.status === "not_adjudicated"
-            ? `gated: ${record.gateCode ?? "unknown"}`
-            : record.status;
-      lines.push(
-        `- ${year} · ${record.citingPaperTitle}${record.citingPaperDoi ? ` (\`${record.citingPaperDoi}\`)` : ""} · ${outcome}`,
+    if (detailed) {
+      for (const record of family.records) appendRestatement(lines, record);
+    } else {
+      const shown = (["D", "E", "U", "F"] as const).flatMap((verdict) =>
+        family.records
+          .filter(
+            (record) =>
+              record.status === "adjudicated" && record.verdict === verdict,
+          )
+          .slice(0, MARKDOWN_EXAMPLES_PER_VERDICT),
       );
-      lines.push(
-        `  - Restatement: ${record.citingRestatement.replace(/\n/g, " / ")}`,
-      );
-      if (record.citingAssertion && record.sourceStatement) {
-        lines.push(`  - Citing asserts: ${record.citingAssertion}`);
-        lines.push(`  - Seed evidence says: ${record.sourceStatement}`);
+      // The adjudicator's two statements say what moved, so they stay on D
+      // and E examples; U and F examples keep only the restatement.
+      for (const record of shown) {
+        appendRestatement(lines, record, {
+          statements: record.verdict === "D" || record.verdict === "E",
+        });
+      }
+      const rest = family.records.length - shown.length;
+      if (rest > 0) {
+        lines.push(
+          `- ${String(rest)} more restatement${rest === 1 ? "" : "s"} in \`familyMutations[${String(familyIndex)}].records\` of the report JSON.`,
+        );
       }
     }
     lines.push("");
-  }
+  });
 
   lines.push("## Run and funnel coverage");
   lines.push("");
@@ -179,7 +209,7 @@ export function renderCanonicalReportMarkdown(
   );
   lines.push("");
   lines.push(
-    "Adaptive portfolio selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics; cross-citer paraphrases are merged by the Discover equivalence pass.",
+    "Candidate selection is deterministic. Deferred-by-novelty counts are lexical-redundancy diagnostics; cross-citer paraphrases are merged by the Discover equivalence pass.",
   );
   lines.push("");
   lines.push("### Scope");
@@ -398,6 +428,10 @@ export function renderCanonicalReportMarkdown(
   lines.push("");
   if (payload.recordTraces.length === 0) {
     lines.push("- No family×occurrence records.");
+  } else if (!detailed) {
+    lines.push(
+      `- ${String(payload.recordTraces.length)} records, more than the ${String(MARKDOWN_RECORD_DETAIL_LIMIT)} traced here one by one; each record's trace is in \`recordTraces\` of the report JSON.`,
+    );
   } else {
     for (const trace of payload.recordTraces) {
       lines.push(formatTraceLine(trace));
@@ -476,6 +510,31 @@ export function renderCanonicalReportMarkdown(
   lines.push("");
 
   return `${lines.join("\n")}`;
+}
+
+function appendRestatement(
+  lines: string[],
+  record: ReportArtifactPayload["familyMutations"][number]["records"][number],
+  options: { statements: boolean } = { statements: true },
+): void {
+  const year =
+    record.citingPaperYear != null ? String(record.citingPaperYear) : "n.d.";
+  const outcome =
+    record.status === "adjudicated"
+      ? `**${record.verdict ?? "?"}**${record.mutationKinds && record.mutationKinds.length > 0 ? ` (${record.direction ?? "shifted"}: ${record.mutationKinds.join(", ")})` : ""}`
+      : record.status === "not_adjudicated"
+        ? `gated: ${record.gateCode ?? "unknown"}`
+        : record.status;
+  lines.push(
+    `- ${year} · ${record.citingPaperTitle}${record.citingPaperDoi ? ` (\`${record.citingPaperDoi}\`)` : ""} · ${outcome}`,
+  );
+  lines.push(
+    `  - Restatement: ${record.citingRestatement.replace(/\n/g, " / ")}`,
+  );
+  if (options.statements && record.citingAssertion && record.sourceStatement) {
+    lines.push(`  - Citing asserts: ${record.citingAssertion}`);
+    lines.push(`  - Seed evidence says: ${record.sourceStatement}`);
+  }
 }
 
 function extractValidatedPayload(

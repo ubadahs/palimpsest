@@ -15,6 +15,7 @@ import {
   fetchJson,
   type FetchJsonOptions,
 } from "../integrations/http-client.js";
+import { createConcurrencyLimiter } from "../shared/concurrency.js";
 import {
   computeContentHash,
   getCachedPaper,
@@ -1460,8 +1461,18 @@ async function defaultProcessPdfWithGrobid(
   }
 }
 
+/** Concurrent GROBID parses when the caller names no bound. */
+export const DEFAULT_GROBID_CONCURRENCY = 2;
+
 export type CreateAdaptersOptions = {
   grobidBaseUrl: string;
+  /**
+   * PDFs sent to GROBID at once. Separate from Discover's fetch concurrency:
+   * a local GROBID container times out when several papers fetched side by
+   * side all reach it together. Waiting for a slot does not count against the
+   * request timeout, which starts when the PDF is sent.
+   */
+  grobidConcurrency?: number | undefined;
   email: string | undefined;
   institutionalProxyUrl?: string | undefined;
 };
@@ -1469,10 +1480,15 @@ export type CreateAdaptersOptions = {
 export function createDefaultAdapters(
   options: CreateAdaptersOptions,
 ): FullTextFetchAdapters {
+  const limitGrobid = createConcurrencyLimiter(
+    options.grobidConcurrency ?? DEFAULT_GROBID_CONCURRENCY,
+  );
   return {
     fetchUrl: defaultFetchUrl,
     processPdfWithGrobid: (buffer) =>
-      defaultProcessPdfWithGrobid(buffer, options.grobidBaseUrl),
+      limitGrobid(() =>
+        defaultProcessPdfWithGrobid(buffer, options.grobidBaseUrl),
+      ),
     email: options.email,
     institutionalProxyUrl: options.institutionalProxyUrl,
   };

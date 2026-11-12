@@ -1124,6 +1124,50 @@ describe("canonical Prepare", () => {
     });
   });
 
+  it("classifies side by side and writes the same artifact as one at a time", async () => {
+    const discover = await buildDiscoverArtifact(
+      "run-canonical-prepare-fixture",
+    );
+    const scope = await buildScopeArtifact(discover, "grounded");
+    const base = prepareAdapters("mixed");
+    // Later records answer first, so completion order is the reverse of
+    // input order.
+    let pending = 0;
+    let maxInFlight = 0;
+    const delayed: CanonicalPrepareAdapters = {
+      classifyCitation: async (input) => {
+        pending += 1;
+        maxInFlight = Math.max(maxInFlight, pending);
+        await new Promise((resolve) =>
+          setTimeout(resolve, 20 - input.citationOccurrence.mentionIndex * 5),
+        );
+        pending -= 1;
+        return base.classifyCitation(input);
+      },
+    };
+    const options = {
+      recordedAt: "2026-07-16T10:20:00.000Z",
+      scopeArtifactUri: "fixture://canonical-scope/scope.json",
+    };
+    const sequential = await runCanonicalPrepare(scope, discover, base, {
+      ...options,
+      concurrency: 1,
+    });
+    const parallel = await runCanonicalPrepare(scope, discover, delayed, {
+      ...options,
+      concurrency: 8,
+    });
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(parallel).toEqual(sequential);
+    const build = (result: CanonicalPrepareResult) =>
+      buildCanonicalPrepareArtifact({
+        result,
+        runId: discover.runId,
+        createdAt: "2026-07-16T10:25:00.000Z",
+      });
+    expect(build(parallel).contentHash).toBe(build(sequential).contentHash);
+  });
+
   it("fails the stage on fatal classifier failures", async () => {
     const discover = await buildDiscoverArtifact();
     const scope = await buildScopeArtifact(discover);

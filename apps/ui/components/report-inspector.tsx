@@ -174,6 +174,7 @@ export function ReportInspector({
         <TabsContent value="families">
           <FamiliesBrowser
             families={summary.families}
+            records={summary.records}
             onSelect={(nextFamilyId, nextRecordId) =>
               updateQuery({
                 tab: "families",

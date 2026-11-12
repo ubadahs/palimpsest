@@ -893,7 +893,9 @@ export const reportFamilyMutationSchema = z
     seedTitle: z.string().min(1).optional(),
     trackedClaim: z.string().min(1),
     /** How the family's member claims were judged equivalent in Discover. */
-    equivalenceMethod: z.enum(["model", "exact_normalized_text"]).optional(),
+    equivalenceMethod: z
+      .enum(["model", "blocked_model", "exact_normalized_text"])
+      .optional(),
     groundingStatus: z.string().min(1),
     verifiedSeedGroundingSpans: z.array(reportFamilyGroundingSpanSchema),
     verdictCounts: z

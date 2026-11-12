@@ -91,6 +91,7 @@ type CitingYearRange = { fromYear?: number; toYear?: number };
 function createFullTextAdapters(config: AppConfig): FullTextFetchAdapters {
   return createDefaultAdapters({
     grobidBaseUrl: config.providerBaseUrls.grobid,
+    grobidConcurrency: config.grobidConcurrency,
     email: config.openAlexEmail,
     institutionalProxyUrl: config.institutionalProxyUrl,
   });

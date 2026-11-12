@@ -146,19 +146,36 @@ function MutationRecordCard({
   );
 }
 
+/**
+ * Restatement cards rendered at first and added per "Show more". A census
+ * family can hold hundreds of restatements; rendering them all at once made
+ * switching families slow.
+ */
+export const FAMILY_RESTATEMENT_PAGE_SIZE = 50;
+
 export function FamiliesBrowser({
   families,
+  records,
   selectedFamilyId,
   selectedRecordId,
   onSelect,
 }: {
   families: MutationFamilyView[];
+  /** Every report row; families refer to them by id. */
+  records: ReportInspectorRecordRow[];
   selectedFamilyId?: string;
   selectedRecordId?: string;
   onSelect: (familyId: string, recordId?: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<RecordFilter>("all");
+  const [visibleCount, setVisibleCount] = useState(
+    FAMILY_RESTATEMENT_PAGE_SIZE,
+  );
+  const rowsById = useMemo(
+    () => new Map(records.map((record) => [record.recordId, record])),
+    [records],
+  );
 
   const activeFamilyId =
     selectedFamilyId &&
@@ -170,10 +187,20 @@ export function FamiliesBrowser({
     families.find((family) => family.familyId === activeFamilyId) ??
     families[0];
 
+  const familyRecords = useMemo(
+    () =>
+      activeFamily
+        ? activeFamily.recordIds.flatMap((recordId) => {
+            const row = rowsById.get(recordId);
+            return row ? [row] : [];
+          })
+        : [],
+    [activeFamily, rowsById],
+  );
+
   const filteredRecords = useMemo(() => {
-    if (!activeFamily) return [];
     const needle = query.trim().toLowerCase();
-    return activeFamily.records.filter((record) => {
+    return familyRecords.filter((record) => {
       if (!matchesRecordFilter(record, filter)) return false;
       if (!needle) return true;
       const haystack = [
@@ -187,7 +214,25 @@ export function FamiliesBrowser({
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [activeFamily, filter, query]);
+  }, [familyRecords, filter, query]);
+
+  // A new family, filter, or search starts from the first page again; a
+  // deep-linked record further down is paged in so it can be opened.
+  const selectedIndex = selectedRecordId
+    ? filteredRecords.findIndex(
+        (record) => record.recordId === selectedRecordId,
+      )
+    : -1;
+  useEffect(() => {
+    setVisibleCount(
+      Math.max(
+        FAMILY_RESTATEMENT_PAGE_SIZE,
+        Math.ceil((selectedIndex + 1) / FAMILY_RESTATEMENT_PAGE_SIZE) *
+          FAMILY_RESTATEMENT_PAGE_SIZE,
+      ),
+    );
+  }, [activeFamilyId, filter, query, selectedIndex]);
+  const visibleRecords = filteredRecords.slice(0, visibleCount);
 
   useEffect(() => {
     if (!selectedRecordId) return;
@@ -333,12 +378,12 @@ export function FamiliesBrowser({
 
         <p className="text-sm text-[var(--text-muted)]">
           Chronological citing restatements · showing{" "}
-          {String(filteredRecords.length)} of{" "}
-          {String(activeFamily.records.length)}
+          {String(visibleRecords.length)} of {String(filteredRecords.length)}{" "}
+          matching, {String(familyRecords.length)}
         </p>
 
         <div className="space-y-3">
-          {filteredRecords.map((record) => (
+          {visibleRecords.map((record) => (
             <MutationRecordCard
               key={record.recordId}
               onSelect={() => onSelect(activeFamily.familyId, record.recordId)}
@@ -346,6 +391,24 @@ export function FamiliesBrowser({
               selected={selectedRecordId === record.recordId}
             />
           ))}
+          {filteredRecords.length > visibleRecords.length ? (
+            <button
+              className="w-full rounded-full border border-[var(--border)] bg-white/60 px-4 py-2 text-sm font-semibold text-[var(--text-muted)] hover:bg-white/80"
+              onClick={() =>
+                setVisibleCount((count) => count + FAMILY_RESTATEMENT_PAGE_SIZE)
+              }
+              type="button"
+            >
+              Show{" "}
+              {String(
+                Math.min(
+                  FAMILY_RESTATEMENT_PAGE_SIZE,
+                  filteredRecords.length - visibleRecords.length,
+                ),
+              )}{" "}
+              more of {String(filteredRecords.length - visibleRecords.length)}
+            </button>
+          ) : null}
           {filteredRecords.length === 0 ? (
             <Card>
               <CardContent className="p-6 text-sm text-[var(--text-muted)]">

@@ -9,8 +9,8 @@ import { findDuplicate } from "../contract/artifacts/checks.js";
 import { normalizeDiscoverClaimText } from "../contract/claim-unit.js";
 
 import {
-  adaptivePortfolioPolicySchema,
-  selectAdaptivePortfolio,
+  candidateSelectionPolicySchema,
+  selectCandidates,
 } from "../contract/candidate-selection-policy.js";
 import { paperTypeSchema } from "../domain/common.js";
 import {
@@ -38,7 +38,6 @@ import {
   type DiscoverCitationOccurrence,
   type DiscoverCitingPaperRecord,
   type DiscoverClaimCandidate,
-  type DiscoverClaimEquivalence,
   type DiscoverProbeStratum,
   isInSamplingFrame,
   type LeanArtifactProvenance,
@@ -52,6 +51,7 @@ import {
 } from "../contract/model-execution.js";
 import { verifyClaimSupportSpan } from "../shared/claim-support-span.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
+import { clusterSeedClaims, type ClaimGroup } from "./claim-clustering.js";
 
 const fatalProviderFailureCodeSchema = z.enum([
   "authentication",
@@ -107,8 +107,9 @@ const canonicalDiscoverOptionsSchema = z
         yearRange: yearRangeSchema.optional(),
       })
       .strict(),
-    probeBudget: z.number().int().nonnegative(),
-    candidateSelection: adaptivePortfolioPolicySchema,
+    /** Citing works to probe; `"all"` probes the whole enumerated neighborhood. */
+    probeBudget: z.union([z.number().int().nonnegative(), z.literal("all")]),
+    candidateSelection: candidateSelectionPolicySchema,
     recordedAt: z.string().datetime({ offset: true }),
     /** Model requests in flight at once; results keep input order. */
     concurrency: z.number().int().positive().optional(),
@@ -646,7 +647,9 @@ export async function runCanonicalDiscover(
     );
     const probeSelection = selectDeterministicProbeSet(
       paperObservations,
-      options.probeBudget,
+      options.probeBudget === "all"
+        ? paperObservations.length
+        : options.probeBudget,
     );
     neighborhoodQueries.push({
       ...boundaryBase,
@@ -913,6 +916,7 @@ export async function runCanonicalDiscover(
     records: attributedClaimRecords,
     resolvedSeedsById,
     adapters,
+    concurrency: options.concurrency ?? 1,
     describeClaim: (record) => ({
       claimRecordId: record.claimRecordId,
       extractedClaimText: record.extractedClaimText,
@@ -936,7 +940,7 @@ export async function runCanonicalDiscover(
     },
   });
   const claimCandidates = buildClaimCandidates(claimGroups);
-  const candidateDispositions = selectAdaptivePortfolio({
+  const candidateDispositions = selectCandidates({
     candidates: claimCandidates,
     mentions: citationMentions,
     claims: attributedClaimRecords,
@@ -1116,105 +1120,6 @@ function claimDuplicateOrderingContent(
   };
 }
 
-type ClaimGroup = {
-  seedId: string;
-  canonicalClaim: string;
-  records: DiscoverAttributedClaimRecord[];
-  equivalence: DiscoverClaimEquivalence;
-};
-
-/** Deterministic fallback: one group per exact normalized claim text. */
-function groupRecordsByNormalizedText(
-  records: readonly DiscoverAttributedClaimRecord[],
-  fallbackReason?: string,
-): ClaimGroup[] {
-  const groups = new Map<string, DiscoverAttributedClaimRecord[]>();
-  for (const record of records) {
-    const key = canonicalSerialize({
-      seedId: record.seedId,
-      normalizedClaim: normalizeDiscoverClaimText(record.extractedClaimText),
-    });
-    const group = groups.get(key);
-    if (group) group.push(record);
-    else groups.set(key, [record]);
-  }
-  return [...groups.values()].map((group) => {
-    const ordered = [...group].sort((left, right) =>
-      compareCodeUnits(left.claimRecordId, right.claimRecordId),
-    );
-    const canonicalClaim = ordered
-      .map((record) => record.extractedClaimText.trim().replace(/\s+/g, " "))
-      .sort(compareCodeUnits)[0]!;
-    return {
-      seedId: ordered[0]!.seedId,
-      canonicalClaim,
-      records: ordered,
-      equivalence: {
-        method: "exact_normalized_text",
-        ...(fallbackReason ? { fallbackReason } : {}),
-      },
-    };
-  });
-}
-
-/**
- * Repair a model partition deterministically: unknown ids are dropped, a
- * record named twice keeps its first cluster, and records the model omitted
- * become singleton clusters. Empty clusters vanish. The repair is recorded so
- * the artifact says how much of the grouping was the model's.
- */
-function repairClusterPartition(
-  clusters: ReadonlyArray<{ canonicalClaim: string; claimRecordIds: string[] }>,
-  records: readonly DiscoverAttributedClaimRecord[],
-): {
-  clusters: Array<{ canonicalClaim: string; claimRecordIds: string[] }>;
-  repairNote: string | undefined;
-} {
-  const recordsById = new Map(
-    records.map((record) => [record.claimRecordId, record]),
-  );
-  const seen = new Set<string>();
-  let unknown = 0;
-  let duplicate = 0;
-  const repaired = clusters
-    .map((cluster) => ({
-      canonicalClaim: cluster.canonicalClaim,
-      claimRecordIds: cluster.claimRecordIds.filter((claimRecordId) => {
-        if (!recordsById.has(claimRecordId)) {
-          unknown += 1;
-          return false;
-        }
-        if (seen.has(claimRecordId)) {
-          duplicate += 1;
-          return false;
-        }
-        seen.add(claimRecordId);
-        return true;
-      }),
-    }))
-    .filter((cluster) => cluster.claimRecordIds.length > 0);
-  const omitted = records.filter((record) => !seen.has(record.claimRecordId));
-  for (const record of omitted) {
-    repaired.push({
-      canonicalClaim: record.extractedClaimText.trim().replace(/\s+/g, " "),
-      claimRecordIds: [record.claimRecordId],
-    });
-  }
-  const notes = [
-    unknown > 0 ? `${String(unknown)} unknown claim reference(s) dropped` : "",
-    duplicate > 0
-      ? `${String(duplicate)} duplicate reference(s) kept in first cluster`
-      : "",
-    omitted.length > 0
-      ? `${String(omitted.length)} omitted claim(s) placed in singleton clusters`
-      : "",
-  ].filter((note) => note.length > 0);
-  return {
-    clusters: repaired,
-    repairNote: notes.length > 0 ? notes.join("; ") : undefined,
-  };
-}
-
 async function buildClaimGroups(input: {
   records: readonly DiscoverAttributedClaimRecord[];
   resolvedSeedsById: ReadonlyMap<
@@ -1225,6 +1130,7 @@ async function buildClaimGroups(input: {
   describeClaim: (
     record: DiscoverAttributedClaimRecord,
   ) => CanonicalClaimCanonicalizationInput["claims"][number];
+  concurrency: number;
   onExecution: (execution: ModelExecution) => void;
 }): Promise<ClaimGroup[]> {
   const recordsBySeed = new Map<string, DiscoverAttributedClaimRecord[]>();
@@ -1236,48 +1142,30 @@ async function buildClaimGroups(input: {
 
   const groups: ClaimGroup[] = [];
   for (const seedId of [...recordsBySeed.keys()].sort(compareCodeUnits)) {
-    const records = recordsBySeed.get(seedId)!;
-    const exactGroups = groupRecordsByNormalizedText(records);
     const seed = input.resolvedSeedsById.get(seedId);
-    if (!input.adapters.canonicalizeClaims || !seed || exactGroups.length < 2) {
-      groups.push(...exactGroups);
-      continue;
-    }
-    const result = parseAdapterOutput(
-      canonicalClaimCanonicalizationResultSchema,
-      await input.adapters.canonicalizeClaims({
-        seed,
-        claims: records.map(input.describeClaim),
-      }),
-      `claim canonicalization for ${seedId}`,
+    const canonicalize = input.adapters.canonicalizeClaims;
+    groups.push(
+      ...(await clusterSeedClaims({
+        records: recordsBySeed.get(seedId)!,
+        call:
+          canonicalize && seed
+            ? async (records) => {
+                const result = parseAdapterOutput(
+                  canonicalClaimCanonicalizationResultSchema,
+                  await canonicalize({
+                    seed,
+                    claims: records.map(input.describeClaim),
+                  }),
+                  `claim canonicalization for ${seedId}`,
+                );
+                if (result.status === "failed") throwIfFatal(result);
+                return result;
+              }
+            : undefined,
+        concurrency: input.concurrency,
+        onExecution: input.onExecution,
+      })),
     );
-    input.onExecution(result.execution);
-    if (result.status === "failed") {
-      throwIfFatal(result);
-      groups.push(...groupRecordsByNormalizedText(records, result.reason));
-      continue;
-    }
-    const repaired = repairClusterPartition(result.clusters, records);
-    const recordsById = new Map(
-      records.map((record) => [record.claimRecordId, record]),
-    );
-    for (const cluster of repaired.clusters) {
-      const ordered = cluster.claimRecordIds
-        .map((claimRecordId) => recordsById.get(claimRecordId)!)
-        .sort((left, right) =>
-          compareCodeUnits(left.claimRecordId, right.claimRecordId),
-        );
-      groups.push({
-        seedId,
-        canonicalClaim: cluster.canonicalClaim.trim().replace(/\s+/g, " "),
-        records: ordered,
-        equivalence: {
-          method: "model",
-          execution: result.execution,
-          ...(repaired.repairNote ? { repairNote: repaired.repairNote } : {}),
-        },
-      });
-    }
   }
   return groups;
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   CANONICAL_RUN_CONFIG_DEFAULTS,
   stageDefinitions,
+  type CandidateSelectionMode,
   type RunDetail,
   type StageKey,
 } from "palimpsest/contract";
@@ -23,6 +24,9 @@ type FormState = {
   discover: {
     neighborhoodLimit: number;
     probeBudget: number;
+    /** Probe every enumerated citer instead of `probeBudget` of them. */
+    probeAll: boolean;
+    selectionMode: CandidateSelectionMode;
     minFamilies: number;
     maxFamilies: number;
     maxPreparedRecords: number;
@@ -84,6 +88,9 @@ const defaultState: FormState = {
   discover: {
     neighborhoodLimit: CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
     probeBudget: CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget,
+    probeAll: false,
+    selectionMode:
+      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.mode,
     minFamilies:
       CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies,
     maxFamilies:
@@ -135,14 +142,19 @@ function flattenConfig(s: FormState) {
     modelConcurrency: s.modelConcurrency,
     discover: {
       neighborhoodLimit: s.discover.neighborhoodLimit,
-      probeBudget: s.discover.probeBudget,
+      probeBudget: s.discover.probeAll
+        ? ("all" as const)
+        : s.discover.probeBudget,
       fetchConcurrency: s.fetchConcurrency,
-      candidateSelection: {
-        mode: "adaptive_portfolio" as const,
-        minFamilies: s.discover.minFamilies,
-        maxFamilies: s.discover.maxFamilies,
-        maxPreparedRecords: s.discover.maxPreparedRecords,
-      },
+      candidateSelection:
+        s.discover.selectionMode === "all"
+          ? { mode: "all" as const }
+          : {
+              mode: "adaptive_portfolio" as const,
+              minFamilies: s.discover.minFamilies,
+              maxFamilies: s.discover.maxFamilies,
+              maxPreparedRecords: s.discover.maxPreparedRecords,
+            },
       extractionModel: s.discover.extractionModel,
       extractionThinking: s.discover.extractionThinking,
       canonicalizationModel: s.discover.canonicalizationModel,
@@ -389,6 +401,7 @@ export function NewRunForm() {
                     Maximum citing papers to inspect for in-text mentions.
                   </span>
                   <Input
+                    disabled={state.discover.probeAll}
                     min={1}
                     type="number"
                     value={state.discover.probeBudget}
@@ -402,66 +415,118 @@ export function NewRunForm() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-[var(--text)]">
-                    Min families
+                  <span className="flex items-center gap-3 text-sm font-semibold text-[var(--text)]">
+                    <input
+                      checked={state.discover.probeAll}
+                      className="h-4 w-4 rounded border-[var(--border)]"
+                      type="checkbox"
+                      onChange={(event) =>
+                        updateStage(
+                          "discover",
+                          "probeAll",
+                          event.target.checked,
+                        )
+                      }
+                    />
+                    Probe every citer
                   </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    Adaptive portfolio keeps selecting until at least this many
-                    claim families are chosen.
+                  <span className="pl-7 text-xs text-[var(--text-muted)]">
+                    Inspect every enumerated citing paper, up to the
+                    neighborhood limit, instead of a sample.
                   </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.discover.minFamilies}
-                    onChange={(event) =>
-                      updateStage(
-                        "discover",
-                        "minFamilies",
-                        Number(event.target.value),
-                      )
-                    }
-                  />
                 </label>
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
-                    Max families
+                    Candidate selection
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Upper bound on claim families selected for Scope.
+                    Which claim families go on to Scope. Every family keeps them
+                    all, with no family cap or record budget; with every citer
+                    probed this is a census.
                   </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.discover.maxFamilies}
+                  <select
+                    className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
                     onChange={(event) =>
                       updateStage(
                         "discover",
-                        "maxFamilies",
-                        Number(event.target.value),
+                        "selectionMode",
+                        event.target.value as CandidateSelectionMode,
                       )
                     }
-                  />
+                    value={state.discover.selectionMode}
+                  >
+                    <option value="adaptive_portfolio">
+                      Adaptive portfolio (15–25 families)
+                    </option>
+                    <option value="all">Every family</option>
+                  </select>
                 </label>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-[var(--text)]">
-                    Max prepared records
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    Budget on family × occurrence prepare records downstream.
-                  </span>
-                  <Input
-                    min={1}
-                    type="number"
-                    value={state.discover.maxPreparedRecords}
-                    onChange={(event) =>
-                      updateStage(
-                        "discover",
-                        "maxPreparedRecords",
-                        Number(event.target.value),
-                      )
-                    }
-                  />
-                </label>
+                {state.discover.selectionMode === "adaptive_portfolio" ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Min families
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Adaptive portfolio keeps selecting until at least this
+                        many claim families are chosen.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discover.minFamilies}
+                        onChange={(event) =>
+                          updateStage(
+                            "discover",
+                            "minFamilies",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Max families
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Upper bound on claim families selected for Scope.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discover.maxFamilies}
+                        onChange={(event) =>
+                          updateStage(
+                            "discover",
+                            "maxFamilies",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-sm font-semibold text-[var(--text)]">
+                        Max prepared records
+                      </span>
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Budget on family × occurrence prepare records
+                        downstream.
+                      </span>
+                      <Input
+                        min={1}
+                        type="number"
+                        value={state.discover.maxPreparedRecords}
+                        onChange={(event) =>
+                          updateStage(
+                            "discover",
+                            "maxPreparedRecords",
+                            Number(event.target.value),
+                          )
+                        }
+                      />
+                    </label>
+                  </>
+                ) : null}
                 <label className="grid gap-2">
                   <span className="text-sm font-semibold text-[var(--text)]">
                     From year
