@@ -53,6 +53,12 @@ npm run dev -- pipeline --input path/to/dois.json --max-cost 4
 npm run dev -- pipeline --input path/to/dois.json --batch
 ```
 
+`--census` analyzes every citer and keeps every claim family instead of sampling; pair it with a cost cap:
+
+```bash
+npm run dev -- pipeline --input path/to/dois.json --census --max-cost 40
+```
+
 Run the local UI for orchestration, logs, and artifact inspection:
 
 ```bash

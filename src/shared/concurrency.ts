@@ -61,3 +61,42 @@ export function dedupeInFlight<T>(
   inFlight.set(key, started);
   return started;
 }
+
+/**
+ * A shared bound on concurrent calls to one resource, for work that is
+ * started from many places at once (several `pMap` workers, say) but must not
+ * overload what serves it. Calls past the bound wait in arrival order; a
+ * waiting call has not started, so any timeout it sets begins only once it
+ * holds a slot.
+ */
+export function createConcurrencyLimiter(
+  limit: number,
+): <T>(task: () => Promise<T>) => Promise<T> {
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error(
+      `Concurrency limit must be a positive integer: ${String(limit)}`,
+    );
+  }
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = () => {
+    active -= 1;
+    const next = waiting.shift();
+    if (next) {
+      active += 1;
+      next();
+    }
+  };
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active < limit) {
+      active += 1;
+    } else {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    }
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  };
+}

@@ -18,6 +18,9 @@ import { z } from "zod";
 import type { AppConfig } from "../config/app-config.js";
 import {
   analysisRunConfigSchema,
+  CANONICAL_RUN_CONFIG_DEFAULTS,
+  defaultAllCandidatesPolicy,
+  type CandidateSelectionMode,
   type AnalysisRun,
   type AnalysisStageSummary,
   type AnalysisRunConfig,
@@ -111,7 +114,10 @@ export type CanonicalPipelineCliOverrides = {
   stopAfterStage: StageKey | undefined;
   /** Total citing-work observation cap across paginated provider requests. */
   discoverNeighborhoodLimit?: number | undefined;
-  discoverProbeBudget: number | undefined;
+  /** A count, or `"all"` to probe every enumerated citing work. */
+  discoverProbeBudget: number | "all" | undefined;
+  /** `--census` sets `all`; absent keeps the run's current mode. */
+  discoverCandidateSelectionMode?: CandidateSelectionMode | undefined;
   /** Model requests in flight at once within a stage. */
   modelConcurrency?: number | undefined;
   discoverFetchConcurrency?: number | undefined;
@@ -358,7 +364,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
 
   prepare: defineStage({
     stageKey: "prepare",
-    run: ({ chain, adapters, recordedAt }) =>
+    run: ({ chain, adapters, recordedAt, runConfig }) =>
       runCanonicalPrepare(
         requireChain(
           chain.scope,
@@ -369,7 +375,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
           "Prepare requires validated Scope and Discover artifacts.",
         ),
         adapters.prepare,
-        { recordedAt },
+        { recordedAt, concurrency: runConfig.modelConcurrency },
       ),
     build: buildCanonicalPrepareArtifact,
     count: (artifact) => artifact.payload.records.length,
@@ -470,6 +476,46 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
   }),
 };
 
+/**
+ * A mode switch starts from that mode's defaults (a portfolio's caps mean
+ * nothing to `all`); portfolio flags then apply only to a portfolio, and the
+ * CLI rejects them beside `all`.
+ */
+function buildCandidateSelectionFromCli(
+  args: CanonicalPipelineCliOverrides,
+  base: AnalysisRunConfig["discover"]["candidateSelection"],
+): AnalysisRunConfig["discover"]["candidateSelection"] {
+  const mode = args.discoverCandidateSelectionMode ?? base.mode;
+  if (mode === "all") {
+    if (
+      args.discoverMinFamilies != null ||
+      args.discoverMaxFamilies != null ||
+      args.discoverMaxPreparedRecords != null
+    ) {
+      throw new CanonicalExecutorError(
+        'Portfolio caps (--min-families, --max-families, --max-prepared-records) do not apply to candidate selection mode "all".',
+      );
+    }
+    return base.mode === "all" ? base : defaultAllCandidatesPolicy;
+  }
+  const portfolio =
+    base.mode === "adaptive_portfolio"
+      ? base
+      : CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection;
+  return {
+    ...portfolio,
+    ...(args.discoverMinFamilies != null
+      ? { minFamilies: args.discoverMinFamilies }
+      : {}),
+    ...(args.discoverMaxFamilies != null
+      ? { maxFamilies: args.discoverMaxFamilies }
+      : {}),
+    ...(args.discoverMaxPreparedRecords != null
+      ? { maxPreparedRecords: args.discoverMaxPreparedRecords }
+      : {}),
+  };
+}
+
 function buildConfigFromCli(
   args: CanonicalPipelineCliOverrides,
   existing?: AnalysisRunConfig,
@@ -495,18 +541,10 @@ function buildConfigFromCli(
       ...(args.discoverFetchConcurrency != null
         ? { fetchConcurrency: args.discoverFetchConcurrency }
         : {}),
-      candidateSelection: {
-        ...base.discover.candidateSelection,
-        ...(args.discoverMinFamilies != null
-          ? { minFamilies: args.discoverMinFamilies }
-          : {}),
-        ...(args.discoverMaxFamilies != null
-          ? { maxFamilies: args.discoverMaxFamilies }
-          : {}),
-        ...(args.discoverMaxPreparedRecords != null
-          ? { maxPreparedRecords: args.discoverMaxPreparedRecords }
-          : {}),
-      },
+      candidateSelection: buildCandidateSelectionFromCli(
+        args,
+        base.discover.candidateSelection,
+      ),
       ...(args.discoverFromYear != null
         ? { fromYear: args.discoverFromYear }
         : {}),

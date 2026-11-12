@@ -23,6 +23,13 @@ const openAlexEmailSchema = z.string().email().optional();
 const semanticScholarApiKeySchema = z.string().min(1).optional();
 const anthropicApiKeySchema = z.string().min(1).optional();
 const institutionalProxyUrlSchema = z.string().url().optional();
+/** PDFs sent to GROBID at once; a local container times out under more. */
+const grobidConcurrencySchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(16)
+  .default(2);
 
 const environmentSchema = z.object({
   NODE_ENV: z
@@ -33,6 +40,7 @@ const environmentSchema = z.object({
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,
   GROBID_BASE_URL: grobidBaseUrlSchema,
+  GROBID_CONCURRENCY: grobidConcurrencySchema,
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,
@@ -46,6 +54,7 @@ const lenientEnvironmentSchema = z.object({
   SEMANTIC_SCHOLAR_BASE_URL: semanticScholarBaseUrlSchema,
   BIORXIV_BASE_URL: biorxivBaseUrlSchema,
   GROBID_BASE_URL: grobidBaseUrlSchema.optional(),
+  GROBID_CONCURRENCY: grobidConcurrencySchema,
   OPENALEX_EMAIL: openAlexEmailSchema,
   SEMANTIC_SCHOLAR_API_KEY: semanticScholarApiKeySchema,
   ANTHROPIC_API_KEY: anthropicApiKeySchema,

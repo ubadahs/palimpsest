@@ -65,4 +65,35 @@ describe("pipeline CLI arguments", () => {
       parseCanonicalPipelineArgs(["--run-id", "abc", "--batch"]).batch,
     ).toBe(true);
   });
+
+  it("expands --census into probing every citer and keeping every family", () => {
+    const overrides = parseCanonicalPipelineArgs([
+      "--input",
+      "dois.json",
+      "--census",
+      "--max-cost",
+      "0.5",
+    ]);
+    expect(overrides.discoverProbeBudget).toBe("all");
+    expect(overrides.discoverCandidateSelectionMode).toBe("all");
+    expect(overrides.maxCostUsd).toBe(0.5);
+  });
+
+  it("rejects --census beside a probe budget or portfolio caps", () => {
+    for (const extra of [
+      ["--probe-budget", "50"],
+      ["--max-families", "10"],
+    ]) {
+      expect(() =>
+        parseCanonicalPipelineArgs(["--input", "d.json", "--census", ...extra]),
+      ).toThrow(/cannot be combined/);
+    }
+  });
+
+  it("accepts --probe-budget all", () => {
+    expect(
+      parseCanonicalPipelineArgs(["--input", "d.json", "--probe-budget", "all"])
+        .discoverProbeBudget,
+    ).toBe("all");
+  });
 });

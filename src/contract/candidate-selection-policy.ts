@@ -10,11 +10,15 @@ import { METHODS_SECTION_PATTERNS } from "../domain/section-patterns.js";
 import {
   CANDIDATE_SELECTION_POLICY_VERSION,
   type AdaptivePortfolioPolicy,
+  type CandidateSelectionPolicy,
 } from "./adaptive-portfolio-policy.js";
 
 export {
   adaptivePortfolioPolicySchema,
+  allCandidatesPolicySchema,
+  candidateSelectionPolicySchema,
   type AdaptivePortfolioPolicy,
+  type CandidateSelectionPolicy,
 } from "./adaptive-portfolio-policy.js";
 
 const STOP_WORDS = new Set([
@@ -715,5 +719,75 @@ export function selectAdaptivePortfolio(input: {
     const seedRight = seedByCandidateId.get(right.candidateId) ?? "";
     if (seedLeft !== seedRight) return compareCodeUnits(seedLeft, seedRight);
     return left.rank - right.rank;
+  });
+}
+
+/** Dispositions for every candidate under whichever selection mode is set. */
+export function selectCandidates(input: {
+  candidates: readonly DiscoverClaimCandidate[];
+  mentions: readonly DiscoverCitationOccurrence[];
+  claims: readonly DiscoverAttributedClaimRecord[];
+  policy: CandidateSelectionPolicy;
+}): CandidateSelectionDisposition[] {
+  const { policy } = input;
+  if (policy.mode === "all") return selectAllCandidates(input);
+  return selectAdaptivePortfolio({ ...input, policy });
+}
+
+/**
+ * Census selection: every candidate becomes a family. Candidates still carry
+ * their annotation and a reason in the decision ledger; ranks order them by
+ * how many citing papers, citation groups, and claims repeat them, then by
+ * candidate ID, so the order is deterministic and the most-repeated findings
+ * lead. There is no utility to report, because nothing is traded off.
+ */
+export function selectAllCandidates(input: {
+  candidates: readonly DiscoverClaimCandidate[];
+  mentions: readonly DiscoverCitationOccurrence[];
+  claims: readonly DiscoverAttributedClaimRecord[];
+}): CandidateSelectionDisposition[] {
+  const mentionsById = new Map(
+    input.mentions.map((mention) => [mention.mentionId, mention]),
+  );
+  const claimsById = new Map(
+    input.claims.map((claim) => [claim.claimRecordId, claim]),
+  );
+  const annotated = input.candidates.map((candidate) => ({
+    candidate,
+    annotation: annotateClaimCandidate({
+      candidate,
+      mentionsById,
+      claimsById,
+    }),
+  }));
+  annotated.sort((left, right) => {
+    const seedCmp = compareCodeUnits(
+      left.candidate.seedId,
+      right.candidate.seedId,
+    );
+    if (seedCmp !== 0) return seedCmp;
+    return (
+      right.annotation.uniqueCitingPaperCount -
+        left.annotation.uniqueCitingPaperCount ||
+      right.annotation.uniqueCitationGroupCount -
+        left.annotation.uniqueCitationGroupCount ||
+      right.annotation.sourceRecordCount - left.annotation.sourceRecordCount ||
+      compareCodeUnits(left.candidate.candidateId, right.candidate.candidateId)
+    );
+  });
+  const rankBySeed = new Map<string, number>();
+  return annotated.map(({ candidate, annotation }) => {
+    const rank = (rankBySeed.get(candidate.seedId) ?? 0) + 1;
+    rankBySeed.set(candidate.seedId, rank);
+    return {
+      candidateId: candidate.candidateId,
+      selectedForScope: true,
+      rank,
+      reason: `Selected: candidate selection mode "all" keeps every candidate, with no family cap or record budget (rank ${String(rank)} by citing papers ${String(annotation.uniqueCitingPaperCount)}, citation groups ${String(annotation.uniqueCitationGroupCount)}).`,
+      annotation,
+      selectionStep: rank,
+      projectedRecordCost: Math.max(1, candidate.memberMentionIds.length),
+      bindingConstraint: "selected",
+    };
   });
 }

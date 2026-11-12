@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-11-10
+**Last updated:** 2026-11-12
 
 This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
 
@@ -50,6 +50,10 @@ Landed as code, still unmeasured:
 - **Lean Prepare.** Prepare records no longer copy their family's candidates, claims, and Scope family; a seed with large families no longer multiplies family size by record count.
 - **Parallel harvest.** Citing papers are fetched and parsed `discover.fetchConcurrency` at a time (default 6, `--fetch-concurrency`); the artifact is byte-identical at any value.
 - **Batch transport.** `pipeline --batch` sends model requests through the Message Batches API at half price, as a `fetch` under the provider, so requests, validation, and artifacts are unchanged. Submitted requests are recorded (migration 0014) so a crash or resume takes a pending batch's result instead of paying twice, `--max-cost` reserves an expected cost per queued request (about 2.3 times real cost on whole-paper adjudication), shared prefixes use the 1-hour cache TTL, and `db:gc` prunes request rows past the 29-day results retention. Tested against a mocked API only; no real batched run yet.
+- **Census runs.** `--census` probes every enumerated citer (`probeBudget: "all"`) and keeps every candidate as a family (`candidateSelection.mode: "all"`, every disposition still in the ledger with its reason). The UI new-run form offers both.
+- **Blocked claim clustering.** A seed whose claims exceed one request (150) is clustered in two levels: exact-text units, BM25-similar blocks of at most 150 clustered side by side, and merge rounds over one representative per cluster. Candidates record `equivalence.method: "blocked_model"` with every block and merge request that judged them. On 4,000 synthetic claims over 300 findings it took 31 requests (28 blocks of 81–150 units, one merge round of 3) and gave identical families at concurrency 1 and 8. Not yet run against real claims at that size.
+- **Summarized report.** Above 200 records the Markdown summarizes each family with two examples per verdict and points to the JSON; a synthetic 3,000-record, 120-family report is about 4,400 lines instead of about 16,000. The Report inspector's families now refer to rows by id instead of copying them (that payload went from about 24 MB to 16 MB, the families part from 8.3 MB to 0.3 MB) and render restatements 50 at a time.
+- **Census-scale fixes.** Prepare's role classifier runs `modelConcurrency` at a time; GROBID parses at most `GROBID_CONCURRENCY` PDFs at once (default 2); and Adjudicate's artifact check matched each record against every provenance entry, which made building and loading a 3,000-record chain take minutes, so it now indexes them.
 - **Repeat runs.** A repeated run of one seed was compared offline. The write-up stays outside the repository.
 - **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. Local labels do not calibrate Adjudicate, so `calibrationStatus` stays `uncalibrated`.
 - **Citation targeting and pin-filled packets.** Markers are anchored to exact verified support spans and the resolved reference before the window is cut. An unverified target stays unmarked and is gated to manual review. When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip. A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.

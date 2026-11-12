@@ -6,12 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
+  createDefaultAdapters,
   acquireFullText,
   classifyAcquisitionAttemptFailure,
   classifyHttpAcquisitionFailure,
   fetchFullText,
   type FullTextFetchResponse,
 } from "../../src/retrieval/fulltext-fetch.js";
+import { createAppConfig } from "../../src/config/app-config.js";
+import { loadEnvironment } from "../../src/config/env.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
 import { upsertRawPaper } from "../../src/storage/paper-cache.js";
@@ -374,5 +377,52 @@ describe("fetchFullText acquisition policy", () => {
       database.close();
       rmSync(tempDirectory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("GROBID concurrency bound", () => {
+  it("sends at most grobidConcurrency PDFs to GROBID at once", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchStub = vi.fn(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      return new Response("<TEI/>", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchStub);
+    try {
+      const adapters = createDefaultAdapters({
+        grobidBaseUrl: "http://localhost:8070",
+        grobidConcurrency: 2,
+        email: undefined,
+      });
+      const results = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          adapters.processPdfWithGrobid(Buffer.from("%PDF-1.4")),
+        ),
+      );
+      expect(results.every((result) => result.ok)).toBe(true);
+      expect(fetchStub).toHaveBeenCalledTimes(6);
+      expect(maxInFlight).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reads the bound from GROBID_CONCURRENCY, default 2", () => {
+    expect(
+      createAppConfig(loadEnvironment({ GROBID_BASE_URL: "http://g:8070" }))
+        .grobidConcurrency,
+    ).toBe(2);
+    expect(
+      createAppConfig(
+        loadEnvironment({
+          GROBID_BASE_URL: "http://g:8070",
+          GROBID_CONCURRENCY: "4",
+        }),
+      ).grobidConcurrency,
+    ).toBe(4);
   });
 });

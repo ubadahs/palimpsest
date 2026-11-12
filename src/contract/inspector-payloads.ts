@@ -145,10 +145,14 @@ export type MutationFamilyView = {
   /** Distinct citing-paper × claim units, from the canonical Report. */
   uniqueClaimUnits?: number;
   /** How Discover judged the member claims equivalent. */
-  equivalenceMethod?: "model" | "exact_normalized_text";
+  equivalenceMethod?: "model" | "blocked_model" | "exact_normalized_text";
   verdictCounts: MutationFamilyVerdictCounts;
-  /** Chronological citing-paper restatements (year → title → recordId). */
-  records: ReportInspectorRecordRow[];
+  /**
+   * Chronological citing-paper restatements (year → title → recordId), as ids
+   * into `ReportInspectorSummary.records`. Rows are not repeated here: at
+   * census scale a second copy of every row doubled the inspector payload.
+   */
+  recordIds: string[];
 };
 
 export type ReportInspectorSummary = {

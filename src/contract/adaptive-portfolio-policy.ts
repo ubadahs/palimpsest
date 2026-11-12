@@ -42,3 +42,38 @@ export type AdaptivePortfolioPolicy = z.infer<
 
 export const defaultAdaptivePortfolioPolicy: AdaptivePortfolioPolicy =
   adaptivePortfolioPolicySchema.parse({ mode: "adaptive_portfolio" });
+
+export const ALL_CANDIDATES_POLICY_VERSION = "all-candidates-v1" as const;
+
+/**
+ * Keep every candidate: no family cap, record budget, or novelty floor. Each
+ * candidate still gets its annotation and a disposition in the same decision
+ * ledger, so a census run accounts for selection exactly as a portfolio does.
+ */
+export const allCandidatesPolicySchema = z
+  .object({
+    mode: z.literal("all"),
+    policyVersion: z
+      .literal(ALL_CANDIDATES_POLICY_VERSION)
+      .default(ALL_CANDIDATES_POLICY_VERSION),
+  })
+  .strict();
+
+export type AllCandidatesPolicy = z.infer<typeof allCandidatesPolicySchema>;
+
+/** How Discover chooses which candidates become Scope families. */
+export const candidateSelectionPolicySchema = z.discriminatedUnion("mode", [
+  adaptivePortfolioPolicySchema,
+  allCandidatesPolicySchema,
+]);
+export type CandidateSelectionPolicy = z.infer<
+  typeof candidateSelectionPolicySchema
+>;
+export const candidateSelectionModeValues = [
+  "adaptive_portfolio",
+  "all",
+] as const;
+export type CandidateSelectionMode = CandidateSelectionPolicy["mode"];
+
+export const defaultAllCandidatesPolicy: AllCandidatesPolicy =
+  allCandidatesPolicySchema.parse({ mode: "all" });

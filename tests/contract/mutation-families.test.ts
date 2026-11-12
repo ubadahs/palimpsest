@@ -103,11 +103,7 @@ describe("buildReportInspectorFamilies", () => {
     expect(familyA.seedDoi).toBe("10.1000/seed");
     expect(familyA.verifiedSeedGroundingSpans).toHaveLength(1);
     expect(familyA.recordCount).toBe(3);
-    expect(familyA.records.map((row) => row.recordId)).toEqual([
-      "rec_a",
-      "rec_d",
-      "rec_b",
-    ]);
+    expect(familyA.recordIds).toEqual(["rec_a", "rec_d", "rec_b"]);
     expect(familyA.verdictCounts).toEqual({
       F: 1,
       D: 1,
@@ -166,9 +162,6 @@ describe("buildReportInspectorFamilies", () => {
       }),
     ]);
 
-    expect(family?.records.map((item) => item.recordId)).toEqual([
-      "record_ascii",
-      "record_accented",
-    ]);
+    expect(family?.recordIds).toEqual(["record_ascii", "record_accented"]);
   });
 });

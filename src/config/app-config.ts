@@ -11,6 +11,8 @@ export type AppConfig = {
     bioRxiv: string;
     grobid: string;
   };
+  /** PDFs sent to GROBID at once (`GROBID_CONCURRENCY`, default 2). */
+  grobidConcurrency: number;
   openAlexEmail: string | undefined;
   semanticScholarApiKey: string | undefined;
   anthropicApiKey: string | undefined;
@@ -31,6 +33,7 @@ export function createAppConfig(
       bioRxiv: environment.BIORXIV_BASE_URL,
       grobid: environment.GROBID_BASE_URL,
     },
+    grobidConcurrency: environment.GROBID_CONCURRENCY,
     openAlexEmail: environment.OPENALEX_EMAIL,
     semanticScholarApiKey: environment.SEMANTIC_SCHOLAR_API_KEY,
     anthropicApiKey: environment.ANTHROPIC_API_KEY,

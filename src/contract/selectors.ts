@@ -724,7 +724,7 @@ export function buildReportInspectorFamilies(
         recordCount: rows.length,
         uniqueClaimUnits: family.uniqueClaimUnits,
         verdictCounts: { ...family.verdictCounts },
-        records: rows,
+        recordIds: rows.map((row) => row.recordId),
       };
       if (family.equivalenceMethod) {
         view.equivalenceMethod = family.equivalenceMethod;
@@ -755,7 +755,7 @@ export function buildReportInspectorFamilies(
       verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
       recordCount: sorted.length,
       verdictCounts,
-      records: sorted,
+      recordIds: sorted.map((record) => record.recordId),
     };
     if (head.seedDoi) {
       family.seedDoi = head.seedDoi;

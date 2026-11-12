@@ -256,3 +256,42 @@ export function rankBm25Index<TDocument>(
 
   return ranked;
 }
+
+/**
+ * Positive BM25 scores of one query against the indexed documents `include`
+ * admits, unsorted. Corpus statistics (IDF, average length) stay those of the
+ * whole index, so a document's score does not depend on which others are
+ * still admitted.
+ */
+export function scoreBm25Index<TDocument>(
+  index: Bm25Index<TDocument>,
+  query: string,
+  include: (document: TDocument) => boolean,
+): RankedDocument<TDocument>[] {
+  const {
+    indexedDocuments,
+    documentFrequencies,
+    averageLength,
+    configuration,
+  } = index;
+  const queryTerms = tokenizeBm25Text(query, configuration);
+  if (indexedDocuments.length === 0 || queryTerms.length === 0) return [];
+  const documentCount = indexedDocuments.length;
+  const { k1, b } = configuration;
+  const scored: RankedDocument<TDocument>[] = [];
+  for (const indexed of indexedDocuments) {
+    if (!include(indexed.document)) continue;
+    let score = 0;
+    for (const term of queryTerms) {
+      const tf = indexed.termFrequencies.get(term) ?? 0;
+      if (tf === 0) continue;
+      const df = documentFrequencies.get(term) ?? 0;
+      const idf = Math.log(1 + (documentCount - df + 0.5) / (df + 0.5));
+      const denominator =
+        tf + k1 * (1 - b + b * (indexed.length / (averageLength || 1)));
+      score += idf * ((tf * (k1 + 1)) / denominator);
+    }
+    if (score > 0) scored.push({ document: indexed.document, score });
+  }
+  return scored;
+}

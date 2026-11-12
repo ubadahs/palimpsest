@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 import { compareCodeUnits } from "../shared/order.js";
-import {
-  addDuplicateIdentifierIssue,
-  sameArtifactReference,
-} from "./artifacts/checks.js";
+import { addDuplicateIdentifierIssue } from "./artifacts/checks.js";
 
 import { confidenceSchema } from "../domain/classification.js";
 import {
@@ -571,39 +568,70 @@ export function validateAdjudicateArtifactLineage(
   );
   const hasModelOutcome = modeledRecords.length > 0;
   if (hasModelOutcome) {
+    // Count provenance entries by their exact match key once, so each record
+    // is checked in constant time; a scan per record is quadratic at census
+    // scale.
+    const countBy = <T>(values: readonly T[], key: (value: T) => string) => {
+      const counts = new Map<string, number>();
+      for (const value of values) {
+        const k = key(value);
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const promptKey = (prompt: {
+      promptId: string;
+      version: string;
+      contentHash: string;
+    }) =>
+      canonicalSerialize([prompt.promptId, prompt.version, prompt.contentHash]);
+    const modelKey = (model: {
+      provider: string;
+      model: string;
+      requestHash: string;
+      requestArtifact: ArtifactReference;
+      responseArtifact: ArtifactReference;
+    }) =>
+      canonicalSerialize([
+        model.provider,
+        model.model,
+        model.requestHash,
+        model.requestArtifact,
+        model.responseArtifact,
+      ]);
+    const promptCounts = countBy(artifact.provenance.prompts, promptKey);
+    const modelCounts = countBy(artifact.provenance.models, modelKey);
+    const responseCounts = countBy(
+      artifact.execution.responseArtifacts ?? [],
+      (reference) => canonicalSerialize(reference),
+    );
     for (const record of modeledRecords) {
       const execution = record.execution;
-      const promptMatches = artifact.provenance.prompts.filter(
-        (prompt) =>
-          prompt.promptId === execution.promptId &&
-          prompt.version === execution.promptVersion &&
-          prompt.contentHash === execution.promptContentHash,
-      );
-      if (promptMatches.length !== 1) {
+      if (
+        promptCounts.get(
+          promptKey({
+            promptId: execution.promptId,
+            version: execution.promptVersion,
+            contentHash: execution.promptContentHash,
+          }),
+        ) !== 1
+      ) {
         context.addIssue({
           code: "custom",
           path: ["provenance", "prompts"],
           message: `Modeled outcome lacks one exact prompt provenance entry: ${record.recordId}`,
         });
       }
-
-      const modelMatches = artifact.provenance.models.filter((model) =>
-        modelProvenanceMatchesExecution(model, execution),
-      );
-      if (modelMatches.length !== 1) {
+      if (modelCounts.get(modelKey(execution)) !== 1) {
         context.addIssue({
           code: "custom",
           path: ["provenance", "models"],
           message: `Modeled outcome lacks one exact model provenance entry: ${record.recordId}`,
         });
       }
-
-      const responseMatches = (
-        artifact.execution.responseArtifacts ?? []
-      ).filter((reference) =>
-        sameArtifactReference(reference, execution.responseArtifact),
-      );
-      if (responseMatches.length !== 1) {
+      if (
+        responseCounts.get(canonicalSerialize(execution.responseArtifact)) !== 1
+      ) {
         context.addIssue({
           code: "custom",
           path: ["execution", "responseArtifacts"],
@@ -748,25 +776,6 @@ function findSingleDecision<
       decision.recordId === recordId && decision.decisionType === decisionType,
   );
   return matching.length === 1 ? matching[0] : undefined;
-}
-
-function modelProvenanceMatchesExecution(
-  model: {
-    provider: string;
-    model: string;
-    requestHash: string;
-    requestArtifact: ArtifactReference;
-    responseArtifact: ArtifactReference;
-  },
-  execution: ModelExecution,
-): boolean {
-  return (
-    model.provider === execution.provider &&
-    model.model === execution.model &&
-    model.requestHash === execution.requestHash &&
-    sameArtifactReference(model.requestArtifact, execution.requestArtifact) &&
-    sameArtifactReference(model.responseArtifact, execution.responseArtifact)
-  );
 }
 
 function uniqueCanonicalValues<T>(values: readonly T[]): T[] {
