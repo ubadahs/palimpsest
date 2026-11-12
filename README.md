@@ -54,7 +54,7 @@ npm run ui:dev
 
 Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. Old local database rows and run directories from the superseded seven-stage executor are unsupported; delete/recreate them rather than attempting to resume or bridge them.
 
-`eval` freezes a finished report into local cases under `data/evaluations/` and compares providers on them. It can add constructed cases, whose right verdict is known because they edit a restatement a reviewer called faithful, and it can compare adjudicating from retrieved chunks with adjudicating from the whole cited paper. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
+`eval` freezes a finished report into local cases under `data/evaluations/` and compares providers on them. It can add constructed cases, whose right verdict is known because they edit a restatement a reviewer called faithful, and it can compare adjudicating from retrieved chunks with adjudicating from the whole cited paper. A reviewer grades cases blind in the local UI, one at a time, and `eval request` queues the few cases a comparison turns on. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
 
 ## Output
 
