@@ -2,6 +2,11 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { purgeOldRuns } from "../../storage/analysis-runs.js";
 import { openDatabase } from "../../storage/database.js";
+import {
+  BATCH_RESULTS_RETENTION_DAYS,
+  countExpiredBatchRequests,
+  pruneExpiredBatchRequests,
+} from "../../storage/llm-batch-requests.js";
 import { evictStaleLLMCache } from "../../storage/llm-result-cache.js";
 import { runMigrations } from "../../storage/migration-service.js";
 
@@ -67,7 +72,8 @@ export function parseDatabaseGcArgs(argv: string[]): DatabaseGcOptions {
 function printDatabaseGcHelp(): void {
   console.info(`Usage: db:gc [--days <n>] [--dry-run]
 
-Delete aged analysis-run registry rows and stale LLM exact-result cache rows
+Delete aged analysis-run registry rows, stale LLM exact-result cache rows, and
+Message Batches request rows past the API's ${String(BATCH_RESULTS_RETENTION_DAYS)}-day results retention
 from the local SQLite database. Does not delete on-disk run artifact directories
 under data/runs/.
 
@@ -75,7 +81,8 @@ Options:
   --days <n>   Retention window in days (default 90). Deletes succeeded,
                failed, and interrupted runs whose updated_at is older than
                this window, plus llm_result_cache rows older than the window
-               (by last_hit_at, or created_at if never hit).
+               (by last_hit_at, or created_at if never hit). Batch request
+               rows always use the ${String(BATCH_RESULTS_RETENTION_DAYS)}-day results retention instead.
   --dry-run    Report how many rows would be deleted without deleting.`);
 }
 
@@ -111,16 +118,18 @@ export function runDatabaseGcCommand(argv: string[]): void {
           )
           .get(`-${String(options.days)}`) as { n: number }
       ).n;
+      const batchCount = countExpiredBatchRequests(database);
       console.info(
-        `db:gc dry-run (${options.days} days): would delete ${runCount} analysis run(s) and ${cacheCount} LLM cache row(s) from ${config.databasePath}. Artifact directories under data/runs/ are not touched.`,
+        `db:gc dry-run (${options.days} days): would delete ${runCount} analysis run(s), ${cacheCount} LLM cache row(s), and ${batchCount} expired batch request row(s) from ${config.databasePath}. Artifact directories under data/runs/ are not touched.`,
       );
       return;
     }
 
     const deletedRuns = purgeOldRuns(database, options.days);
     const evictedCache = evictStaleLLMCache(database, options.days);
+    const prunedBatch = pruneExpiredBatchRequests(database);
     console.info(
-      `db:gc (${options.days} days): deleted ${deletedRuns} analysis run(s) and ${evictedCache} LLM cache row(s) from ${config.databasePath}. Artifact directories under data/runs/ were not touched.`,
+      `db:gc (${options.days} days): deleted ${deletedRuns} analysis run(s), ${evictedCache} LLM cache row(s), and ${prunedBatch} expired batch request row(s) from ${config.databasePath}. Artifact directories under data/runs/ were not touched.`,
     );
   } finally {
     database.close();

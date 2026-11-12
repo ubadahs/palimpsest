@@ -27,6 +27,7 @@ import {
   modelSupportsAdaptiveThinking,
   modelThinksByDefault,
   resolvePromptCacheControl,
+  resolveSentPromptCacheControl,
   resolveThinkingConfig,
   schemaFingerprint,
   thinkingConfigKey,
@@ -1010,5 +1011,33 @@ describe("malformed requests and malformed replies", () => {
     expect(result.object).toEqual({ ok: true });
     expect(result.record.exactCacheHit).toBeUndefined();
     db.close();
+  });
+});
+
+describe("resolveSentPromptCacheControl", () => {
+  it("records the TTL a request is actually sent with", () => {
+    const prefix = "x".repeat(5_000);
+    expect(
+      resolveSentPromptCacheControl({
+        purpose: "adjudication",
+        promptPrefix: prefix,
+      }),
+    ).toEqual({ type: "ephemeral", ttl: "5m" });
+    // Batches can wait longer than five minutes, so batched prefixes keep an hour.
+    expect(
+      resolveSentPromptCacheControl({
+        purpose: "adjudication",
+        promptPrefix: prefix,
+        batching: true,
+      }),
+    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Nothing cached stays nothing cached, batched or not.
+    expect(
+      resolveSentPromptCacheControl({
+        purpose: "adjudication",
+        promptPrefix: "short",
+        batching: true,
+      }),
+    ).toBeUndefined();
   });
 });

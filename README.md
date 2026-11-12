@@ -46,6 +46,13 @@ npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
 npm run dev -- pipeline --run-id <uuid>
 ```
 
+Estimated spend is kept current in `cost-summary.json` at the run root. Cap it, or send model requests through Anthropic's Message Batches API at half price (slower; see [docs/pipeline.md](docs/pipeline.md)):
+
+```bash
+npm run dev -- pipeline --input path/to/dois.json --max-cost 4
+npm run dev -- pipeline --input path/to/dois.json --batch
+```
+
 Run the local UI for orchestration, logs, and artifact inspection:
 
 ```bash
@@ -88,7 +95,7 @@ Model calls default to Claude Haiku 5.5 (claim extraction, citation roles, reran
 | `npm run lint` | Run ESLint over `src/` and `tests/` |
 | `npm run lint:all` | Run root lint plus UI workspace lint |
 | `npm run typecheck:all` | Typecheck root and the UI workspace |
-| `npm run db:gc -- --days 90 [--dry-run]` | Delete aged run-registry rows and stale LLM cache rows |
+| `npm run db:gc -- --days 90 [--dry-run]` | Delete aged run-registry rows, stale LLM cache rows, and expired batch request rows |
 | `npm run runs:gc -- [--run-id <uuid>] [--dry-run]` | Delete superseded stage attempts and the provenance only they referenced |
 | `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |
 | `npm --workspace @palimpsest/ui run test` | Run UI workspace tests |

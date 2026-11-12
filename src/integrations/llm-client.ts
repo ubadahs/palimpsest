@@ -19,8 +19,15 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
 import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
+import {
+  createBatchTransport,
+  TRANSPORT_HEADER,
+  type BatchTransportSettings,
+  type FetchFunction,
+} from "./batch-transport.js";
 import type { StageKey } from "../contract/lean-stages.js";
 import type { DatabaseConnection } from "../storage/database.js";
+import { createSqliteBatchRequestStore } from "../storage/llm-batch-requests.js";
 import {
   computeLLMCacheKey,
   getCachedLLMResult,
@@ -73,6 +80,8 @@ export type ThinkingConfig =
   | { type: "adaptive"; effort: ThinkingEffort }
   | { type: "enabled"; budgetTokens: number };
 
+export type LLMTransport = "direct" | "batch";
+
 export type LLMCallRecord = {
   purpose: LLMPurpose;
   /** Model the call asked for. */
@@ -96,6 +105,12 @@ export type LLMCallRecord = {
   cacheWriteTokens?: number;
   /** True when the response came from the persistent exact-result cache. */
   exactCacheHit?: boolean;
+  /**
+   * How a provider reply arrived: one direct request, or a Message Batches
+   * result billed at half price. How the answer was obtained, never what it
+   * was, so it stays out of result identity like `servedModel`.
+   */
+  transport?: LLMTransport;
   /** True when the LLM stopped due to max tokens (output truncated). */
   truncated?: boolean;
   latencyMs: number;
@@ -163,6 +178,9 @@ export type LLMClient = {
 
   /** Snapshot of all calls made through this client so far. */
   getLedger: () => LLMRunLedger;
+
+  /** True when requests go through the Message Batches API (`--batch`). */
+  readonly batching?: boolean;
 };
 
 export type PromptCacheControl = {
@@ -237,6 +255,14 @@ export type CreateLLMClientOptions = {
    * Exact-cache hits cost nothing and are still served.
    */
   spendLimit?: { maxUsd: number; spentUsd: () => number };
+  /**
+   * Send Messages requests through the Message Batches API at half price
+   * (see `batch-transport.ts`). With a `database`, submitted requests are
+   * recorded so a later run takes a batch's result instead of paying again.
+   */
+  batch?: BatchTransportSettings;
+  /** Network fetch under the provider; tests replace it. */
+  fetch?: FetchFunction;
 };
 
 export class LLMProviderError extends Error {
@@ -736,11 +762,40 @@ function hasPromptPrefix(
   return typeof request.promptPrefix === "string";
 }
 
+/**
+ * A batch can sit in the queue longer than five minutes, so the cache entry a
+ * seed's first request writes would expire before the rest of the seed's
+ * requests run, and each would pay full input for the seed text. Batched
+ * shared prefixes are therefore written with the one-hour TTL.
+ */
+const BATCH_PROMPT_CACHE_TTL = "1h" as const;
+
+/**
+ * The cache control a request with this shared prefix is actually sent with.
+ * Call provenance uses it too, so the recorded TTL is the one the provider saw.
+ */
+export function resolveSentPromptCacheControl(params: {
+  purpose: LLMPurpose;
+  promptPrefix: string;
+  options?: PromptCachingOptions | undefined;
+  batching?: boolean | undefined;
+}): PromptCacheControl | undefined {
+  const policy = resolvePromptCacheControl({
+    purpose: params.purpose,
+    promptPrefix: params.promptPrefix,
+    options: params.options,
+  });
+  return policy && params.batching === true
+    ? { ...policy, ttl: BATCH_PROMPT_CACHE_TTL }
+    : policy;
+}
+
 function buildModelCallInput(params: {
   request: PromptShapedRequest;
   promptCaching?: PromptCachingOptions | undefined;
+  batching?: boolean;
 }):
-  | { prompt: string; messages?: never }
+  | { prompt: string; messages?: never; cacheControl?: never }
   | {
       prompt?: never;
       messages: [
@@ -749,13 +804,16 @@ function buildModelCallInput(params: {
           content: [CachedPrefixTextPart, CachedPrefixTextPart];
         },
       ];
+      /** Cache control on the shared prefix, if it is cached. */
+      cacheControl: PromptCacheControl | undefined;
     } {
   const request = params.request;
   if (hasPromptPrefix(request)) {
-    const cacheControl = resolvePromptCacheControl({
+    const cacheControl = resolveSentPromptCacheControl({
       purpose: request.purpose,
       promptPrefix: request.promptPrefix,
       options: params.promptCaching,
+      batching: params.batching,
     });
     const prefixPart: CachedPrefixTextPart = cacheControl
       ? {
@@ -781,6 +839,7 @@ function buildModelCallInput(params: {
           ],
         },
       ],
+      cacheControl,
     };
   }
 
@@ -919,12 +978,112 @@ function resolveFullPrompt(params: PromptShapedRequest): string {
   return params.prompt ?? "";
 }
 
+/** Characters per token for an expected, not worst-case, input estimate. */
+const RESERVATION_CHARS_PER_TOKEN = 4;
+/** Schema, framing, and system tokens a prompt's characters do not count. */
+const RESERVATION_OVERHEAD_TOKENS = 300;
+/**
+ * Output reserved before any call of a purpose and model has finished, and
+ * the least ever reserved after. Measured means are 345-540 tokens per call.
+ */
+const RESERVATION_MIN_OUTPUT_TOKENS = 2_000;
+/** Output reserved as a multiple of the mean seen so far. */
+const RESERVATION_OUTPUT_MEAN_MULTIPLIER = 2;
+
+/**
+ * What a batched request is expected to cost, reserved against the spend
+ * limit when it is queued and released when its real cost is recorded. A
+ * whole stage is queued before anything is billed, so without a reservation
+ * the limit could not hold; a worst-case one (every output at its cap) would
+ * stop a large stage far below its real cost.
+ *
+ * A shared prefix is priced as a cache read, except the first request seen
+ * for it, which writes the cache. The rest of the prompt is uncached input.
+ * Output is twice the mean of completed calls of the same purpose and model,
+ * never under 2,000 tokens nor over the request's cap. The limit can still be
+ * passed if real outputs average well above that.
+ */
+export function estimateExpectedRequestUsd(params: {
+  model: string;
+  /** Characters of a cached shared prefix; 0 when none is cached. */
+  cachedPrefixChars: number;
+  /** How the cached prefix is billed on this request. */
+  prefixBilling: "read" | "write_5m" | "write_1h";
+  /** Characters sent as uncached input. */
+  uncachedChars: number;
+  outputTokens: number;
+  batch: boolean;
+}): number {
+  const prefixTokens = Math.ceil(
+    params.cachedPrefixChars / RESERVATION_CHARS_PER_TOKEN,
+  );
+  const uncachedTokens =
+    Math.ceil(params.uncachedChars / RESERVATION_CHARS_PER_TOKEN) +
+    RESERVATION_OVERHEAD_TOKENS;
+  return estimateAnthropicUsd(
+    params.model,
+    {
+      inputTokens: prefixTokens + uncachedTokens,
+      noCacheInputTokens: uncachedTokens,
+      outputTokens: params.outputTokens,
+      ...(params.prefixBilling === "read"
+        ? { cacheReadTokens: prefixTokens }
+        : params.prefixBilling === "write_1h"
+          ? { cacheCreation: { ephemeral1hInputTokens: prefixTokens } }
+          : { cacheCreation: { ephemeral5mInputTokens: prefixTokens } }),
+    },
+    { batch: params.batch },
+  );
+}
+
+/** Output tokens to reserve, given the calls of a purpose and model so far. */
+export function reservedOutputTokens(params: {
+  maxOutputTokens: number;
+  completedCalls: number;
+  completedOutputTokens: number;
+}): number {
+  const mean =
+    params.completedCalls > 0
+      ? params.completedOutputTokens / params.completedCalls
+      : 0;
+  return Math.min(
+    params.maxOutputTokens,
+    Math.max(
+      RESERVATION_MIN_OUTPUT_TOKENS,
+      Math.ceil(RESERVATION_OUTPUT_MEAN_MULTIPLIER * mean),
+    ),
+  );
+}
+
+function transportFromHeaders(
+  headers: Record<string, string> | undefined,
+): LLMTransport {
+  return headers?.[TRANSPORT_HEADER] === "batch" ? "batch" : "direct";
+}
+
 export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
-  const anthropic = createAnthropic({ apiKey: options.apiKey });
+  const db = options.database;
+  const batching = options.batch != null;
+  const providerFetch = batching
+    ? createBatchTransport({
+        ...options.batch,
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+        ...(db ? { store: createSqliteBatchRequestStore(db) } : {}),
+      }).fetch
+    : options.fetch;
+  const anthropic = createAnthropic({
+    apiKey: options.apiKey,
+    ...(providerFetch ? { fetch: providerFetch } : {}),
+  });
   const defaultModel = options.defaultModel ?? "claude-sonnet-5-5";
   const calls: LLMCallRecord[] = [];
-  const db = options.database;
   const forceRefresh = options.forceRefresh ?? false;
+  /** Expected cost of batched requests sent but not yet recorded. */
+  let reservedUsd = 0;
+  /** Output of completed calls, per purpose and model, for reservations. */
+  const outputSeen = new Map<string, { calls: number; tokens: number }>();
+  /** Shared prefixes some request has already been reserved to write. */
+  const prefixesSeen = new Set<string>();
 
   const MAX_RETRIES = 2;
   const RETRY_BASE_MS = 1_000;
@@ -1007,6 +1166,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   function usageFields(
     modelId: string,
     usage: ProviderUsage | undefined,
+    transport: LLMTransport,
   ): Pick<
     LLMCallRecord,
     | "billable"
@@ -1031,15 +1191,19 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       inputTokens,
       outputTokens,
       totalTokens: usage?.totalTokens ?? totalBillableTokens,
-      estimatedCostUsd: estimateAnthropicUsd(modelId, {
-        inputTokens,
-        ...(noCacheInputTokens != null ? { noCacheInputTokens } : {}),
-        outputTokens,
-        reasoningTokens: reasoningTokens ?? 0,
-        cacheReadTokens: cacheReadTokens ?? 0,
-        cacheWriteTokens: cacheWriteTokens ?? 0,
-        ...(cacheCreation ? { cacheCreation } : {}),
-      }),
+      estimatedCostUsd: estimateAnthropicUsd(
+        modelId,
+        {
+          inputTokens,
+          ...(noCacheInputTokens != null ? { noCacheInputTokens } : {}),
+          outputTokens,
+          reasoningTokens: reasoningTokens ?? 0,
+          cacheReadTokens: cacheReadTokens ?? 0,
+          cacheWriteTokens: cacheWriteTokens ?? 0,
+          ...(cacheCreation ? { cacheCreation } : {}),
+        },
+        { batch: transport === "batch" },
+      ),
       ...(reasoningTokens != null ? { reasoningTokens } : {}),
       ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
       ...(cacheWriteTokens != null ? { cacheWriteTokens } : {}),
@@ -1054,6 +1218,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     usage: ProviderUsage,
     latencyMs: number,
     finishReason: string,
+    transport: LLMTransport,
     thinking?: ThinkingConfig,
   ): LLMCallRecord {
     const record: LLMCallRecord = {
@@ -1065,13 +1230,20 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: true,
       failed: false,
       ...thinkingTelemetryFields(thinking),
-      ...usageFields(modelId, usage),
+      ...usageFields(modelId, usage, transport),
+      transport,
       latencyMs,
       finishReason,
       ...(finishReason === "length" ? { truncated: true } : {}),
       timestamp: new Date().toISOString(),
     };
     registerRecord(record);
+    const key = `${purpose}\0${modelId}`;
+    const seen = outputSeen.get(key) ?? { calls: 0, tokens: 0 };
+    outputSeen.set(key, {
+      calls: seen.calls + 1,
+      tokens: seen.tokens + record.outputTokens,
+    });
     return record;
   }
 
@@ -1090,6 +1262,11 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       : undefined;
     const servedModel = generated?.response?.modelId;
     const finishReason = generated?.finishReason ?? "error";
+    // Only a reply that arrived says how it came; a refused request has no
+    // usage to price either way.
+    const transport = generated
+      ? transportFromHeaders(generated.response?.headers)
+      : undefined;
     const record: LLMCallRecord = {
       purpose: params.purpose,
       model: params.modelId,
@@ -1101,7 +1278,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: false,
       failed: true,
       ...thinkingTelemetryFields(params.thinking),
-      ...usageFields(params.modelId, generated?.usage),
+      ...usageFields(params.modelId, generated?.usage, transport ?? "direct"),
+      ...(transport != null ? { transport } : {}),
       latencyMs: params.latencyMs,
       finishReason,
       ...(finishReason === "length" ? { truncated: true } : {}),
@@ -1124,6 +1302,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       const promptInput = buildModelCallInput({
         request: params,
         promptCaching: options.promptCaching,
+        batching,
       });
       const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
         ? "bypass"
@@ -1160,7 +1339,44 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         }
       }
 
+      const maxOutputTokens =
+        params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
       const limit = options.spendLimit;
+      // Direct requests are checked against what has been billed. Batched
+      // ones are all queued before any is billed, so each also reserves its
+      // ceiling cost until its real cost is recorded.
+      let reservation = 0;
+      if (limit && batching) {
+        const cachedPrefix =
+          promptInput.cacheControl != null && params.promptPrefix != null
+            ? params.promptPrefix
+            : undefined;
+        let prefixBilling: "read" | "write_5m" | "write_1h" = "read";
+        if (cachedPrefix != null) {
+          const prefixKey = createHash("sha256")
+            .update(`${modelId}\0${cachedPrefix}`)
+            .digest("hex");
+          if (!prefixesSeen.has(prefixKey)) {
+            prefixesSeen.add(prefixKey);
+            prefixBilling =
+              promptInput.cacheControl?.ttl === "1h" ? "write_1h" : "write_5m";
+          }
+        }
+        const seen = outputSeen.get(`${params.purpose}\0${modelId}`);
+        reservation = estimateExpectedRequestUsd({
+          model: modelId,
+          cachedPrefixChars: cachedPrefix?.length ?? 0,
+          prefixBilling,
+          uncachedChars:
+            resolveFullPrompt(params).length - (cachedPrefix?.length ?? 0),
+          outputTokens: reservedOutputTokens({
+            maxOutputTokens,
+            completedCalls: seen?.calls ?? 0,
+            completedOutputTokens: seen?.tokens ?? 0,
+          }),
+          batch: true,
+        });
+      }
       if (limit) {
         const spent = limit.spentUsd();
         if (spent >= limit.maxUsd) {
@@ -1170,7 +1386,15 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             true,
           );
         }
+        if (spent + reservedUsd + reservation > limit.maxUsd) {
+          throw new LLMProviderError(
+            `Spend limit reached: estimated $${spent.toFixed(2)} spent and an expected $${(reservedUsd + reservation).toFixed(2)} queued in batches would pass $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
+            "spend_limit",
+            true,
+          );
+        }
       }
+      reservedUsd += reservation;
 
       const startMs = Date.now();
       const anthropicProviderOptions = buildAnthropicThinkingProviderOptions(
@@ -1199,8 +1423,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
                   },
                 },
               ),
-              maxOutputTokens:
-                params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+              maxOutputTokens,
               ...(promptInput.prompt != null
                 ? { prompt: promptInput.prompt }
                 : { messages: promptInput.messages }),
@@ -1217,6 +1440,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           result.usage,
           Date.now() - startMs,
           result.finishReason,
+          transportFromHeaders(result.response?.headers),
           params.thinking,
         );
 
@@ -1261,9 +1485,12 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             truncated: generated?.finishReason === "length",
           },
         );
+      } finally {
+        reservedUsd -= reservation;
       }
     },
 
     getLedger: () => buildLedger(calls),
+    batching,
   };
 }
