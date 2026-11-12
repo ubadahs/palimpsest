@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createRunCostTracker,
   mergeCostSummaries,
   summarizeLedgerByStage,
 } from "../../src/pipeline/cost-summary.js";
@@ -170,5 +175,68 @@ describe("run cost summary", () => {
       attempted: 1,
       estimatedCostUsd: 2,
     });
+  });
+});
+
+describe("run cost tracker", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function runRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), "palimpsest-cost-"));
+    roots.push(root);
+    return root;
+  }
+
+  function onDisk(root: string) {
+    return JSON.parse(
+      readFileSync(join(root, "cost-summary.json"), "utf8"),
+    ) as ReturnType<typeof summarizeLedgerByStage>;
+  }
+
+  it("rewrites the summary after every model call, not only at the end", () => {
+    const root = runRoot();
+    const tracker = createRunCostTracker(root);
+
+    tracker.collector.recordCall(
+      call({ stageKey: "discover", estimatedCostUsd: 0.25 }),
+    );
+    expect(onDisk(root).totalEstimatedCostUsd).toBeCloseTo(0.25);
+
+    tracker.collector.recordCall(
+      call({ stageKey: "adjudicate", estimatedCostUsd: 0.5 }),
+    );
+    expect(onDisk(root).totalEstimatedCostUsd).toBeCloseTo(0.75);
+    expect(onDisk(root).byStage.map((s) => s.stage)).toEqual([
+      "adjudicate",
+      "discover",
+    ]);
+    expect(tracker.spentUsd()).toBeCloseTo(0.75);
+  });
+
+  it("counts an earlier attempt once however often a resume writes", () => {
+    const root = runRoot();
+    const first = summarizeLedgerByStage(
+      ledgerOf([call({ stageKey: "discover", estimatedCostUsd: 1 })]),
+    );
+    writeFileSync(join(root, "cost-summary.json"), JSON.stringify(first));
+
+    const resume = createRunCostTracker(root);
+    for (let index = 0; index < 3; index++) {
+      resume.collector.recordCall(
+        call({ stageKey: "adjudicate", estimatedCostUsd: 0.1 }),
+      );
+    }
+    const { run, attempt } = resume.write(resume.collector.getLedger());
+
+    expect(run.totalEstimatedCostUsd).toBeCloseTo(1.3);
+    expect(attempt.totalEstimatedCostUsd).toBeCloseTo(0.3);
+    expect(onDisk(root).totalEstimatedCostUsd).toBeCloseTo(1.3);
+    expect(onDisk(root).totalCalls).toBe(4);
+    expect(resume.spentUsd()).toBeCloseTo(1.3);
   });
 });

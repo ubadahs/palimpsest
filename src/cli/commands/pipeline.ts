@@ -42,6 +42,19 @@ function readPositiveInteger(
   return parsed;
 }
 
+function readPositiveNumber(
+  argv: string[],
+  index: number,
+  flag: string,
+): number {
+  const value = readValue(argv, index, flag);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    fail(`${flag} must be a positive number; received "${value}".`);
+  }
+  return parsed;
+}
+
 function readYear(argv: string[], index: number, flag: string): number {
   const value = readValue(argv, index, flag);
   const parsed = Number(value);
@@ -95,6 +108,7 @@ export function parseCanonicalPipelineArgs(
   let adjudicateEffort: "low" | "medium" | "high" | "max" | undefined;
   let adjudicateEvidence: AdjudicationEvidence | undefined;
   let rerunFromStage: StageKey | undefined;
+  let maxCostUsd: number | undefined;
 
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index]!;
@@ -235,6 +249,10 @@ export function parseCanonicalPipelineArgs(
         rerunFromStage = readCanonicalStage(argv, index, flag);
         index++;
         break;
+      case "--max-cost":
+        maxCostUsd = readPositiveNumber(argv, index, flag);
+        index++;
+        break;
       default:
         fail(
           `Unknown pipeline flag: ${flag}. Run "pipeline --help" for canonical options.`,
@@ -293,6 +311,7 @@ export function parseCanonicalPipelineArgs(
     adjudicateEffort,
     adjudicateEvidence,
     rerunFromStage,
+    maxCostUsd,
   };
 }
 
@@ -335,7 +354,9 @@ Options:
   --no-adjudicate-thinking          Disable adjudication thinking
   --adjudicate-effort <level>       Adaptive thinking effort: low|medium|high|max
   --adjudicate-evidence <basis>     What the adjudicator reads: seed_text|selected_chunks
-  --rerun-from <stage>              Rerun a canonical stage and downstream stages`);
+  --rerun-from <stage>              Rerun a canonical stage and downstream stages
+  --max-cost <usd>                  Stop sending model requests once the run's estimated
+                                    spend reaches this; resume with a higher value to go on`);
 }
 
 export async function runPipelineCommand(argv: string[]): Promise<void> {

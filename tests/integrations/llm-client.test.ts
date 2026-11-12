@@ -758,6 +758,80 @@ describe("classifyProviderError", () => {
   });
 });
 
+describe("spend limit", () => {
+  beforeEach(() => {
+    generateObjectMock.mockReset();
+    generateObjectMock.mockResolvedValue({
+      object: { ok: true },
+      finishReason: "stop",
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as never);
+  });
+
+  it("sends requests while spend is under the limit", async () => {
+    const client = createLLMClient({
+      apiKey: "test-key",
+      spendLimit: { maxUsd: 1, spentUsd: () => 0.99 },
+    });
+    await client.generateObject({
+      schema: anySchema,
+      purpose: "adjudication",
+      prompt: "p",
+    });
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to send a request once spend reaches the limit", async () => {
+    const client = createLLMClient({
+      apiKey: "test-key",
+      spendLimit: { maxUsd: 1, spentUsd: () => 1 },
+    });
+    const sent = client.generateObject({
+      schema: anySchema,
+      purpose: "adjudication",
+      prompt: "p",
+    });
+
+    await expect(sent).rejects.toThrow(
+      /Spend limit reached: estimated \$1\.00 of \$1\.00/,
+    );
+    const error = await sent.catch((caught: unknown) => caught);
+    // A message-only reclassification would call this "billing_or_quota".
+    expect(classifyProviderError(error)).toMatchObject({
+      classification: "spend_limit",
+      fatal: true,
+    });
+    expect(generateObjectMock).not.toHaveBeenCalled();
+    // Nothing was sent, so nothing is billed or recorded.
+    expect(client.getLedger().totalCalls).toBe(0);
+  });
+
+  it("still serves exact-cache hits, which cost nothing", async () => {
+    const db = new Database(":memory:");
+    runMigrations(db);
+    const params = {
+      schema: anySchema,
+      purpose: "evidence-rerank" as const,
+      prompt: "cached prompt",
+      exactCache: { keyVersion: "v1" },
+    };
+    await createLLMClient({ apiKey: "k", database: db }).generateObject(params);
+    generateObjectMock.mockClear();
+
+    const limited = createLLMClient({
+      apiKey: "k",
+      database: db,
+      spendLimit: { maxUsd: 1, spentUsd: () => 5 },
+    });
+    const result = await limited.generateObject(params);
+
+    expect(result.object).toEqual({ ok: true });
+    expect(result.record.exactCacheHit).toBe(true);
+    expect(generateObjectMock).not.toHaveBeenCalled();
+    db.close();
+  });
+});
+
 describe("toProviderJsonSchema", () => {
   it("strips bounds and defaults the provider rejects and keeps the shape", () => {
     const schema = z

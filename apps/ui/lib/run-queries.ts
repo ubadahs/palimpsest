@@ -666,7 +666,8 @@ type RunCostSummary = {
 
 /**
  * Read the pipeline-generated `cost-summary.json` for a run. The executor
- * writes it at the run root after each invocation; there is no other source.
+ * keeps it at the run root, rewritten after every model call while a run is
+ * going; there is no other source.
  */
 export function getRunCostSummary(runId: string): RunCostSummary | undefined {
   const runRoot = getRunRoot(runId);

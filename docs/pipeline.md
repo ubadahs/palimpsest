@@ -16,6 +16,7 @@ npm run dev -- pipeline --input path/to/dois.json --seed-pdf path/to/seed.pdf
 npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
 npm run dev -- pipeline --run-id <uuid>
 npm run dev -- pipeline --run-id <uuid> --rerun-from scope
+npm run dev -- pipeline --input path/to/dois.json --max-cost 4
 ```
 
 The input is a JSON object with a nonempty DOI array:
@@ -23,6 +24,8 @@ The input is a JSON object with a nonempty DOI array:
 ```json
 { "dois": ["10.0000/example"] }
 ```
+
+Estimated spend is in `cost-summary.json` at the run root, rewritten after every model call, and each stage logs its own cost and the run's total when it finishes. `--max-cost <usd>` stops sending model requests once the run's estimated spend, earlier attempts included, reaches the limit: the stage in progress fails and the run can be resumed with a higher limit. Requests already in flight still finish, so a run can pass the limit by up to `modelConcurrency` requests. The limit is not part of the run config, so raising it on resume changes nothing scientific.
 
 Unknown flags and stage names are ordinary invalid input (no legacy aliases). A resumed run loads and validates the saved canonical artifact chain before continuing.
 

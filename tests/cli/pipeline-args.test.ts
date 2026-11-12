@@ -28,4 +28,22 @@ describe("pipeline CLI arguments", () => {
       ]),
     ).toThrow(/must be low, medium, high, or max/);
   });
+
+  it("parses a spend limit in dollars, cents included", () => {
+    const overrides = parseCanonicalPipelineArgs([
+      "--run-id",
+      "abc",
+      "--max-cost",
+      "2.5",
+    ]);
+    expect(overrides.maxCostUsd).toBe(2.5);
+  });
+
+  it("rejects a spend limit that is not a positive amount", () => {
+    for (const value of ["0", "-1", "four"]) {
+      expect(() =>
+        parseCanonicalPipelineArgs(["--input", "d.json", "--max-cost", value]),
+      ).toThrow(/--max-cost must be a positive number/);
+    }
+  });
 });

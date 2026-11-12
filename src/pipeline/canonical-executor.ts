@@ -8,7 +8,7 @@
  * wrong-lineage artifacts fail the run — never silent recomputation.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
@@ -41,11 +41,7 @@ import type {
   ScopeArtifact,
 } from "../contract/lean-artifacts.js";
 import type { StageArtifactMap } from "../contract/inspector-payloads.js";
-import {
-  createLLMClient,
-  createLLMTelemetryCollector,
-  type LLMClient,
-} from "../integrations/llm-client.js";
+import { createLLMClient, type LLMClient } from "../integrations/llm-client.js";
 import {
   createAnalysisRun,
   getAnalysisRun,
@@ -98,11 +94,7 @@ import {
   resolveCanonicalStageDirectory,
   writeCanonicalStageManifest,
 } from "./canonical-stage-paths.js";
-import {
-  mergeCostSummaries,
-  summarizeLedgerByStage,
-  type RunCostSummary,
-} from "./cost-summary.js";
+import { createRunCostTracker } from "./cost-summary.js";
 import { RunTracker } from "./run-tracker.js";
 import {
   deriveCanonicalStageSummary,
@@ -142,6 +134,12 @@ export type CanonicalPipelineCliOverrides = {
   adjudicateEvidence?: AdjudicationEvidence | undefined;
   /** Explicit stage to force-rerun (invalidates downstream). */
   rerunFromStage: StageKey | undefined;
+  /**
+   * Stop sending model requests once the run's estimated spend, earlier
+   * attempts included, reaches this many US dollars. Not part of the run
+   * config: a resume may raise it without touching any scientific setting.
+   */
+  maxCostUsd?: number | undefined;
 };
 
 export type CanonicalExecutorAdapters = CanonicalProductionAdapters;
@@ -825,32 +823,8 @@ function blockDownstream(
   }
 }
 
-/**
- * Accumulates cost across attempts. A resume's ledger covers only the stages
- * it re-ran, so it is added to what is already on disk rather than replacing
- * it. Returns the run's total spend so far.
- */
-function writeCostSummary(
-  runRoot: string,
-  ledger: ReturnType<LLMClient["getLedger"]>,
-): RunCostSummary {
-  const path = resolve(runRoot, "cost-summary.json");
-  const attempt = summarizeLedgerByStage(ledger);
-  const previous = readCostSummary(path);
-  const summary = previous ? mergeCostSummaries(previous, attempt) : attempt;
-  writeFileSync(path, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  return summary;
-}
-
-function readCostSummary(path: string): RunCostSummary | undefined {
-  if (!existsSync(path)) return undefined;
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as RunCostSummary;
-  } catch {
-    // An unreadable summary from an earlier attempt must not fail the run;
-    // the current attempt's numbers are still worth writing.
-    return undefined;
-  }
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
 }
 
 export async function orchestrateCanonicalPipelineRun(
@@ -1012,16 +986,24 @@ export async function orchestrateCanonicalPipelineRun(
       return { runId: run.id, runRoot: run.runRoot };
     }
 
-    const telemetry = createLLMTelemetryCollector();
+    const costs = createRunCostTracker(run.runRoot);
     const llmClient =
       params.llmClient ??
       createLLMClient({
         apiKey: params.apiKey ?? "",
-        collector: telemetry,
+        collector: costs.collector,
         database,
         // Without this the exact-result cache still serves stale completions
         // on a --force-refresh run while provenance claims it was bypassed.
         forceRefresh: runConfig.forceRefresh,
+        ...(args.maxCostUsd != null
+          ? {
+              spendLimit: {
+                maxUsd: args.maxCostUsd,
+                spentUsd: costs.spentUsd,
+              },
+            }
+          : {}),
       });
     const adapters =
       params.adapters ??
@@ -1133,12 +1115,20 @@ export async function orchestrateCanonicalPipelineRun(
           `Blocked: upstream stage ${stageKey} failed — ${message}`,
         );
         setRunStatus(database, run.id, "failed", stageKey);
-        writeCostSummary(run.runRoot, llmClient.getLedger());
+        costs.write(llmClient.getLedger());
         throw error;
       }
+
+      const spend = costs.write(llmClient.getLedger());
+      const stageSpend = spend.attempt.byStage.find(
+        (entry) => entry.stage === stageKey,
+      );
+      reporter.log(
+        `Cost: ${formatUsd(stageSpend?.estimatedCostUsd ?? 0)} over ${String(stageSpend?.calls ?? 0)} model calls; run so far ${formatUsd(spend.run.totalEstimatedCostUsd)}`,
+      );
     }
 
-    const cost = writeCostSummary(run.runRoot, llmClient.getLedger());
+    const cost = costs.write(llmClient.getLedger()).run;
     setRunStatus(database, run.id, "succeeded");
     log(
       "pipeline",

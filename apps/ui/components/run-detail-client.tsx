@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import {
   getStageDefinition,
   type LogicalStageGroup,
@@ -90,22 +96,39 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
     enabled: run.status === "queued" || run.status === "running",
   });
 
+  // The pipeline rewrites its cost summary after every model call, so spend
+  // is shown while a run is going, and once more when it stops either way.
+  const fetchCost = useCallback(
+    () =>
+      fetchJson<{
+        totalEstimatedCostUsd: number;
+        source: string;
+      } | null>(`/api/runs/${run.id}/cost`).catch(() => null),
+    [run.id],
+  );
+  const applyCost = useCallback(
+    (cost: { totalEstimatedCostUsd: number; source: string } | null) => {
+      if (cost && typeof cost.totalEstimatedCostUsd === "number") {
+        setCostUsd(cost.totalEstimatedCostUsd);
+        setCostSource(
+          cost.source === "cost_file" ? "pipeline" : "adjudication only",
+        );
+      }
+    },
+    [],
+  );
+
+  usePoll({
+    fetch: fetchCost,
+    onSuccess: applyCost,
+    intervalMs: 5_000,
+    enabled: run.status === "running",
+  });
+
   useEffect(() => {
-    if (run.status !== "succeeded") return;
-    void fetchJson<{
-      totalEstimatedCostUsd: number;
-      source: string;
-    } | null>(`/api/runs/${run.id}/cost`)
-      .then((cost) => {
-        if (cost && typeof cost.totalEstimatedCostUsd === "number") {
-          setCostUsd(cost.totalEstimatedCostUsd);
-          setCostSource(
-            cost.source === "cost_file" ? "pipeline" : "adjudication only",
-          );
-        }
-      })
-      .catch(() => null);
-  }, [run.id, run.status]);
+    if (run.status === "queued") return;
+    void fetchCost().then(applyCost);
+  }, [run.status, fetchCost, applyCost]);
 
   async function trigger(
     _action: "start" | "cancel",
