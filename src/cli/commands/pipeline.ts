@@ -89,6 +89,7 @@ export function parseCanonicalPipelineArgs(
   let discoverNeighborhoodLimit: number | undefined;
   let discoverProbeBudget: number | undefined;
   let modelConcurrency: number | undefined;
+  let discoverFetchConcurrency: number | undefined;
   let discoverMinFamilies: number | undefined;
   let discoverMaxFamilies: number | undefined;
   let discoverMaxPreparedRecords: number | undefined;
@@ -143,6 +144,10 @@ export function parseCanonicalPipelineArgs(
         break;
       case "--model-concurrency":
         modelConcurrency = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--fetch-concurrency":
+        discoverFetchConcurrency = readPositiveInteger(argv, index, flag);
         index++;
         break;
       case "--min-families":
@@ -292,6 +297,7 @@ export function parseCanonicalPipelineArgs(
     discoverNeighborhoodLimit,
     discoverProbeBudget,
     modelConcurrency,
+    discoverFetchConcurrency,
     discoverMinFamilies,
     discoverMaxFamilies,
     discoverMaxPreparedRecords,
@@ -330,9 +336,10 @@ Options:
   --seed-pdf <path>                 Local seed PDF (single-DOI runs only)
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
-  --neighborhood-limit <n>          Total citing-work observation cap (across paginated requests)
+  --neighborhood-limit <n>          Safety cap on citing works enumerated (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit})
   --probe-budget <n>                Discover citing-paper probe budget (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget})
   --model-concurrency <n>           Model requests in flight per stage (default ${CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency})
+  --fetch-concurrency <n>           Citing papers fetched and parsed at once in Discover (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency})
   --min-families <n>                Adaptive portfolio minimum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})
   --max-families <n>                Adaptive portfolio maximum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies})
   --max-prepared-records <n>        Prepared-record budget for portfolio (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords})

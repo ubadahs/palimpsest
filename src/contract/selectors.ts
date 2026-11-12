@@ -11,7 +11,9 @@ import {
   evidenceArtifactSchema,
   prepareArtifactSchema,
   reportArtifactSchema,
+  resolvePreparedRecords,
   scopeArtifactSchema,
+  type ResolvedPreparedCitationInstance,
 } from "./lean-artifacts.js";
 import {
   loadJsonArtifact,
@@ -588,9 +590,7 @@ function buildSeedQuotes(
   });
 }
 
-function resolveSeedDisplay(
-  seed: StageArtifactMap["prepare"]["payload"]["records"][number]["seed"],
-): {
+function resolveSeedDisplay(seed: ResolvedPreparedCitationInstance["seed"]): {
   seedId: string;
   seedTitle: string;
   seedDoi?: string;
@@ -614,7 +614,7 @@ function resolveSeedDisplay(
 }
 
 function buildVerifiedGroundingSpans(
-  family: StageArtifactMap["prepare"]["payload"]["records"][number]["family"],
+  family: ResolvedPreparedCitationInstance["family"],
 ): ReportInspectorGroundingSpan[] {
   return family.grounding.evidenceSpans.map((span) => ({
     text: span.text,
@@ -627,7 +627,7 @@ function buildVerifiedGroundingSpans(
 }
 
 function buildOccurrenceClaims(
-  prepareRecord: StageArtifactMap["prepare"]["payload"]["records"][number],
+  prepareRecord: ResolvedPreparedCitationInstance,
 ): ReportInspectorOccurrenceClaim[] {
   return prepareRecord.occurrenceSourceClaimRecords.map((claim) => {
     const row: ReportInspectorOccurrenceClaim = {
@@ -777,7 +777,7 @@ export function buildReportInspectorFamilies(
 }
 
 function buildReportInspectorRecordRow(input: {
-  prepareRecord: StageArtifactMap["prepare"]["payload"]["records"][number];
+  prepareRecord: ResolvedPreparedCitationInstance;
   evidenceRecord: StageArtifactMap["evidence"]["payload"]["records"][number];
   adjudicateRecord: StageArtifactMap["adjudicate"]["payload"]["records"][number];
   evidence: StageArtifactMap["evidence"];
@@ -883,7 +883,10 @@ export function buildReportInspectorRecords(input: {
   evidence: StageArtifactMap["evidence"];
   adjudicate: StageArtifactMap["adjudicate"];
 }): ReportInspectorRecordRow[] {
-  const prepareById = indexByRecordId(input.prepare.payload.records, "Prepare");
+  const prepareById = indexByRecordId(
+    resolvePreparedRecords(input.prepare.payload),
+    "Prepare",
+  );
   const evidenceById = indexByRecordId(
     input.evidence.payload.records,
     "Evidence",
@@ -1005,6 +1008,7 @@ function buildReportInspectorPayload(
       lineage: artifact.payload.lineage,
       funnel: artifact.payload.funnel,
       rates: artifact.payload.rates,
+      weightedRates: artifact.payload.weightedRates,
       decisionSummaries: artifact.payload.decisionSummaries,
       records,
       families,

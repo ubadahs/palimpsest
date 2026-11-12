@@ -6,6 +6,7 @@ import {
   type ReportCount,
   type ReportRate,
   type ReportRecordTrace,
+  type ReportWeightedRate,
 } from "../contract/lean-artifacts.js";
 
 /**
@@ -122,16 +123,19 @@ export function renderCanonicalReportMarkdown(
   ]);
   lines.push("");
   lines.push(
-    "Probe sampling design (year band :: paper type → probed / returned):",
+    "Probe sampling design (year band :: type group → probed / sampling-frame papers, inclusion probability π; then all enumerated and all probed):",
   );
   lines.push("");
+  const seedIds = new Set(
+    payload.funnel.discover.probeStratumCounts.map((entry) => entry.seedId),
+  );
   for (const stratum of payload.funnel.discover.probeStratumCounts) {
     lines.push(
-      `- \`${stratum.stratum}\`: ${String(stratum.probed)} / ${String(stratum.returned)}`,
+      `- ${seedIds.size > 1 ? `seed \`${stratum.seedId}\` · ` : ""}\`${stratum.stratum}\`: ${String(stratum.probedFrame)} / ${String(stratum.frame)} (π = ${formatProbability(stratum.inclusionProbability)}); ${String(stratum.enumerated)} enumerated, ${String(stratum.probed)} probed`,
     );
   }
   if (payload.funnel.discover.probeStratumCounts.length === 0) {
-    lines.push("- No citing papers returned.");
+    lines.push("- No citing papers enumerated.");
   }
   lines.push("");
   appendStatusTable(
@@ -164,8 +168,14 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.discover.bibliographyMatchMethodCounts,
     "No seed bibliography entry was matched.",
   );
+  const enumerated =
+    payload.funnel.discover.returnedCitingPaperObservations.count;
+  const frame = payload.funnel.discover.probeStratumCounts.reduce(
+    (total, stratum) => total + stratum.frame,
+    0,
+  );
   lines.push(
-    "Rates below are over observed citing papers, not over the provider-reported total; the sample is stratified and unweighted.",
+    `Discover enumerated ${String(enumerated)} of ${String(payload.funnel.discover.providerReportedNeighborhoodTotal.count)} provider-reported citing works. ${String(frame)} of them${enumerated > 0 ? ` (${formatPercent(frame / enumerated)})` : ""} form the sampling frame: the provider does not mark them closed or abstract-only. Discover probed ${String(payload.funnel.discover.probed.count)}, giving each frame stratum one probe before any got a second and then each next probe to the stratum where a probed paper stood for the most frame papers. Unweighted rates below count the observed sample as it is; the weighted F/D/E/U rates count each adjudicated record from a frame paper 1/π of its stratum, estimating rates over the frame${payload.funnel.discover.neighborhoodCoverage.some((entry) => entry.status === "truncated" && entry.count > 0) ? " (drawn from a neighborhood truncated by the neighborhood limit, so not the whole provider-reported total)" : ""}.`,
   );
   lines.push("");
   lines.push(
@@ -289,6 +299,16 @@ export function renderCanonicalReportMarkdown(
     "verdict_U_rate",
   ] as const) {
     appendRateLine(lines, requireRate(payload.rates, metricId));
+  }
+  lines.push("");
+  lines.push("### Weighted by sampling design");
+  lines.push("");
+  lines.push(
+    "Each adjudicated record from a sampling-frame paper counts 1/π, where π is the share of its stratum's frame papers that were probed; records from papers outside the frame are left out. Sample counts are the unweighted numerator and denominator the estimate rests on.",
+  );
+  lines.push("");
+  for (const rate of payload.weightedRates) {
+    appendWeightedRateLine(lines, rate);
   }
   lines.push("");
   lines.push("### By unique claim unit");
@@ -507,6 +527,27 @@ function appendRateLine(lines: string[], rate: ReportRate): void {
   lines.push(
     `- \`${rate.metricId}\`: ${valueText}; numerator=${String(rate.numerator)}; denominator=${String(rate.denominator)}; unit=${rate.unit}; population=${rate.populationLabel}; numerator definition=${rate.numeratorDefinition}; denominator definition=${rate.denominatorDefinition}`,
   );
+}
+
+function appendWeightedRateLine(
+  lines: string[],
+  rate: ReportWeightedRate,
+): void {
+  const valueText =
+    rate.value == null
+      ? "not estimable (zero denominator)"
+      : String(rate.value);
+  lines.push(
+    `- \`${rate.metricId}\`: ${valueText}; weighted numerator=${String(rate.weightedNumerator)}; weighted denominator=${String(rate.weightedDenominator)}; sample numerator=${String(rate.sampleNumerator)}; sample denominator=${String(rate.sampleDenominator)}; weighting=${rate.weighting}; unit=${rate.unit}; population=${rate.populationLabel}; numerator definition=${rate.numeratorDefinition}; denominator definition=${rate.denominatorDefinition}`,
+  );
+}
+
+function formatPercent(share: number): string {
+  return `${String(Math.round(share * 100))}%`;
+}
+
+function formatProbability(value: number | null): string {
+  return value == null ? "n/a" : String(Math.round(value * 1000) / 1000);
 }
 
 function requireRate(rates: ReportRate[], metricId: string): ReportRate {

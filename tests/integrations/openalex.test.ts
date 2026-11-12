@@ -197,9 +197,9 @@ describe("getCitingWorks", () => {
     expect(result.data.pages).toHaveLength(1);
     expect(result.data.pages[0]).toMatchObject({
       pageIndex: 0,
-      cursor: "*",
+      page: 1,
       returnedCount: 3,
-      nextCursor: null,
+      keptCount: 3,
     });
     // Everything available fits on the provider's single page; no second request.
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -220,56 +220,6 @@ describe("getCitingWorks", () => {
       providerAvailability: "available",
       providerSourceHint: "pmc_xml",
     });
-
-    vi.restoreAllMocks();
-  });
-
-  it("paginates across cursor pages until the limit or provider exhaustion", async () => {
-    const page1 = loadFixture("citing-works-page1.json");
-    const page2 = loadFixture("citing-works-page2.json");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page2) });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await getCitingWorks(
-      "https://openalex.org/W0000000001",
-      "https://api.openalex.org",
-      4,
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.data.papers).toHaveLength(4);
-    expect(result.data.papers.map((paper) => paper.title)).toEqual([
-      "Page One Citing Paper A",
-      "Page One Citing Paper B",
-      "Page Two Citing Paper C",
-      "Page Two Citing Paper D",
-    ]);
-    expect(result.data.providerReportedTotal).toBe(4);
-    expect(result.data.coverage).toBe("complete");
-    expect(result.data.pages).toHaveLength(2);
-    expect(result.data.pages[0]).toMatchObject({
-      pageIndex: 0,
-      cursor: "*",
-      perPage: 4,
-      returnedCount: 2,
-      nextCursor: "cursor-page-2",
-    });
-    expect(result.data.pages[1]).toMatchObject({
-      pageIndex: 1,
-      cursor: "cursor-page-2",
-      perPage: 2,
-      returnedCount: 2,
-      nextCursor: null,
-    });
-    // Second page's request URL carries the cursor from the first page's response.
-    const secondRequestUrl = fetchMock.mock.calls[1]![0] as string;
-    expect(secondRequestUrl).toContain("cursor=cursor-page-2");
 
     vi.restoreAllMocks();
   });
@@ -354,6 +304,122 @@ describe("resolveWorkByDoi error handling", () => {
     );
 
     expect(result.ok).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getCitingWorks over a large neighborhood", () => {
+  const total = 450;
+  function syntheticPage(start: number, size: number) {
+    return {
+      meta: { count: total },
+      results: Array.from({ length: size }, (_, offset) => ({
+        id: `https://openalex.org/W${String(9_000_000 + start + offset)}`,
+        display_name: `Citing work ${String(start + offset)}`,
+        publication_year: 2005 + ((start + offset) % 20),
+      })),
+    };
+  }
+  function pagedFetch(options: { repeatAcrossPages?: boolean } = {}) {
+    // Serve pages by the requested page number and per_page, as OpenAlex does.
+    return vi.fn((url: string) => {
+      const parsed = new URL(url);
+      const page = Number(parsed.searchParams.get("page"));
+      const perPage = Number(parsed.searchParams.get("per_page"));
+      let start = (page - 1) * perPage;
+      // A reorder between requests can push a work seen on page 1 onto page 2.
+      if (options.repeatAcrossPages && page === 2) start -= 1;
+      const size = Math.max(0, Math.min(perPage, total - start));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(syntheticPage(start, size)),
+      });
+    });
+  }
+
+  it("enumerates every citing work past the first 200", async () => {
+    const fetchMock = pagedFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W0000000001",
+      "https://api.openalex.org",
+      10_000,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.data.papers).toHaveLength(total);
+    expect(new Set(result.data.papers.map((paper) => paper.id)).size).toBe(
+      total,
+    );
+    expect(result.data.pages.map((page) => page.returnedCount)).toEqual([
+      200, 200, 50,
+    ]);
+    // Plain page numbers with one per_page: cursor paging needs an API key.
+    const urls = fetchMock.mock.calls.map(([url]) => new URL(url));
+    expect(urls.map((url) => url.searchParams.get("page"))).toEqual([
+      "1",
+      "2",
+      "3",
+    ]);
+    expect(
+      urls.every((url) => url.searchParams.get("per_page") === "200"),
+    ).toBe(true);
+    expect(urls.some((url) => url.searchParams.has("cursor"))).toBe(false);
+    // An explicit sort keeps page offsets stable between requests.
+    expect(
+      urls.every(
+        (url) => url.searchParams.get("sort") === "publication_date:asc",
+      ),
+    ).toBe(true);
+    expect(result.data.providerReportedTotal).toBe(total);
+    expect(result.data.coverage).toBe("complete");
+
+    vi.restoreAllMocks();
+  });
+
+  it("stops at the safety cap and reports truncated coverage", async () => {
+    const fetchMock = pagedFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W0000000001",
+      "https://api.openalex.org",
+      300,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.data.papers).toHaveLength(300);
+    expect(result.data.coverage).toBe("truncated");
+
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a work repeated across pages once and reports the shortfall", async () => {
+    const fetchMock = pagedFetch({ repeatAcrossPages: true });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCitingWorks(
+      "https://openalex.org/W0000000001",
+      "https://api.openalex.org",
+      10_000,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(new Set(result.data.papers.map((paper) => paper.id)).size).toBe(
+      result.data.papers.length,
+    );
+    expect(result.data.pages[1]).toMatchObject({
+      returnedCount: 200,
+      keptCount: 199,
+    });
+    expect(result.data.coverage).toBe("truncated");
 
     vi.restoreAllMocks();
   });

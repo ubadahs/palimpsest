@@ -28,6 +28,7 @@ import {
   type EvidenceArtifact,
   type PrepareArtifact,
   type ScopeArtifact,
+  resolvePreparedRecords,
 } from "../../src/contract/lean-artifacts.js";
 import {
   buildCanonicalDiscoverArtifact,
@@ -962,9 +963,9 @@ describe("canonical Adjudicate", () => {
       grounding: "not_found",
       variant: "E",
     });
-    expect(prepare.payload.records[0]!.family.grounding.status).toBe(
-      "not_found",
-    );
+    expect(
+      resolvePreparedRecords(prepare.payload)[0]!.family.grounding.status,
+    ).toBe("not_found");
     expect(
       evidence.payload.records.every(
         (record) => record.retrievalStatus === "retrieved",
@@ -988,7 +989,7 @@ describe("canonical Adjudicate", () => {
       variant: "F",
     });
     expect(
-      prepare.payload.records.every(
+      resolvePreparedRecords(prepare.payload).every(
         (record) => record.family.grounding.status === "grounding_failed",
       ),
     ).toBe(true);
@@ -1082,7 +1083,7 @@ describe("canonical Adjudicate", () => {
     const { prepare, evidence, calls } = await runAdjudicateFixture({
       variant: "F",
     });
-    const prepareRecord = prepare.payload.records[0]!;
+    const prepareRecord = resolvePreparedRecords(prepare.payload)[0]!;
     const evidenceOutcome = evidence.payload.records.find(
       (record) => record.recordId === prepareRecord.recordId,
     )!;
@@ -1133,7 +1134,7 @@ describe("canonical Adjudicate", () => {
     for (const record of result.payload.records) {
       expect(record.status).toBe("adjudicated");
       if (record.status !== "adjudicated") continue;
-      const prepareRecord = prepare.payload.records.find(
+      const prepareRecord = resolvePreparedRecords(prepare.payload).find(
         (entry) => entry.recordId === record.recordId,
       )!;
       expect(record.evaluatedClaimRecordIds).toEqual(
@@ -1175,9 +1176,9 @@ describe("canonical Adjudicate", () => {
     for (const record of ordered.result.payload.records) {
       expect(record.status).toBe("adjudicated");
       if (record.status !== "adjudicated") continue;
-      const prepareRecord = ordered.prepare.payload.records.find(
-        (entry) => entry.recordId === record.recordId,
-      )!;
+      const prepareRecord = resolvePreparedRecords(
+        ordered.prepare.payload,
+      ).find((entry) => entry.recordId === record.recordId)!;
       const evidenceRecord = ordered.evidence.payload.records.find(
         (entry) => entry.recordId === record.recordId,
       )!;
@@ -1200,7 +1201,7 @@ describe("canonical Adjudicate", () => {
     for (const record of result.payload.records) {
       expect(record.status).toBe("adjudicated");
       if (record.status !== "adjudicated") continue;
-      const prepareRecord = prepare.payload.records.find(
+      const prepareRecord = resolvePreparedRecords(prepare.payload).find(
         (entry) => entry.recordId === record.recordId,
       )!;
       const allowedClaims = new Set(
@@ -1240,8 +1241,14 @@ describe("canonical Adjudicate", () => {
       ),
     );
     expect(
-      first.prepare.payload.records.map((record) => record.recordId),
-    ).toEqual(second.prepare.payload.records.map((record) => record.recordId));
+      resolvePreparedRecords(first.prepare.payload).map(
+        (record) => record.recordId,
+      ),
+    ).toEqual(
+      resolvePreparedRecords(second.prepare.payload).map(
+        (record) => record.recordId,
+      ),
+    );
   });
 
   it("stabilizes non-verdict identity around semantic status and execution", async () => {
@@ -1604,7 +1611,9 @@ describe("canonical Adjudicate", () => {
     expect(scope.canonicalStage).toBe("scope");
     expect(prepare.canonicalStage).toBe("prepare");
     expect(evidence.canonicalStage).toBe("evidence");
-    expect(result.payload.records).toHaveLength(prepare.payload.records.length);
+    expect(result.payload.records).toHaveLength(
+      resolvePreparedRecords(prepare.payload).length,
+    );
     expect(result.payload.records).toHaveLength(
       evidence.payload.records.length,
     );
@@ -1614,7 +1623,9 @@ describe("canonical Adjudicate", () => {
       ),
     ).toBe(
       canonicalSerialize(
-        prepare.payload.records.map((record) => record.recordId).sort(),
+        resolvePreparedRecords(prepare.payload)
+          .map((record) => record.recordId)
+          .sort(),
       ),
     );
     const artifact = buildCanonicalAdjudicateArtifact({

@@ -158,7 +158,11 @@ export function ReportInspector({
         </div>
 
         <TabsContent value="overview" className="space-y-4">
-          <VerdictOverview funnel={summary.funnel} rates={summary.rates} />
+          <VerdictOverview
+            funnel={summary.funnel}
+            rates={summary.rates}
+            weightedRates={summary.weightedRates}
+          />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {verdictRates.map((rate) => (
               <RateCard key={rate.metricId} rate={rate} />

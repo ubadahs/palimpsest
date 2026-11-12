@@ -14,6 +14,7 @@ import {
   type DiscoverCitationOccurrence,
   type PrepareClassification,
   type ScopeArtifact,
+  resolvePreparedRecords,
 } from "../../src/contract/lean-artifacts.js";
 import {
   buildCanonicalDiscoverArtifact,
@@ -577,8 +578,12 @@ async function runPrepareFixture(
   return { discover, scope, result };
 }
 
+function resolved(result: CanonicalPrepareResult) {
+  return resolvePreparedRecords(result.payload);
+}
+
 function recordsForAlpha(result: CanonicalPrepareResult) {
-  return result.payload.records.filter((record) =>
+  return resolved(result).filter((record) =>
     record.family.normalizedClaim.includes("alpha"),
   );
 }
@@ -620,12 +625,12 @@ describe("canonical Prepare", () => {
     const firstOccurrenceId = discover.payload.citationMentions.find(
       (mention) => mention.mentionIndex === 0,
     )!.mentionId;
-    const alphaAtFirst = result.payload.records.find(
+    const alphaAtFirst = resolved(result).find(
       (record) =>
         record.citationOccurrenceId === firstOccurrenceId &&
         record.family.normalizedClaim.includes("alpha"),
     )!;
-    const betaAtFirst = result.payload.records.find(
+    const betaAtFirst = resolved(result).find(
       (record) =>
         record.citationOccurrenceId === firstOccurrenceId &&
         record.family.normalizedClaim.includes("beta"),
@@ -675,7 +680,7 @@ describe("canonical Prepare", () => {
     ).toBe(3);
 
     for (const input of classifierInputs) {
-      const prepared = result.payload.records.find(
+      const prepared = resolved(result).find(
         (record) =>
           record.familyId === input.family.familyId &&
           record.citationOccurrenceId === input.citationOccurrence.mentionId,
@@ -833,7 +838,7 @@ describe("canonical Prepare", () => {
     async (grounding) => {
       const { scope, result } = await runPrepareFixture({ grounding });
       expect(result.payload.records).toHaveLength(3);
-      for (const record of result.payload.records) {
+      for (const record of resolved(result)) {
         const sourceFamily = scope.payload.families.find(
           (family) => family.familyId === record.familyId,
         )!;
@@ -1175,9 +1180,27 @@ describe("canonical Prepare", () => {
       prepareArtifactPayloadSchema.safeParse(danglingOccurrence).success,
     ).toBe(false);
 
-    const danglingPaper = structuredClone(result.payload);
-    danglingPaper.records[0]!.citingPaper.paper.paperId = "different-paper";
-    expect(prepareArtifactPayloadSchema.safeParse(danglingPaper).success).toBe(
+    const inconsistentPaper = structuredClone(result.payload);
+    inconsistentPaper.citingPapers[0]!.paper.paperId = "different-paper";
+    expect(
+      prepareArtifactPayloadSchema.safeParse(inconsistentPaper).success,
+    ).toBe(false);
+
+    const missingPaper = structuredClone(result.payload);
+    missingPaper.citingPapers.pop();
+    expect(prepareArtifactPayloadSchema.safeParse(missingPaper).success).toBe(
+      false,
+    );
+
+    const missingCandidate = structuredClone(result.payload);
+    missingCandidate.sourceCandidates.pop();
+    expect(
+      prepareArtifactPayloadSchema.safeParse(missingCandidate).success,
+    ).toBe(false);
+
+    const missingSeed = structuredClone(result.payload);
+    missingSeed.seeds = [];
+    expect(prepareArtifactPayloadSchema.safeParse(missingSeed).success).toBe(
       false,
     );
 
@@ -1193,10 +1216,16 @@ describe("canonical Prepare", () => {
       false,
     );
 
-    const inconsistentLineage = structuredClone(result.payload);
-    inconsistentLineage.records[0]!.lineage.runId = "different-run";
+    const unreferencedClaim = structuredClone(result.payload);
+    unreferencedClaim.sourceClaimRecords.push({
+      ...unreferencedClaim.sourceClaimRecords[0]!,
+      claimRecordId: buildStableId("claim", { unreferenced: true }),
+    });
+    unreferencedClaim.sourceClaimRecords.sort((left, right) =>
+      left.claimRecordId < right.claimRecordId ? -1 : 1,
+    );
     expect(
-      prepareArtifactPayloadSchema.safeParse(inconsistentLineage).success,
+      prepareArtifactPayloadSchema.safeParse(unreferencedClaim).success,
     ).toBe(false);
 
     const missing = structuredClone(result.payload);
@@ -1212,54 +1241,54 @@ describe("canonical Prepare", () => {
       payload: typeof result.payload,
       claim: "alpha" | "beta",
       mentionIndex: number,
-    ) =>
-      payload.records.find(
+    ) => {
+      const familyIds = new Set(
+        payload.scopedFamilies
+          .filter((family) => family.normalizedClaim.includes(claim))
+          .map((family) => family.familyId),
+      );
+      return payload.records.find(
         (record) =>
-          record.family.normalizedClaim.includes(claim) &&
+          familyIds.has(record.familyId) &&
           record.citationOccurrence.mentionIndex === mentionIndex,
       )!;
+    };
 
     const emptyCandidates = structuredClone(result.payload);
-    findRecord(emptyCandidates, "alpha", 0).occurrenceSourceCandidates = [];
+    findRecord(emptyCandidates, "alpha", 0).occurrenceSourceCandidateIds = [];
     expect(isInvalid(emptyCandidates)).toBe(true);
 
     const emptyClaims = structuredClone(result.payload);
-    findRecord(emptyClaims, "alpha", 0).occurrenceSourceClaimRecords = [];
+    findRecord(emptyClaims, "alpha", 0).occurrenceSourceClaimRecordIds = [];
     expect(isInvalid(emptyClaims)).toBe(true);
 
     const danglingCandidate = structuredClone(result.payload);
-    findRecord(
-      danglingCandidate,
-      "alpha",
-      0,
-    ).occurrenceSourceCandidates[0]!.canonicalClaim =
-      "Tampered candidate content";
+    findRecord(danglingCandidate, "alpha", 0).occurrenceSourceCandidateIds = [
+      buildStableId("candidate", { missing: true }),
+    ];
     expect(isInvalid(danglingCandidate)).toBe(true);
 
     const crossOccurrence = structuredClone(result.payload);
     const crossOccurrenceSource = findRecord(crossOccurrence, "alpha", 0)
-      .occurrenceSourceClaimRecords[0]!;
-    findRecord(crossOccurrence, "alpha", 1).occurrenceSourceClaimRecords = [
+      .occurrenceSourceClaimRecordIds[0]!;
+    findRecord(crossOccurrence, "alpha", 1).occurrenceSourceClaimRecordIds = [
       crossOccurrenceSource,
     ];
     expect(isInvalid(crossOccurrence)).toBe(true);
 
     const crossFamily = structuredClone(result.payload);
-    findRecord(crossFamily, "alpha", 0).occurrenceSourceCandidates = findRecord(
-      crossFamily,
-      "beta",
-      0,
-    ).occurrenceSourceCandidates;
+    findRecord(crossFamily, "alpha", 0).occurrenceSourceCandidateIds =
+      findRecord(crossFamily, "beta", 0).occurrenceSourceCandidateIds;
     expect(isInvalid(crossFamily)).toBe(true);
 
     const extraClaim = structuredClone(result.payload);
-    findRecord(extraClaim, "alpha", 1).occurrenceSourceClaimRecords.push(
-      findRecord(extraClaim, "alpha", 0).occurrenceSourceClaimRecords[0]!,
+    findRecord(extraClaim, "alpha", 1).occurrenceSourceClaimRecordIds.push(
+      findRecord(extraClaim, "alpha", 0).occurrenceSourceClaimRecordIds[0]!,
     );
     expect(isInvalid(extraClaim)).toBe(true);
 
     const omittedClaim = structuredClone(result.payload);
-    findRecord(omittedClaim, "alpha", 0).occurrenceSourceClaimRecords.pop();
+    findRecord(omittedClaim, "alpha", 0).occurrenceSourceClaimRecordIds.pop();
     expect(isInvalid(omittedClaim)).toBe(true);
 
     const reorderedClaims = structuredClone(result.payload);
@@ -1267,8 +1296,51 @@ describe("canonical Prepare", () => {
       reorderedClaims,
       "alpha",
       0,
-    ).occurrenceSourceClaimRecords.reverse();
+    ).occurrenceSourceClaimRecordIds.reverse();
     expect(isInvalid(reorderedClaims)).toBe(true);
+  });
+
+  it("stores family-level data once and keeps records occurrence-local", async () => {
+    const { discover, result } = await runPrepareFixture();
+    for (const record of result.payload.records) {
+      expect(Object.keys(record).sort()).toEqual([
+        "citationOccurrence",
+        "citationOccurrenceId",
+        "classification",
+        "familyId",
+        "occurrenceSourceCandidateIds",
+        "occurrenceSourceClaimRecordIds",
+        "recordId",
+      ]);
+    }
+    const familyCandidateIds = result.payload.scopedFamilies.flatMap(
+      (family) => family.candidateIds,
+    );
+    expect(
+      result.payload.sourceCandidates.map((candidate) => candidate.candidateId),
+    ).toEqual([...new Set(familyCandidateIds)].sort());
+    expect(
+      result.payload.sourceClaimRecords.map((claim) => claim.claimRecordId),
+    ).toEqual(
+      [
+        ...new Set(
+          result.payload.scopedFamilies.flatMap(
+            (family) => family.sourceClaimRecordIds,
+          ),
+        ),
+      ].sort(),
+    );
+    // Two families share one citing paper; it is stored once.
+    expect(result.payload.citingPapers).toHaveLength(1);
+    expect(result.payload.seeds).toEqual([discover.payload.seeds[0]]);
+    // Resolution joins references, not copies.
+    const [first, second] = resolved(result);
+    if (first && second && first.familyId === second.familyId) {
+      expect(first.family).toBe(second.family);
+    }
+    expect(resolved(result)[0]!.citingPaper).toBe(
+      result.payload.citingPapers[0],
+    );
   });
 
   it("verifies exact Scope/Discover lineage before classifier execution", async () => {
@@ -1357,7 +1429,7 @@ describe("canonical Prepare", () => {
         canonicalStage: "discover",
       },
     });
-    for (const record of result.payload.records) {
+    for (const record of resolved(result)) {
       expect(
         scope.payload.families.find(
           (family) => family.familyId === record.familyId,

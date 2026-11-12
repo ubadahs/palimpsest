@@ -29,6 +29,7 @@ import {
   leanArtifactSchemaVersion,
   leanArtifactVersion,
   prepareArtifactSchema,
+  resolvePreparedRecords,
   scopeArtifactSchema,
   type AppendOnlyDecision,
   type ArtifactReference,
@@ -44,7 +45,7 @@ import {
   type EvidenceSelection,
   type LeanArtifactProvenance,
   type PrepareArtifact,
-  type PreparedCitationInstance,
+  type ResolvedPreparedCitationInstance,
   type ScopeArtifact,
   type ScopeSeedMaterialization,
   type ScopedFamily,
@@ -228,8 +229,9 @@ export async function runCanonicalEvidence(
   // BM25 is synchronous and memoized before any await, so concurrent records
   // share corpora and runs safely; only the reranker call runs side by side.
   const rerankInFlight = new Map<string, Promise<unknown>>();
+  const prepareRecords = resolvePreparedRecords(prepareArtifact.payload);
   const computations = await pMap(
-    prepareArtifact.payload.records,
+    prepareRecords,
     (record) => {
       const family = familiesById.get(record.familyId);
       if (!family) {
@@ -258,13 +260,13 @@ export async function runCanonicalEvidence(
     { concurrency: options.concurrency ?? 1 },
   );
 
-  const preparedRecords = prepareArtifact.payload.records.map((record) => ({
+  const preparedRecords = prepareRecords.map((record) => ({
     recordId: record.recordId,
     familyId: record.familyId,
     citationOccurrenceId: record.citationOccurrenceId,
     seedId: record.seed.seedId,
   }));
-  const records: EvidenceRecordOutcome[] = prepareArtifact.payload.records.map(
+  const records: EvidenceRecordOutcome[] = prepareRecords.map(
     (record, index) => {
       const computation = computations[index];
       if (!computation) throw new Error("Evidence record computation was lost");
@@ -431,7 +433,7 @@ export function buildCanonicalEvidenceArtifact(input: {
 }
 
 async function retrieveRecordEvidence(input: {
-  record: PreparedCitationInstance;
+  record: ResolvedPreparedCitationInstance;
   family: ScopedFamily;
   materialization: ScopeSeedMaterialization;
   corporaBySeedId: Map<string, EvidenceChunkCorpus>;
@@ -959,20 +961,6 @@ function verifyEvidenceAncestors(
     throw new CanonicalEvidenceBoundaryError(
       "Canonical Prepare does not preserve the supplied Scope family ledger",
     );
-  }
-  const familiesById = new Map(
-    scopeArtifact.payload.families.map((family) => [family.familyId, family]),
-  );
-  for (const record of prepareArtifact.payload.records) {
-    const family = familiesById.get(record.familyId);
-    if (
-      !family ||
-      canonicalSerialize(record.family) !== canonicalSerialize(family)
-    ) {
-      throw new CanonicalEvidenceBoundaryError(
-        `Prepare record differs from its exact Scope family: ${record.recordId}`,
-      );
-    }
   }
 }
 

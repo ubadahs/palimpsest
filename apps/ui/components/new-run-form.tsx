@@ -55,6 +55,7 @@ type FormState = {
   };
   forceRefresh: boolean;
   modelConcurrency: number;
+  fetchConcurrency: number;
 };
 
 function parseSeedDois(text: string): string[] {
@@ -124,6 +125,7 @@ const defaultState: FormState = {
   },
   forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
   modelConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency,
+  fetchConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency,
 };
 
 function flattenConfig(s: FormState) {
@@ -134,6 +136,7 @@ function flattenConfig(s: FormState) {
     discover: {
       neighborhoodLimit: s.discover.neighborhoodLimit,
       probeBudget: s.discover.probeBudget,
+      fetchConcurrency: s.fetchConcurrency,
       candidateSelection: {
         mode: "adaptive_portfolio" as const,
         minFamilies: s.discover.minFamilies,
@@ -170,7 +173,8 @@ export function NewRunForm() {
       | "seedDoisText"
       | "targetStage"
       | "forceRefresh"
-      | "modelConcurrency",
+      | "modelConcurrency"
+      | "fetchConcurrency",
   >(key: K, value: FormState[K]): void {
     setState((prev) => ({ ...prev, [key]: value }));
   }
@@ -360,8 +364,9 @@ export function NewRunForm() {
                     Neighborhood limit
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Total citing works to retrieve from the provider, across as
-                    many paginated requests as needed.
+                    Safety cap on citing works enumerated from the provider. The
+                    whole neighborhood is listed (metadata only) and the probe
+                    sample is drawn from all of it.
                   </span>
                   <Input
                     min={1}
@@ -801,6 +806,25 @@ export function NewRunForm() {
                     value={state.modelConcurrency}
                     onChange={(event) =>
                       update("modelConcurrency", Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    Fetch concurrency
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Citing papers fetched and parsed at once in Discover.
+                    Changes wall time only; artifacts are identical at any
+                    value.
+                  </span>
+                  <Input
+                    max={32}
+                    min={1}
+                    type="number"
+                    value={state.fetchConcurrency}
+                    onChange={(event) =>
+                      update("fetchConcurrency", Number(event.target.value))
                     }
                   />
                 </label>

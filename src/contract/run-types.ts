@@ -49,8 +49,9 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
   discover: {
     neighborhoodProvider: "openalex",
     neighborhoodQuery: "works-citing-seed",
-    neighborhoodLimit: 200,
+    neighborhoodLimit: 10_000,
     probeBudget: 100,
+    fetchConcurrency: 6,
     candidateSelection: defaultAdaptivePortfolioPolicy,
     extractionModel: "claude-haiku-5-5",
     extractionThinking: false,
@@ -134,6 +135,17 @@ export const analysisRunConfigSchema = z
           .int()
           .nonnegative()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget),
+        /**
+         * Citing papers fetched, parsed, and harvested at once. Changes wall
+         * time only: harvests are appended in neighborhood order, so the
+         * artifact is the same at any value, and a resume ignores it.
+         */
+        fetchConcurrency: z
+          .number()
+          .int()
+          .min(1)
+          .max(32)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency),
         candidateSelection: adaptivePortfolioPolicySchema.default(
           () => CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection,
         ),

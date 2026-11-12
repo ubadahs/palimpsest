@@ -12,7 +12,10 @@ import {
   buildReportDecisionRecordId,
   buildReportCount,
   buildReportRate,
+  buildReportWeightedRate,
   canonicalReportMethod,
+  isInSamplingFrame,
+  probeStratumKeyOf,
   createAppendOnlyDecision,
   createLeanStageArtifact,
   discoverArtifactSchema,
@@ -20,6 +23,7 @@ import {
   leanArtifactSchemaVersion,
   leanArtifactVersion,
   prepareArtifactSchema,
+  resolvePreparedRecords,
   canonicalReportMethodId,
   REPORT_INTERPRETATION_WARNING,
   REPORT_PUBLICATION_REASON,
@@ -33,6 +37,7 @@ import {
   type EvidenceArtifact,
   type LeanArtifactProvenance,
   type PrepareArtifact,
+  type ResolvedPreparedCitationInstance,
   type ReportArtifact,
   type ReportArtifactPayload,
   type ReportCount,
@@ -44,6 +49,7 @@ import {
   type ReportRate,
   type ReportRecordTrace,
   type ReportSelectionAuditRow,
+  type ReportWeightedRate,
   type ScopeArtifact,
 } from "../contract/lean-artifacts.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
@@ -139,6 +145,11 @@ export function runCanonicalReport(
     adjudicateArtifact,
   });
   const rates = buildRates(funnel);
+  const weightedRates = buildWeightedRates({
+    discoverArtifact,
+    prepareArtifact,
+    adjudicateArtifact,
+  });
   const recordTraces = buildRecordTraces({
     prepareArtifact,
     evidenceArtifact,
@@ -170,6 +181,7 @@ export function runCanonicalReport(
     replayableFromInputs: true,
     funnel,
     rates,
+    weightedRates,
     familyMutations,
     recordTraces,
     decisionSummaries,
@@ -251,7 +263,7 @@ export function buildCanonicalReportArtifact(input: {
     provenance,
     execution: {
       kind: "deterministic",
-      implementation: input.implementation ?? "canonical-report-v2",
+      implementation: input.implementation ?? "canonical-report-v3",
       replayableFromInputs: true,
     },
     decisions: input.result.decisions,
@@ -420,19 +432,23 @@ function buildFunnelCounts(input: {
   const discover = discoverArtifact.payload;
   const citingPapers = discover.citingPapers;
   const returnedCitingPaperObservations = citingPapers.length;
-  const strata = new Map<string, { returned: number; probed: number }>();
-  for (const paper of citingPapers) {
-    const key = paper.probe.stratum
-      ? `${paper.probe.stratum.yearBand}::${paper.probe.stratum.paperType}`
-      : "unknown::unknown";
-    const bucket = strata.get(key) ?? { returned: 0, probed: 0 };
-    bucket.returned += 1;
-    if (paper.probe.status === "selected") bucket.probed += 1;
-    strata.set(key, bucket);
-  }
-  const probeStratumCounts = [...strata.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([stratum, counts]) => ({ stratum, ...counts }));
+  const probeStratumCounts = discover.neighborhoodQueries
+    .flatMap((query) =>
+      query.probeStrata.map((stratum) => ({
+        seedId: query.seedId,
+        stratum: probeStratumKeyOf(stratum),
+        enumerated: stratum.enumeratedCount,
+        frame: stratum.frameCount,
+        probed: stratum.probedCount,
+        probedFrame: stratum.probedFrameCount,
+        inclusionProbability: stratum.inclusionProbability,
+      })),
+    )
+    .sort(
+      (left, right) =>
+        compareCodeUnits(left.seedId, right.seedId) ||
+        compareCodeUnits(left.stratum, right.stratum),
+    );
   // The sampling denominator the provider reported, and whether pagination
   // reached all of it. Both are on the Discover queries and neither reached
   // the report before.
@@ -744,7 +760,10 @@ function buildFunnelCounts(input: {
     .map(([rankingSource, counts]) => ({ rankingSource, ...counts }));
 
   const prepareById = new Map(
-    preparedRecords.map((record) => [record.recordId, record]),
+    resolvePreparedRecords(prepareArtifact.payload).map((record) => [
+      record.recordId,
+      record,
+    ]),
   );
   const uniqueClaimUnitKeys = new Set<string>();
   const uniqueAdjudicatedClaimUnitKeys = new Set<string>();
@@ -1307,6 +1326,95 @@ function buildFunnelCounts(input: {
   };
 }
 
+/**
+ * F/D/E/U rates over the sampling frame, with each adjudicated record from a
+ * frame paper weighted by 1/π of its paper's probe stratum, so every stratum
+ * counts in proportion to its share of the frame however the budget fell.
+ * Records from papers outside the frame were probed only with budget left
+ * over and stand for no one, so they are left out here (they still count in
+ * the unweighted rates). Sums run in adjudicate record order, so the
+ * floating-point result is reproducible.
+ */
+function buildWeightedRates(input: {
+  discoverArtifact: DiscoverArtifact;
+  prepareArtifact: PrepareArtifact;
+  adjudicateArtifact: AdjudicateArtifact;
+}): ReportWeightedRate[] {
+  const discover = input.discoverArtifact.payload;
+  const strataByNeighborhood = new Map(
+    discover.neighborhoodQueries.map((query) => [
+      query.neighborhoodId,
+      new Map(
+        query.probeStrata.map((stratum) => [
+          probeStratumKeyOf(stratum),
+          stratum,
+        ]),
+      ),
+    ]),
+  );
+  const citingPapersById = new Map(
+    discover.citingPapers.map((paper) => [paper.citingPaperRecordId, paper]),
+  );
+  const prepareById = new Map(
+    input.prepareArtifact.payload.records.map((record) => [
+      record.recordId,
+      record,
+    ]),
+  );
+  /** 1/π for a record from a frame paper; undefined outside the frame. */
+  const weightOf = (recordId: string): number | undefined => {
+    const prepareRecord = prepareById.get(recordId);
+    const paper = prepareRecord
+      ? citingPapersById.get(
+          prepareRecord.citationOccurrence.citingPaperRecordId,
+        )
+      : undefined;
+    if (!paper) {
+      throw new CanonicalReportBoundaryError(
+        `Adjudicated record has no Discover citing paper: ${recordId}`,
+      );
+    }
+    if (!isInSamplingFrame(paper.paper.fullTextAvailability)) return undefined;
+    const stratum = strataByNeighborhood
+      .get(paper.neighborhoodId)
+      ?.get(probeStratumKeyOf(paper.probe.stratum));
+    if (!stratum || stratum.probedFrameCount === 0) {
+      throw new CanonicalReportBoundaryError(
+        `Adjudicated record has no probed sampling stratum: ${recordId}`,
+      );
+    }
+    return stratum.frameCount / stratum.probedFrameCount;
+  };
+
+  const sampleCounts = { F: 0, D: 0, E: 0, U: 0 };
+  const weightedCounts = { F: 0, D: 0, E: 0, U: 0 };
+  let sampleTotal = 0;
+  let weightedTotal = 0;
+  for (const record of input.adjudicateArtifact.payload.records) {
+    if (record.status !== "adjudicated") continue;
+    const weight = weightOf(record.recordId);
+    if (weight === undefined) continue;
+    sampleCounts[record.verdict] += 1;
+    weightedCounts[record.verdict] += weight;
+    sampleTotal += 1;
+    weightedTotal += weight;
+  }
+  return (["D", "E", "F", "U"] as const).map((verdict) =>
+    buildReportWeightedRate({
+      metricId: `verdict_${verdict}_weighted_rate`,
+      weightedNumerator: weightedCounts[verdict],
+      weightedDenominator: weightedTotal,
+      sampleNumerator: sampleCounts[verdict],
+      sampleDenominator: sampleTotal,
+      unit: `weighted_${verdict}_verdicts / weighted_adjudicated_records`,
+      populationLabel: `Estimated share of ${verdict} among adjudicated records if every citing paper in the sampling frame had been probed. The frame is the enumerated citing papers the provider does not mark closed or abstract-only; each probed frame paper stands for its year-band × type-group stratum of the frame. Families are those selected from the probed sample, and full-text loss within a stratum is assumed unrelated to fidelity`,
+      numeratorDefinition: `Sum over adjudicated ${verdict} records from frame papers of 1/π, where π = probed frame papers / frame papers in the record's citing-paper stratum`,
+      denominatorDefinition:
+        "Sum over all adjudicated records from frame papers of 1/π (operational non-verdicts and papers outside the frame excluded); the frame is drawn from the enumerated neighborhoods, which are truncated where coverage says so",
+    }),
+  );
+}
+
 function buildRates(funnel: ReportFunnelCounts): ReportRate[] {
   const discoverCandidates =
     funnel.discover.selectedCandidates.count +
@@ -1668,12 +1776,14 @@ function buildFamilyMutations(input: {
   );
 
   type FamilyAccumulator = {
-    exemplar: PrepareArtifact["payload"]["records"][number];
+    exemplar: ResolvedPreparedCitationInstance;
     rows: ReportFamilyMutationRecord[];
     unitKeys: Set<string>;
   };
   const byFamily = new Map<string, FamilyAccumulator>();
-  for (const prepareRecord of input.prepareArtifact.payload.records) {
+  for (const prepareRecord of resolvePreparedRecords(
+    input.prepareArtifact.payload,
+  )) {
     const adjudicateRecord = adjudicateById.get(prepareRecord.recordId);
     if (!adjudicateRecord) {
       throw new CanonicalReportBoundaryError(

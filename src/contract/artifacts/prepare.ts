@@ -4,6 +4,9 @@
  */
 import { z } from "zod";
 
+import type { Result } from "../../domain/common.js";
+import { compareCodeUnits } from "../../shared/order.js";
+
 import {
   confidenceSchema,
   evaluationModeSchema,
@@ -23,7 +26,6 @@ import {
   addIssue,
   addSortedUniqueIdentifierIssue,
   findDuplicate,
-  sameArtifactReference,
   sameIdentifierSequence,
 } from "./checks.js";
 import {
@@ -32,8 +34,12 @@ import {
   discoverSeedSchema,
   discoverAttributedClaimRecordSchema,
   discoverClaimCandidateSchema,
+  type DiscoverAttributedClaimRecord,
+  type DiscoverCitingPaperRecord,
+  type DiscoverClaimCandidate,
+  type DiscoverSeed,
 } from "./discover.js";
-import { scopedFamilySchema } from "./scope.js";
+import { scopedFamilySchema, type ScopedFamily } from "./scope.js";
 
 export type CitationInstanceIdentityInputs = {
   familyId: string;
@@ -207,33 +213,28 @@ const prepareLineageSchema = z
   })
   .strict();
 
+/**
+ * One scoped family × citation occurrence. The record carries only what is
+ * local to the occurrence: the occurrence itself, which of its family's
+ * candidates and claims belong to it (by id), and its classification. Family,
+ * seed, citing-paper, candidate, and claim data live once on the payload and
+ * are joined back with `resolvePreparedRecords`, so a record's size does not
+ * grow with its family's.
+ */
 export const preparedCitationInstanceSchema = z
   .object({
     recordId: stableIdentifierSchema,
     familyId: stableIdentifierSchema,
     citationOccurrenceId: stableIdentifierSchema,
-    family: scopedFamilySchema,
-    sourceCandidates: z.array(discoverClaimCandidateSchema).min(1),
-    sourceClaimRecords: z.array(discoverAttributedClaimRecordSchema).min(1),
-    occurrenceSourceCandidates: z.array(discoverClaimCandidateSchema).min(1),
-    occurrenceSourceClaimRecords: z
-      .array(discoverAttributedClaimRecordSchema)
-      .min(1),
-    seed: discoverSeedSchema,
-    citingPaper: discoverCitingPaperRecordSchema,
+    /** Family candidates whose membership includes this occurrence, in family order. */
+    occurrenceSourceCandidateIds: z.array(stableIdentifierSchema).min(1),
+    /** Family claims attributed at this occurrence, in family order. */
+    occurrenceSourceClaimRecordIds: z.array(stableIdentifierSchema).min(1),
     citationOccurrence: discoverCitationOccurrenceSchema,
     classification: prepareClassificationSchema,
-    lineage: prepareLineageSchema,
   })
   .strict()
   .superRefine((record, context) => {
-    if (record.familyId !== record.family.familyId) {
-      context.addIssue({
-        code: "custom",
-        path: ["familyId"],
-        message: "familyId does not match the preserved Scope family",
-      });
-    }
     if (record.citationOccurrenceId !== record.citationOccurrence.mentionId) {
       context.addIssue({
         code: "custom",
@@ -249,7 +250,20 @@ export const preparedCitationInstanceSchema = z
         message: "recordId does not match family × citation occurrence",
       });
     }
-    validatePreparedRecordReferences(record, context);
+    if (record.classification.status !== "failed") {
+      if (
+        record.classification.modifiers.isBundled !==
+          record.citationOccurrence.isBundledCitation ||
+        record.classification.modifiers.bundleSize !==
+          record.citationOccurrence.bundleSize
+      ) {
+        addIssue(
+          context,
+          ["classification", "modifiers"],
+          "Classification bundle modifiers must preserve the Discover occurrence",
+        );
+      }
+    }
   });
 export type PreparedCitationInstance = z.infer<
   typeof preparedCitationInstanceSchema
@@ -258,7 +272,15 @@ export type PreparedCitationInstance = z.infer<
 export const prepareArtifactPayloadSchema = z
   .object({
     lineage: prepareLineageSchema,
+    /** Discover seeds of the scoped families, ordered by seedId. */
+    seeds: z.array(discoverSeedSchema),
     scopedFamilies: z.array(scopedFamilySchema),
+    /** Every scoped family's Discover candidates, once, ordered by candidateId. */
+    sourceCandidates: z.array(discoverClaimCandidateSchema),
+    /** Every scoped family's Discover claims, once, ordered by claimRecordId. */
+    sourceClaimRecords: z.array(discoverAttributedClaimRecordSchema),
+    /** Discover citing papers of the prepared occurrences, ordered by record ID. */
+    citingPapers: z.array(discoverCitingPaperRecordSchema),
     records: z.array(preparedCitationInstanceSchema),
   })
   .strict()
@@ -267,67 +289,206 @@ export type PrepareArtifactPayload = z.infer<
   typeof prepareArtifactPayloadSchema
 >;
 
-function validatePreparedRecordReferences(
+/**
+ * A Prepare record joined to the family-level data it refers to. Every field
+ * is a reference into the payload, not a copy.
+ */
+export type ResolvedPreparedCitationInstance = PreparedCitationInstance & {
+  family: ScopedFamily;
+  seed: DiscoverSeed;
+  citingPaper: DiscoverCitingPaperRecord;
+  sourceCandidates: DiscoverClaimCandidate[];
+  sourceClaimRecords: DiscoverAttributedClaimRecord[];
+  occurrenceSourceCandidates: DiscoverClaimCandidate[];
+  occurrenceSourceClaimRecords: DiscoverAttributedClaimRecord[];
+};
+
+/**
+ * Join each record to its family, seed, citing paper, candidates, and claims.
+ * The payload schema guarantees every reference resolves, so a miss here is a
+ * programmer error (an unvalidated payload) and throws.
+ */
+export function resolvePreparedRecords(
+  payload: PrepareArtifactPayload,
+): ResolvedPreparedCitationInstance[] {
+  const index = indexPreparePayload(payload);
+  return payload.records.map((record) => {
+    const resolved = resolveRecord(record, index);
+    if (!resolved.ok) throw new Error(resolved.error);
+    return resolved.data;
+  });
+}
+
+type PreparePayloadIndex = {
+  familiesById: Map<string, ScopedFamily>;
+  seedsById: Map<string, DiscoverSeed>;
+  candidatesById: Map<string, DiscoverClaimCandidate>;
+  claimsById: Map<string, DiscoverAttributedClaimRecord>;
+  citingPapersById: Map<string, DiscoverCitingPaperRecord>;
+};
+
+function indexPreparePayload(
+  payload: PrepareArtifactPayload,
+): PreparePayloadIndex {
+  return {
+    familiesById: new Map(
+      payload.scopedFamilies.map((family) => [family.familyId, family]),
+    ),
+    seedsById: new Map(payload.seeds.map((seed) => [seed.seedId, seed])),
+    candidatesById: new Map(
+      payload.sourceCandidates.map((candidate) => [
+        candidate.candidateId,
+        candidate,
+      ]),
+    ),
+    claimsById: new Map(
+      payload.sourceClaimRecords.map((claim) => [claim.claimRecordId, claim]),
+    ),
+    citingPapersById: new Map(
+      payload.citingPapers.map((paper) => [paper.citingPaperRecordId, paper]),
+    ),
+  };
+}
+
+function resolveAll<T>(
+  ids: readonly string[],
+  byId: ReadonlyMap<string, T>,
+  label: string,
+): Result<T[]> {
+  const resolved: T[] = [];
+  for (const id of ids) {
+    const value = byId.get(id);
+    if (value === undefined) {
+      return { ok: false, error: `Unknown ${label}: ${id}` };
+    }
+    resolved.push(value);
+  }
+  return { ok: true, data: resolved };
+}
+
+function resolveRecord(
   record: PreparedCitationInstance,
+  index: PreparePayloadIndex,
+): Result<ResolvedPreparedCitationInstance> {
+  const family = index.familiesById.get(record.familyId);
+  if (!family) {
+    return {
+      ok: false,
+      error: `Prepare record references an unknown Scope family: ${record.familyId}`,
+    };
+  }
+  const seed = index.seedsById.get(family.seedId);
+  if (!seed) {
+    return {
+      ok: false,
+      error: `Prepare family references an unknown seed: ${family.seedId}`,
+    };
+  }
+  const citingPaper = index.citingPapersById.get(
+    record.citationOccurrence.citingPaperRecordId,
+  );
+  if (!citingPaper) {
+    return {
+      ok: false,
+      error: `Prepare record references an unknown citing paper: ${record.citationOccurrence.citingPaperRecordId}`,
+    };
+  }
+  const sourceCandidates = resolveAll(
+    family.candidateIds,
+    index.candidatesById,
+    "Prepare source candidate",
+  );
+  if (!sourceCandidates.ok) return sourceCandidates;
+  const sourceClaimRecords = resolveAll(
+    family.sourceClaimRecordIds,
+    index.claimsById,
+    "Prepare source claim",
+  );
+  if (!sourceClaimRecords.ok) return sourceClaimRecords;
+  const occurrenceSourceCandidates = resolveAll(
+    record.occurrenceSourceCandidateIds,
+    index.candidatesById,
+    "Prepare occurrence candidate",
+  );
+  if (!occurrenceSourceCandidates.ok) return occurrenceSourceCandidates;
+  const occurrenceSourceClaimRecords = resolveAll(
+    record.occurrenceSourceClaimRecordIds,
+    index.claimsById,
+    "Prepare occurrence claim",
+  );
+  if (!occurrenceSourceClaimRecords.ok) return occurrenceSourceClaimRecords;
+  return {
+    ok: true,
+    data: {
+      ...record,
+      family,
+      seed,
+      citingPaper,
+      sourceCandidates: sourceCandidates.data,
+      sourceClaimRecords: sourceClaimRecords.data,
+      occurrenceSourceCandidates: occurrenceSourceCandidates.data,
+      occurrenceSourceClaimRecords: occurrenceSourceClaimRecords.data,
+    },
+  };
+}
+
+function validateResolvedRecord(
+  record: ResolvedPreparedCitationInstance,
   context: z.RefinementCtx,
+  path: (string | number)[],
 ): void {
   const occurrence = record.citationOccurrence;
-  const sourceCandidateIds = record.sourceCandidates.map(
-    (candidate) => candidate.candidateId,
-  );
-  const sourceClaimRecordIds = record.sourceClaimRecords.map(
-    (sourceClaim) => sourceClaim.claimRecordId,
-  );
   if (
-    !sameIdentifierSequence(sourceCandidateIds, record.family.candidateIds) ||
     record.sourceCandidates.some(
       (candidate) => candidate.seedId !== record.family.seedId,
     )
   ) {
     addIssue(
       context,
-      ["sourceCandidates"],
-      "Prepared source candidates must exactly preserve the Scope family candidate references",
+      [...path, "familyId"],
+      "Prepared source candidates must share the Scope family seed",
     );
   }
   if (
-    !sameIdentifierSequence(
-      sourceClaimRecordIds,
-      record.family.sourceClaimRecordIds,
-    ) ||
     record.sourceClaimRecords.some(
       (sourceClaim) => sourceClaim.seedId !== record.family.seedId,
     )
   ) {
     addIssue(
       context,
-      ["sourceClaimRecords"],
-      "Prepared source claims must exactly preserve the Scope family claim provenance",
+      [...path, "familyId"],
+      "Prepared source claims must share the Scope family seed",
     );
   }
-  const expectedOccurrenceSourceCandidates = record.sourceCandidates.filter(
-    (candidate) => candidate.memberMentionIds.includes(occurrence.mentionId),
-  );
-  const expectedOccurrenceSourceClaimRecords = record.sourceClaimRecords.filter(
-    (sourceClaim) => sourceClaim.mentionId === occurrence.mentionId,
-  );
+  const expectedCandidateIds = record.sourceCandidates
+    .filter((candidate) =>
+      candidate.memberMentionIds.includes(occurrence.mentionId),
+    )
+    .map((candidate) => candidate.candidateId);
   if (
-    canonicalSerialize(record.occurrenceSourceCandidates) !==
-    canonicalSerialize(expectedOccurrenceSourceCandidates)
+    !sameIdentifierSequence(
+      record.occurrenceSourceCandidateIds,
+      expectedCandidateIds,
+    )
   ) {
     addIssue(
       context,
-      ["occurrenceSourceCandidates"],
+      [...path, "occurrenceSourceCandidateIds"],
       "Occurrence-local candidates must be the exact ordered family subset containing this occurrence",
     );
   }
+  const expectedClaimIds = record.sourceClaimRecords
+    .filter((sourceClaim) => sourceClaim.mentionId === occurrence.mentionId)
+    .map((sourceClaim) => sourceClaim.claimRecordId);
   if (
-    canonicalSerialize(record.occurrenceSourceClaimRecords) !==
-    canonicalSerialize(expectedOccurrenceSourceClaimRecords)
+    !sameIdentifierSequence(
+      record.occurrenceSourceClaimRecordIds,
+      expectedClaimIds,
+    )
   ) {
     addIssue(
       context,
-      ["occurrenceSourceClaimRecords"],
+      [...path, "occurrenceSourceClaimRecordIds"],
       "Occurrence-local claims must be the exact ordered family subset attributed at this occurrence",
     );
   }
@@ -337,19 +498,19 @@ function validatePreparedRecordReferences(
     ),
   );
   if (
-    record.occurrenceSourceClaimRecords.some(
-      (sourceClaim) => !localCandidateClaimIds.has(sourceClaim.claimRecordId),
+    record.occurrenceSourceClaimRecordIds.some(
+      (claimRecordId) => !localCandidateClaimIds.has(claimRecordId),
     ) ||
     record.occurrenceSourceCandidates.some(
       (candidate) =>
-        !record.occurrenceSourceClaimRecords.some((sourceClaim) =>
-          candidate.sourceClaimRecordIds.includes(sourceClaim.claimRecordId),
+        !record.occurrenceSourceClaimRecordIds.some((claimRecordId) =>
+          candidate.sourceClaimRecordIds.includes(claimRecordId),
         ),
     )
   ) {
     addIssue(
       context,
-      ["occurrenceSourceClaimRecords"],
+      [...path, "occurrenceSourceClaimRecordIds"],
       "Occurrence-local candidates and claims must reference each other within this family",
     );
   }
@@ -358,56 +519,57 @@ function validatePreparedRecordReferences(
   ) {
     addIssue(
       context,
-      ["family", "includedCitationOccurrenceIds"],
+      [...path, "citationOccurrenceId"],
       "Prepared occurrence is not a member of its Scope family",
     );
   }
-  if (
-    record.family.seedId !== record.seed.seedId ||
-    occurrence.seedId !== record.seed.seedId
-  ) {
+  if (occurrence.seedId !== record.seed.seedId) {
     addIssue(
       context,
-      ["seed", "seedId"],
+      [...path, "citationOccurrence", "seedId"],
       "Prepared family, occurrence, and seed must share one seed identity",
     );
   }
   if (
-    occurrence.citingPaperRecordId !== record.citingPaper.citingPaperRecordId ||
     occurrence.citingPaperId !== record.citingPaper.paper.paperId ||
     occurrence.seedId !== record.citingPaper.seedId
   ) {
     addIssue(
       context,
-      ["citingPaper"],
+      [...path, "citationOccurrence", "citingPaperRecordId"],
       "Prepared occurrence does not match its Discover citing-paper record",
     );
   }
   if (record.seed.resolution.status !== "resolved") {
     addIssue(
       context,
-      ["seed", "resolution"],
+      [...path, "familyId"],
       "A prepared citation occurrence requires a resolved Discover seed paper",
     );
   } else if (occurrence.citedPaperId !== record.seed.resolution.paper.paperId) {
     addIssue(
       context,
-      ["citationOccurrence", "citedPaperId"],
+      [...path, "citationOccurrence", "citedPaperId"],
       "Prepared occurrence does not cite its resolved Discover seed paper",
     );
   }
-  if (record.classification.status !== "failed") {
-    if (
-      record.classification.modifiers.isBundled !==
-        occurrence.isBundledCitation ||
-      record.classification.modifiers.bundleSize !== occurrence.bundleSize
-    ) {
-      addIssue(
-        context,
-        ["classification", "modifiers"],
-        "Classification bundle modifiers must preserve the Discover occurrence",
-      );
-    }
+}
+
+/** The payload's shared collections must hold exactly what its records and families reference. */
+function addExactCollectionIssue(
+  actualIds: readonly string[],
+  referencedIds: Iterable<string>,
+  path: string,
+  context: z.RefinementCtx,
+): void {
+  addSortedUniqueIdentifierIssue(actualIds, [path], context);
+  const expected = [...new Set(referencedIds)].sort(compareCodeUnits);
+  if (!sameIdentifierSequence(actualIds, expected)) {
+    addIssue(
+      context,
+      [path],
+      `Prepare ${path} must hold exactly the entries its families and records reference`,
+    );
   }
 }
 
@@ -423,6 +585,32 @@ function validatePreparePayload(
   addSortedUniqueIdentifierIssue(
     payload.records.map((record) => record.recordId),
     ["records"],
+    context,
+  );
+  addExactCollectionIssue(
+    payload.seeds.map((seed) => seed.seedId),
+    payload.scopedFamilies.map((family) => family.seedId),
+    "seeds",
+    context,
+  );
+  addExactCollectionIssue(
+    payload.sourceCandidates.map((candidate) => candidate.candidateId),
+    payload.scopedFamilies.flatMap((family) => family.candidateIds),
+    "sourceCandidates",
+    context,
+  );
+  addExactCollectionIssue(
+    payload.sourceClaimRecords.map((claim) => claim.claimRecordId),
+    payload.scopedFamilies.flatMap((family) => family.sourceClaimRecordIds),
+    "sourceClaimRecords",
+    context,
+  );
+  addExactCollectionIssue(
+    payload.citingPapers.map((paper) => paper.citingPaperRecordId),
+    payload.records.map(
+      (record) => record.citationOccurrence.citingPaperRecordId,
+    ),
+    "citingPapers",
     context,
   );
 
@@ -441,9 +629,6 @@ function validatePreparePayload(
     );
   }
 
-  const familiesById = new Map(
-    payload.scopedFamilies.map((family) => [family.familyId, family]),
-  );
   const expectedPairKeys = new Set(
     payload.scopedFamilies.flatMap((family) =>
       family.includedCitationOccurrenceIds.map((citationOccurrenceId) =>
@@ -474,40 +659,14 @@ function validatePreparePayload(
     }
   }
 
-  for (const [index, record] of payload.records.entries()) {
-    const family = familiesById.get(record.familyId);
-    if (!family) {
-      addIssue(
-        context,
-        ["records", index, "familyId"],
-        "Prepare record references an unknown Scope family",
-      );
-    } else if (
-      canonicalSerialize(record.family) !== canonicalSerialize(family)
-    ) {
-      addIssue(
-        context,
-        ["records", index, "family"],
-        "Prepare record does not preserve its exact Scope family",
-      );
+  const index = indexPreparePayload(payload);
+  for (const [recordIndex, record] of payload.records.entries()) {
+    const resolved = resolveRecord(record, index);
+    if (!resolved.ok) {
+      addIssue(context, ["records", recordIndex], resolved.error);
+      continue;
     }
-    if (
-      !sameArtifactReference(
-        record.lineage.scopeArtifact,
-        payload.lineage.scopeArtifact,
-      ) ||
-      !sameArtifactReference(
-        record.lineage.discoverArtifact,
-        payload.lineage.discoverArtifact,
-      ) ||
-      record.lineage.runId !== payload.lineage.runId
-    ) {
-      addIssue(
-        context,
-        ["records", index, "lineage"],
-        "Prepare record lineage differs from the payload lineage",
-      );
-    }
+    validateResolvedRecord(resolved.data, context, ["records", recordIndex]);
   }
 }
 

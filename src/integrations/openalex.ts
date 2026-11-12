@@ -60,7 +60,6 @@ const openAlexWorkSchema = z
 const openAlexWorksListSchema = z.object({
   meta: z.object({
     count: z.number(),
-    next_cursor: z.string().nullable().optional(),
   }),
   results: z.array(openAlexWorkSchema),
 });
@@ -386,14 +385,16 @@ export async function resolveWorkByMetadata(
   };
 }
 
-/** Wire-level page provenance for one cursor-paginated citing-works request. */
+/** Wire-level page provenance for one paginated citing-works request. */
 export type OpenAlexCitingWorksPage = {
   pageIndex: number;
   requestUrl: string;
-  cursor: string;
+  /** OpenAlex's 1-based `page` parameter. */
+  page: number;
   perPage: number;
   returnedCount: number;
-  nextCursor: string | null;
+  /** Works on this page not already seen on an earlier one, in order. */
+  keptCount: number;
   /** OpenAlex `meta.count`, echoed on every page of a given query. */
   responseTotalCount: number;
 };
@@ -404,7 +405,7 @@ export type CitingWorksResult = {
   /** Authoritative provider-reported total citing-work count for this boundary. */
   providerReportedTotal: number;
   /** "complete" when every citing work was retrieved; "truncated" when the
-   * observation limit was reached before the provider's cursor was exhausted. */
+   * observation limit was reached before the provider's list was exhausted. */
   coverage: "complete" | "truncated";
 };
 
@@ -412,10 +413,21 @@ export type CitingWorksResult = {
 const OPENALEX_MAX_PER_PAGE = 200;
 
 /**
- * Retrieve up to `limit` citing works, treating `limit` as a total
- * observation cap across as many cursor-paginated requests as needed (not a
- * single `per_page` request). Each page's request/response shape is returned
- * so callers can persist page-level provenance.
+ * OpenAlex serves at most this many results through `page=` paging. Cursor
+ * paging goes further but needs an API key, which this client does not send;
+ * the neighborhood limit's default matches this ceiling.
+ */
+export const OPENALEX_MAX_PAGED_RESULTS = 10_000;
+
+/**
+ * Retrieve up to `limit` citing works (and never more than OpenAlex's
+ * page-paging ceiling), treating `limit` as a total observation cap across as
+ * many requests as needed. Every page uses the same `per_page` and an
+ * explicit sort, so page offsets line up: OpenAlex's default order (citations,
+ * age-adjusted) shifts between requests and can repeat or skip a work across
+ * pages. A repeated work is still kept once; if that leaves the list short of
+ * the provider total, coverage says truncated. Each page's request/response shape
+ * is returned so callers can persist page-level provenance.
  */
 export async function getCitingWorks(
   openAlexId: string,
@@ -432,17 +444,18 @@ export async function getCitingWorks(
     filter += `,publication_year:<${String(yearRange.toYear + 1)}`;
   }
 
+  const cap = Math.min(limit, OPENALEX_MAX_PAGED_RESULTS);
+  const perPage = Math.max(1, Math.min(OPENALEX_MAX_PER_PAGE, cap));
   const works: OpenAlexWork[] = [];
+  const seenIds = new Set<string>();
   const pages: OpenAlexCitingWorksPage[] = [];
   let providerReportedTotal = 0;
-  let cursor = "*";
-  let pageIndex = 0;
+  let page = 1;
 
-  while (works.length < limit) {
-    const perPage = Math.min(OPENALEX_MAX_PER_PAGE, limit - works.length);
+  while (works.length < cap && (page - 1) * perPage < cap) {
     const url = appendEmail(
       appendSelect(
-        `${baseUrl}/works?filter=${filter}&per_page=${String(perPage)}&cursor=${encodeURIComponent(cursor)}`,
+        `${baseUrl}/works?filter=${filter}&sort=publication_date:asc&per_page=${String(perPage)}&page=${String(page)}`,
       ),
       email,
     );
@@ -450,26 +463,33 @@ export async function getCitingWorks(
     if (!result.ok) return result;
 
     providerReportedTotal = result.data.meta.count;
-    const nextCursor = result.data.meta.next_cursor ?? null;
+    let keptCount = 0;
+    for (const work of result.data.results) {
+      if (seenIds.has(work.id)) continue;
+      seenIds.add(work.id);
+      works.push(work);
+      keptCount += 1;
+    }
     pages.push({
-      pageIndex,
+      pageIndex: page - 1,
       requestUrl: url,
-      cursor,
+      page,
       perPage,
       returnedCount: result.data.results.length,
-      nextCursor,
+      keptCount,
       responseTotalCount: providerReportedTotal,
     });
-    works.push(...result.data.results);
-    pageIndex += 1;
+    page += 1;
 
-    if (result.data.results.length === 0 || nextCursor == null) {
+    if (
+      result.data.results.length < perPage ||
+      (page - 1) * perPage >= providerReportedTotal
+    ) {
       break;
     }
-    cursor = nextCursor;
   }
 
-  const papers = works.slice(0, limit).map(toResolvedPaper);
+  const papers = works.slice(0, cap).map(toResolvedPaper);
   const coverage: "complete" | "truncated" =
     papers.length >= providerReportedTotal ? "complete" : "truncated";
 
