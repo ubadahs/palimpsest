@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseDatabaseGcArgs } from "../../src/cli/commands/db-gc.js";
 import { purgeOldRuns } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
+import {
+  countExpiredBatchRequests,
+  pruneExpiredBatchRequests,
+} from "../../src/storage/llm-batch-requests.js";
 import { evictStaleLLMCache } from "../../src/storage/llm-result-cache.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
 
@@ -86,6 +90,27 @@ describe("db:gc", () => {
           .prepare("SELECT cache_key FROM llm_result_cache ORDER BY cache_key")
           .all() as Array<{ cache_key: string }>,
       ).toEqual([{ cache_key: "fresh-key" }]);
+    } finally {
+      database.close();
+    }
+  });
+  it("prunes batch request rows past the 29-day results retention", () => {
+    const database = openDatabase(join(tempDirectory, "gc-batch.sqlite"));
+    try {
+      runMigrations(database);
+      const insert = database.prepare(
+        "INSERT INTO llm_batch_requests (custom_id, batch_id, submitted_at) VALUES (?, 'msgbatch_x', ?)",
+      );
+      const daysAgo = (days: number) =>
+        new Date(Date.now() - days * 24 * 60 * 60 * 1_000).toISOString();
+      insert.run("expired", daysAgo(30));
+      insert.run("recent", daysAgo(28));
+
+      expect(countExpiredBatchRequests(database)).toBe(1);
+      expect(pruneExpiredBatchRequests(database)).toBe(1);
+      expect(
+        database.prepare("SELECT custom_id FROM llm_batch_requests").all(),
+      ).toEqual([{ custom_id: "recent" }]);
     } finally {
       database.close();
     }

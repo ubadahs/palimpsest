@@ -19,6 +19,8 @@ const PRICING_USD_PER_MILLION: Record<
 const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_5M_MULTIPLIER = 1.25;
 const CACHE_WRITE_1H_MULTIPLIER = 2;
+/** The Message Batches API bills every token class at half the list price. */
+const BATCH_MULTIPLIER = 0.5;
 
 export type AnthropicTokenCostUsage = {
   /** Total billed input tokens, including uncached, cache reads, and cache writes. */
@@ -48,11 +50,13 @@ export type AnthropicTokenCostUsage = {
 
 /**
  * Rough USD cost from Anthropic token usage (unknown models default to
- * Sonnet-like rates). Accepts cache and reasoning breakdown fields.
+ * Sonnet-like rates). Accepts cache and reasoning breakdown fields. With
+ * `batch`, the call was answered through the Message Batches API.
  */
 export function estimateAnthropicUsd(
   model: string,
   usage: AnthropicTokenCostUsage,
+  options?: { batch?: boolean },
 ): number {
   const price = PRICING_USD_PER_MILLION[model] ?? { input: 3, output: 15 };
 
@@ -87,5 +91,6 @@ export function estimateAnthropicUsd(
 
   const outputCost = billedOutputTokens * price.output;
 
-  return (inputCost + outputCost) / 1_000_000;
+  const multiplier = options?.batch === true ? BATCH_MULTIPLIER : 1;
+  return ((inputCost + outputCost) * multiplier) / 1_000_000;
 }

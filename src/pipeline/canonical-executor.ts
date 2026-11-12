@@ -141,7 +141,20 @@ export type CanonicalPipelineCliOverrides = {
    * config: a resume may raise it without touching any scientific setting.
    */
   maxCostUsd?: number | undefined;
+  /**
+   * Send model requests through the Message Batches API at half price. A
+   * transport choice, not part of the run config: a resume may turn it on or
+   * off, and no scientific setting or artifact identity depends on it.
+   */
+  batch?: boolean | undefined;
 };
+
+/**
+ * In-flight model requests per stage under `--batch`: a batch pays only if a
+ * stage queues all its requests at once. Given to the stages, never written
+ * into the run config, whose `modelConcurrency` stays what the user set.
+ */
+const BATCH_MODEL_CONCURRENCY = 100_000;
 
 export type CanonicalExecutorAdapters = CanonicalProductionAdapters;
 
@@ -1010,7 +1023,12 @@ export async function orchestrateCanonicalPipelineRun(
               },
             }
           : {}),
+        ...(args.batch === true ? { batch: {} } : {}),
       });
+    const stageRunConfig: AnalysisRunConfig =
+      args.batch === true
+        ? { ...runConfig, modelConcurrency: BATCH_MODEL_CONCURRENCY }
+        : runConfig;
     const adapters =
       params.adapters ??
       buildCanonicalProductionAdapters({
@@ -1062,7 +1080,7 @@ export async function orchestrateCanonicalPipelineRun(
           runId: run.id,
           runRoot: run.runRoot,
           recordedAt,
-          runConfig,
+          runConfig: stageRunConfig,
           seedDois,
           doiProvenance,
           configuration: {
@@ -1130,7 +1148,7 @@ export async function orchestrateCanonicalPipelineRun(
         (entry) => entry.stage === stageKey,
       );
       reporter.log(
-        `Cost: ${formatUsd(stageSpend?.estimatedCostUsd ?? 0)} over ${String(stageSpend?.calls ?? 0)} model calls; run so far ${formatUsd(spend.run.totalEstimatedCostUsd)}`,
+        `Cost: ${formatUsd(stageSpend?.estimatedCostUsd ?? 0)} over ${String(stageSpend?.calls ?? 0)} model calls${stageSpend?.batchCalls ? ` (${String(stageSpend.batchCalls)} at batch price)` : ""}; run so far ${formatUsd(spend.run.totalEstimatedCostUsd)}`,
       );
     }
 

@@ -35,7 +35,7 @@ import { CITATION_ROLE_DEFINITIONS } from "../shared/scientific-rubrics.js";
 import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
-  resolvePromptCacheControl,
+  resolveSentPromptCacheControl,
   resolveThinkingConfig,
   type LLMCallRecord,
   type LLMClient,
@@ -167,6 +167,8 @@ function llmRequestProvenanceFields(params: {
   exactCacheKeyVersion: string;
   thinking?: ThinkingConfig | undefined;
   forceRefresh?: boolean | undefined;
+  /** Whether the client batches, which lengthens a shared prefix's cache TTL. */
+  batching?: boolean | undefined;
 }) {
   return buildNormalizedLLMCallProvenance({
     purpose: params.purpose,
@@ -179,9 +181,10 @@ function llmRequestProvenanceFields(params: {
       : {}),
     ...(params.sharedPrefix != null
       ? {
-          promptCacheControl: resolvePromptCacheControl({
+          promptCacheControl: resolveSentPromptCacheControl({
             purpose: params.purpose,
             promptPrefix: params.sharedPrefix,
+            batching: params.batching,
           }),
         }
       : {}),
@@ -1380,6 +1383,7 @@ export function buildCanonicalScopeAdapters(
           purpose: "seed-grounding",
           model,
           sharedPrefix: promptParts.prefix,
+          batching: deps.llmClient.batching,
           promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.grounding,
           ...(thinking != null ? { thinking } : {}),
@@ -1698,7 +1702,10 @@ export function buildCanonicalAdjudicateAdapters(
         purpose: "adjudication",
         model,
         ...(input.evidence === "seed_text"
-          ? { sharedPrefix: input.promptPrefix }
+          ? {
+              sharedPrefix: input.promptPrefix,
+              batching: deps.llmClient.batching,
+            }
           : {}),
         promptVersion: input.promptVersion,
         exactCacheKeyVersion: LLM_CACHE_VERSIONS.adjudication,

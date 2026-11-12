@@ -56,4 +56,13 @@ describe("pipeline CLI arguments", () => {
       ).toThrow(/--max-cost must be a positive number/);
     }
   });
+
+  it("turns on the batch transport only when asked, on fresh runs and resumes", () => {
+    expect(parseCanonicalPipelineArgs(["--input", "d.json"]).batch).toBe(
+      undefined,
+    );
+    expect(
+      parseCanonicalPipelineArgs(["--run-id", "abc", "--batch"]).batch,
+    ).toBe(true);
+  });
 });

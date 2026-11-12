@@ -86,6 +86,11 @@ type RunCostStageSummary = {
   failedCalls: number;
   billableCalls: number;
   exactCacheHits: number;
+  /**
+   * Calls answered through the Message Batches API, billed at half price.
+   * Optional because summaries written before `--batch` existed lack it.
+   */
+  batchCalls?: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
 };
@@ -118,6 +123,9 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
     existing.failedCalls += call.failed ? 1 : 0;
     existing.billableCalls += call.billable ? 1 : 0;
     existing.exactCacheHits += call.exactCacheHit ? 1 : 0;
+    if (call.transport === "batch") {
+      existing.batchCalls = (existing.batchCalls ?? 0) + 1;
+    }
     existing.cacheReadTokens += call.cacheReadTokens ?? 0;
     existing.cacheWriteTokens += call.cacheWriteTokens ?? 0;
     stageMap.set(stage, existing);
@@ -162,6 +170,9 @@ export function mergeCostSummaries(
       failedCalls: existing.failedCalls + stage.failedCalls,
       billableCalls: existing.billableCalls + stage.billableCalls,
       exactCacheHits: existing.exactCacheHits + stage.exactCacheHits,
+      ...(existing.batchCalls != null || stage.batchCalls != null
+        ? { batchCalls: (existing.batchCalls ?? 0) + (stage.batchCalls ?? 0) }
+        : {}),
       cacheReadTokens: existing.cacheReadTokens + stage.cacheReadTokens,
       cacheWriteTokens: existing.cacheWriteTokens + stage.cacheWriteTokens,
     });

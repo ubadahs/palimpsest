@@ -110,6 +110,7 @@ export function parseCanonicalPipelineArgs(
   let adjudicateEvidence: AdjudicationEvidence | undefined;
   let rerunFromStage: StageKey | undefined;
   let maxCostUsd: number | undefined;
+  let batch: boolean | undefined;
 
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index]!;
@@ -258,6 +259,9 @@ export function parseCanonicalPipelineArgs(
         maxCostUsd = readPositiveNumber(argv, index, flag);
         index++;
         break;
+      case "--batch":
+        batch = true;
+        break;
       default:
         fail(
           `Unknown pipeline flag: ${flag}. Run "pipeline --help" for canonical options.`,
@@ -318,6 +322,7 @@ export function parseCanonicalPipelineArgs(
     adjudicateEvidence,
     rerunFromStage,
     maxCostUsd,
+    batch,
   };
 }
 
@@ -363,7 +368,9 @@ Options:
   --adjudicate-evidence <basis>     What the adjudicator reads: seed_text|selected_chunks
   --rerun-from <stage>              Rerun a canonical stage and downstream stages
   --max-cost <usd>                  Stop sending model requests once the run's estimated
-                                    spend reaches this; resume with a higher value to go on`);
+                                    spend reaches this; resume with a higher value to go on
+  --batch                           Send model requests through the Message Batches API at
+                                    half price; stages wait minutes to hours for results`);
 }
 
 export async function runPipelineCommand(argv: string[]): Promise<void> {

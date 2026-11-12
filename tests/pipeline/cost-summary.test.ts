@@ -59,6 +59,30 @@ function ledgerOf(calls: Call[]): LLMRunLedger {
 }
 
 describe("run cost summary", () => {
+  it("counts batch-priced calls per stage and keeps the count across resumes", () => {
+    const first = summarizeLedgerByStage(
+      ledgerOf([
+        call({ stageKey: "adjudicate", transport: "batch" }),
+        call({ stageKey: "adjudicate", transport: "direct" }),
+        call({ stageKey: "scope" }),
+      ]),
+    );
+    const byStage = Object.fromEntries(
+      first.byStage.map((stage) => [stage.stage, stage.batchCalls]),
+    );
+    expect(byStage).toEqual({ adjudicate: 1, scope: undefined });
+
+    const merged = mergeCostSummaries(
+      first,
+      summarizeLedgerByStage(
+        ledgerOf([call({ stageKey: "adjudicate", transport: "batch" })]),
+      ),
+    );
+    expect(
+      merged.byStage.find((stage) => stage.stage === "adjudicate")?.batchCalls,
+    ).toBe(2);
+  });
+
   it("attributes cache reads and writes to the stage that made the call", () => {
     const summary = summarizeLedgerByStage(
       ledgerOf([
