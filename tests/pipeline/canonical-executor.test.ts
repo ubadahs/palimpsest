@@ -29,7 +29,10 @@ import type {
   CanonicalEvidenceAdapters,
   CanonicalEvidenceRerankerInput,
 } from "../../src/pipeline/canonical-evidence.js";
-import type { CanonicalAdjudicateAdapters } from "../../src/pipeline/canonical-adjudicate.js";
+import {
+  adjudicatePromptText,
+  type CanonicalAdjudicateAdapters,
+} from "../../src/pipeline/canonical-adjudicate.js";
 import { classifyPrepareOccurrenceDeterministically } from "../../src/pipeline/canonical-prepare.js";
 import {
   getAnalysisRun,
@@ -327,7 +330,6 @@ function fixtureAdjudicateAdapters(
     adjudicate: (input) => {
       const requestHash = hashCanonicalAdjudicateRequest(input);
       const base = modelExecution("adjudicate", input.recordId);
-      const chunkIds = input.packet.selectedChunks.map((c) => c.chunkId);
       return Promise.resolve({
         status: "completed",
         rawOutput: {
@@ -338,13 +340,13 @@ function fixtureAdjudicateAdapters(
           direction: "none",
           rationale: "Exact phenotype match in selected chunks.",
           confidence: "high",
-          citedChunkIds: chunkIds.slice(0, 1),
+          citedChunkIds: [input.packet.selectedChunks[0]!.chunkId],
         },
         execution: {
           ...base,
-          promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-          promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-          promptContentHash: canonicalSha256(input.promptText),
+          promptId: input.promptId,
+          promptVersion: input.promptVersion,
+          promptContentHash: canonicalSha256(adjudicatePromptText(input)),
           requestHash,
         },
       });

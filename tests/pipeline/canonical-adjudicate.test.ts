@@ -14,6 +14,7 @@ import {
   buildCanonicalAdjudicatePacket,
   buildCanonicalAdjudicatePrompt,
 } from "../../src/adjudication/canonical-adjudicate-packet.js";
+import { SEED_TEXT_ADJUDICATE_PROMPT_ID } from "../../src/adjudication/seed-text-adjudicate.js";
 import {
   adjudicateRecordOutcomeSchema,
   buildAdjudicationResultId,
@@ -49,6 +50,7 @@ import {
   runCanonicalEvidence,
 } from "../../src/pipeline/canonical-evidence.js";
 import {
+  adjudicatePromptText,
   buildCanonicalAdjudicateArtifact,
   CanonicalAdjudicateBoundaryError,
   CanonicalAdjudicateFatalError,
@@ -637,7 +639,7 @@ function adjudicateAdapter(
       ...modelExecution("adjudicate", input.recordId),
       promptId: String(input.promptId),
       promptVersion: String(input.promptVersion),
-      promptContentHash: canonicalSha256(input.promptText),
+      promptContentHash: canonicalSha256(adjudicatePromptText(input)),
       requestHash: hashCanonicalAdjudicateRequest(input),
     };
     if (variant === "wrong_prompt_id") {
@@ -741,6 +743,7 @@ async function runAdjudicateFixture(
     },
     {
       recordedAt: "2026-07-17T09:40:00.000Z",
+      evidence: "selected_chunks",
       evidenceArtifactUri: "fixture://canonical-evidence/evidence.json",
       prepareArtifactUri: "fixture://canonical-prepare/prepare.json",
     },
@@ -807,7 +810,7 @@ describe("canonical Adjudicate", () => {
       ancestors.evidence,
       ancestors.prepare,
       {},
-      { recordedAt: "2026-07-17T09:40:00.000Z" },
+      { recordedAt: "2026-07-17T09:40:00.000Z", evidence: "selected_chunks" },
     );
     expect(
       result.payload.records.every(
@@ -839,7 +842,7 @@ describe("canonical Adjudicate", () => {
         ancestors.evidence,
         ancestors.prepare,
         {},
-        { recordedAt: "2026-07-17T09:40:00.000Z" },
+        { recordedAt: "2026-07-17T09:40:00.000Z", evidence: "selected_chunks" },
       ),
     ).rejects.toThrow(/requires an adapter for eligible record/i);
   });
@@ -905,7 +908,7 @@ describe("canonical Adjudicate", () => {
       evidence,
       ancestors.prepare,
       { adjudicate: adjudicateAdapter("F", calls) },
-      { recordedAt: "2026-07-17T09:40:00.000Z" },
+      { recordedAt: "2026-07-17T09:40:00.000Z", evidence: "selected_chunks" },
     );
     expect(calls).toEqual([]);
     for (const record of result.payload.records) {
@@ -972,8 +975,10 @@ describe("canonical Adjudicate", () => {
       result.payload.records.every((record) => record.status === "adjudicated"),
     ).toBe(true);
     for (const call of calls) {
-      expect(call.promptText).not.toMatch(/not_found|not found|ungrounded/i);
-      expect(call.promptText).not.toMatch(/grounding status/i);
+      expect(adjudicatePromptText(call)).not.toMatch(
+        /not_found|not found|ungrounded/i,
+      );
+      expect(adjudicatePromptText(call)).not.toMatch(/grounding status/i);
     }
   });
 
@@ -1000,7 +1005,7 @@ describe("canonical Adjudicate", () => {
     ).toBe(true);
     for (const call of calls) {
       expect(call.packet).not.toHaveProperty("grounding");
-      expect(call.promptText).not.toMatch(
+      expect(adjudicatePromptText(call)).not.toMatch(
         /grounding_failed|grounding failed|grounding status/i,
       );
     }
@@ -1108,7 +1113,7 @@ describe("canonical Adjudicate", () => {
     expect(prompt).not.toMatch(
       /this may be distorted|expected answer|prior verdict/i,
     );
-    expect(calls[0]!.promptText).toBe(prompt);
+    expect(adjudicatePromptText(calls[0]!)).toBe(prompt);
   });
 
   it("rejects unknown or duplicate chunk references as invalid_output", async () => {
@@ -1586,7 +1591,7 @@ describe("canonical Adjudicate", () => {
         first.evidence,
         second.prepare,
         { adjudicate: adjudicateAdapter("F", calls) },
-        { recordedAt: "2026-07-17T09:40:00.000Z" },
+        { recordedAt: "2026-07-17T09:40:00.000Z", evidence: "selected_chunks" },
       ),
     ).rejects.toBeInstanceOf(CanonicalAdjudicateBoundaryError);
     expect(calls).toHaveLength(0);
@@ -1645,7 +1650,11 @@ describe("adjudicate concurrency", () => {
             return base(input);
           },
         },
-        { recordedAt: "2026-07-17T09:40:00.000Z", concurrency },
+        {
+          recordedAt: "2026-07-17T09:40:00.000Z",
+          evidence: "selected_chunks",
+          concurrency,
+        },
       );
       return { result, peak, calls: calls.length };
     };
@@ -1660,5 +1669,183 @@ describe("adjudicate concurrency", () => {
       sequential.result.provenanceInputs,
     );
     expect(parallel.result.decisions).toEqual(sequential.result.decisions);
+  });
+});
+
+describe("canonical Adjudicate from the whole seed text", () => {
+  const judgment = {
+    citingAssertion:
+      "The citing paper attributes Ril9 silencing to bulkhead loss.",
+    sourceStatement: "The seed reports loss of surface ridges in lining cells.",
+    verdict: "F",
+    mutationKinds: [],
+    direction: "none",
+    rationale: "The attribution matches the seed's own result.",
+    confidence: "medium",
+  };
+  // The prompt numbers SOURCE_BLOCKS in order: abstract, results, methods.
+  const resultsQuote = {
+    block: 2,
+    quote: "Silencing Ril9 caused loss of surface ridges",
+  };
+
+  async function runSeedTextFixture(
+    reply: Record<string, unknown>,
+    options: { seedTextMaxCharacters?: number } = {},
+  ) {
+    const ancestors = await buildEvidenceAncestors({});
+    const calls: CanonicalAdjudicateAdapterInput[] = [];
+    const result = await runCanonicalAdjudicate(
+      ancestors.evidence,
+      ancestors.prepare,
+      {
+        adjudicate: (input) => {
+          calls.push(input);
+          return Promise.resolve({
+            status: "completed",
+            rawOutput:
+              input.evidence === "seed_text"
+                ? reply
+                : {
+                    ...judgment,
+                    citedChunkIds: [input.packet.selectedChunks[0]!.chunkId],
+                  },
+            execution: {
+              ...modelExecution("adjudicate", input.recordId),
+              promptId: input.promptId,
+              promptVersion: input.promptVersion,
+              promptContentHash: canonicalSha256(adjudicatePromptText(input)),
+              requestHash: hashCanonicalAdjudicateRequest(input),
+            },
+          });
+        },
+      },
+      {
+        recordedAt: "2026-07-17T09:40:00.000Z",
+        evidence: "seed_text",
+        ...options,
+      },
+    );
+    const chunkIdsOf = (blockId: string) =>
+      ancestors.evidence.payload.corpora
+        .flatMap((corpus) => corpus.chunks)
+        .filter((chunk) => chunk.sourceBlockId === blockId)
+        .map((chunk) => chunk.chunkId);
+    return { ...ancestors, result, calls, chunkIdsOf };
+  }
+
+  it("sends every record the same seed text and keeps only quotes the text contains", async () => {
+    const { result, calls, chunkIdsOf, evidence } = await runSeedTextFixture({
+      ...judgment,
+      seedQuotes: [resultsQuote, { block: 2, quote: "Ril9 restored ridges" }],
+    });
+
+    expect(calls.length).toBeGreaterThan(0);
+    const prefixes = new Set(
+      calls.map((call) =>
+        call.evidence === "seed_text" ? call.promptPrefix : undefined,
+      ),
+    );
+    expect(prefixes.size).toBe(1);
+    for (const block of SOURCE_BLOCKS) {
+      expect([...prefixes][0]).toContain(block.text);
+    }
+    for (const record of result.payload.records) {
+      expect(record).toMatchObject({
+        status: "adjudicated",
+        verdict: "F",
+        seedQuotes: [
+          { blockId: "scope-block-results", quote: resultsQuote.quote },
+        ],
+        unverifiedSeedQuoteCount: 1,
+        modelCitedChunkIds: chunkIdsOf("scope-block-results"),
+      });
+    }
+    const artifact = buildCanonicalAdjudicateArtifact({
+      result,
+      runId: evidence.runId,
+      createdAt: "2026-07-17T09:41:00.000Z",
+    });
+    expect(
+      artifact.provenance.prompts.every(
+        (prompt) => prompt.promptId === SEED_TEXT_ADJUDICATE_PROMPT_ID,
+      ),
+    ).toBe(true);
+  });
+
+  it("lets a verdict rest on a passage Evidence did not select", async () => {
+    const { result } = await runSeedTextFixture({
+      ...judgment,
+      seedQuotes: [resultsQuote],
+    });
+    const record = result.payload.records.find(
+      (item) => item.status === "adjudicated",
+    )!;
+    const elsewhere = {
+      ...record,
+      selectedCitedChunkIds: [buildStableId("evidence-chunk", { other: 1 })],
+    };
+    const rebuilt = (outcome: typeof elsewhere) => ({
+      ...outcome,
+      adjudicationResultId: buildAdjudicationResultId(outcome),
+    });
+    expect(
+      adjudicateRecordOutcomeSchema.safeParse(rebuilt(elsewhere)).success,
+    ).toBe(true);
+    // Without quotes the verdict must cite what Evidence selected.
+    const { seedQuotes, unverifiedSeedQuoteCount, ...chunkVerdict } = elsewhere;
+    expect(seedQuotes).toHaveLength(1);
+    expect(unverifiedSeedQuoteCount).toBe(0);
+    expect(
+      adjudicateRecordOutcomeSchema.safeParse(
+        rebuilt(chunkVerdict as typeof elsewhere),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("accepts an error verdict that quotes nothing", async () => {
+    const { result } = await runSeedTextFixture({
+      ...judgment,
+      verdict: "E",
+      direction: "shifted",
+      seedQuotes: [],
+    });
+    for (const record of result.payload.records) {
+      expect(record).toMatchObject({
+        status: "adjudicated",
+        verdict: "E",
+        seedQuotes: [],
+        unverifiedSeedQuoteCount: 0,
+        modelCitedChunkIds: [],
+      });
+    }
+  });
+
+  it("rejects a verdict whose only quote is not in the seed text", async () => {
+    const { result } = await runSeedTextFixture({
+      ...judgment,
+      seedQuotes: [{ block: 2, quote: "Ril9 restored ridges" }],
+    });
+    for (const record of result.payload.records) {
+      expect(record).toMatchObject({
+        status: "invalid_output",
+        reason:
+          "seedQuotes: A F verdict must rest on at least one verified seed quote",
+      });
+    }
+  });
+
+  it("reads the selected chunks when the seed text is too long to send", async () => {
+    const { result, calls } = await runSeedTextFixture(
+      { ...judgment, seedQuotes: [resultsQuote] },
+      { seedTextMaxCharacters: 10 },
+    );
+    expect(calls.every((call) => call.evidence === "selected_chunks")).toBe(
+      true,
+    );
+    for (const record of result.payload.records) {
+      expect(record.status).toBe("adjudicated");
+      expect(record).not.toHaveProperty("seedQuotes");
+    }
   });
 });

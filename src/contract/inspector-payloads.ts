@@ -37,6 +37,13 @@ export type ReportInspectorEvidencePassage = {
   modelCited: boolean;
 };
 
+/** A seed passage a whole-paper verdict quoted, verified against the seed text. */
+export type ReportInspectorSeedQuote = {
+  quote: string;
+  blockKind: string;
+  sectionTitle?: string;
+};
+
 /** Verified seed-side grounding span for mutation / review display. */
 export type ReportInspectorGroundingSpan = {
   text: string;
@@ -89,6 +96,8 @@ export type ReportInspectorRecordRow = {
   rerankStatus: string;
   rankingSource?: string;
   evidencePassages: ReportInspectorEvidencePassage[];
+  /** Present when the adjudicator read the whole seed text. */
+  seedQuotes?: ReportInspectorSeedQuote[];
   adjudicationStatus:
     | "adjudicated"
     | "not_adjudicated"
@@ -98,7 +107,7 @@ export type ReportInspectorRecordRow = {
   confidence?: string;
   /** What the citing paper asserts, in the adjudicator's words. */
   citingAssertion?: string;
-  /** What the selected seed chunks actually say, in the adjudicator's words. */
+  /** What the seed actually says on the point, in the adjudicator's words. */
   sourceStatement?: string;
   /** Named dimensions that moved; non-empty only for D. */
   mutationKinds?: string[];

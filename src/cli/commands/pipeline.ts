@@ -1,6 +1,10 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
-import { CANONICAL_RUN_CONFIG_DEFAULTS } from "../../contract/run-types.js";
+import {
+  adjudicationEvidenceSchema,
+  CANONICAL_RUN_CONFIG_DEFAULTS,
+  type AdjudicationEvidence,
+} from "../../contract/run-types.js";
 import {
   compareStageKeys,
   stageKeyValues,
@@ -89,6 +93,7 @@ export function parseCanonicalPipelineArgs(
   let adjudicateModel: string | undefined;
   let adjudicateThinking: boolean | undefined;
   let adjudicateEffort: "low" | "medium" | "high" | "max" | undefined;
+  let adjudicateEvidence: AdjudicationEvidence | undefined;
   let rerunFromStage: StageKey | undefined;
 
   for (let index = 0; index < argv.length; index++) {
@@ -214,6 +219,18 @@ export function parseCanonicalPipelineArgs(
         index++;
         break;
       }
+      case "--adjudicate-evidence": {
+        const value = readValue(argv, index, flag);
+        const parsed = adjudicationEvidenceSchema.safeParse(value);
+        if (!parsed.success) {
+          fail(
+            `--adjudicate-evidence must be seed_text or selected_chunks; received "${value}".`,
+          );
+        }
+        adjudicateEvidence = parsed.data;
+        index++;
+        break;
+      }
       case "--rerun-from":
         rerunFromStage = readCanonicalStage(argv, index, flag);
         index++;
@@ -274,6 +291,7 @@ export function parseCanonicalPipelineArgs(
     adjudicateModel,
     adjudicateThinking,
     adjudicateEffort,
+    adjudicateEvidence,
     rerunFromStage,
   };
 }
@@ -316,6 +334,7 @@ Options:
   --adjudicate-thinking             Enable adjudication thinking
   --no-adjudicate-thinking          Disable adjudication thinking
   --adjudicate-effort <level>       Adaptive thinking effort: low|medium|high|max
+  --adjudicate-evidence <basis>     What the adjudicator reads: seed_text|selected_chunks
   --rerun-from <stage>              Rerun a canonical stage and downstream stages`);
 }
 

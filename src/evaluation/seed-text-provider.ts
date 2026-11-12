@@ -5,10 +5,7 @@ import {
   resolveSeedTextJudgment,
   seedTextAdjudicateReplySchema,
 } from "../adjudication/seed-text-adjudicate.js";
-import type {
-  LLMClient,
-  PromptCachingOptions,
-} from "../integrations/llm-client.js";
+import type { LLMClient } from "../integrations/llm-client.js";
 import type { ProviderConfig } from "./config.js";
 import {
   anthropicCall,
@@ -29,20 +26,6 @@ export function readsSeedText(
     item.task === "adjudication"
   );
 }
-
-/**
- * The seed text is the same prompt prefix for every record of a seed, so it
- * is worth caching; the default client policy caches nothing for adjudication
- * because chunk packets share no prefix.
- */
-export const SEED_TEXT_PROMPT_CACHING: PromptCachingOptions = {
-  byPurpose: {
-    adjudication: {
-      minPromptChars: 4_000,
-      cacheControl: { type: "ephemeral", ttl: "5m" },
-    },
-  },
-};
 
 export async function adjudicateFromSeedText(input: {
   item: AdjudicationCase;

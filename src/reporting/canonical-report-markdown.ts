@@ -255,6 +255,7 @@ export function renderCanonicalReportMarkdown(
     payload.funnel.adjudicate.evidenceSufficient,
     payload.funnel.adjudicate.evidenceLimited,
     payload.funnel.adjudicate.figureOnlyLimitation,
+    ...Object.values(payload.funnel.adjudicate.seedText ?? {}),
   ]);
   const adjudicationCoverage = requireRate(
     payload.rates,

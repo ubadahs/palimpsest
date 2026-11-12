@@ -12,7 +12,20 @@ import {
   CANONICAL_ADJUDICATE_PROMPT_ID,
   CANONICAL_ADJUDICATE_PROMPT_VERSION,
   packetEvidenceLimitation,
+  type CanonicalAdjudicatePacket,
 } from "../adjudication/canonical-adjudicate-packet.js";
+import {
+  buildSeedTextAdjudicatePrompt,
+  chunkIdsHoldingQuotes,
+  resolveSeedTextJudgment,
+  SEED_TEXT_ADJUDICATE_PROMPT_ID,
+  SEED_TEXT_ADJUDICATE_PROMPT_VERSION,
+  SEED_TEXT_MAX_CHARACTERS,
+  seedTextAdjudicateReplySchema,
+  seedTextBlocksFromCorpus,
+  type SeedTextBlock,
+  type SeedTextJudgment,
+} from "../adjudication/seed-text-adjudicate.js";
 import {
   adjudicateArtifactPayloadSchema,
   adjudicateArtifactSchema,
@@ -49,6 +62,8 @@ import {
   modelExecutionSchema,
   type ModelExecution,
 } from "../contract/model-execution.js";
+import { adjudicationEvidenceSchema } from "../contract/run-types.js";
+import type { Result } from "../domain/common.js";
 import { canonicalSerialize } from "../shared/stable-identity.js";
 
 const canonicalAdjudicateOptionsSchema = z
@@ -58,6 +73,14 @@ const canonicalAdjudicateOptionsSchema = z
     prepareArtifactUri: z.string().min(1).optional(),
     /** Model requests in flight at once; results keep input order. */
     concurrency: z.number().int().positive().optional(),
+    /** What the adjudicator reads of the seed paper. */
+    evidence: adjudicationEvidenceSchema,
+    /** A longer seed text is adjudicated from its selected chunks instead. */
+    seedTextMaxCharacters: z
+      .number()
+      .int()
+      .positive()
+      .default(SEED_TEXT_MAX_CHARACTERS),
   })
   .strict();
 export type CanonicalAdjudicateOptions = z.input<
@@ -81,14 +104,39 @@ const canonicalAdjudicateAdapterResultSchema = z.discriminatedUnion("status", [
     })
     .strict(),
 ]);
+/**
+ * One request to the adjudication model. A whole-seed-text request keeps the
+ * seed text apart as a prefix, which is the same for every record of a seed
+ * and so can be cached by the provider.
+ */
 export type CanonicalAdjudicateAdapterInput = {
   purpose: "categorical_adjudication";
   recordId: string;
-  promptId: typeof CANONICAL_ADJUDICATE_PROMPT_ID;
-  promptVersion: typeof CANONICAL_ADJUDICATE_PROMPT_VERSION;
-  promptText: string;
-  packet: ReturnType<typeof buildCanonicalAdjudicatePacket>;
-};
+  packet: CanonicalAdjudicatePacket;
+} & (
+  | {
+      evidence: "selected_chunks";
+      promptId: typeof CANONICAL_ADJUDICATE_PROMPT_ID;
+      promptVersion: typeof CANONICAL_ADJUDICATE_PROMPT_VERSION;
+      promptText: string;
+    }
+  | {
+      evidence: "seed_text";
+      promptId: typeof SEED_TEXT_ADJUDICATE_PROMPT_ID;
+      promptVersion: typeof SEED_TEXT_ADJUDICATE_PROMPT_VERSION;
+      promptPrefix: string;
+      promptSuffix: string;
+    }
+);
+
+/** The whole prompt a request sends, as its content hash covers it. */
+export function adjudicatePromptText(
+  request: CanonicalAdjudicateAdapterInput,
+): string {
+  return request.evidence === "seed_text"
+    ? request.promptPrefix + request.promptSuffix
+    : request.promptText;
+}
 
 export type CanonicalAdjudicateAdapters = {
   adjudicate?: (input: CanonicalAdjudicateAdapterInput) => Promise<unknown>;
@@ -124,6 +172,126 @@ export class CanonicalAdjudicateFatalError extends Error {
 type GateDecision =
   | { eligible: true; selection: EvidenceSelection; chunks: EvidenceChunk[] }
   | { eligible: false; gateCode: AdjudicateGateCode; reason: string };
+
+type EvidenceLimitation = ReturnType<typeof packetEvidenceLimitation>;
+
+/** A verdict whose references to the seed have been checked. */
+type CheckedJudgment = Pick<
+  SeedTextJudgment,
+  | "citingAssertion"
+  | "sourceStatement"
+  | "verdict"
+  | "mutationKinds"
+  | "direction"
+  | "rationale"
+  | "confidence"
+> & {
+  modelCitedChunkIds: string[];
+  seedQuotes?: SeedTextJudgment["seedQuotes"];
+  unverifiedSeedQuoteCount?: number;
+};
+
+/**
+ * One way of putting a record to the model: the request to send, how to check
+ * the reply against the seed, and whether the text shown could hold the
+ * support the citing side points at.
+ */
+type Reading = {
+  request: CanonicalAdjudicateAdapterInput;
+  limitation: EvidenceLimitation;
+  check: (rawOutput: unknown) => Result<CheckedJudgment>;
+};
+
+type SeedText = { blocks: SeedTextBlock[]; chunks: readonly EvidenceChunk[] };
+
+function malformed(error: z.ZodError): Result<never> {
+  return {
+    ok: false,
+    error: `Malformed adjudication output: ${error.issues[0]?.message ?? "invalid JSON shape"}`,
+  };
+}
+
+function readSelectedChunks(
+  packet: CanonicalAdjudicatePacket,
+  selectedChunkIds: readonly string[],
+): Reading {
+  return {
+    request: {
+      purpose: "categorical_adjudication",
+      recordId: packet.recordId,
+      packet,
+      evidence: "selected_chunks",
+      promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
+      promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
+      promptText: buildCanonicalAdjudicatePrompt(packet),
+    },
+    limitation: packetEvidenceLimitation(packet),
+    check(rawOutput) {
+      const parsed = canonicalAdjudicateModelOutputSchema.safeParse(rawOutput);
+      if (!parsed.success) return malformed(parsed.error);
+      const { citedChunkIds, ...judgment } = parsed.data;
+      const referenceError = validateModelReferences({
+        citedChunkIds,
+        selectedChunkIds,
+      });
+      if (referenceError) return { ok: false, error: referenceError };
+      const cited = new Set(citedChunkIds);
+      return {
+        ok: true,
+        data: {
+          ...judgment,
+          modelCitedChunkIds: selectedChunkIds.filter((id) => cited.has(id)),
+        },
+      };
+    },
+  };
+}
+
+function readSeedText(
+  packet: CanonicalAdjudicatePacket,
+  seedText: SeedText,
+): Reading {
+  const { blocks, chunks } = seedText;
+  const prompt = buildSeedTextAdjudicatePrompt({
+    packet,
+    seed: { title: packet.citedPaperTitle, blocks },
+  });
+  return {
+    request: {
+      purpose: "categorical_adjudication",
+      recordId: packet.recordId,
+      packet,
+      evidence: "seed_text",
+      promptId: SEED_TEXT_ADJUDICATE_PROMPT_ID,
+      promptVersion: SEED_TEXT_ADJUDICATE_PROMPT_VERSION,
+      promptPrefix: prompt.prefix,
+      promptSuffix: prompt.suffix,
+    },
+    limitation: packetEvidenceLimitation(
+      packet,
+      blocks.map((block) => block.text),
+    ),
+    check(rawOutput) {
+      const reply = seedTextAdjudicateReplySchema.safeParse(rawOutput);
+      if (!reply.success) return malformed(reply.error);
+      const resolved = resolveSeedTextJudgment(reply.data, blocks);
+      if (!resolved.ok) return resolved;
+      const { unverifiedQuoteCount, ...judgment } = resolved.data;
+      return {
+        ok: true,
+        data: {
+          ...judgment,
+          unverifiedSeedQuoteCount: unverifiedQuoteCount,
+          modelCitedChunkIds: chunkIdsHoldingQuotes(
+            chunks,
+            blocks,
+            judgment.seedQuotes,
+          ),
+        },
+      };
+    },
+  };
+}
 
 export async function runCanonicalAdjudicate(
   evidenceArtifactInput: unknown,
@@ -170,6 +338,23 @@ export async function runCanonicalAdjudicate(
       corpus.chunks.map((chunk) => [chunk.chunkId, chunk] as const),
     ),
   );
+  // Seeds whose whole text the adjudicator reads. A seed that is absent here,
+  // because chunks were asked for or its text is too long, is read from the
+  // chunks Evidence selected.
+  const seedTextBySeedId = new Map(
+    options.evidence === "seed_text"
+      ? evidenceArtifact.payload.corpora.flatMap((corpus) => {
+          const blocks = seedTextBlocksFromCorpus(corpus.chunks);
+          const characters = blocks.reduce(
+            (total, block) => total + block.text.length,
+            0,
+          );
+          return characters > options.seedTextMaxCharacters
+            ? []
+            : [[corpus.seedId, { blocks, chunks: corpus.chunks }] as const];
+        })
+      : [],
+  );
 
   // Stable ordering independent of adapter completion order.
   const orderedEvidenceRecords = [...evidenceArtifact.payload.records].sort(
@@ -183,7 +368,6 @@ export async function runCanonicalAdjudicate(
     outcome: AdjudicateRecordOutcome;
     /** Present only when the record reached the model. */
     execution?: ModelExecution;
-    promptContentHash?: string;
   };
 
   async function adjudicateRecord(
@@ -244,31 +428,19 @@ export async function runCanonicalAdjudicate(
         }),
       };
     }
-    const promptText = buildCanonicalAdjudicatePrompt(packet);
-    const promptContentHash = hashCanonicalAdjudicatePrompt(promptText);
+    const seedText = seedTextBySeedId.get(prepareRecord.seed.seedId);
+    const reading = seedText
+      ? readSeedText(packet, seedText)
+      : readSelectedChunks(packet, gate.selection.selectedChunkIds);
 
-    const adapterInput: CanonicalAdjudicateAdapterInput = {
-      purpose: "categorical_adjudication",
-      recordId: prepareRecord.recordId,
-      promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-      promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-      promptText,
-      packet,
-    };
-    const expectedRequestHash = hashCanonicalAdjudicateRequest(adapterInput);
-    const adapterRaw = await adjudicate(adapterInput);
+    const adapterRaw = await adjudicate(reading.request);
     const adapterResult = parseBoundary(
       canonicalAdjudicateAdapterResultSchema,
       adapterRaw,
       `canonical Adjudicate adapter result for ${prepareRecord.recordId}`,
     );
-    verifyAdapterExecution({
-      recordId: prepareRecord.recordId,
-      execution: adapterResult.execution,
-      promptContentHash,
-      expectedRequestHash,
-    });
-    const modeled = { execution: adapterResult.execution, promptContentHash };
+    verifyAdapterExecution(reading.request, adapterResult.execution);
+    const modeled = { execution: adapterResult.execution };
 
     if (adapterResult.status === "failed") {
       if (
@@ -294,30 +466,13 @@ export async function runCanonicalAdjudicate(
       };
     }
 
-    const parsedOutput = canonicalAdjudicateModelOutputSchema.safeParse(
-      adapterResult.rawOutput,
-    );
-    if (!parsedOutput.success) {
+    const checked = reading.check(adapterResult.rawOutput);
+    if (!checked.ok) {
       return {
         ...modeled,
         outcome: buildInvalidOutputOutcome({
           prepareRecord,
-          reason: `Malformed adjudication output: ${parsedOutput.error.issues[0]?.message ?? "invalid JSON shape"}`,
-          execution: adapterResult.execution,
-        }),
-      };
-    }
-
-    const referenceError = validateModelReferences({
-      output: parsedOutput.data,
-      selectedChunkIds: gate.selection.selectedChunkIds,
-    });
-    if (referenceError) {
-      return {
-        ...modeled,
-        outcome: buildInvalidOutputOutcome({
-          prepareRecord,
-          reason: referenceError,
+          reason: checked.error,
           execution: adapterResult.execution,
         }),
       };
@@ -327,10 +482,10 @@ export async function runCanonicalAdjudicate(
       ...modeled,
       outcome: buildAdjudicatedOutcome({
         prepareRecord,
-        output: parsedOutput.data,
+        judgment: checked.data,
         selectedChunkIds: gate.selection.selectedChunkIds,
+        limitation: reading.limitation,
         execution: adapterResult.execution,
-        packet,
       }),
     };
   }
@@ -343,13 +498,17 @@ export async function runCanonicalAdjudicate(
   });
 
   const outcomes: AdjudicateRecordOutcome[] = [];
-  const promptHashes = new Set<string>();
+  const prompts: LeanArtifactProvenance["prompts"] = [];
   const modelProvenance: LeanArtifactProvenance["models"] = [];
   const responseArtifacts: ArtifactReference[] = [];
-  for (const { outcome, execution, promptContentHash } of adjudications) {
+  for (const { outcome, execution } of adjudications) {
     outcomes.push(outcome);
-    if (!execution || !promptContentHash) continue;
-    promptHashes.add(promptContentHash);
+    if (!execution) continue;
+    prompts.push({
+      promptId: execution.promptId,
+      version: execution.promptVersion,
+      contentHash: execution.promptContentHash,
+    });
     modelProvenance.push({
       provider: execution.provider,
       model: execution.model,
@@ -392,12 +551,8 @@ export async function runCanonicalAdjudicate(
     lineage,
   );
   const provenanceInputs: CanonicalAdjudicateProvenanceInputs = {
-    prompts: [...promptHashes].sort(compareCodeUnits).map((contentHash) => ({
-      promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-      version: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-      contentHash,
-    })),
-    models: uniqueModelProvenance(modelProvenance),
+    prompts: uniqueSorted(prompts),
+    models: uniqueSorted(modelProvenance),
     responseArtifacts: uniqueSortedArtifactReferences(responseArtifacts),
   };
 
@@ -456,25 +611,23 @@ export function buildCanonicalAdjudicateArtifact(input: {
   );
 }
 
-function verifyAdapterExecution(input: {
-  recordId: string;
-  execution: ModelExecution;
-  promptContentHash: string;
-  expectedRequestHash: string;
-}): void {
-  const { execution } = input;
+function verifyAdapterExecution(
+  request: CanonicalAdjudicateAdapterInput,
+  execution: ModelExecution,
+): void {
   if (
-    execution.promptId !== CANONICAL_ADJUDICATE_PROMPT_ID ||
-    execution.promptVersion !== CANONICAL_ADJUDICATE_PROMPT_VERSION ||
-    execution.promptContentHash !== input.promptContentHash
+    execution.promptId !== request.promptId ||
+    execution.promptVersion !== request.promptVersion ||
+    execution.promptContentHash !==
+      hashCanonicalAdjudicatePrompt(adjudicatePromptText(request))
   ) {
     throw new CanonicalAdjudicateBoundaryError(
-      `Adjudicate adapter execution does not match the exact prompt sent: ${input.recordId}`,
+      `Adjudicate adapter execution does not match the exact prompt sent: ${request.recordId}`,
     );
   }
-  if (execution.requestHash !== input.expectedRequestHash) {
+  if (execution.requestHash !== hashCanonicalAdjudicateRequest(request)) {
     throw new CanonicalAdjudicateBoundaryError(
-      `Adjudicate adapter execution does not match the exact request sent: ${input.recordId}`,
+      `Adjudicate adapter execution does not match the exact request sent: ${request.recordId}`,
     );
   }
 }
@@ -700,12 +853,12 @@ function classificationGateDecision(
 }
 
 function validateModelReferences(input: {
-  output: z.infer<typeof canonicalAdjudicateModelOutputSchema>;
+  citedChunkIds: readonly string[];
   selectedChunkIds: readonly string[];
 }): string | undefined {
   const allowedChunks = new Set(input.selectedChunkIds);
   const seenChunks = new Set<string>();
-  for (const chunkId of input.output.citedChunkIds) {
+  for (const chunkId of input.citedChunkIds) {
     if (!allowedChunks.has(chunkId)) {
       return `Unknown selected chunk reference: ${chunkId}`;
     }
@@ -719,10 +872,10 @@ function validateModelReferences(input: {
 
 function buildAdjudicatedOutcome(input: {
   prepareRecord: PreparedCitationInstance;
-  output: z.infer<typeof canonicalAdjudicateModelOutputSchema>;
+  judgment: CheckedJudgment;
   selectedChunkIds: readonly string[];
+  limitation: EvidenceLimitation;
   execution: ModelExecution;
-  packet: ReturnType<typeof buildCanonicalAdjudicatePacket>;
 }): AdjudicateRecordOutcome {
   const evaluatedClaimRecordIds =
     input.prepareRecord.occurrenceSourceClaimRecords.map(
@@ -732,27 +885,29 @@ function buildAdjudicatedOutcome(input: {
     input.prepareRecord.occurrenceSourceClaimRecords
       .map((claim) => claim.extractedClaimText)
       .join("\n");
-  const citedChunkIds = new Set(input.output.citedChunkIds);
-  const modelCitedChunkIds = input.selectedChunkIds.filter((chunkId) =>
-    citedChunkIds.has(chunkId),
-  );
-  const limitation = packetEvidenceLimitation(input.packet);
+  const { judgment, limitation } = input;
   const draft = {
     recordId: input.prepareRecord.recordId,
     familyId: input.prepareRecord.familyId,
     citationOccurrenceId: input.prepareRecord.citationOccurrenceId,
     status: "adjudicated" as const,
-    verdict: input.output.verdict,
-    citingAssertion: input.output.citingAssertion,
-    sourceStatement: input.output.sourceStatement,
-    mutationKinds: [...input.output.mutationKinds].sort(compareCodeUnits),
-    direction: input.output.direction,
-    rationale: input.output.rationale,
-    confidence: input.output.confidence,
+    verdict: judgment.verdict,
+    citingAssertion: judgment.citingAssertion,
+    sourceStatement: judgment.sourceStatement,
+    mutationKinds: [...judgment.mutationKinds].sort(compareCodeUnits),
+    direction: judgment.direction,
+    rationale: judgment.rationale,
+    confidence: judgment.confidence,
     evaluatedCitingClaimText,
     evaluatedClaimRecordIds,
     selectedCitedChunkIds: [...input.selectedChunkIds],
-    modelCitedChunkIds,
+    modelCitedChunkIds: judgment.modelCitedChunkIds,
+    ...(judgment.seedQuotes
+      ? {
+          seedQuotes: judgment.seedQuotes,
+          unverifiedSeedQuoteCount: judgment.unverifiedSeedQuoteCount,
+        }
+      : {}),
     evidenceSufficiency: limitation.evidenceSufficiency,
     ...(limitation.evidenceLimitation
       ? { evidenceLimitation: limitation.evidenceLimitation }
@@ -893,20 +1048,12 @@ function createAdjudicateDecisions(
   });
 }
 
-function uniqueModelProvenance(
-  models: LeanArtifactProvenance["models"],
-): LeanArtifactProvenance["models"] {
-  const seen = new Set<string>();
-  const unique: LeanArtifactProvenance["models"] = [];
-  for (const model of models) {
-    const key = canonicalSerialize(model);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(model);
-  }
-  return unique.sort((left, right) =>
-    compareCodeUnits(canonicalSerialize(left), canonicalSerialize(right)),
+/** Distinct values in the order of their canonical serialization. */
+function uniqueSorted<T>(values: readonly T[]): T[] {
+  const byKey = new Map(
+    values.map((value) => [canonicalSerialize(value), value]),
   );
+  return [...byKey.keys()].sort(compareCodeUnits).map((key) => byKey.get(key)!);
 }
 
 const parseBoundary = createBoundaryParser(CanonicalAdjudicateBoundaryError);

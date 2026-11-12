@@ -45,18 +45,16 @@ import {
 } from "../integrations/llm-client.js";
 import { resolvePaperByDoi } from "../integrations/paper-resolver.js";
 import * as openalex from "../integrations/openalex.js";
-import {
-  CANONICAL_ADJUDICATE_PROMPT_ID,
-  CANONICAL_ADJUDICATE_PROMPT_VERSION,
-} from "../adjudication/canonical-adjudicate-packet.js";
+import { seedTextAdjudicateReplySchema } from "../adjudication/seed-text-adjudicate.js";
 import type { CanonicalDiscoverAdapters } from "./canonical-discover.js";
 import type {
   CanonicalEvidenceAdapters,
   CanonicalEvidenceRerankerInput,
 } from "./canonical-evidence.js";
-import type {
-  CanonicalAdjudicateAdapterInput,
-  CanonicalAdjudicateAdapters,
+import {
+  adjudicatePromptText,
+  type CanonicalAdjudicateAdapterInput,
+  type CanonicalAdjudicateAdapters,
 } from "./canonical-adjudicate.js";
 import {
   applyPrepareModelRole,
@@ -163,7 +161,8 @@ function llmRequestProvenanceFields(params: {
     | "evidence-rerank"
     | "adjudication";
   model: string;
-  prompt: string;
+  /** The part of the prompt other requests share, when there is one. */
+  sharedPrefix?: string | undefined;
   promptVersion: string;
   exactCacheKeyVersion: string;
   thinking?: ThinkingConfig | undefined;
@@ -178,10 +177,14 @@ function llmRequestProvenanceFields(params: {
     ...(params.forceRefresh != null
       ? { forceRefresh: params.forceRefresh }
       : {}),
-    promptCacheControl: resolvePromptCacheControl({
-      purpose: params.purpose,
-      prompt: params.prompt,
-    }),
+    ...(params.sharedPrefix != null
+      ? {
+          promptCacheControl: resolvePromptCacheControl({
+            purpose: params.purpose,
+            promptPrefix: params.sharedPrefix,
+          }),
+        }
+      : {}),
   });
 }
 
@@ -943,7 +946,6 @@ export function buildCanonicalDiscoverAdapters(
         llm: llmRequestProvenanceFields({
           purpose: "attributed-claim-extraction",
           model,
-          prompt,
           promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.extraction,
           ...(thinking != null ? { thinking } : {}),
@@ -1045,7 +1047,6 @@ export function buildCanonicalDiscoverAdapters(
         llm: llmRequestProvenanceFields({
           purpose: "claim-canonicalization",
           model,
-          prompt,
           promptVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.canonicalization,
           ...(thinking != null ? { thinking } : {}),
@@ -1374,7 +1375,7 @@ export function buildCanonicalScopeAdapters(
         llm: llmRequestProvenanceFields({
           purpose: "seed-grounding",
           model,
-          prompt,
+          sharedPrefix: promptParts.prefix,
           promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.grounding,
           ...(thinking != null ? { thinking } : {}),
@@ -1485,7 +1486,6 @@ export function buildCanonicalPrepareAdapters(
         llm: llmRequestProvenanceFields({
           purpose: "citation-role-classification",
           model,
-          prompt,
           promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.roleClassification,
           ...(thinking != null ? { thinking } : {}),
@@ -1579,7 +1579,6 @@ function buildCanonicalEvidenceAdapters(
         llm: llmRequestProvenanceFields({
           purpose: "evidence-rerank",
           model,
-          prompt,
           promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
           exactCacheKeyVersion: LLM_CACHE_VERSIONS.rerank,
           ...(thinking != null ? { thinking } : {}),
@@ -1668,10 +1667,14 @@ export function buildCanonicalAdjudicateAdapters(
 ): CanonicalAdjudicateAdapters {
   const store = deps.provenanceStore;
   const model = deps.runConfig.adjudicate.model;
+  // The first request that carries a seed text writes the provider's cache;
+  // the rest of that seed's records wait for it so they read the cache
+  // instead of each paying to write it.
+  const cacheWrites = new Map<string, Promise<unknown>>();
 
   return {
     adjudicate: async (input: CanonicalAdjudicateAdapterInput) => {
-      const promptText = input.promptText;
+      const promptText = adjudicatePromptText(input);
       const expectedRequestHash = hashCanonicalAdjudicateRequest(input);
       const thinking = mapLlmCallThinking(
         model,
@@ -1679,108 +1682,132 @@ export function buildCanonicalAdjudicateAdapters(
         12_000,
         deps.runConfig.adjudicate.effort,
       );
+      // A whole-seed-text request names the seed text by its hash: it keys
+      // the cache write below, and stands in for the text in the stored
+      // request, because the Evidence artifact this stage reads already
+      // holds it.
+      const seedTextContentHash =
+        input.evidence === "seed_text"
+          ? canonicalSha256(input.promptPrefix)
+          : undefined;
+      const llm = llmRequestProvenanceFields({
+        purpose: "adjudication",
+        model,
+        ...(input.evidence === "seed_text"
+          ? { sharedPrefix: input.promptPrefix }
+          : {}),
+        promptVersion: input.promptVersion,
+        exactCacheKeyVersion: LLM_CACHE_VERSIONS.adjudication,
+        ...(thinking != null ? { thinking } : {}),
+        forceRefresh: deps.forceRefresh === true,
+      });
       const requestBody = {
         purpose: input.purpose,
         recordId: input.recordId,
         promptId: input.promptId,
         promptVersion: input.promptVersion,
-        promptText,
-        llm: llmRequestProvenanceFields({
-          purpose: "adjudication",
-          model,
-          prompt: promptText,
-          promptVersion: input.promptVersion,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.adjudication,
-          ...(thinking != null ? { thinking } : {}),
-          forceRefresh: deps.forceRefresh === true,
-        }),
+        ...(input.evidence === "seed_text"
+          ? { seedTextContentHash, promptSuffix: input.promptSuffix }
+          : { promptText }),
+        llm,
       };
+      const executionOf = (
+        responseRole: string,
+        responseBody: Record<string, unknown>,
+        served: { model: string } & Partial<
+          ReturnType<typeof modelExecutionTelemetry>
+        >,
+      ) =>
+        contentAddressedModelExecution({
+          provider: "anthropic",
+          ...served,
+          promptId: input.promptId,
+          promptVersion: input.promptVersion,
+          promptText,
+          requestBody,
+          responseBody: { role: responseRole, ...responseBody },
+          store,
+          requestRole: "normalized-canonical-adjudicate-request",
+          responseRole,
+          requestHash: expectedRequestHash,
+          canonicalStage: "adjudicate",
+        });
+      const request = {
+        purpose: "adjudication" as const,
+        model,
+        context: { stageKey: "adjudicate" as const },
+        ...(thinking != null ? { thinking } : {}),
+        exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
+      };
+
       // Only the provider call is guarded: a failure after it is a programmer
       // error, and swallowing one here would report it as a provider outage.
-      let result;
+      let reply: { object: unknown; record: LLMCallRecord; rawOutput: unknown };
       try {
-        result = await deps.llmClient.generateObject({
-          purpose: "adjudication",
-          model,
-          prompt: promptText,
-          schema: adjudicateModelResponseSchema,
-          context: { stageKey: "adjudicate" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
-        });
+        if (input.evidence === "seed_text") {
+          const cacheWrite = cacheWrites.get(seedTextContentHash!);
+          if (cacheWrite) await cacheWrite;
+          const sent = deps.llmClient.generateObject({
+            ...request,
+            promptPrefix: input.promptPrefix,
+            promptSuffix: input.promptSuffix,
+            schema: seedTextAdjudicateReplySchema,
+          });
+          if (!cacheWrite)
+            cacheWrites.set(
+              seedTextContentHash!,
+              sent.catch(() => undefined),
+            );
+          const result = await sent;
+          // The stage verifies the quotes against the seed text.
+          reply = { ...result, rawOutput: result.object };
+        } else {
+          const result = await deps.llmClient.generateObject({
+            ...request,
+            prompt: input.promptText,
+            schema: adjudicateModelResponseSchema,
+          });
+          const mapped = mapAdjudicateResponse(result.object, input.packet);
+          reply = {
+            ...result,
+            rawOutput: mapped.ok ? mapped.data : { mappingError: mapped.error },
+          };
+        }
       } catch (error) {
-        const mapped = mapLlmFailureCode(error);
+        const failure = mapLlmFailureCode(error);
         return {
           status: "failed" as const,
-          reasonCode: mapped.reasonCode,
-          reason: mapped.reason,
-          execution: contentAddressedModelExecution({
-            provider: "anthropic",
-            model,
-            promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-            promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-            promptText,
-            requestBody,
-            responseBody: {
-              role: "normalized-canonical-adjudicate-failure",
-              error: mapped.reason,
-              ...(mapped.responseText != null
-                ? { modelText: mapped.responseText }
+          reasonCode: failure.reasonCode,
+          reason: failure.reason,
+          execution: executionOf(
+            "normalized-canonical-adjudicate-failure",
+            {
+              error: failure.reason,
+              ...(failure.responseText != null
+                ? { modelText: failure.responseText }
                 : {}),
             },
-            store,
-            requestRole: "normalized-canonical-adjudicate-request",
-            responseRole: "normalized-canonical-adjudicate-failure",
-            requestHash: expectedRequestHash,
-            canonicalStage: "adjudicate",
-          }),
+            { model },
+          ),
         };
       }
 
-      const parsed = mapAdjudicateResponse(result.object, input.packet);
-      const execution = contentAddressedModelExecution({
-        provider: "anthropic",
-        model: result.record.model,
-        ...modelExecutionTelemetry(result.record),
-        promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-        promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-        promptText,
-        requestBody,
-        responseBody: {
-          role: "normalized-canonical-adjudicate-response",
-          object: result.object,
-          mapped: parsed.ok ? parsed.data : { mappingError: parsed.error },
-        },
-        store,
-        requestRole: "normalized-canonical-adjudicate-request",
-        responseRole: "normalized-canonical-adjudicate-response",
-        requestHash: expectedRequestHash,
-        canonicalStage: "adjudicate",
-      });
-      // Ensure prompt content hash matches the adapter input prompt text.
-      if (
-        execution.promptContentHash !== canonicalSha256(promptText) ||
-        execution.promptId !== input.promptId ||
-        execution.promptVersion !== input.promptVersion
-      ) {
-        return {
-          status: "failed" as const,
-          reasonCode: "invalid_response" as const,
-          reason: "Adjudicate adapter execution provenance mismatch.",
-          execution,
-        };
-      }
-      if (!parsed.ok) {
-        return {
-          status: "completed" as const,
-          rawOutput: { mappingError: parsed.error },
-          execution,
-        };
-      }
       return {
         status: "completed" as const,
-        rawOutput: parsed.data,
-        execution,
+        rawOutput: reply.rawOutput,
+        execution: executionOf(
+          "normalized-canonical-adjudicate-response",
+          {
+            object: reply.object,
+            ...(input.evidence === "seed_text"
+              ? {}
+              : { mapped: reply.rawOutput }),
+          },
+          {
+            model: reply.record.model,
+            ...modelExecutionTelemetry(reply.record),
+          },
+        ),
       };
     },
   };

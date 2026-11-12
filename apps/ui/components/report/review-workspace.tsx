@@ -25,7 +25,11 @@ import { cn } from "@/lib/utils";
 import { REVIEWER_STORAGE_KEY } from "@/lib/reviewer";
 import { VERDICT_ORDER } from "@/lib/verdict-tokens";
 
-import { EvidencePassages, outcomeBadgeVariant } from "./record-details";
+import {
+  EvidencePassages,
+  outcomeBadgeVariant,
+  SeedQuotes,
+} from "./record-details";
 import {
   buildHumanAssessment,
   emptyReviewForm,
@@ -846,7 +850,7 @@ export function ReviewWorkspace({
               {activeRecord.evidencePassages.length > 0 ? (
                 <div className="mt-3">
                   <EvidencePassages
-                    heading="Passages the model was shown"
+                    heading="Passages retrieved from the cited paper"
                     hideMachineJudgment={!showMachineJudgment}
                     record={activeRecord}
                   />
@@ -935,6 +939,7 @@ export function ReviewWorkspace({
                       {activeRecord.sourceStatement}
                     </p>
                   ) : null}
+                  <SeedQuotes record={activeRecord} />
                   {activeRecord.rationale ? (
                     <p>{activeRecord.rationale}</p>
                   ) : null}

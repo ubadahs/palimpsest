@@ -230,16 +230,13 @@ describe.sequential("seed-text adjudication provider", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("sends the seed text as a cached prefix shared by every record", async () => {
+  it("sends the seed text as a prefix shared by every record, which the client caches", async () => {
     const experiment = createExperiment(writeDataset("v3"), config({}));
     expect(await runExperiment(experiment.experimentId)).toMatchObject({
       completed: 4,
       pending: 0,
     });
-    const sent = model.requests as {
-      options: { promptCaching?: { byPurpose?: Record<string, unknown> } };
-      request: Request;
-    }[];
+    const sent = model.requests as { request: Request }[];
     expect(sent).toHaveLength(4);
     expect(new Set(sent.map(({ request }) => request.promptPrefix)).size).toBe(
       1,
@@ -249,9 +246,6 @@ describe.sequential("seed-text adjudication provider", () => {
     );
     expect(new Set(sent.map(({ request }) => request.promptSuffix)).size).toBe(
       4,
-    );
-    expect(sent[0]!.options.promptCaching?.byPurpose).toHaveProperty(
-      "adjudication",
     );
     const trials = loadTrials(experiment.experimentId);
     expect(trials.map((trial) => trial.prediction)).toEqual(

@@ -220,11 +220,21 @@ export function assessAdjudicatePacketQuality(
   return { ok: true };
 }
 
-export function packetEvidenceLimitation(packet: CanonicalAdjudicatePacket) {
+/**
+ * Whether the seed text the adjudicator read could hold the support the
+ * citing side points at. That text is the selected chunks unless the caller
+ * says the adjudicator read something else.
+ */
+export function packetEvidenceLimitation(
+  packet: CanonicalAdjudicatePacket,
+  evidenceTexts: readonly string[] = packet.selectedChunks.map(
+    (chunk) => chunk.text,
+  ),
+) {
   return assessEvidenceLimitation({
     claimTexts: packet.occurrenceClaims.map((claim) => claim.claimText),
     citingContext: packet.markedCitingContext,
-    selectedChunkTexts: packet.selectedChunks.map((chunk) => chunk.text),
+    selectedChunkTexts: evidenceTexts,
   });
 }
 

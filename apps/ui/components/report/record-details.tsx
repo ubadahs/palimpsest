@@ -19,7 +19,7 @@ export function outcomeBadgeVariant(
 export function EvidencePassages({
   record,
   hideMachineJudgment = false,
-  heading = "Selected evidence",
+  heading = "Retrieved evidence",
 }: {
   record: ReportInspectorRecordRow;
   /** While blinded, hide which passages the adjudicator cited and how they were ranked. */
@@ -60,6 +60,40 @@ export function EvidencePassages({
         </div>
       ))}
     </section>
+  );
+}
+
+/** The seed passages a whole-paper verdict rests on, in the model's exact quotes. */
+export function SeedQuotes({ record }: { record: ReportInspectorRecordRow }) {
+  if (!record.seedQuotes) {
+    return null;
+  }
+  return (
+    <div>
+      <p className="text-xs font-semibold text-[var(--text-muted)]">
+        Quoted from the cited paper
+      </p>
+      {record.seedQuotes.length === 0 ? (
+        <p className="mt-1 text-sm leading-7 text-[var(--text-muted)]">
+          Nothing: the model read the whole paper and found no passage on the
+          point.
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-2">
+          {record.seedQuotes.map((item, index) => (
+            <li
+              className="border-l-2 border-[var(--border-strong)] pl-3 text-sm leading-7 text-[var(--text)]"
+              key={index}
+            >
+              “{item.quote}”
+              <span className="ml-2 text-[11px] text-[var(--text-muted)]">
+                {item.sectionTitle ?? humanizeCode(item.blockKind)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -142,6 +176,7 @@ function RecordDetails({
               </div>
             </div>
           ) : null}
+          <SeedQuotes record={record} />
           {record.mutationKinds && record.mutationKinds.length > 0 ? (
             <div>
               <p className="text-xs font-semibold text-[var(--text-muted)]">

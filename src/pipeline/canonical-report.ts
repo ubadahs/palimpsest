@@ -782,6 +782,11 @@ function buildFunnelCounts(input: {
       packetsMissingSupportSpans += 1;
     }
   }
+  const seedTextVerdicts = adjudicated.flatMap((record) =>
+    record.status === "adjudicated" && record.seedQuotes != null
+      ? [record]
+      : [],
+  );
   const evidenceSufficient = countBy(
     adjudicated,
     (record) =>
@@ -1248,6 +1253,38 @@ function buildFunnelCounts(input: {
         "adjudication_packets",
         "Packets with one or more claims missing an exact-verified support span",
       ),
+      ...(seedTextVerdicts.length > 0
+        ? {
+            seedText: {
+              adjudicated: count(
+                "adjudicate.seed_text.adjudicated",
+                seedTextVerdicts.length,
+                "family_occurrence_records",
+                "Adjudicated records whose verdict was reached from the whole seed text",
+              ),
+              quotedOutsideSelection: count(
+                "adjudicate.seed_text.quoted_outside_selection",
+                countBy(seedTextVerdicts, (record) => {
+                  const selected = new Set(record.selectedCitedChunkIds);
+                  return record.modelCitedChunkIds.some(
+                    (chunkId) => !selected.has(chunkId),
+                  );
+                }),
+                "family_occurrence_records",
+                "Whole-seed-text verdicts quoting a passage outside the chunks Evidence selected",
+              ),
+              withUnverifiedQuote: count(
+                "adjudicate.seed_text.with_unverified_quote",
+                countBy(
+                  seedTextVerdicts,
+                  (record) => (record.unverifiedSeedQuoteCount ?? 0) > 0,
+                ),
+                "family_occurrence_records",
+                "Whole-seed-text verdicts where the model gave a quote its seed block does not contain",
+              ),
+            },
+          }
+        : {}),
       evidenceSufficient: count(
         "adjudicate.evidence_sufficient",
         evidenceSufficient,

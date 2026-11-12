@@ -73,11 +73,22 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
     selectionLimit: 5,
   },
   adjudicate: {
-    model: "claude-opus-5-5",
+    model: "claude-sonnet-5-5",
     thinking: true,
     effort: "high" as const,
+    evidence: "seed_text" as const,
   },
 };
+
+/**
+ * What the adjudicator reads of the seed paper: its whole text, or only the
+ * chunks Evidence selected.
+ */
+export const adjudicationEvidenceSchema = z.enum([
+  "seed_text",
+  "selected_chunks",
+]);
+export type AdjudicationEvidence = z.infer<typeof adjudicationEvidenceSchema>;
 
 /**
  * Minimal canonical run config. Grouped by stage where practical.
@@ -227,6 +238,15 @@ export const analysisRunConfigSchema = z
         effort: z
           .enum(["low", "medium", "high", "max"])
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort),
+        /**
+         * The whole seed text is the default: the seed is a prompt prefix the
+         * provider caches across a seed's records, and the verdict rests on
+         * quotes verified against it. A seed text too long to send falls back
+         * to the selected chunks.
+         */
+        evidence: adjudicationEvidenceSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.evidence,
+        ),
       })
       .strict()
       .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate })),

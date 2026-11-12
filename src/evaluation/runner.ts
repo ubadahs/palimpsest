@@ -11,11 +11,7 @@ import {
   executeProviderCase,
   ProviderRequestError,
 } from "./providers.js";
-import {
-  adjudicateFromSeedText,
-  readsSeedText,
-  SEED_TEXT_PROMPT_CACHING,
-} from "./seed-text-provider.js";
+import { adjudicateFromSeedText, readsSeedText } from "./seed-text-provider.js";
 import {
   atomicJson,
   evaluationRoot,
@@ -477,9 +473,6 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
               apiKey: process.env[provider.apiKeyEnv ?? "ANTHROPIC_API_KEY"]!,
               defaultModel: provider.model,
               forceRefresh: true,
-              ...(provider.adjudicationEvidence === "seed_text"
-                ? { promptCaching: SEED_TEXT_PROMPT_CACHING }
-                : {}),
             })
           : undefined;
       const stopped = () => controller.signal.aborted || providerStopped;

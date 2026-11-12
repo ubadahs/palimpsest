@@ -51,6 +51,7 @@ type FormState = {
     model: string;
     thinking: boolean;
     effort: "low" | "medium" | "high" | "max";
+    evidence: "seed_text" | "selected_chunks";
   };
   forceRefresh: boolean;
   modelConcurrency: number;
@@ -119,6 +120,7 @@ const defaultState: FormState = {
     model: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
     thinking: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking,
     effort: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
+    evidence: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.evidence,
   },
   forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
   modelConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency,
@@ -662,9 +664,35 @@ export function NewRunForm() {
                 </span>
               </summary>
               <div className={sectionBodyClass}>
+                <label className="grid gap-2">
+                  <span className="text-sm font-semibold text-[var(--text)]">
+                    What the judge reads
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    The whole cited paper, quoting the passages its verdict
+                    rests on, or only the passages Evidence retrieved.
+                  </span>
+                  <select
+                    className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"
+                    onChange={(event) =>
+                      updateStage(
+                        "adjudicate",
+                        "evidence",
+                        event.target
+                          .value as FormState["adjudicate"]["evidence"],
+                      )
+                    }
+                    value={state.adjudicate.evidence}
+                  >
+                    <option value="seed_text">The whole cited paper</option>
+                    <option value="selected_chunks">
+                      Retrieved passages only
+                    </option>
+                  </select>
+                </label>
                 <ModelWithThinking
                   label="Judge model"
-                  description="Reads selected evidence and renders one categorical F/D/E/U verdict per eligible record."
+                  description="Renders one categorical F/D/E/U verdict per eligible record."
                   model={state.adjudicate.model}
                   onModelChange={(v) => updateStage("adjudicate", "model", v)}
                   thinking={state.adjudicate.thinking}

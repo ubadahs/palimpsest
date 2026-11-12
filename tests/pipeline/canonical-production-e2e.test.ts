@@ -16,10 +16,6 @@ import type { ArtifactReference } from "../../src/contract/lean-artifacts.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import type { LLMClient } from "../../src/integrations/llm-client.js";
 import { createCanonicalProvenanceStore } from "../../src/pipeline/canonical-provenance-store.js";
-import {
-  CANONICAL_ADJUDICATE_PROMPT_ID,
-  CANONICAL_ADJUDICATE_PROMPT_VERSION,
-} from "../../src/adjudication/canonical-adjudicate-packet.js";
 import { hashCanonicalAdjudicateRequest } from "../../src/contract/canonical-adjudicate.js";
 import {
   buildCanonicalPrepareAdapters,
@@ -33,7 +29,10 @@ import {
 import type { CanonicalDiscoverAdapters } from "../../src/pipeline/canonical-discover.js";
 import type { CanonicalScopeAdapters } from "../../src/pipeline/canonical-scope.js";
 import type { CanonicalEvidenceAdapters } from "../../src/pipeline/canonical-evidence.js";
-import type { CanonicalAdjudicateAdapters } from "../../src/pipeline/canonical-adjudicate.js";
+import {
+  adjudicatePromptText,
+  type CanonicalAdjudicateAdapters,
+} from "../../src/pipeline/canonical-adjudicate.js";
 import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 import { getRunStage } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
@@ -322,15 +321,13 @@ function productionPathAdjudicateAdapters(): CanonicalAdjudicateAdapters {
           direction: "none",
           rationale: "Exact phenotype match in selected chunks.",
           confidence: "high",
-          citedChunkIds: input.packet.selectedChunks
-            .slice(0, 1)
-            .map((chunk) => chunk.chunkId),
+          citedChunkIds: [input.packet.selectedChunks[0]!.chunkId],
         },
         execution: {
           ...base,
-          promptId: CANONICAL_ADJUDICATE_PROMPT_ID,
-          promptVersion: CANONICAL_ADJUDICATE_PROMPT_VERSION,
-          promptContentHash: canonicalSha256(input.promptText),
+          promptId: input.promptId,
+          promptVersion: input.promptVersion,
+          promptContentHash: canonicalSha256(adjudicatePromptText(input)),
           requestHash,
         },
       });

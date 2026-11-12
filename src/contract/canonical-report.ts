@@ -431,6 +431,20 @@ const adjudicateFunnelCountsSchema = z
     evidenceSufficient: countOf("family_occurrence_records"),
     evidenceLimited: countOf("family_occurrence_records"),
     figureOnlyLimitation: countOf("family_occurrence_records"),
+    /**
+     * Present when any verdict was reached by reading the whole seed text
+     * instead of the chunks Evidence selected.
+     */
+    seedText: z
+      .object({
+        adjudicated: countOf("family_occurrence_records"),
+        /** The verdict quotes a passage Evidence did not select. */
+        quotedOutsideSelection: countOf("family_occurrence_records"),
+        /** The model gave a quote its seed block does not contain. */
+        withUnverifiedQuote: countOf("family_occurrence_records"),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 const reportFunnelCountsSchema = z
