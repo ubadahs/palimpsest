@@ -48,6 +48,8 @@ export type LLMProviderErrorClass =
   /** The request itself was rejected (bad schema, bad parameter); retrying cannot help. */
   | "invalid_request"
   | "malformed_output"
+  /** The run's spend limit was reached, so no request was sent. */
+  | "spend_limit"
   | "unknown";
 
 type LLMCallContext = {
@@ -228,6 +230,13 @@ export type CreateLLMClientOptions = {
   database?: DatabaseConnection;
   /** When true, bypass exact-result cache reads and writes. */
   forceRefresh?: boolean;
+  /**
+   * Refuse to send a request once estimated spend reaches `maxUsd`. It is
+   * checked before each request, so requests already in flight still finish
+   * and are billed: concurrency bounds how far past the limit a run can go.
+   * Exact-cache hits cost nothing and are still served.
+   */
+  spendLimit?: { maxUsd: number; spentUsd: () => number };
 };
 
 export class LLMProviderError extends Error {
@@ -354,6 +363,16 @@ export function classifyProviderError(error: unknown): {
   fatal: boolean;
   message: string;
 } {
+  // Already classified when it was thrown; reading its message again could
+  // only get the class wrong.
+  if (error instanceof LLMProviderError) {
+    return {
+      classification: error.classification,
+      fatal: error.fatal,
+      message: error.message,
+    };
+  }
+
   if (NoObjectGeneratedError.isInstance(error)) {
     return {
       classification: "malformed_output",
@@ -1138,6 +1157,18 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             params.thinking,
           );
           return { object: parsed.data as z.infer<T>, record };
+        }
+      }
+
+      const limit = options.spendLimit;
+      if (limit) {
+        const spent = limit.spentUsd();
+        if (spent >= limit.maxUsd) {
+          throw new LLMProviderError(
+            `Spend limit reached: estimated $${spent.toFixed(2)} of $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
+            "spend_limit",
+            true,
+          );
         }
       }
 

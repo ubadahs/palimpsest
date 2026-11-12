@@ -11,6 +11,7 @@ import type {
   GenerateObjectParams,
   LLMClient,
 } from "../../src/integrations/llm-client.js";
+import { LLMProviderError } from "../../src/integrations/llm-client.js";
 import {
   buildCanonicalAdjudicateAdapters,
   buildCanonicalDiscoverAdapters,
@@ -755,6 +756,19 @@ describe("canonical production adapter seams", () => {
     });
     expect((result as { signals: string[] }).signals).toContain(
       "model-role:rate_limited",
+    );
+  });
+
+  it("stops the stage when the spend limit is reached instead of gating the record", async () => {
+    // A gated record would look like a provider hiccup and the stage would
+    // finish with every remaining record held back, all for a budget stop.
+    const adapter = prepareAdapterFor(() =>
+      Promise.reject(
+        new LLMProviderError("Spend limit reached", "spend_limit", true),
+      ),
+    );
+    await expect(adapter.classifyCitation(unclearRoleInput())).rejects.toThrow(
+      /Spend limit reached/,
     );
   });
 

@@ -1,4 +1,81 @@
-import type { LLMRunLedger } from "../integrations/llm-client.js";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { createLLMTelemetryCollector } from "../integrations/llm-client.js";
+import type {
+  LLMRunLedger,
+  LLMTelemetryCollector,
+} from "../integrations/llm-client.js";
+
+export type RunCostTracker = {
+  /** Pass to the LLM client: each call it records rewrites the summary. */
+  collector: LLMTelemetryCollector;
+  /** Estimated spend so far, earlier attempts included. */
+  spentUsd: () => number;
+  /**
+   * Writes the summary for `ledger` and returns it for the whole run and for
+   * this attempt alone. Unlike the per-call write, a failure here throws.
+   */
+  write: (ledger: LLMRunLedger) => {
+    run: RunCostSummary;
+    attempt: RunCostSummary;
+  };
+};
+
+/**
+ * Keeps `cost-summary.json` current while a run is going, so spend can be
+ * watched as it happens rather than read once at the end. A resume opens a
+ * fresh client whose ledger covers only what it re-runs, so the earlier
+ * attempts' summary is read once, here, and every write is that baseline plus
+ * this attempt. Merging into the file on each write would count calls twice.
+ */
+export function createRunCostTracker(runRoot: string): RunCostTracker {
+  const path = resolve(runRoot, "cost-summary.json");
+  const baseline = readCostSummary(path);
+  const telemetry = createLLMTelemetryCollector();
+  let attemptUsd = 0;
+
+  function write(ledger: LLMRunLedger) {
+    const attempt = summarizeLedgerByStage(ledger);
+    const run = baseline ? mergeCostSummaries(baseline, attempt) : attempt;
+    // Written beside the file and renamed over it, so a reader polling the
+    // summary never sees half a file.
+    const temporary = `${path}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+    renameSync(temporary, path);
+    return { run, attempt };
+  }
+
+  return {
+    collector: {
+      recordCall(record) {
+        telemetry.recordCall(record);
+        attemptUsd += record.estimatedCostUsd;
+        try {
+          write(telemetry.getLedger());
+        } catch {
+          // The client records a call inside its own error handling, so a
+          // throw here would be reported as the provider failing. The write
+          // at the end of the stage still surfaces a real disk problem.
+        }
+      },
+      getLedger: telemetry.getLedger,
+    },
+    spentUsd: () => (baseline?.totalEstimatedCostUsd ?? 0) + attemptUsd,
+    write,
+  };
+}
+
+function readCostSummary(path: string): RunCostSummary | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as RunCostSummary;
+  } catch {
+    // An unreadable summary from an earlier attempt must not fail the run;
+    // this attempt's numbers are still worth writing.
+    return undefined;
+  }
+}
 
 type RunCostStageSummary = {
   stage: string;

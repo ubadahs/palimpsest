@@ -309,9 +309,13 @@ function mapLlmFailureCode(error: unknown): {
 } {
   const classified = classifyProviderError(error);
   const reason = classified.message;
-  if (classified.classification === "invalid_request") {
-    // The request itself is malformed; every record would fail the same way,
-    // so the stage aborts instead of recording one typed failure per record.
+  if (
+    classified.classification === "invalid_request" ||
+    classified.classification === "spend_limit"
+  ) {
+    // A malformed request fails every record the same way, and a spent limit
+    // refuses every remaining one, so the stage aborts instead of recording
+    // one typed failure per record. A resume picks up where it stopped.
     throw error;
   }
   if (classified.classification === "malformed_output") {
