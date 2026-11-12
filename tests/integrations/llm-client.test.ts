@@ -44,32 +44,36 @@ const generateObjectMock = vi.mocked(generateObject);
 const anySchema = z.object({ ok: z.boolean() });
 
 describe("resolvePromptCacheControl", () => {
-  it("enables default caching for large seed-grounding prompts", () => {
-    const cacheControl = resolvePromptCacheControl({
-      purpose: "seed-grounding",
-      prompt: "x".repeat(5_000),
-    });
-
-    expect(cacheControl).toEqual({ type: "ephemeral", ttl: "5m" });
+  it("caches a large seed text shared by grounding or whole-paper adjudication", () => {
+    for (const purpose of ["seed-grounding", "adjudication"] as const) {
+      expect(
+        resolvePromptCacheControl({
+          purpose,
+          promptPrefix: "x".repeat(5_000),
+        }),
+      ).toEqual({ type: "ephemeral", ttl: "5m" });
+    }
   });
 
-  it("skips caching for short prompts even on cacheable purposes", () => {
+  it("skips caching for short prefixes even on cacheable purposes", () => {
     const cacheControl = resolvePromptCacheControl({
       purpose: "seed-grounding",
-      prompt: "short prompt",
+      promptPrefix: "short prefix",
     });
 
     expect(cacheControl).toBeUndefined();
   });
 
-  it("does not cache per-record prompts that share no reusable prefix", () => {
+  it("does not cache purposes whose requests share no prefix", () => {
     for (const purpose of [
       "evidence-rerank",
-      "adjudication",
       "attributed-claim-extraction",
     ] as const) {
       expect(
-        resolvePromptCacheControl({ purpose, prompt: "x".repeat(10_000) }),
+        resolvePromptCacheControl({
+          purpose,
+          promptPrefix: "x".repeat(10_000),
+        }),
       ).toBeUndefined();
     }
   });
@@ -77,7 +81,7 @@ describe("resolvePromptCacheControl", () => {
   it("respects custom per-purpose overrides", () => {
     const cacheControl = resolvePromptCacheControl({
       purpose: "evidence-rerank",
-      prompt: "x".repeat(600),
+      promptPrefix: "x".repeat(600),
       options: {
         byPurpose: {
           "evidence-rerank": {

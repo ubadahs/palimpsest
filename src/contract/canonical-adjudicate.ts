@@ -210,8 +210,29 @@ const adjudicatedOutcomeFields = {
   confidence: confidenceSchema,
   evaluatedCitingClaimText: z.string().min(1),
   evaluatedClaimRecordIds: z.array(stableIdentifierSchema).min(1),
+  /** The chunks Evidence selected for this record. */
   selectedCitedChunkIds: z.array(stableIdentifierSchema).min(1),
-  modelCitedChunkIds: z.array(stableIdentifierSchema).min(1),
+  /**
+   * The chunks the verdict rests on. Without `seedQuotes` they are the
+   * selected chunks the model cited. With `seedQuotes` they are the corpus
+   * chunks holding a verified quote, selected by Evidence or not, and are
+   * empty only for an `E` that quotes nothing.
+   */
+  modelCitedChunkIds: z.array(stableIdentifierSchema),
+  /**
+   * Present when the adjudicator read the whole seed text instead of the
+   * selected chunks: the passages it quoted, each verified as exact text of
+   * the seed block it names.
+   */
+  seedQuotes: z
+    .array(
+      z
+        .object({ blockId: z.string().min(1), quote: z.string().min(1) })
+        .strict(),
+    )
+    .optional(),
+  /** With `seedQuotes`: quotes the model gave that its block does not contain. */
+  unverifiedSeedQuoteCount: z.number().int().nonnegative().optional(),
   /**
    * Deterministic packet diagnostic: whether selected text evidence could
    * contain the supporting material. Does not invent a new verdict mode.
@@ -285,17 +306,7 @@ export const adjudicateRecordOutcomeSchema = z
         ["modelCitedChunkIds"],
         context,
       );
-      const selected = new Set(outcome.selectedCitedChunkIds);
-      for (const [index, chunkId] of outcome.modelCitedChunkIds.entries()) {
-        if (!selected.has(chunkId)) {
-          context.addIssue({
-            code: "custom",
-            path: ["modelCitedChunkIds", index],
-            message:
-              "Model-cited chunk is not in Evidence's exact final selection",
-          });
-        }
-      }
+      addEvidenceBasisIssues(outcome, context);
     }
     if (outcome.adjudicationResultId !== buildAdjudicationResultId(outcome)) {
       context.addIssue({
@@ -309,6 +320,55 @@ export const adjudicateRecordOutcomeSchema = z
 export type AdjudicateRecordOutcome = z.infer<
   typeof adjudicateRecordOutcomeSchema
 >;
+
+/** A verdict rests on cited selected chunks or on verified seed quotes. */
+function addEvidenceBasisIssues(
+  outcome: {
+    verdict: z.infer<typeof fidelityTopLabelSchema>;
+    selectedCitedChunkIds: string[];
+    modelCitedChunkIds: string[];
+    seedQuotes?: { blockId: string; quote: string }[] | undefined;
+    unverifiedSeedQuoteCount?: number | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  const issue = (path: string, message: string) =>
+    context.addIssue({ code: "custom", path: [path], message });
+  if (outcome.seedQuotes == null) {
+    const selected = new Set(outcome.selectedCitedChunkIds);
+    if (outcome.modelCitedChunkIds.length === 0)
+      issue("modelCitedChunkIds", "A verdict must cite a selected chunk");
+    if (outcome.modelCitedChunkIds.some((chunkId) => !selected.has(chunkId)))
+      issue(
+        "modelCitedChunkIds",
+        "Model-cited chunk is not in Evidence's exact final selection",
+      );
+    if (outcome.unverifiedSeedQuoteCount != null)
+      issue(
+        "unverifiedSeedQuoteCount",
+        "Only a whole-seed-text verdict counts unverified quotes",
+      );
+    return;
+  }
+  if (outcome.unverifiedSeedQuoteCount == null)
+    issue(
+      "unverifiedSeedQuoteCount",
+      "A whole-seed-text verdict states how many quotes failed verification",
+    );
+  if (outcome.verdict !== "E" && outcome.seedQuotes.length === 0)
+    issue(
+      "seedQuotes",
+      `A ${outcome.verdict} verdict must rest on at least one verified seed quote`,
+    );
+  if (
+    (outcome.seedQuotes.length === 0) !==
+    (outcome.modelCitedChunkIds.length === 0)
+  )
+    issue(
+      "modelCitedChunkIds",
+      "Model-cited chunks must be exactly those holding a verified seed quote",
+    );
+}
 
 /**
  * Result identity binds prepared record ID, versioned method, and immutable
@@ -366,6 +426,12 @@ function immutableOutcomeForIdentity(
       evaluatedClaimRecordIds: outcome.evaluatedClaimRecordIds,
       selectedCitedChunkIds: outcome.selectedCitedChunkIds,
       modelCitedChunkIds: outcome.modelCitedChunkIds,
+      ...(outcome.seedQuotes
+        ? {
+            seedQuotes: outcome.seedQuotes,
+            unverifiedSeedQuoteCount: outcome.unverifiedSeedQuoteCount,
+          }
+        : {}),
       evidenceSufficiency: outcome.evidenceSufficiency,
       ...(outcome.evidenceLimitation
         ? { evidenceLimitation: outcome.evidenceLimitation }

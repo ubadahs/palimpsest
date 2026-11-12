@@ -100,6 +100,13 @@ export function FunnelOverview({
         `Missing support spans: ${String(funnel.adjudicate.packetsMissingSupportSpans.count)}`,
         `Evidence limited: ${String(funnel.adjudicate.evidenceLimited.count)}`,
         `Figure-only limitation: ${String(funnel.adjudicate.figureOnlyLimitation.count)}`,
+        ...(funnel.adjudicate.seedText
+          ? [
+              `Read from the whole paper: ${String(funnel.adjudicate.seedText.adjudicated.count)}`,
+              `Quoted outside the selected passages: ${String(funnel.adjudicate.seedText.quotedOutsideSelection.count)}`,
+              `With a quote that failed verification: ${String(funnel.adjudicate.seedText.withUnverifiedQuote.count)}`,
+            ]
+          : []),
         ...funnel.adjudicate.mutationKindCounts.map(
           (item) =>
             `Mutation ${humanizeCode(item.status)}: ${String(item.count)}`,

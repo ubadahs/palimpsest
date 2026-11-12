@@ -21,6 +21,7 @@ import {
   type AnalysisRun,
   type AnalysisStageSummary,
   type AnalysisRunConfig,
+  type AdjudicationEvidence,
 } from "../contract/run-types.js";
 import {
   compareStageKeys,
@@ -138,6 +139,7 @@ export type CanonicalPipelineCliOverrides = {
   adjudicateModel: string | undefined;
   adjudicateThinking: boolean | undefined;
   adjudicateEffort?: "low" | "medium" | "high" | "max" | undefined;
+  adjudicateEvidence?: AdjudicationEvidence | undefined;
   /** Explicit stage to force-rerun (invalidates downstream). */
   rerunFromStage: StageKey | undefined;
 };
@@ -406,7 +408,11 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
           "Adjudicate requires validated Evidence and Prepare artifacts.",
         ),
         adapters.adjudicate,
-        { recordedAt, concurrency: runConfig.modelConcurrency },
+        {
+          recordedAt,
+          concurrency: runConfig.modelConcurrency,
+          evidence: runConfig.adjudicate.evidence,
+        },
       ),
     build: buildCanonicalAdjudicateArtifact,
     count: (artifact) => artifact.payload.records.length,
@@ -532,6 +538,9 @@ function buildConfigFromCli(
         : {}),
       ...(args.adjudicateEffort != null
         ? { effort: args.adjudicateEffort }
+        : {}),
+      ...(args.adjudicateEvidence != null
+        ? { evidence: args.adjudicateEvidence }
         : {}),
     },
   });

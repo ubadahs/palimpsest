@@ -452,24 +452,29 @@ export function createLLMTelemetryCollector(): LLMTelemetryCollector {
   };
 }
 
+const SHARED_SEED_TEXT_POLICY: PromptCachePolicy = {
+  minPromptChars: 4_000,
+  cacheControl: { type: "ephemeral", ttl: "5m" },
+};
+
 /**
  * Provider prompt caching is prefix-based and charges a write premium on every
- * cached request. Only seed grounding reuses a large prefix (the whole seed
- * text, shared across every family of that seed); extraction, reranking, and
- * adjudication prompts are unique per record, so caching them only costs.
+ * cached request, so it pays only where many requests share a large prefix.
+ * Seed grounding and whole-paper adjudication do: the seed text is the same
+ * for every family and every record of a seed. A request that names no prefix
+ * is unique and is never cached.
  */
 const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
   Record<LLMPurpose, PromptCachePolicy>
 > = {
-  "seed-grounding": {
-    minPromptChars: 4_000,
-    cacheControl: { type: "ephemeral", ttl: "5m" },
-  },
+  "seed-grounding": SHARED_SEED_TEXT_POLICY,
+  adjudication: SHARED_SEED_TEXT_POLICY,
 };
 
+/** Cache control for a prefix shared across requests, if its purpose has a policy. */
 export function resolvePromptCacheControl(params: {
   purpose: LLMPurpose;
-  prompt: string;
+  promptPrefix: string;
   options?: PromptCachingOptions | undefined;
 }): PromptCacheControl | undefined {
   if (params.options?.enabled === false) {
@@ -486,7 +491,7 @@ export function resolvePromptCacheControl(params: {
     return undefined;
   }
 
-  if (params.prompt.length < policy.minPromptChars) {
+  if (params.promptPrefix.length < policy.minPromptChars) {
     return undefined;
   }
 
@@ -716,11 +721,7 @@ function buildModelCallInput(params: {
   request: PromptShapedRequest;
   promptCaching?: PromptCachingOptions | undefined;
 }):
-  | {
-      prompt: string;
-      messages?: never;
-      cacheControl?: PromptCacheControl | undefined;
-    }
+  | { prompt: string; messages?: never }
   | {
       prompt?: never;
       messages: [
@@ -729,13 +730,12 @@ function buildModelCallInput(params: {
           content: [CachedPrefixTextPart, CachedPrefixTextPart];
         },
       ];
-      cacheControl?: never;
     } {
   const request = params.request;
   if (hasPromptPrefix(request)) {
     const cacheControl = resolvePromptCacheControl({
       purpose: request.purpose,
-      prompt: request.promptPrefix,
+      promptPrefix: request.promptPrefix,
       options: params.promptCaching,
     });
     const prefixPart: CachedPrefixTextPart = cacheControl
@@ -767,14 +767,7 @@ function buildModelCallInput(params: {
 
   // Either shape is present by construction; the union that reaches here has
   // already been narrowed by `hasPromptPrefix`.
-  const prompt = request.prompt ?? "";
-  const cacheControl = resolvePromptCacheControl({
-    purpose: request.purpose,
-    prompt,
-    options: params.promptCaching,
-  });
-
-  return { prompt, ...(cacheControl ? { cacheControl } : {}) };
+  return { prompt: request.prompt ?? "" };
 }
 
 function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
@@ -1113,7 +1106,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         request: params,
         promptCaching: options.promptCaching,
       });
-      const promptCachePolicy = promptCachePolicyKey(promptInput.cacheControl);
       const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
         ? "bypass"
         : "allow";
@@ -1124,7 +1116,6 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         thinkingConfig: thinkingConfigKey(params.thinking),
         keyVersion: params.exactCache?.keyVersion ?? "",
         schemaFingerprint: sf,
-        promptCachePolicy,
         cachePolicy: cacheAccessPolicy,
       };
 
@@ -1151,12 +1142,9 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       }
 
       const startMs = Date.now();
-      const anthropicProviderOptions = {
-        ...buildAnthropicThinkingProviderOptions(params.thinking),
-        ...(promptInput.cacheControl
-          ? { cacheControl: promptInput.cacheControl }
-          : {}),
-      };
+      const anthropicProviderOptions = buildAnthropicThinkingProviderOptions(
+        params.thinking,
+      );
       const providerOptions =
         Object.keys(anthropicProviderOptions).length > 0
           ? { anthropic: anthropicProviderOptions }

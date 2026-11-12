@@ -13,7 +13,7 @@ It does not provide a compatibility bridge for old shortlist or seven-stage-exec
 The `llm_result_cache` SQLite table stores successful LLM responses keyed by a SHA-256 hash of canonical request data.
 
 - Call sites opt in with an `exactCache` key version.
-- The key includes purpose, resolved model, complete prompt text, thinking configuration, key version, a fingerprint of the response schema, whether a provider prompt-cache prefix was in force, and whether the call bypassed the cache.
+- The key includes purpose, resolved model, complete prompt text, thinking configuration, key version, a fingerprint of the response schema, and whether the call bypassed the cache.
 - Only successful, complete responses are stored; a truncated reply is never cached.
 - A hit is re-validated against the current response schema before use; a stale row that no longer parses is treated as a miss and overwritten.
 - `--force-refresh` bypasses cache reads and writes.
@@ -27,7 +27,7 @@ The acquisition layer reuses raw and parsed paper materialization when valid. `-
 
 ## Provider prompt caching
 
-Provider prompt caching is prefix-based and charges a write premium, so it is enabled only where a large prefix is genuinely shared: Scope grounding sends the seed text as a cached prefix and the per-family tracked claim as the suffix, so the seed paper is read from cache for every family after the first. Extraction, canonicalization, reranking, role classification, and adjudication prompts are unique per record and are not prefix-cached. This is distinct from the persistent exact-result cache and is subject to provider behavior.
+Provider prompt caching is prefix-based and charges a write premium, so it is enabled only where a large prefix is genuinely shared, and only for a request that names that prefix. Scope grounding sends the seed text as a cached prefix and the per-family tracked claim as the suffix, so the seed paper is read from cache for every family after the first. Whole-paper adjudication does the same with the per-record citing side as the suffix, and holds a seed's other records back until its first request has written the cache. Extraction, canonicalization, reranking, role classification, and chunk-based adjudication prompts are unique per record and are not cached. This is distinct from the persistent exact-result cache and is subject to provider behavior.
 
 ## Provenance and cutover
 

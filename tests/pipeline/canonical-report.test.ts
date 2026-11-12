@@ -45,6 +45,7 @@ import {
   type CanonicalEvidenceRerankerInput,
 } from "../../src/pipeline/canonical-evidence.js";
 import {
+  adjudicatePromptText,
   buildCanonicalAdjudicateArtifact,
   runCanonicalAdjudicate,
   type CanonicalAdjudicateAdapterInput,
@@ -55,7 +56,10 @@ import {
   runCanonicalReport,
 } from "../../src/pipeline/canonical-report.js";
 import { renderCanonicalReportMarkdown } from "../../src/reporting/canonical-report-markdown.js";
-import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
+import {
+  buildStageInspectorPayload,
+  loadCanonicalArtifact,
+} from "../../src/contract/selectors.js";
 import { writeCanonicalReportArtifacts } from "../../src/pipeline/canonical-report-artifact.js";
 
 const TRACKED_CLAIM =
@@ -420,7 +424,14 @@ async function buildChain(
   options: {
     grounding?: "grounded" | "seed_text_unavailable";
     classifier?: "mixed" | "default";
-    adjudicateVariant?: "F" | "D" | "U" | "nonfatal_failure" | "malformed";
+    adjudicateVariant?:
+      | "F"
+      | "D"
+      | "U"
+      | "nonfatal_failure"
+      | "malformed"
+      /** A faithful verdict reached from the whole seed text. */
+      | "seed_text";
     reranking?: boolean;
     selectionLimit?: number;
     runId?: string;
@@ -518,7 +529,7 @@ async function buildChain(
           ...modelExecution("adjudicate", input.recordId),
           promptId: String(input.promptId),
           promptVersion: String(input.promptVersion),
-          promptContentHash: canonicalSha256(input.promptText),
+          promptContentHash: canonicalSha256(adjudicatePromptText(input)),
           requestHash: hashCanonicalAdjudicateRequest(input),
         };
         if (variant === "nonfatal_failure") {
@@ -536,6 +547,8 @@ async function buildChain(
             execution,
           });
         }
+        const verdict = variant === "seed_text" ? "F" : variant;
+        const cited = input.packet.selectedChunks[0]!;
         return Promise.resolve({
           status: "completed",
           rawOutput: {
@@ -543,12 +556,30 @@ async function buildChain(
               "The citing paper attributes Ril9 silencing to bulkhead loss.",
             sourceStatement:
               "The cited chunks report the same phenotype in lining cells.",
-            verdict: variant,
-            mutationKinds: variant === "D" ? ["scope_broadened"] : [],
-            direction: variant === "F" ? "none" : "strengthened",
+            verdict,
+            mutationKinds: verdict === "D" ? ["scope_broadened"] : [],
+            direction: verdict === "F" ? "none" : "strengthened",
             rationale: "Fixture adjudication rationale.",
             confidence: "medium",
-            citedChunkIds: [input.packet.selectedChunks[0]!.chunkId],
+            ...(input.evidence === "seed_text"
+              ? {
+                  // Quote the first selected chunk from the block the prompt
+                  // numbered it under, plus words the seed does not contain.
+                  seedQuotes: [
+                    {
+                      block: Number(
+                        [
+                          ...input.promptPrefix
+                            .slice(0, input.promptPrefix.indexOf(cited.text))
+                            .matchAll(/^#(\d+) \(/gm),
+                        ].at(-1)![1],
+                      ),
+                      quote: cited.text,
+                    },
+                    { block: 1, quote: "words the seed does not contain" },
+                  ],
+                }
+              : { citedChunkIds: [cited.chunkId] }),
           },
           execution,
         });
@@ -556,6 +587,7 @@ async function buildChain(
     },
     {
       recordedAt: "2026-07-17T10:40:00.000Z",
+      evidence: variant === "seed_text" ? "seed_text" : "selected_chunks",
       evidenceArtifactUri: "fixture://canonical-evidence/evidence.json",
       prepareArtifactUri: "fixture://canonical-prepare/prepare.json",
     },
@@ -1606,6 +1638,81 @@ describe("canonical Report", () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  it("accounts for verdicts reached from the whole seed text", async () => {
+    const report = async (adjudicateVariant: "F" | "seed_text") => {
+      const chain = await buildChain({ adjudicateVariant });
+      const result = runCanonicalReport(
+        chain.discover,
+        chain.scope,
+        chain.prepare,
+        chain.evidence,
+        chain.adjudicate,
+        { recordedAt: "2026-07-17T10:50:00.000Z" },
+      );
+      return { chain, result };
+    };
+
+    const fromChunks = await report("F");
+    expect(
+      fromChunks.result.payload.funnel.adjudicate.seedText,
+    ).toBeUndefined();
+
+    const { chain, result } = await report("seed_text");
+    const fromSeedText = result.payload;
+    const { adjudicated, seedText } = fromSeedText.funnel.adjudicate;
+    expect(adjudicated.count).toBeGreaterThan(0);
+    expect(seedText).toMatchObject({
+      adjudicated: { count: adjudicated.count },
+      // The fixture quotes a chunk Evidence selected.
+      quotedOutsideSelection: { count: 0 },
+      withUnverifiedQuote: { count: adjudicated.count },
+    });
+    expect(renderCanonicalReportMarkdown(fromSeedText)).toContain(
+      seedText!.withUnverifiedQuote.population,
+    );
+
+    // The inspector shows each verdict's verified quote and marks the
+    // retrieved passage that holds it.
+    const dir = mkdtempSync(join(tmpdir(), "canonical-report-inspector-"));
+    try {
+      const write = (name: string, artifact: unknown) => {
+        const path = join(dir, `${name}.json`);
+        writeFileSync(path, JSON.stringify(artifact), "utf8");
+        return path;
+      };
+      const inspected = buildStageInspectorPayload(
+        "report",
+        write(
+          "report",
+          buildCanonicalReportArtifact({
+            result,
+            runId: chain.discover.runId,
+            createdAt: "2026-07-17T10:51:00.000Z",
+          }),
+        ),
+        {
+          preparePath: write("prepare", chain.prepare),
+          evidencePath: write("evidence", chain.evidence),
+          adjudicatePath: write("adjudicate", chain.adjudicate),
+        },
+      ).summary.records.filter((record) => record.verdict != null);
+      expect(inspected).toHaveLength(adjudicated.count);
+      for (const record of inspected) {
+        expect(record.seedQuotes).toHaveLength(1);
+        expect(record.seedQuotes![0]!.blockKind.length).toBeGreaterThan(0);
+        expect(
+          record.evidencePassages.some(
+            (passage) =>
+              passage.modelCited &&
+              passage.text.includes(record.seedQuotes![0]!.quote),
+          ),
+        ).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps BM25 and reranked selection-source counts separate", async () => {

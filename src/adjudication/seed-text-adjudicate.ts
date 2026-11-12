@@ -14,6 +14,8 @@ import {
   addMutationConsistencyIssues,
   adjudicateJudgmentFields,
 } from "../contract/canonical-adjudicate.js";
+import type { EvidenceChunk } from "../contract/lean-artifacts.js";
+import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
 import type { Result } from "../domain/common.js";
 import { FIDELITY_BOUNDARY_GUIDANCE } from "../shared/scientific-rubrics.js";
 import {
@@ -21,6 +23,17 @@ import {
   renderCitingSide,
   type CanonicalAdjudicatePacket,
 } from "./canonical-adjudicate-packet.js";
+
+export const SEED_TEXT_ADJUDICATE_PROMPT_ID =
+  "canonical-seed-text-adjudicate" as const;
+export const SEED_TEXT_ADJUDICATE_PROMPT_VERSION =
+  LLM_PROMPT_VERSIONS.seedTextAdjudication;
+
+/**
+ * Seed texts longer than this are adjudicated from selected chunks instead.
+ * It is about a hundred thousand tokens, far beyond a research article.
+ */
+export const SEED_TEXT_MAX_CHARACTERS = 400_000;
 
 /** One block of the seed paper as the adjudicator reads it. */
 export type SeedTextBlock = {
@@ -33,6 +46,71 @@ export type SeedTextBlock = {
 };
 
 export type SeedText = { title: string; blocks: readonly SeedTextBlock[] };
+
+/**
+ * The seed text as Scope froze it, rebuilt from an Evidence corpus. Its chunks
+ * are overlapping windows over each block in reading order, so laying them
+ * end to end restores every block exactly and Adjudicate needs no input beyond
+ * the Evidence artifact it already reads.
+ */
+export function seedTextBlocksFromCorpus(
+  chunks: readonly EvidenceChunk[],
+): SeedTextBlock[] {
+  const blocks: SeedTextBlock[] = [];
+  let end = 0;
+  for (const chunk of chunks) {
+    const open = blocks.at(-1);
+    if (open?.blockId === chunk.sourceBlockId) {
+      if (chunk.charOffsetStart > end)
+        throw new Error(
+          `Evidence corpus leaves a gap in seed block ${chunk.sourceBlockId}`,
+        );
+      open.text += chunk.text.slice(end - chunk.charOffsetStart);
+    } else {
+      blocks.push({
+        blockId: chunk.sourceBlockId,
+        text: chunk.text,
+        blockKind: chunk.sourceBlockKind,
+        sectionTitle: chunk.sourceSectionTitle,
+        sectionRole: chunk.sourceSectionRole,
+        citesOtherWork: chunk.sourceCitesOtherWork ?? false,
+      });
+    }
+    end = chunk.charOffsetEnd;
+  }
+  return blocks;
+}
+
+/**
+ * The corpus chunks that hold any part of a verified quote, in corpus order.
+ * They tie a whole-paper verdict back to the passages Evidence ranked, so a
+ * quote from outside Evidence's selection shows as a retrieval miss.
+ */
+export function chunkIdsHoldingQuotes(
+  chunks: readonly EvidenceChunk[],
+  blocks: readonly SeedTextBlock[],
+  quotes: readonly { blockId: string; quote: string }[],
+): string[] {
+  const textByBlock = new Map(
+    blocks.map((block) => [block.blockId, block.text]),
+  );
+  const ranges = quotes.flatMap(({ blockId, quote }) => {
+    const at = textByBlock.get(blockId)?.indexOf(quote) ?? -1;
+    return at < 0 ? [] : [{ blockId, start: at, end: at + quote.length }];
+  });
+  return chunks
+    .filter((chunk) => {
+      const start = chunk.charOffsetStart - chunk.sourceBlockCharOffsetStart;
+      const end = chunk.charOffsetEnd - chunk.sourceBlockCharOffsetStart;
+      return ranges.some(
+        (range) =>
+          range.blockId === chunk.sourceBlockId &&
+          range.start < end &&
+          range.end > start,
+      );
+    })
+    .map((chunk) => chunk.chunkId);
+}
 
 function renderSeedText(blocks: readonly SeedTextBlock[]): string {
   return blocks
@@ -51,8 +129,9 @@ function renderSeedText(blocks: readonly SeedTextBlock[]): string {
  * The prefix depends only on the seed, so every record of one seed shares it.
  * Everything about the citing paper is in the suffix.
  *
- * Saved evaluation trials are reused under one `promptRevision`; bump it in
- * `evaluation/config.ts` when this text changes.
+ * When this text changes, bump `LLM_PROMPT_VERSIONS.seedTextAdjudication`,
+ * and `promptRevision` in `evaluation/config.ts`, under which saved
+ * evaluation trials are reused.
  */
 export function buildSeedTextAdjudicatePrompt(input: {
   packet: CanonicalAdjudicatePacket;

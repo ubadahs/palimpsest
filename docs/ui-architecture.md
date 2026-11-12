@@ -28,7 +28,7 @@ The Report stage (`/runs/[runId]/stages/report`) renders a typed report explorer
 
 - **Overview** — uncalibrated-output warning, F/D/E/U distribution with the adjudicated denominator, retrieval/adjudication coverage, and Discover→Adjudicate funnel cards
 - **Families** — family-centered mutation view: sticky seed claim/grounding panel plus chronological citing restatements with deep links `?tab=families&family=<id>&record=<id>`
-- **Records** — searchable/filterable per-record browser joined from Prepare, Evidence, and Adjudicate onto the report `recordTraces` spine (claims, citation context, evidence passages, comparison/rationale, operational gates)
+- **Records** — searchable/filterable per-record browser joined from Prepare, Evidence, and Adjudicate onto the report `recordTraces` spine (claims, citation context, retrieved passages, the seed passages a whole-paper verdict quoted, comparison/rationale, operational gates)
 - **Review** — integrated human review queue/workspace against the current report lineage; Save draft / Mark final append immutable review events; export JSON/CSV
 - **Audit trail** — method/lineage hashes, decision summaries, and links to authoritative JSON/Markdown/manifest artifacts
 

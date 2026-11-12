@@ -34,4 +34,6 @@ export const LLM_PROMPT_VERSIONS = {
   roleClassification: "2026-09-23-v2",
   /** Categorical adjudication prompt template. */
   adjudication: "v5",
+  /** Whole-seed-text adjudication prompt template. */
+  seedTextAdjudication: "v1",
 } as const;

@@ -24,6 +24,7 @@ import type {
   MutationFamilyVerdictCounts,
   ReportInspectorEvidencePassage,
   ReportInspectorGroundingSpan,
+  ReportInspectorSeedQuote,
   ReportInspectorOccurrenceClaim,
   ReportInspectorRecordRow,
   StageArtifactMap,
@@ -567,6 +568,26 @@ function buildEvidencePassages(input: {
   });
 }
 
+function buildSeedQuotes(
+  evidence: StageArtifactMap["evidence"],
+  seedQuotes: readonly { blockId: string; quote: string }[],
+): ReportInspectorSeedQuote[] {
+  const chunks = evidence.payload.corpora.flatMap((corpus) => corpus.chunks);
+  return seedQuotes.map(({ blockId, quote }) => {
+    const block = chunks.find((chunk) => chunk.sourceBlockId === blockId);
+    if (!block) {
+      throw new Error(`Seed quote names a block Evidence lacks: ${blockId}`);
+    }
+    return {
+      quote,
+      blockKind: block.sourceBlockKind,
+      ...(block.sourceSectionTitle
+        ? { sectionTitle: block.sourceSectionTitle }
+        : {}),
+    };
+  });
+}
+
 function resolveSeedDisplay(
   seed: StageArtifactMap["prepare"]["payload"]["records"][number]["seed"],
 ): {
@@ -833,6 +854,9 @@ function buildReportInspectorRecordRow(input: {
     row.direction = adjudicateRecord.direction;
     row.rationale = adjudicateRecord.rationale;
     row.evidenceSufficiency = adjudicateRecord.evidenceSufficiency;
+    if (adjudicateRecord.seedQuotes) {
+      row.seedQuotes = buildSeedQuotes(evidence, adjudicateRecord.seedQuotes);
+    }
     if (adjudicateRecord.evidenceLimitation) {
       row.evidenceLimitation = adjudicateRecord.evidenceLimitation;
     }
