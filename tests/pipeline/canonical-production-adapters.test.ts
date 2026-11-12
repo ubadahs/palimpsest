@@ -324,10 +324,10 @@ describe("canonical production adapter seams", () => {
           {
             pageIndex: 0,
             requestUrl: "https://example.test/openalex/works?fixture",
-            cursor: "*",
+            page: 1,
             perPage: 10,
             returnedCount: 1,
-            nextCursor: null,
+            keptCount: 1,
             responseTotalCount: 1,
           },
         ],

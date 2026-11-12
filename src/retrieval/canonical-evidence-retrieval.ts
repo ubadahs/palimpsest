@@ -15,7 +15,7 @@ import {
   type EvidenceChunkCorpus,
   type EvidenceQuery,
   type EvidenceRankingSource,
-  type PreparedCitationInstance,
+  type ResolvedPreparedCitationInstance,
   type ScopeSeedMaterialization,
   type ScopedFamily,
 } from "../contract/lean-artifacts.js";
@@ -162,7 +162,7 @@ export function buildScopedFamilyEvidenceQuery(
 }
 
 export function buildOccurrenceLocalEvidenceQuery(
-  record: PreparedCitationInstance,
+  record: ResolvedPreparedCitationInstance,
   family: ScopedFamily,
 ): EvidenceQuery {
   const text = record.occurrenceSourceClaimRecords

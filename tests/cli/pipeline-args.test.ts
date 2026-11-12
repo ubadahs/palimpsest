@@ -29,6 +29,16 @@ describe("pipeline CLI arguments", () => {
     ).toThrow(/must be low, medium, high, or max/);
   });
 
+  it("parses the Discover fetch concurrency", () => {
+    const overrides = parseCanonicalPipelineArgs([
+      "--input",
+      "dois.json",
+      "--fetch-concurrency",
+      "3",
+    ]);
+    expect(overrides.discoverFetchConcurrency).toBe(3);
+  });
+
   it("parses a spend limit in dollars, cents included", () => {
     const overrides = parseCanonicalPipelineArgs([
       "--run-id",

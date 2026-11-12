@@ -12,10 +12,15 @@ import type { ReportPayload } from "./types";
 export function VerdictOverview({
   funnel,
   rates,
+  weightedRates,
 }: {
   funnel: ReportPayload["summary"]["funnel"];
   rates: ReportPayload["summary"]["rates"];
+  weightedRates: ReportPayload["summary"]["weightedRates"];
 }) {
+  const weightedByVerdict = new Map(
+    weightedRates.map((rate) => [rate.metricId, rate.value]),
+  );
   const adjudicated = funnel.adjudicate.adjudicated.count;
   const counts = {
     F: funnel.adjudicate.verdictCounts.F.count,
@@ -78,6 +83,19 @@ export function VerdictOverview({
             </div>
           ))}
         </div>
+        {weightedRates.length > 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">
+            Weighted over the sampling frame (each record from a citing paper
+            not marked closed or abstract-only counts 1/π of its stratum):{" "}
+            {VERDICT_ORDER.map((verdict) => {
+              const value = weightedByVerdict.get(
+                `verdict_${verdict}_weighted_rate`,
+              );
+              return `${verdict} ${value == null ? "n/a" : `${(value * 100).toFixed(1)}%`}`;
+            }).join(", ")}
+            .
+          </p>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           {retrieval ? <RateCard rate={retrieval} /> : null}
           {coverage ? <RateCard rate={coverage} /> : null}

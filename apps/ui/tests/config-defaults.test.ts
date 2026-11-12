@@ -32,6 +32,8 @@ describe("config defaults contract", () => {
         neighborhoodLimit:
           CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
         probeBudget: CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget,
+        fetchConcurrency:
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency,
         candidateSelection: {
           mode: "adaptive_portfolio" as const,
           minFamilies:

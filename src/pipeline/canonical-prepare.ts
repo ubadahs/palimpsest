@@ -25,7 +25,9 @@ import {
   type AppendOnlyDecision,
   type ArtifactReference,
   type DiscoverArtifact,
+  type DiscoverAttributedClaimRecord,
   type DiscoverCitationOccurrence,
+  type DiscoverClaimCandidate,
   type DiscoverCitingPaperRecord,
   type DiscoverSeed,
   type LeanArtifactProvenance,
@@ -62,10 +64,10 @@ export const canonicalPrepareClassificationResultSchema = z.union([
 ]);
 export type CanonicalPrepareClassifierInput = {
   family: ScopedFamily;
-  sourceCandidates: PreparedCitationInstance["sourceCandidates"];
-  sourceClaimRecords: PreparedCitationInstance["sourceClaimRecords"];
-  occurrenceSourceCandidates: PreparedCitationInstance["occurrenceSourceCandidates"];
-  occurrenceSourceClaimRecords: PreparedCitationInstance["occurrenceSourceClaimRecords"];
+  sourceCandidates: DiscoverClaimCandidate[];
+  sourceClaimRecords: DiscoverAttributedClaimRecord[];
+  occurrenceSourceCandidates: DiscoverClaimCandidate[];
+  occurrenceSourceClaimRecords: DiscoverAttributedClaimRecord[];
   seed: DiscoverSeed;
   citingPaper: DiscoverCitingPaperRecord;
   citationOccurrence: DiscoverCitationOccurrence;
@@ -168,6 +170,10 @@ export async function runCanonicalPrepare(
     ]),
   );
   const records: PreparedCitationInstance[] = [];
+  const preparedSeeds = new Map<string, DiscoverSeed>();
+  const preparedCandidates = new Map<string, DiscoverClaimCandidate>();
+  const preparedClaims = new Map<string, DiscoverAttributedClaimRecord>();
+  const preparedCitingPapers = new Map<string, DiscoverCitingPaperRecord>();
   const decisions: AppendOnlyDecision[] = [];
   const prompts: LeanArtifactProvenance["prompts"] = [];
   const models: LeanArtifactProvenance["models"] = [];
@@ -202,6 +208,13 @@ export async function runCanonicalPrepare(
         return sourceClaim;
       },
     );
+    preparedSeeds.set(seed.seedId, seed);
+    for (const candidate of sourceCandidates) {
+      preparedCandidates.set(candidate.candidateId, candidate);
+    }
+    for (const sourceClaim of sourceClaimRecords) {
+      preparedClaims.set(sourceClaim.claimRecordId, sourceClaim);
+    }
     for (const citationOccurrenceId of family.includedCitationOccurrenceIds) {
       const citationOccurrence = occurrencesById.get(citationOccurrenceId);
       if (!citationOccurrence) {
@@ -261,22 +274,20 @@ export async function runCanonicalPrepare(
         familyId: family.familyId,
         citationOccurrenceId,
       });
-      const record = {
+      preparedCitingPapers.set(citingPaper.citingPaperRecordId, citingPaper);
+      records.push({
         recordId,
         familyId: family.familyId,
         citationOccurrenceId,
-        family,
-        sourceCandidates,
-        sourceClaimRecords,
-        occurrenceSourceCandidates,
-        occurrenceSourceClaimRecords,
-        seed,
-        citingPaper,
+        occurrenceSourceCandidateIds: occurrenceSourceCandidates.map(
+          (candidate) => candidate.candidateId,
+        ),
+        occurrenceSourceClaimRecordIds: occurrenceSourceClaimRecords.map(
+          (sourceClaim) => sourceClaim.claimRecordId,
+        ),
         citationOccurrence,
         classification,
-        lineage,
-      };
-      records.push(record);
+      });
 
       const executionArtifacts = classificationExecutionArtifacts(
         classification.execution,
@@ -323,7 +334,11 @@ export async function runCanonicalPrepare(
     prepareArtifactPayloadSchema,
     {
       lineage,
+      seeds: sortedById(preparedSeeds),
       scopedFamilies: scopeArtifact.payload.families,
+      sourceCandidates: sortedById(preparedCandidates),
+      sourceClaimRecords: sortedById(preparedClaims),
+      citingPapers: sortedById(preparedCitingPapers),
       records: records.sort((left, right) =>
         compareCodeUnits(left.recordId, right.recordId),
       ),
@@ -378,12 +393,12 @@ export function buildCanonicalPrepareArtifact(input: {
     executionKind === "deterministic"
       ? ({
           kind: "deterministic",
-          implementation: input.implementation ?? "canonical-prepare-v1",
+          implementation: input.implementation ?? "canonical-prepare-v2",
           replayableFromInputs: true,
         } as const)
       : ({
           kind: executionKind,
-          implementation: input.implementation ?? "canonical-prepare-v1",
+          implementation: input.implementation ?? "canonical-prepare-v2",
           replayableFromInputs: false,
           responseArtifacts,
         } as const);
@@ -409,10 +424,16 @@ export function buildCanonicalPrepareArtifact(input: {
   );
 }
 
+function sortedById<T>(byId: ReadonlyMap<string, T>): T[] {
+  return [...byId.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([, value]) => value);
+}
+
 const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
 
 function weakestClaimConfidence(
-  claims: PreparedCitationInstance["occurrenceSourceClaimRecords"],
+  claims: readonly DiscoverAttributedClaimRecord[],
 ): "low" | "medium" | "high" {
   let weakest: "low" | "medium" | "high" | undefined;
   for (const claim of claims) {
@@ -436,7 +457,7 @@ export function classifyPrepareOccurrenceDeterministically(
   citationOccurrence: DiscoverCitationOccurrence,
   options: {
     isReviewMediated?: boolean;
-    occurrenceSourceClaimRecords?: PreparedCitationInstance["occurrenceSourceClaimRecords"];
+    occurrenceSourceClaimRecords?: readonly DiscoverAttributedClaimRecord[];
   } = {},
 ): PrepareClassification {
   const occurrenceClaims = options.occurrenceSourceClaimRecords ?? [];

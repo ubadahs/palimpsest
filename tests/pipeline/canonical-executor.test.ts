@@ -934,6 +934,51 @@ describe("canonical executor cutover", () => {
     }
   });
 
+  it("resumes with a different fetch concurrency without a scientific conflict", async () => {
+    const partial = await runFresh({ stopAfterStage: "discover" });
+    const previousCwd = process.cwd();
+    process.chdir(partial.root);
+    try {
+      await orchestrateCanonicalPipelineRun({
+        args: {
+          input: undefined,
+          runId: partial.result.runId,
+          seedPdfPath: undefined,
+          forceRefresh: undefined,
+          stopAfterStage: "discover",
+          discoverProbeBudget: undefined,
+          discoverFetchConcurrency: 1,
+          discoverMinFamilies: undefined,
+          discoverMaxFamilies: undefined,
+          discoverMaxPreparedRecords: undefined,
+          discoverFromYear: undefined,
+          discoverToYear: undefined,
+          discoverExtractionModel: undefined,
+          discoverExtractionThinking: undefined,
+          scopeGroundingModel: undefined,
+          scopeGroundingThinking: undefined,
+          evidenceRerankEnabled: undefined,
+          evidenceRerankModel: undefined,
+          evidenceRerankTopN: undefined,
+          adjudicateModel: undefined,
+          adjudicateThinking: undefined,
+          rerunFromStage: undefined,
+        },
+        config: partial.config,
+        apiKey: undefined,
+        database: partial.database,
+        adapters: buildFixtureAdapters(),
+      });
+      expect(
+        getAnalysisRun(partial.database, partial.result.runId)?.config.discover
+          .fetchConcurrency,
+      ).toBe(1);
+    } finally {
+      process.chdir(previousCwd);
+      partial.database.close();
+    }
+  });
+
   it("rejects shrinking an existing run target", async () => {
     const partial = await runFresh({ stopAfterStage: "evidence" });
     const previousCwd = process.cwd();

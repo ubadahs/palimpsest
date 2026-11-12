@@ -18,6 +18,7 @@ import {
   createAppendOnlyDecision,
   buildReportCount,
   buildReportRate,
+  buildReportWeightedRate,
   createLeanStageArtifact,
   discoverArtifactPayloadSchema,
   discoverArtifactSchema,
@@ -229,6 +230,17 @@ function buildAllStageArtifacts() {
           returnedCount: 1,
           providerReportedTotal: 1,
           coverage: "complete",
+          probeStrata: [
+            {
+              yearBand: "2020-2024",
+              typeGroup: "other",
+              enumeratedCount: 1,
+              frameCount: 1,
+              probedCount: 1,
+              probedFrameCount: 1,
+              inclusionProbability: 1,
+            },
+          ],
           requestHash: canonicalSha256({ query: "cites:seed-paper" }),
           requestArtifact: requestReference,
           responseArtifact: responseReference,
@@ -254,6 +266,7 @@ function buildAllStageArtifacts() {
           provenanceArtifacts: [responseReference],
           probe: {
             status: "selected",
+            stratum: { yearBand: "2020-2024", typeGroup: "other" },
             reason: "Within fixture probe budget",
             provenanceArtifacts: [responseReference],
           },
@@ -446,31 +459,27 @@ function buildAllStageArtifacts() {
   };
   const classificationRationale =
     "Fixture role classification for the prepared citation instance.";
+  const prepareSourceCandidates = discover.payload.claimCandidates.filter(
+    (candidate) => family.candidateIds.includes(candidate.candidateId),
+  );
+  const prepareSourceClaimRecords =
+    discover.payload.attributedClaimRecords.filter((sourceClaim) =>
+      family.sourceClaimRecordIds.includes(sourceClaim.claimRecordId),
+    );
   const prepareRecord = {
     recordId: prepareRecordId,
     familyId: family.familyId,
     citationOccurrenceId: citationOccurrence.mentionId,
-    family,
-    sourceCandidates: discover.payload.claimCandidates.filter((candidate) =>
-      family.candidateIds.includes(candidate.candidateId),
-    ),
-    sourceClaimRecords: discover.payload.attributedClaimRecords.filter(
-      (sourceClaim) =>
-        family.sourceClaimRecordIds.includes(sourceClaim.claimRecordId),
-    ),
-    occurrenceSourceCandidates: discover.payload.claimCandidates.filter(
-      (candidate) =>
-        family.candidateIds.includes(candidate.candidateId) &&
+    occurrenceSourceCandidateIds: prepareSourceCandidates
+      .filter((candidate) =>
         candidate.memberMentionIds.includes(citationOccurrence.mentionId),
-    ),
-    occurrenceSourceClaimRecords:
-      discover.payload.attributedClaimRecords.filter(
-        (sourceClaim) =>
-          family.sourceClaimRecordIds.includes(sourceClaim.claimRecordId) &&
-          sourceClaim.mentionId === citationOccurrence.mentionId,
-      ),
-    seed: discover.payload.seeds[0]!,
-    citingPaper: discover.payload.citingPapers[0]!,
+      )
+      .map((candidate) => candidate.candidateId),
+    occurrenceSourceClaimRecordIds: prepareSourceClaimRecords
+      .filter(
+        (sourceClaim) => sourceClaim.mentionId === citationOccurrence.mentionId,
+      )
+      .map((sourceClaim) => sourceClaim.claimRecordId),
     citationOccurrence,
     classification: {
       status: "classified" as const,
@@ -489,7 +498,6 @@ function buildAllStageArtifacts() {
         implementation: "fixture-classifier-v1",
       },
     },
-    lineage: prepareLineage,
   };
   const prepareDecision = createAppendOnlyDecision({
     recordId: prepareRecordId,
@@ -510,7 +518,11 @@ function buildAllStageArtifacts() {
     decisions: [prepareDecision],
     payload: {
       lineage: prepareLineage,
+      seeds: [discover.payload.seeds[0]!],
       scopedFamilies: [family],
+      sourceCandidates: prepareSourceCandidates,
+      sourceClaimRecords: prepareSourceClaimRecords,
+      citingPapers: [discover.payload.citingPapers[0]!],
       records: [prepareRecord],
     },
   });
@@ -1234,6 +1246,19 @@ function buildAllStageArtifacts() {
           : left.metricId > right.metricId
             ? 1
             : 0,
+      ),
+      weightedRates: (["D", "E", "F", "U"] as const).map((verdict) =>
+        buildReportWeightedRate({
+          metricId: `verdict_${verdict}_weighted_rate`,
+          weightedNumerator: 0,
+          weightedDenominator: 0,
+          sampleNumerator: 0,
+          sampleDenominator: 0,
+          unit: "weighted verdicts / weighted adjudicated records",
+          populationLabel: "Weighted verdict share",
+          numeratorDefinition: "Weighted verdict records",
+          denominatorDefinition: "Weighted adjudicated records",
+        }),
       ),
       familyMutations: [],
       recordTraces: [],

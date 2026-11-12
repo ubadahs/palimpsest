@@ -249,21 +249,21 @@ describe("canonical Discover production wiring", () => {
         {
           pageIndex: 0,
           requestUrl:
-            "https://example.test/openalex/works?filter=cites:Wseed20210042&cursor=*",
-          cursor: "*",
+            "https://example.test/openalex/works?filter=cites:Wseed20210042&page=1",
+          page: 1,
           perPage: 1,
           returnedCount: 1,
-          nextCursor: "page-2",
+          keptCount: 1,
           responseTotalCount: 2,
         },
         {
           pageIndex: 1,
           requestUrl:
-            "https://example.test/openalex/works?filter=cites:Wseed20210042&cursor=page-2",
-          cursor: "page-2",
+            "https://example.test/openalex/works?filter=cites:Wseed20210042&page=2",
+          page: 2,
           perPage: 1,
           returnedCount: 1,
-          nextCursor: null,
+          keptCount: 1,
           responseTotalCount: 2,
         },
       ],

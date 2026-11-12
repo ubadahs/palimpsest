@@ -6,7 +6,7 @@ import { seedSectionRoleSchema } from "../contract/artifacts/seed-section-role.j
 import type {
   EvidenceChunk,
   EvidenceSelection,
-  PreparedCitationInstance,
+  ResolvedPreparedCitationInstance,
 } from "../contract/lean-artifacts.js";
 import {
   annotateCitingContext,
@@ -76,7 +76,7 @@ export type CanonicalAdjudicatePacket = z.infer<
 >;
 
 export type CanonicalAdjudicatePacketBuildInput = {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   selection: EvidenceSelection;
   selectedChunks: EvidenceChunk[];
 };

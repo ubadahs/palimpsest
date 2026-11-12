@@ -11,11 +11,14 @@ import {
 } from "../../src/shared/stable-identity.js";
 import {
   discoverCitationOccurrenceSchema,
+  isInSamplingFrame,
+  probeTypeGroupOf,
   type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverCitationOccurrence,
 } from "../../src/contract/lean-artifacts.js";
 import {
+  allocateProbes,
   canonicalClaimExtractionResultSchema,
   canonicalMentionHarvestResultSchema,
   CanonicalDiscoverBoundaryError,
@@ -190,7 +193,7 @@ function buildFixtureAdapters(
             citingPaper("paper-a2"),
             citingPaper("paper-a3"),
             citingPaper("paper-a4"),
-            citingPaper("paper-a5", "unavailable"),
+            citingPaper("paper-a5", "abstract_only"),
             citingPaper("paper-a6", "unavailable"),
           ]
         : [citingPaper("paper-b1")];
@@ -1224,5 +1227,240 @@ describe("discover extraction concurrency", () => {
     expect(parallel.result.provenanceInputs).toEqual(
       sequential.result.provenanceInputs,
     );
+  });
+});
+
+describe("discover parallel harvest", () => {
+  it("writes a byte-identical artifact when papers finish out of order", async () => {
+    const run = async (fetchConcurrency: number) => {
+      const base = buildFixtureAdapters();
+      let inFlight = 0;
+      let peak = 0;
+      const completionOrder: string[] = [];
+      const result = await runCanonicalDiscover(
+        { ...fixtureOptions(), concurrency: 2, fetchConcurrency },
+        {
+          ...base,
+          harvestMentions: async (input) => {
+            inFlight += 1;
+            peak = Math.max(peak, inFlight);
+            // Earlier papers in neighborhood order take longest, so a parallel
+            // run completes them last.
+            const index = Number(input.citingPaper.paperId.slice(-1));
+            await tick(10 - index);
+            inFlight -= 1;
+            completionOrder.push(input.citingPaper.paperId);
+            return base.harvestMentions(input);
+          },
+        },
+      );
+      const artifact = buildCanonicalDiscoverArtifact({
+        result,
+        runId: "run-parallel-harvest",
+        createdAt: "2026-07-16T12:00:00.000Z",
+      });
+      return { artifact, peak, completionOrder };
+    };
+    const sequential = await run(1);
+    const parallel = await run(4);
+    expect(sequential.peak).toBe(1);
+    expect(parallel.peak).toBeGreaterThan(1);
+    expect(parallel.completionOrder).not.toEqual(sequential.completionOrder);
+    expect(JSON.stringify(parallel.artifact)).toBe(
+      JSON.stringify(sequential.artifact),
+    );
+  });
+});
+
+describe("discover sampling over the whole neighborhood", () => {
+  it("stratifies the probe set over every enumerated work and records inclusion probabilities", async () => {
+    // Provider order is skewed: the first 200 works are all from 2005-2009,
+    // the remaining 100 from 2020-2024.
+    const papers = Array.from({ length: 300 }, (_, index) =>
+      citingPaper(`paper-n${String(index).padStart(3, "0")}`, "available", {
+        publicationYear: index < 200 ? 2006 : 2021,
+        paperType: "article",
+      }),
+    );
+    const harvested: string[] = [];
+    const base = buildFixtureAdapters();
+    const result = await runCanonicalDiscover(
+      {
+        ...fixtureOptions(),
+        seeds: [
+          {
+            doi: "10.1000/seed-a",
+            provenanceArtifacts: [artifactReference("doi-input", "seed-a")],
+          },
+        ],
+        neighborhood: {
+          provider: "citation-index",
+          query: "works-citing-seed",
+          limit: 10_000,
+        },
+        probeBudget: 20,
+      },
+      {
+        ...base,
+        retrieveCitingNeighborhood: () =>
+          Promise.resolve({
+            status: "completed",
+            providerReportedTotal: 300,
+            coverage: "complete",
+            papers,
+            execution: externalExecution("citation-index", "neighbors-large"),
+          }),
+        harvestMentions: ({ citingPaper: paper }) => {
+          harvested.push(paper.paperId);
+          return Promise.resolve({
+            materialization: {
+              status: "unavailable",
+              reasonCode: "unavailable",
+              reason: "Fixture paper has no full text",
+              provenanceArtifacts: [
+                artifactReference("acquisition-failure", paper.paperId),
+              ],
+            },
+            harvest: {
+              status: "not_attempted",
+              reason: "Harvest requires materialized full text",
+              provenanceArtifacts: [
+                artifactReference("harvest-not-attempted", paper.paperId),
+              ],
+            },
+            mentions: [],
+          });
+        },
+      },
+    );
+
+    const [query] = result.payload.neighborhoodQueries;
+    expect(query?.returnedCount).toBe(300);
+    // The budget follows stratum size, so each probed paper stands for
+    // about as many frame papers in one stratum as in the other (200/13
+    // and 100/7, both about 15).
+    expect(query?.probeStrata).toEqual([
+      {
+        yearBand: "2005-2009",
+        typeGroup: "article",
+        enumeratedCount: 200,
+        frameCount: 200,
+        probedCount: 13,
+        probedFrameCount: 13,
+        inclusionProbability: 13 / 200,
+      },
+      {
+        yearBand: "2020-2024",
+        typeGroup: "article",
+        enumeratedCount: 100,
+        frameCount: 100,
+        probedCount: 7,
+        probedFrameCount: 7,
+        inclusionProbability: 7 / 100,
+      },
+    ]);
+    expect(result.payload.citingPapers).toHaveLength(300);
+    const probed = result.payload.citingPapers.filter(
+      (paper) => paper.probe.status === "selected",
+    );
+    expect(probed).toHaveLength(20);
+    expect(harvested).toHaveLength(20);
+    // The later stratum's probes reach works past the provider's first 200.
+    expect(
+      probed.filter((paper) => paper.providerPosition >= 200),
+    ).toHaveLength(7);
+    // Within a stratum the sample is not the provider's first works.
+    expect(
+      probed
+        .filter((paper) => paper.probe.stratum.yearBand === "2005-2009")
+        .every((paper) => paper.providerPosition < 10),
+    ).toBe(false);
+  });
+});
+
+describe("probe allocation", () => {
+  const sizes = (entries: Array<[string, number]>) => new Map(entries);
+
+  it("gives every stratum a probe before any gets a second", () => {
+    const allocation = allocateProbes(
+      sizes([
+        ["big", 500],
+        ["mid", 40],
+        ["tiny", 2],
+      ]),
+      3,
+    );
+    expect(Object.fromEntries(allocation)).toEqual({ big: 1, mid: 1, tiny: 1 });
+  });
+
+  it("probes the largest strata first when the budget cannot cover them all", () => {
+    const allocation = allocateProbes(
+      sizes([
+        ["a", 3],
+        ["b", 30],
+        ["c", 10],
+      ]),
+      2,
+    );
+    expect(Object.fromEntries(allocation)).toEqual({ a: 0, b: 1, c: 1 });
+  });
+
+  it("evens out how many papers each probe stands for", () => {
+    const allocation = allocateProbes(
+      sizes([
+        ["big", 600],
+        ["mid", 300],
+        ["small", 100],
+      ]),
+      100,
+    );
+    expect(Object.fromEntries(allocation)).toEqual({
+      big: 60,
+      mid: 30,
+      small: 10,
+    });
+  });
+
+  it("spends nothing extra on a small stratum once its probe stands for fewer papers", () => {
+    // A second probe in "small" would stand for 1 paper while each in "large"
+    // still stands for about 20, so "small" stays at one.
+    const allocation = allocateProbes(
+      sizes([
+        ["small", 2],
+        ["large", 1_000],
+      ]),
+      50,
+    );
+    expect(Object.fromEntries(allocation)).toEqual({ small: 1, large: 49 });
+  });
+
+  it("probes every paper when the budget covers the frame", () => {
+    const allocation = allocateProbes(
+      sizes([
+        ["a", 3],
+        ["b", 4],
+      ]),
+      100,
+    );
+    expect(Object.fromEntries(allocation)).toEqual({ a: 3, b: 4 });
+  });
+});
+
+describe("sampling frame and type groups", () => {
+  it("groups provider paper types into article, review, and other", () => {
+    expect(probeTypeGroupOf("article")).toBe("article");
+    expect(probeTypeGroupOf("preprint")).toBe("article");
+    expect(probeTypeGroupOf("review")).toBe("review");
+    for (const type of ["erratum", "editorial", "paratext", "book-chapter"]) {
+      expect(probeTypeGroupOf(type)).toBe("other");
+    }
+    expect(probeTypeGroupOf(undefined)).toBe("other");
+  });
+
+  it("keeps papers in the frame unless the provider marks them closed or abstract-only", () => {
+    expect(isInSamplingFrame("available")).toBe(true);
+    expect(isInSamplingFrame("unknown")).toBe(true);
+    expect(isInSamplingFrame("abstract_only")).toBe(false);
+    expect(isInSamplingFrame("unavailable")).toBe(false);
   });
 });

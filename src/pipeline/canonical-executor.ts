@@ -114,6 +114,7 @@ export type CanonicalPipelineCliOverrides = {
   discoverProbeBudget: number | undefined;
   /** Model requests in flight at once within a stage. */
   modelConcurrency?: number | undefined;
+  discoverFetchConcurrency?: number | undefined;
   discoverMinFamilies: number | undefined;
   discoverMaxFamilies: number | undefined;
   discoverMaxPreparedRecords: number | undefined;
@@ -311,6 +312,7 @@ const STAGE_RUNNERS: Record<StageKey, StageRunner> = {
           },
           probeBudget: runConfig.discover.probeBudget,
           concurrency: runConfig.modelConcurrency,
+          fetchConcurrency: runConfig.discover.fetchConcurrency,
           candidateSelection: runConfig.discover.candidateSelection,
           recordedAt,
         },
@@ -477,6 +479,9 @@ function buildConfigFromCli(
       ...(args.discoverProbeBudget != null
         ? { probeBudget: args.discoverProbeBudget }
         : {}),
+      ...(args.discoverFetchConcurrency != null
+        ? { fetchConcurrency: args.discoverFetchConcurrency }
+        : {}),
       candidateSelection: {
         ...base.discover.candidateSelection,
         ...(args.discoverMinFamilies != null
@@ -554,9 +559,10 @@ function stageScientificConfig(
 ): unknown {
   switch (stage) {
     case "discover":
+      // Fetch concurrency changes wall time only, like modelConcurrency.
       return {
         forceRefresh: config.forceRefresh,
-        discover: config.discover,
+        discover: { ...config.discover, fetchConcurrency: undefined },
       };
     case "scope":
       return {

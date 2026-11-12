@@ -132,7 +132,7 @@ function modelExecution(
   };
 }
 
-function discoverOptions(): CanonicalDiscoverOptions {
+function discoverOptions(probeBudget = 10): CanonicalDiscoverOptions {
   return {
     seeds: [
       {
@@ -147,7 +147,7 @@ function discoverOptions(): CanonicalDiscoverOptions {
       query: "works-citing-report-seed",
       limit: 10,
     },
-    probeBudget: 10,
+    probeBudget,
     candidateSelection: adaptivePortfolioPolicySchema.parse({
       mode: "adaptive_portfolio",
       minFamilies: 1,
@@ -159,7 +159,48 @@ function discoverOptions(): CanonicalDiscoverOptions {
   };
 }
 
-function discoverAdapters(): CanonicalDiscoverAdapters {
+/**
+ * Readable neighbors are frame papers: with a probe budget of 2 the two
+ * strata carry inclusion probabilities 1 and 1/4. Closed neighbors sit
+ * outside the frame: probed only with budget left over, they add records the
+ * weighted rates must leave out.
+ */
+type Neighbors = "readable" | "closed";
+
+/**
+ * A second citing paper in its own stratum, plus three neighbors beside the
+ * first.
+ */
+const neighborhoodPapers = (neighbors: Neighbors) => [
+  {
+    providerRecordId: "provider-citing-paper-old",
+    paperId: "citing-paper-old",
+    title: "Citing paper old",
+    doi: "10.2000/citing-paper-old",
+    authors: ["Old Author"],
+    publicationYear: 2011,
+    fullTextAvailability: "available" as const,
+    provenanceArtifacts: [
+      artifactReference("provider-paper", "citing-paper-old"),
+    ],
+  },
+  ...[1, 2, 3].map((index) => ({
+    providerRecordId: `provider-neighbor-${String(index)}`,
+    paperId: `neighbor-${String(index)}`,
+    title: `Neighbor paper ${String(index)}`,
+    authors: ["Neighbor Author"],
+    publicationYear: 2026,
+    fullTextAvailability:
+      neighbors === "readable"
+        ? ("available" as const)
+        : ("unavailable" as const),
+    provenanceArtifacts: [
+      artifactReference("provider-paper", `neighbor-${String(index)}`),
+    ],
+  })),
+];
+
+function discoverAdapters(neighbors?: Neighbors): CanonicalDiscoverAdapters {
   return {
     resolveSeed: ({ doi }) =>
       Promise.resolve({
@@ -177,9 +218,10 @@ function discoverAdapters(): CanonicalDiscoverAdapters {
     retrieveCitingNeighborhood: () =>
       Promise.resolve({
         status: "completed",
-        providerReportedTotal: 1,
+        providerReportedTotal: neighbors ? 5 : 1,
         coverage: "complete",
         papers: [
+          ...(neighbors ? neighborhoodPapers(neighbors) : []),
           {
             providerRecordId: "provider-citing-paper",
             paperId: "citing-paper",
@@ -435,12 +477,14 @@ async function buildChain(
     reranking?: boolean;
     selectionLimit?: number;
     runId?: string;
+    /** An older citing paper and three neighbors; see `neighborhoodPapers`. */
+    neighbors?: Neighbors;
   } = {},
 ) {
   const runId = options.runId ?? "run-canonical-report-fixture";
   const discoverResult = await runCanonicalDiscover(
-    discoverOptions(),
-    discoverAdapters(),
+    discoverOptions(options.neighbors === "readable" ? 2 : 10),
+    discoverAdapters(options.neighbors),
   );
   const discover = buildCanonicalDiscoverArtifact({
     result: discoverResult,
@@ -547,7 +591,13 @@ async function buildChain(
             execution,
           });
         }
-        const verdict = variant === "seed_text" ? "F" : variant;
+        const verdict =
+          options.neighbors != null &&
+          input.packet.citingPaperTitle === "Citing paper old"
+            ? "D"
+            : variant === "seed_text"
+              ? "F"
+              : variant;
         const cited = input.packet.selectedChunks[0]!;
         return Promise.resolve({
           status: "completed",
@@ -1550,6 +1600,186 @@ describe("canonical Report", () => {
       expect(rate.denominator).toBe(adjudicated);
       expect(rate.denominator).not.toBe(total);
     }
+  });
+
+  it("weights adjudicated records by the inverse inclusion probability of their citing paper's stratum", async () => {
+    const chain = await buildChain({
+      adjudicateVariant: "F",
+      neighbors: "readable",
+    });
+    const strata = chain.discover.payload.neighborhoodQueries[0]!.probeStrata;
+    expect(
+      strata.map((stratum) => [
+        `${stratum.yearBand}::${stratum.typeGroup}`,
+        stratum.probedFrameCount,
+        stratum.frameCount,
+        stratum.enumeratedCount,
+      ]),
+    ).toEqual([
+      ["2010-2014::other", 1, 1, 1],
+      ["2025-2029::other", 1, 4, 4],
+    ]);
+    const result = runCanonicalReport(
+      chain.discover,
+      chain.scope,
+      chain.prepare,
+      chain.evidence,
+      chain.adjudicate,
+      { recordedAt: "2026-07-17T10:50:00.000Z" },
+    );
+    const paperByRecord = new Map(
+      chain.prepare.payload.records.map((record) => [
+        record.recordId,
+        record.citationOccurrence.citingPaperId,
+      ]),
+    );
+    const adjudicated = chain.adjudicate.payload.records.filter(
+      (record) => record.status === "adjudicated",
+    );
+    // The budget of 2 probes the older paper and one of the four 2025-29
+    // frame papers, whichever comes first in record-ID order.
+    const weight = (recordId: string) =>
+      paperByRecord.get(recordId) === "citing-paper-old" ? 1 : 4;
+    const expected = { F: 0, D: 0, E: 0, U: 0 };
+    let total = 0;
+    for (const record of adjudicated) {
+      if (record.status !== "adjudicated") continue;
+      expected[record.verdict] += weight(record.recordId);
+      total += weight(record.recordId);
+    }
+    expect(expected.F).toBeGreaterThan(0);
+    expect(expected.D).toBeGreaterThan(0);
+
+    expect(result.payload.weightedRates.map((rate) => rate.metricId)).toEqual([
+      "verdict_D_weighted_rate",
+      "verdict_E_weighted_rate",
+      "verdict_F_weighted_rate",
+      "verdict_U_weighted_rate",
+    ]);
+    for (const verdict of ["F", "D", "E", "U"] as const) {
+      const weighted = result.payload.weightedRates.find(
+        (rate) => rate.metricId === `verdict_${verdict}_weighted_rate`,
+      )!;
+      const unweighted = result.payload.rates.find(
+        (rate) => rate.metricId === `verdict_${verdict}_rate`,
+      )!;
+      expect(weighted.weightedNumerator).toBe(expected[verdict]);
+      expect(weighted.weightedDenominator).toBe(total);
+      expect(weighted.value).toBe(expected[verdict] / total);
+      // The sample counts are the unweighted rate's, unchanged.
+      expect(weighted.sampleNumerator).toBe(unweighted.numerator);
+      expect(weighted.sampleDenominator).toBe(unweighted.denominator);
+    }
+    const weightedD = result.payload.weightedRates.find(
+      (rate) => rate.metricId === "verdict_D_weighted_rate",
+    )!;
+    const unweightedD = result.payload.rates.find(
+      (rate) => rate.metricId === "verdict_D_rate",
+    )!;
+    expect(weightedD.value).toBeLessThan(unweightedD.value!);
+
+    expect(result.payload.funnel.discover.probeStratumCounts).toEqual([
+      expect.objectContaining({
+        stratum: "2010-2014::other",
+        enumerated: 1,
+        probed: 1,
+        inclusionProbability: 1,
+      }),
+      expect.objectContaining({
+        stratum: "2025-2029::other",
+        enumerated: 4,
+        frame: 4,
+        probed: 1,
+        probedFrame: 1,
+        inclusionProbability: 0.25,
+      }),
+    ]);
+
+    const markdown = renderCanonicalReportMarkdown(result.payload);
+    expect(markdown).toContain("### Weighted by sampling design");
+    expect(markdown).toContain(
+      `\`verdict_D_weighted_rate\`: ${String(weightedD.value)}; weighted numerator=${String(weightedD.weightedNumerator)}`,
+    );
+    expect(markdown).toContain("(π = 0.25)");
+    expect(markdown).toContain("5 of them (100%) form the sampling frame");
+    expect(markdown).not.toContain("the sample is stratified and unweighted");
+
+    const tampered = structuredClone(result.payload);
+    tampered.weightedRates[0]!.sampleNumerator += 1;
+    expect(reportArtifactPayloadSchema.safeParse(tampered).success).toBe(false);
+  });
+
+  it("leaves records from papers outside the sampling frame out of the weighted rates", async () => {
+    // Closed neighbors are outside the frame. The budget of 10 probes both
+    // frame papers and then, with budget to spare, the three closed ones.
+    const chain = await buildChain({
+      adjudicateVariant: "F",
+      neighbors: "closed",
+    });
+    const papers = chain.discover.payload.citingPapers;
+    const neighbors = papers.filter((paper) =>
+      paper.paper.paperId.startsWith("neighbor-"),
+    );
+    expect(neighbors).toHaveLength(3);
+    for (const neighbor of neighbors) {
+      expect(neighbor.probe.status).toBe("selected");
+      expect(neighbor.probe.reason).toContain("outside the frame");
+    }
+    expect(chain.discover.payload.neighborhoodQueries[0]!.probeStrata).toEqual([
+      expect.objectContaining({
+        yearBand: "2010-2014",
+        frameCount: 1,
+        probedFrameCount: 1,
+        inclusionProbability: 1,
+      }),
+      expect.objectContaining({
+        yearBand: "2025-2029",
+        enumeratedCount: 4,
+        frameCount: 1,
+        probedCount: 4,
+        probedFrameCount: 1,
+        inclusionProbability: 1,
+      }),
+    ]);
+
+    const result = runCanonicalReport(
+      chain.discover,
+      chain.scope,
+      chain.prepare,
+      chain.evidence,
+      chain.adjudicate,
+      { recordedAt: "2026-07-17T10:50:00.000Z" },
+    );
+    const paperByRecord = new Map(
+      chain.prepare.payload.records.map((record) => [
+        record.recordId,
+        record.citationOccurrence.citingPaperId,
+      ]),
+    );
+    const adjudicated = chain.adjudicate.payload.records.filter(
+      (record) => record.status === "adjudicated",
+    );
+    const fromFrame = adjudicated.filter(
+      (record) =>
+        !(paperByRecord.get(record.recordId) ?? "").startsWith("neighbor-"),
+    );
+    expect(fromFrame.length).toBeGreaterThan(0);
+    expect(fromFrame.length).toBeLessThan(adjudicated.length);
+
+    for (const rate of result.payload.weightedRates) {
+      // Every frame stratum was fully probed, so frame records weigh 1 and
+      // the weighted base is exactly the frame records.
+      expect(rate.sampleDenominator).toBe(fromFrame.length);
+      expect(rate.weightedDenominator).toBe(fromFrame.length);
+    }
+    const unweightedF = result.payload.rates.find(
+      (rate) => rate.metricId === "verdict_F_rate",
+    )!;
+    expect(unweightedF.denominator).toBe(adjudicated.length);
+
+    expect(renderCanonicalReportMarkdown(result.payload)).toContain(
+      "2 of them (40%) form the sampling frame",
+    );
   });
 
   it("keeps operational failures out of verdict counts and keeps U separate", async () => {

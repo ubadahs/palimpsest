@@ -21,6 +21,7 @@ import {
   type EvidenceArtifact,
   type PrepareArtifact,
   type ScopeArtifact,
+  resolvePreparedRecords,
 } from "../../src/contract/lean-artifacts.js";
 import {
   buildCanonicalDiscoverArtifact,
@@ -706,7 +707,7 @@ describe("canonical Evidence", () => {
     expect(prepare.payload.records).toHaveLength(2);
     expect(
       new Set(
-        prepare.payload.records.map((record) =>
+        resolvePreparedRecords(prepare.payload).map((record) =>
           canonicalSerialize({
             context: record.citationOccurrence.rawContext,
             localClaims: record.occurrenceSourceClaimRecords,
@@ -755,7 +756,7 @@ describe("canonical Evidence", () => {
       secondClaim: TRACKED_CLAIM,
     });
     const family = prepare.payload.scopedFamilies[0]!;
-    const localQueries = prepare.payload.records.map((record) =>
+    const localQueries = resolvePreparedRecords(prepare.payload).map((record) =>
       buildOccurrenceLocalEvidenceQuery(record, family),
     );
     expect(localQueries[0]!.queryId).not.toBe(localQueries[1]!.queryId);
@@ -794,7 +795,7 @@ describe("canonical Evidence", () => {
         recordId: record.recordId,
         familyId: record.familyId,
         citationOccurrenceId: record.citationOccurrenceId,
-        seedId: record.seed.seedId,
+        seedId: record.citationOccurrence.seedId,
       })),
     );
     expect(result.payload.records.map((record) => record.recordId)).toEqual(
@@ -810,7 +811,7 @@ describe("canonical Evidence", () => {
     });
     expect(prepare.payload.records).toHaveLength(2);
     expect(
-      prepare.payload.records.every(
+      resolvePreparedRecords(prepare.payload).every(
         (record) => record.family.grounding.status === "grounding_failed",
       ),
     ).toBe(true);

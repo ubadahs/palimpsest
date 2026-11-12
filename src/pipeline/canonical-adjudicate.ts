@@ -56,7 +56,8 @@ import {
   type EvidenceSelection,
   type LeanArtifactProvenance,
   type PrepareArtifact,
-  type PreparedCitationInstance,
+  resolvePreparedRecords,
+  type ResolvedPreparedCitationInstance,
 } from "../contract/lean-artifacts.js";
 import {
   modelExecutionSchema,
@@ -322,7 +323,10 @@ export async function runCanonicalAdjudicate(
     options,
   );
   const prepareById = new Map(
-    prepareArtifact.payload.records.map((record) => [record.recordId, record]),
+    resolvePreparedRecords(prepareArtifact.payload).map((record) => [
+      record.recordId,
+      record,
+    ]),
   );
   const evidenceById = new Map(
     evidenceArtifact.payload.records.map((record) => [record.recordId, record]),
@@ -660,7 +664,7 @@ function verifyAdjudicateAncestors(
     recordId: record.recordId,
     familyId: record.familyId,
     citationOccurrenceId: record.citationOccurrenceId,
-    seedId: record.seed.seedId,
+    seedId: record.citationOccurrence.seedId,
   }));
   if (
     canonicalSerialize(evidenceLedger) !== canonicalSerialize(prepareLedger)
@@ -690,7 +694,7 @@ function verifyAdjudicateAncestors(
 }
 
 function evaluateAdjudicationGate(input: {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   evidenceOutcome: EvidenceRecordOutcome;
   selectionsById: Map<string, EvidenceSelection>;
   chunksById: Map<string, EvidenceChunk>;
@@ -789,7 +793,7 @@ function evaluateAdjudicationGate(input: {
 }
 
 function classificationGateDecision(
-  prepareRecord: PreparedCitationInstance,
+  prepareRecord: ResolvedPreparedCitationInstance,
 ): GateDecision | undefined {
   const classification = prepareRecord.classification;
   if (classification.status === "failed") {
@@ -871,7 +875,7 @@ function validateModelReferences(input: {
 }
 
 function buildAdjudicatedOutcome(input: {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   judgment: CheckedJudgment;
   selectedChunkIds: readonly string[];
   limitation: EvidenceLimitation;
@@ -921,7 +925,7 @@ function buildAdjudicatedOutcome(input: {
 }
 
 function buildNotAdjudicatedOutcome(input: {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   gateCode: AdjudicateGateCode;
   reason: string;
 }): AdjudicateRecordOutcome {
@@ -940,7 +944,7 @@ function buildNotAdjudicatedOutcome(input: {
 }
 
 function buildFailedOutcome(input: {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   failureCode: AdjudicateNonfatalFailureCode;
   reason: string;
   execution: ModelExecution;
@@ -961,7 +965,7 @@ function buildFailedOutcome(input: {
 }
 
 function buildInvalidOutputOutcome(input: {
-  prepareRecord: PreparedCitationInstance;
+  prepareRecord: ResolvedPreparedCitationInstance;
   reason: string;
   execution: ModelExecution;
 }): AdjudicateRecordOutcome {

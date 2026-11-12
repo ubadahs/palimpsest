@@ -360,7 +360,7 @@ function fullTextAvailability(
 }
 
 /**
- * Persist each cursor-paginated citing-neighborhood page's normalized
+ * Persist each paginated citing-neighborhood page's normalized
  * request/response as its own provenance artifact, and align each returned
  * paper (in provider order) with the page response artifact that produced
  * it. Never fabricate a single-page shape when the provider paginated.
@@ -383,7 +383,7 @@ function persistCitingNeighborhoodPages(input: {
         seedProviderRecordId: input.seedProviderRecordId,
         pageIndex: page.pageIndex,
         requestUrl: page.requestUrl,
-        cursor: page.cursor,
+        page: page.page,
         perPage: page.perPage,
       },
       canonicalStage: "discover",
@@ -394,13 +394,13 @@ function persistCitingNeighborhoodPages(input: {
         role: "normalized-citing-neighborhood-page-response",
         pageIndex: page.pageIndex,
         returnedCount: page.returnedCount,
-        nextCursor: page.nextCursor,
+        keptCount: page.keptCount,
         responseTotalCount: page.responseTotalCount,
       },
       canonicalStage: "discover",
     });
     pageArtifacts.push(requestArtifact, responseArtifact);
-    for (let i = 0; i < page.returnedCount; i++) {
+    for (let i = 0; i < page.keptCount; i++) {
       responseArtifactByPaperIndex.push(responseArtifact);
     }
   }

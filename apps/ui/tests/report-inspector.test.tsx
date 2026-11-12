@@ -458,6 +458,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
         rate("verdict_E_unique_rate", 0, 17, 0),
         rate("verdict_U_unique_rate", 0, 17, 0),
       ],
+      weightedRates: [],
       familyMutations: [],
       decisionSummaries: [
         {

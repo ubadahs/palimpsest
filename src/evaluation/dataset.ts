@@ -8,6 +8,7 @@ import {
 } from "../adjudication/canonical-adjudicate-packet.js";
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
 import { humanReviewEventLogSchema } from "../contract/human-review.js";
+import { resolvePreparedRecords } from "../contract/lean-artifacts.js";
 import {
   buildReportInspectorRecords,
   loadCanonicalArtifact,
@@ -182,7 +183,7 @@ function casesFromChain(chain: Chain): {
       }),
     ),
   );
-  for (const record of prepare.payload.records) {
+  for (const record of resolvePreparedRecords(prepare.payload)) {
     const base = {
       runId: report.runId,
       seedDoi: record.seed.doi,
@@ -440,7 +441,7 @@ function importedReviews(
     )
       throw new Error("Review lineage mismatch");
     const recordUnitKeys = Object.fromEntries(
-      chain.prepare.payload.records.map((record) => [
+      resolvePreparedRecords(chain.prepare.payload).map((record) => [
         record.recordId,
         buildClaimUnitKey({
           familyId: record.familyId,

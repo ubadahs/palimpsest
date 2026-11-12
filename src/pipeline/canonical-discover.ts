@@ -39,7 +39,12 @@ import {
   type DiscoverCitingPaperRecord,
   type DiscoverClaimCandidate,
   type DiscoverClaimEquivalence,
+  type DiscoverProbeStratum,
+  isInSamplingFrame,
   type LeanArtifactProvenance,
+  probeStratumKeyOf,
+  probeTypeGroupOf,
+  type ProbeTypeGroup,
 } from "../contract/lean-artifacts.js";
 import {
   modelExecutionSchema,
@@ -107,6 +112,8 @@ const canonicalDiscoverOptionsSchema = z
     recordedAt: z.string().datetime({ offset: true }),
     /** Model requests in flight at once; results keep input order. */
     concurrency: z.number().int().positive().optional(),
+    /** Citing papers harvested at once; results keep neighborhood order. */
+    fetchConcurrency: z.number().int().positive().optional(),
   })
   .strict();
 export type CanonicalDiscoverOptions = z.infer<
@@ -586,6 +593,7 @@ export async function runCanonicalDiscover(
         statusReason: `Seed resolution failed: ${resolution.reason}`,
         returnedCount: 0,
         coverage: "unknown",
+        probeStrata: [],
         provenanceArtifacts: [resolution.execution.responseArtifact],
       });
       continue;
@@ -611,6 +619,7 @@ export async function runCanonicalDiscover(
         statusReason: neighborhood.reason,
         returnedCount: 0,
         coverage: "unknown",
+        probeStrata: [],
         requestHash: neighborhood.execution.requestHash,
         requestArtifact: neighborhood.execution.requestArtifact,
         responseArtifact: neighborhood.execution.responseArtifact,
@@ -624,29 +633,6 @@ export async function runCanonicalDiscover(
 
     validateNeighborhoodBoundary(neighborhood, options.neighborhood.limit);
     const pageArtifacts = neighborhood.pageArtifacts ?? [];
-    neighborhoodQueries.push({
-      ...boundaryBase,
-      status: "completed",
-      statusReason:
-        neighborhood.papers.length === 0
-          ? "Provider returned no citing papers within the declared boundary"
-          : "Provider query completed",
-      returnedCount: neighborhood.papers.length,
-      ...(neighborhood.providerReportedTotal != null
-        ? { providerReportedTotal: neighborhood.providerReportedTotal }
-        : {}),
-      coverage: neighborhood.coverage,
-      requestHash: neighborhood.execution.requestHash,
-      requestArtifact: neighborhood.execution.requestArtifact,
-      responseArtifact: neighborhood.execution.responseArtifact,
-      provenanceArtifacts: uniqueSortedArtifactReferences([
-        neighborhood.execution.requestArtifact,
-        neighborhood.execution.responseArtifact,
-        ...pageArtifacts,
-      ]),
-    });
-    responseArtifacts.push(...pageArtifacts);
-
     const paperObservations = neighborhood.papers.map(
       (paper, providerPosition) => ({
         paper,
@@ -662,14 +648,62 @@ export async function runCanonicalDiscover(
       paperObservations,
       options.probeBudget,
     );
+    neighborhoodQueries.push({
+      ...boundaryBase,
+      status: "completed",
+      statusReason:
+        neighborhood.papers.length === 0
+          ? "Provider returned no citing papers within the declared boundary"
+          : "Provider query completed",
+      returnedCount: neighborhood.papers.length,
+      ...(neighborhood.providerReportedTotal != null
+        ? { providerReportedTotal: neighborhood.providerReportedTotal }
+        : {}),
+      coverage: neighborhood.coverage,
+      probeStrata: probeSelection.strata,
+      requestHash: neighborhood.execution.requestHash,
+      requestArtifact: neighborhood.execution.requestArtifact,
+      responseArtifact: neighborhood.execution.responseArtifact,
+      provenanceArtifacts: uniqueSortedArtifactReferences([
+        neighborhood.execution.requestArtifact,
+        neighborhood.execution.responseArtifact,
+        ...pageArtifacts,
+      ]),
+    });
+    responseArtifacts.push(...pageArtifacts);
 
-    for (const observation of paperObservations) {
+    // Fetching and parsing citing papers dominates Discover's wall time on a
+    // large neighborhood, so probed papers are harvested side by side. pMap
+    // returns results in neighborhood order, and everything below appends
+    // in that order, so the artifact is identical at any concurrency.
+    const harvests = await pMap(
+      paperObservations,
+      async (observation) => {
+        if (!probeSelection.selectedIds.has(observation.citingPaperRecordId)) {
+          return undefined;
+        }
+        const harvest = parseAdapterOutput(
+          canonicalMentionHarvestResultSchema,
+          await adapters.harvestMentions({
+            seed: resolution,
+            citingPaper: observation.paper,
+          }),
+          `mention harvest for ${observation.paper.providerRecordId}`,
+        );
+        throwIfFatal(harvest.materialization);
+        throwIfFatal(harvest.harvest);
+        return harvest;
+      },
+      { concurrency: options.fetchConcurrency ?? 1 },
+    );
+
+    for (const [observationIndex, observation] of paperObservations.entries()) {
       const isSelected = probeSelection.selectedIds.has(
         observation.citingPaperRecordId,
       );
       const stratum = probeSelection.stratumById.get(
         observation.citingPaperRecordId,
-      );
+      )!;
       const paperBase = {
         citingPaperRecordId: observation.citingPaperRecordId,
         seedId,
@@ -703,10 +737,12 @@ export async function runCanonicalDiscover(
           status: isSelected
             ? ("selected" as const)
             : ("not_selected" as const),
-          ...(stratum ? { stratum: parseProbeStratumKey(stratum) } : {}),
-          reason: isSelected
-            ? `Selected within the deterministic stratified probe budget (stratum ${stratum ?? "unknown"}).`
-            : `Not selected: the stratified probe budget was exhausted for stratum ${stratum ?? "unknown"}.`,
+          stratum,
+          reason: probeReason({
+            isSelected,
+            inFrame: isInSamplingFrame(observation.paper.fullTextAvailability),
+            stratumKey: probeStratumKeyOf(stratum),
+          }),
           provenanceArtifacts: [neighborhood.execution.responseArtifact],
         },
       };
@@ -726,7 +762,8 @@ export async function runCanonicalDiscover(
         }),
       );
 
-      if (!isSelected) {
+      const harvest = harvests[observationIndex];
+      if (!isSelected || harvest == null) {
         citingPapers.push({
           ...paperBase,
           materialization: {
@@ -744,16 +781,6 @@ export async function runCanonicalDiscover(
         continue;
       }
 
-      const harvest = parseAdapterOutput(
-        canonicalMentionHarvestResultSchema,
-        await adapters.harvestMentions({
-          seed: resolution,
-          citingPaper: observation.paper,
-        }),
-        `mention harvest for ${observation.paper.providerRecordId}`,
-      );
-      throwIfFatal(harvest.materialization);
-      throwIfFatal(harvest.harvest);
       responseArtifacts.push(
         ...harvest.materialization.provenanceArtifacts,
         ...harvest.harvest.provenanceArtifacts,
@@ -795,10 +822,9 @@ export async function runCanonicalDiscover(
     }
   }
 
-  // Extraction fans out only after every paper is harvested: provider and
-  // parser traffic above stays sequential and gentle, while the model calls,
-  // which dominate wall time, run side by side. Results keep input order, so
-  // the artifact is the same at any concurrency.
+  // Extraction fans out only after every paper is harvested, with its own
+  // model bound. Results keep input order, so the artifact is the same at any
+  // concurrency.
   const extractions = await pMap(
     pendingExtractions,
     async ({ seedId, request }) => {
@@ -991,7 +1017,7 @@ export function buildCanonicalDiscoverArtifact(input: {
     execution: {
       kind:
         input.result.provenanceInputs.models.length > 0 ? "hybrid" : "external",
-      implementation: input.implementation ?? "canonical-discover-v1",
+      implementation: input.implementation ?? "canonical-discover-v2",
       replayableFromInputs: false,
       responseArtifacts: input.result.provenanceInputs.responseArtifacts,
     },
@@ -1350,34 +1376,6 @@ function createCitationOccurrence(input: {
   };
 }
 
-function comparePaperProbePriority(
-  left: {
-    citingPaperRecordId: string;
-    providerPosition: number;
-    paper: z.infer<typeof citingPaperInputSchema>;
-  },
-  right: {
-    citingPaperRecordId: string;
-    providerPosition: number;
-    paper: z.infer<typeof citingPaperInputSchema>;
-  },
-): number {
-  const availabilityOrder = {
-    available: 0,
-    unknown: 1,
-    abstract_only: 2,
-    unavailable: 3,
-  } as const;
-  const availabilityDifference =
-    availabilityOrder[left.paper.fullTextAvailability] -
-    availabilityOrder[right.paper.fullTextAvailability];
-  if (availabilityDifference !== 0) return availabilityDifference;
-  if (left.providerPosition !== right.providerPosition) {
-    return left.providerPosition - right.providerPosition;
-  }
-  return compareCodeUnits(left.citingPaperRecordId, right.citingPaperRecordId);
-}
-
 /**
  * Deterministic 5-year publication band, e.g. "2020-2024". Papers with no
  * known publication year fall into a distinct "unknown" band rather than
@@ -1389,21 +1387,15 @@ function probeYearBand(publicationYear: number | undefined): string {
   return `${String(bandStart)}-${String(bandStart + 4)}`;
 }
 
-function probeStratumKey(paper: {
+type ProbeStratum = { yearBand: string; typeGroup: ProbeTypeGroup };
+
+function probeStratumOf(paper: {
   publicationYear?: number | undefined;
   paperType?: string | undefined;
-}): string {
-  return `${probeYearBand(paper.publicationYear)}::${paper.paperType ?? "unknown"}`;
-}
-
-function parseProbeStratumKey(key: string): {
-  yearBand: string;
-  paperType: string;
-} {
-  const separator = key.indexOf("::");
+}): ProbeStratum {
   return {
-    yearBand: separator >= 0 ? key.slice(0, separator) : key,
-    paperType: separator >= 0 ? key.slice(separator + 2) : "unknown",
+    yearBand: probeYearBand(paper.publicationYear),
+    typeGroup: probeTypeGroupOf(paper.paperType),
   };
 }
 
@@ -1414,70 +1406,171 @@ type ProbeObservation = {
 };
 
 /**
- * Select which returned citing papers to probe within `probeBudget`.
+ * Select which enumerated citing papers to probe within `probeBudget`.
  *
- * Groups observations into strata by publication-year band × paper type,
- * then round-robins deterministically across strata (sorted by stratum key)
- * so the probe budget spreads across the citing neighborhood's temporal and
- * document-type diversity rather than only the provider's return order.
- * Within each stratum, papers with materializable full text are still
- * preferred (via `comparePaperProbePriority`). When the probe budget covers
- * every observation, all are selected and stratification is a no-op.
+ * Inference covers the sampling frame (`isInSamplingFrame`), stratified by
+ * year band × type group. `allocateProbes` splits the budget across the
+ * frame's strata, and each stratum takes its papers in record-ID order: the
+ * record ID is a content hash, so that is a fixed pseudo-random order, where
+ * the provider's own order is skewed (OpenAlex returns older citers first).
+ * Budget left once the whole frame is probed goes to papers outside it,
+ * abstract-only before closed; they add records but carry no weight.
  */
 function selectDeterministicProbeSet<T extends ProbeObservation>(
   observations: readonly T[],
   probeBudget: number,
-): { selectedIds: Set<string>; stratumById: Map<string, string> } {
-  const stratumById = new Map<string, string>();
-  for (const observation of observations) {
-    stratumById.set(
+): {
+  selectedIds: Set<string>;
+  stratumById: Map<string, ProbeStratum>;
+  strata: DiscoverProbeStratum[];
+} {
+  const byRecordId = [...observations].sort((left, right) =>
+    compareCodeUnits(left.citingPaperRecordId, right.citingPaperRecordId),
+  );
+  const stratumById = new Map(
+    byRecordId.map((observation) => [
       observation.citingPaperRecordId,
-      probeStratumKey(observation.paper),
+      probeStratumOf(observation.paper),
+    ]),
+  );
+  const frameByStratum = new Map<string, T[]>();
+  const outsideFrame: T[] = [];
+  for (const observation of byRecordId) {
+    if (!isInSamplingFrame(observation.paper.fullTextAvailability)) {
+      outsideFrame.push(observation);
+      continue;
+    }
+    const key = probeStratumKeyOf(
+      stratumById.get(observation.citingPaperRecordId)!,
     );
+    const members = frameByStratum.get(key) ?? [];
+    members.push(observation);
+    frameByStratum.set(key, members);
   }
 
-  if (probeBudget >= observations.length) {
-    return {
-      selectedIds: new Set(
-        observations.map((observation) => observation.citingPaperRecordId),
-      ),
-      stratumById,
-    };
+  const allocation = allocateProbes(
+    new Map([...frameByStratum].map(([key, members]) => [key, members.length])),
+    probeBudget,
+  );
+  const selected = [...frameByStratum].flatMap(([key, members]) =>
+    members.slice(0, allocation.get(key) ?? 0),
+  );
+  // Leftover budget goes to abstract-only papers before closed ones, as the
+  // likelier to yield text; the sort is stable, so record-ID order holds
+  // within each.
+  const leftoverRank = (observation: T): number =>
+    observation.paper.fullTextAvailability === "abstract_only" ? 0 : 1;
+  outsideFrame.sort((left, right) => leftoverRank(left) - leftoverRank(right));
+  selected.push(...outsideFrame.slice(0, probeBudget - selected.length));
+  const selectedIds = new Set(
+    selected.map((observation) => observation.citingPaperRecordId),
+  );
+  return {
+    selectedIds,
+    stratumById,
+    strata: summarizeProbeStrata(byRecordId, selectedIds),
+  };
+}
+
+function probeReason(input: {
+  isSelected: boolean;
+  inFrame: boolean;
+  stratumKey: string;
+}): string {
+  if (input.inFrame) {
+    return input.isSelected
+      ? `Selected within stratum ${input.stratumKey}'s share of the probe budget.`
+      : `Not selected: stratum ${input.stratumKey}'s share of the probe budget was used.`;
+  }
+  return input.isSelected
+    ? "Selected with budget left after the whole sampling frame was probed; outside the frame (provider marks no readable full text), so it carries no weight."
+    : "Not selected: outside the sampling frame (provider marks no readable full text), and no budget was left after the frame.";
+}
+
+/**
+ * Split `budget` probes across strata of the given frame sizes, one probe at
+ * a time, each to the stratum where a probed paper would otherwise stand for
+ * the most papers: an unprobed stratum first, then the largest size / probes.
+ * So every stratum gets a probe before any gets a second, and the weights
+ * 1/π end up as even as the budget allows. Ties go to the larger stratum,
+ * then key order; no stratum gets more probes than it has papers.
+ */
+export function allocateProbes(
+  sizes: ReadonlyMap<string, number>,
+  budget: number,
+): Map<string, number> {
+  const keys = [...sizes.keys()].sort(compareCodeUnits);
+  const total = keys.reduce((sum, key) => sum + sizes.get(key)!, 0);
+  if (budget >= total) {
+    return new Map(keys.map((key) => [key, sizes.get(key)!]));
   }
 
-  const membersByStratum = new Map<string, T[]>();
+  const probes = new Map(keys.map((key) => [key, 0]));
+  // Negative when `left` should take the next probe before `right`. Shares
+  // size / probes are compared by cross-multiplying, so nothing divides by 0.
+  const comparePriority = (left: string, right: string): number => {
+    const leftSize = sizes.get(left)!;
+    const rightSize = sizes.get(right)!;
+    const leftProbes = probes.get(left)!;
+    const rightProbes = probes.get(right)!;
+    if ((leftProbes === 0) !== (rightProbes === 0)) {
+      return leftProbes === 0 ? -1 : 1;
+    }
+    const byShare = rightSize * leftProbes - leftSize * rightProbes;
+    if (byShare !== 0) return byShare;
+    if (leftSize !== rightSize) return rightSize - leftSize;
+    return compareCodeUnits(left, right);
+  };
+
+  for (let remaining = budget; remaining > 0; remaining -= 1) {
+    let next: string | undefined;
+    for (const key of keys) {
+      if (probes.get(key)! >= sizes.get(key)!) continue;
+      if (next === undefined || comparePriority(key, next) < 0) next = key;
+    }
+    if (next === undefined) break;
+    probes.set(next, probes.get(next)! + 1);
+  }
+  return probes;
+}
+
+/**
+ * Each stratum's enumerated, frame and probed counts, and the inclusion
+ * probability probedFrameCount / frameCount that Report weights records by.
+ */
+function summarizeProbeStrata(
+  observations: readonly ProbeObservation[],
+  selectedIds: ReadonlySet<string>,
+): DiscoverProbeStratum[] {
+  const strata = new Map<string, DiscoverProbeStratum>();
   for (const observation of observations) {
-    const stratum = stratumById.get(observation.citingPaperRecordId)!;
-    const members = membersByStratum.get(stratum);
-    if (members) {
-      members.push(observation);
-    } else {
-      membersByStratum.set(stratum, [observation]);
-    }
+    const stratum = probeStratumOf(observation.paper);
+    const key = probeStratumKeyOf(stratum);
+    const bucket = strata.get(key) ?? {
+      ...stratum,
+      enumeratedCount: 0,
+      frameCount: 0,
+      probedCount: 0,
+      probedFrameCount: 0,
+      inclusionProbability: null,
+    };
+    const inFrame = isInSamplingFrame(observation.paper.fullTextAvailability);
+    const probed = selectedIds.has(observation.citingPaperRecordId);
+    bucket.enumeratedCount += 1;
+    if (inFrame) bucket.frameCount += 1;
+    if (probed) bucket.probedCount += 1;
+    if (inFrame && probed) bucket.probedFrameCount += 1;
+    strata.set(key, bucket);
   }
-  const strataOrder = [...membersByStratum.keys()].sort(compareCodeUnits);
-  for (const stratum of strataOrder) {
-    membersByStratum.get(stratum)!.sort(comparePaperProbePriority);
-  }
-
-  const selectedIds = new Set<string>();
-  const cursorByStratum = new Map(strataOrder.map((stratum) => [stratum, 0]));
-  let remaining = probeBudget;
-  while (remaining > 0) {
-    let madeProgress = false;
-    for (const stratum of strataOrder) {
-      if (remaining === 0) break;
-      const members = membersByStratum.get(stratum)!;
-      const cursor = cursorByStratum.get(stratum)!;
-      if (cursor >= members.length) continue;
-      selectedIds.add(members[cursor]!.citingPaperRecordId);
-      cursorByStratum.set(stratum, cursor + 1);
-      remaining -= 1;
-      madeProgress = true;
-    }
-    if (!madeProgress) break;
-  }
-  return { selectedIds, stratumById };
+  return [...strata.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([, bucket]) => ({
+      ...bucket,
+      inclusionProbability:
+        bucket.frameCount === 0
+          ? null
+          : bucket.probedFrameCount / bucket.frameCount,
+    }));
 }
 
 function validateNeighborhoodBoundary(

@@ -17,6 +17,7 @@ import { sortedUnique } from "../../shared/order.js";
 import {
   addDuplicateIdentifierIssue,
   addIssue,
+  addSortedUniqueIdentifierIssue,
   findDuplicate,
   normalizeDoi,
   normalizeWhitespace,
@@ -190,6 +191,92 @@ export const discoverSeedSchema = z
   });
 export type DiscoverSeed = z.infer<typeof discoverSeedSchema>;
 
+/**
+ * Paper types grouped for sampling. Provider types run to a long tail
+ * (errata, editorials, paratext) that would each become a stratum of a
+ * handful of works; three groups keep strata large enough to estimate.
+ */
+export const probeTypeGroupValues = ["article", "review", "other"] as const;
+export type ProbeTypeGroup = (typeof probeTypeGroupValues)[number];
+
+export function probeTypeGroupOf(
+  paperType: string | undefined,
+): ProbeTypeGroup {
+  if (paperType === "article" || paperType === "preprint") return "article";
+  if (paperType === "review") return "review";
+  return "other";
+}
+
+/**
+ * The sampling frame: citing works not known to lack readable full text.
+ * The sampler draws from the frame first and weighted rates describe the
+ * frame only, because works the provider marks closed or abstract-only are
+ * mostly never read, so they could not be represented by a random draw.
+ */
+export function isInSamplingFrame(
+  fullTextAvailability:
+    | "available"
+    | "abstract_only"
+    | "unavailable"
+    | "unknown",
+): boolean {
+  return (
+    fullTextAvailability === "available" || fullTextAvailability === "unknown"
+  );
+}
+
+/**
+ * One probe-sampling stratum of a neighborhood: how many citing works the
+ * enumeration found in it, how many of those are in the sampling frame, how
+ * many were probed in all and from the frame, and the inclusion probability
+ * probedFrameCount / frameCount that Report weights records by (null when
+ * the stratum has no frame works).
+ */
+export const discoverProbeStratumSchema = z
+  .object({
+    yearBand: z.string().min(1),
+    typeGroup: z.enum(probeTypeGroupValues),
+    enumeratedCount: z.number().int().positive(),
+    frameCount: z.number().int().nonnegative(),
+    probedCount: z.number().int().nonnegative(),
+    probedFrameCount: z.number().int().nonnegative(),
+    inclusionProbability: z.number().min(0).max(1).nullable(),
+  })
+  .strict()
+  .superRefine((stratum, context) => {
+    if (
+      stratum.frameCount > stratum.enumeratedCount ||
+      stratum.probedCount > stratum.enumeratedCount ||
+      stratum.probedFrameCount > stratum.frameCount ||
+      stratum.probedFrameCount > stratum.probedCount
+    ) {
+      addIssue(
+        context,
+        ["probedFrameCount"],
+        "Stratum counts must nest: probed frame works within both the frame and the probed works, all within the enumerated works",
+      );
+    }
+    const expected =
+      stratum.frameCount === 0
+        ? null
+        : stratum.probedFrameCount / stratum.frameCount;
+    if (stratum.inclusionProbability !== expected) {
+      addIssue(
+        context,
+        ["inclusionProbability"],
+        "Inclusion probability must equal probedFrameCount / frameCount, or null for a stratum with no frame works",
+      );
+    }
+  });
+export type DiscoverProbeStratum = z.infer<typeof discoverProbeStratumSchema>;
+
+export function probeStratumKeyOf(stratum: {
+  yearBand: string;
+  typeGroup: ProbeTypeGroup;
+}): string {
+  return `${stratum.yearBand}::${stratum.typeGroup}`;
+}
+
 export const discoverNeighborhoodQuerySchema = z
   .object({
     neighborhoodId: stableIdentifierSchema,
@@ -209,6 +296,8 @@ export const discoverNeighborhoodQuerySchema = z
     returnedCount: z.number().int().nonnegative(),
     providerReportedTotal: z.number().int().nonnegative().optional(),
     coverage: z.enum(["complete", "truncated", "unknown"]),
+    /** Probe strata over every enumerated citing work, ordered by stratum key. */
+    probeStrata: z.array(discoverProbeStratumSchema),
     requestHash: sha256DigestSchema.optional(),
     requestArtifact: artifactReferenceSchema.optional(),
     responseArtifact: artifactReferenceSchema.optional(),
@@ -259,6 +348,22 @@ export const discoverNeighborhoodQuerySchema = z
         path: ["returnedCount"],
         message: "Only completed neighborhood queries can return papers",
       });
+    }
+    addSortedUniqueIdentifierIssue(
+      query.probeStrata.map(probeStratumKeyOf),
+      ["probeStrata"],
+      context,
+    );
+    const enumerated = query.probeStrata.reduce(
+      (total, stratum) => total + stratum.enumeratedCount,
+      0,
+    );
+    if (enumerated !== query.returnedCount) {
+      addIssue(
+        context,
+        ["probeStrata"],
+        "Probe strata must partition every enumerated citing work",
+      );
     }
   });
 export type DiscoverNeighborhoodQuery = z.infer<
@@ -331,10 +436,9 @@ export const discoverCitingPaperRecordSchema = z
       stratum: z
         .object({
           yearBand: z.string().min(1),
-          paperType: z.string().min(1),
+          typeGroup: z.enum(probeTypeGroupValues),
         })
-        .strict()
-        .optional(),
+        .strict(),
     }),
     materialization: paperDispositionSchema.extend({
       status: z.enum(["not_attempted", "succeeded", "unavailable", "failed"]),
@@ -913,6 +1017,45 @@ function validateDiscoverLedger(
         "Neighborhood returnedCount does not match its citing-paper ledger",
       );
     }
+    const observedStrata = new Map<
+      string,
+      { enumerated: number; frame: number; probed: number; probedFrame: number }
+    >();
+    for (const paper of returnedPapers) {
+      const key = probeStratumKeyOf(paper.probe.stratum);
+      const bucket = observedStrata.get(key) ?? {
+        enumerated: 0,
+        frame: 0,
+        probed: 0,
+        probedFrame: 0,
+      };
+      const inFrame = isInSamplingFrame(paper.paper.fullTextAvailability);
+      const probed = paper.probe.status === "selected";
+      bucket.enumerated += 1;
+      if (inFrame) bucket.frame += 1;
+      if (probed) bucket.probed += 1;
+      if (inFrame && probed) bucket.probedFrame += 1;
+      observedStrata.set(key, bucket);
+    }
+    if (
+      observedStrata.size !== query.probeStrata.length ||
+      query.probeStrata.some((stratum) => {
+        const observed = observedStrata.get(probeStratumKeyOf(stratum));
+        return (
+          observed == null ||
+          observed.enumerated !== stratum.enumeratedCount ||
+          observed.frame !== stratum.frameCount ||
+          observed.probed !== stratum.probedCount ||
+          observed.probedFrame !== stratum.probedFrameCount
+        );
+      })
+    ) {
+      addIssue(
+        context,
+        ["neighborhoodQueries", index, "probeStrata"],
+        "Probe strata do not match the neighborhood's citing-paper probe ledger",
+      );
+    }
     const duplicatePosition = findDuplicate(
       returnedPapers.map((paper) => String(paper.providerPosition)),
     );
@@ -925,6 +1068,13 @@ function validateDiscoverLedger(
     }
   });
 
+  const mentionCountByCitingPaper = new Map<string, number>();
+  for (const mention of payload.citationMentions) {
+    mentionCountByCitingPaper.set(
+      mention.citingPaperRecordId,
+      (mentionCountByCitingPaper.get(mention.citingPaperRecordId) ?? 0) + 1,
+    );
+  }
   payload.citingPapers.forEach((paper, index) => {
     const neighborhood = neighborhoodsById.get(paper.neighborhoodId);
     if (!seedsById.has(paper.seedId)) {
@@ -950,9 +1100,8 @@ function validateDiscoverLedger(
         "Citing paper and neighborhood have inconsistent seed/provider identity",
       );
     }
-    const observedMentionCount = payload.citationMentions.filter(
-      (mention) => mention.citingPaperRecordId === paper.citingPaperRecordId,
-    ).length;
+    const observedMentionCount =
+      mentionCountByCitingPaper.get(paper.citingPaperRecordId) ?? 0;
     if (observedMentionCount !== paper.harvest.observedMentionCount) {
       addIssue(
         context,

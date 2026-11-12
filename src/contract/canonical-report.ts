@@ -226,6 +226,65 @@ export const reportRateSchema = z
   });
 export type ReportRate = z.infer<typeof reportRateSchema>;
 
+/**
+ * A design-weighted rate over the sampling frame: each adjudicated record from
+ * a frame paper counts 1/π, where π is its stratum's inclusion probability
+ * (probed frame papers / frame papers). The sample counts of those frame
+ * records ride along so a reader can set the estimate beside what was
+ * actually observed.
+ */
+export const reportWeightedRateSchema = z
+  .object({
+    metricId: z.string().min(1),
+    weighting: z.literal("inverse_probe_inclusion_probability"),
+    weightedNumerator: z.number().finite().nonnegative(),
+    weightedDenominator: z.number().finite().nonnegative(),
+    value: z.number().finite().nullable(),
+    sampleNumerator: z.number().int().nonnegative(),
+    sampleDenominator: z.number().int().nonnegative(),
+    unit: z.string().min(1),
+    populationLabel: z.string().min(1),
+    numeratorDefinition: z.string().min(1),
+    denominatorDefinition: z.string().min(1),
+  })
+  .strict()
+  .superRefine((rate, context) => {
+    if (rate.sampleNumerator > rate.sampleDenominator) {
+      context.addIssue({
+        code: "custom",
+        path: ["sampleNumerator"],
+        message: "Sample numerator cannot exceed its denominator",
+      });
+    }
+    if (rate.weightedNumerator > rate.weightedDenominator * (1 + 1e-12)) {
+      context.addIssue({
+        code: "custom",
+        path: ["weightedNumerator"],
+        message: "Weighted numerator cannot exceed its denominator",
+      });
+    }
+    if (rate.weightedDenominator === 0) {
+      if (rate.value !== null) {
+        context.addIssue({
+          code: "custom",
+          path: ["value"],
+          message:
+            "Zero-denominator weighted rates must store value null (not estimable)",
+        });
+      }
+      return;
+    }
+    const expected = rate.weightedNumerator / rate.weightedDenominator;
+    if (rate.value === null || Math.abs(rate.value - expected) > 1e-12) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: `Weighted rate value does not equal weightedNumerator/weightedDenominator ${String(expected)}`,
+      });
+    }
+  });
+export type ReportWeightedRate = z.infer<typeof reportWeightedRateSchema>;
+
 const reportStatusCountSchema = z
   .object({
     status: z.string().min(1),
@@ -285,17 +344,23 @@ const reportVerdictsByRankingSourceSchema = z
 
 const reportProbeStratumCountSchema = z
   .object({
-    /** `<year band>::<paper type>` as used by the deterministic probe sampler. */
+    seedId: stableIdentifierSchema,
+    /** `<year band>::<type group>` as used by the deterministic probe sampler. */
     stratum: z.string().min(1),
-    returned: z.number().int().nonnegative(),
+    enumerated: z.number().int().positive(),
+    /** Enumerated works in the sampling frame (not known to lack readable full text). */
+    frame: z.number().int().nonnegative(),
     probed: z.number().int().nonnegative(),
+    probedFrame: z.number().int().nonnegative(),
+    /** probedFrame / frame, as Discover recorded it (null with no frame works); weighted rates use 1/π. */
+    inclusionProbability: z.number().min(0).max(1).nullable(),
   })
   .strict();
 
 const discoverFunnelCountsSchema = z
   .object({
     seeds: countOf("seeds"),
-    /** Sampling design: how many citing papers each stratum returned and how many were probed. */
+    /** Sampling design per seed: each stratum's enumerated and probed citing papers and inclusion probability. */
     probeStratumCounts: z.array(reportProbeStratumCountSchema),
     /**
      * The sampling denominator, stated rather than implied: what the citation
@@ -740,6 +805,13 @@ const reportDecisionSummarySchema = z
   .strict();
 export type ReportDecisionSummary = z.infer<typeof reportDecisionSummarySchema>;
 
+export const REQUIRED_REPORT_WEIGHTED_RATE_METRIC_IDS = [
+  "verdict_D_weighted_rate",
+  "verdict_E_weighted_rate",
+  "verdict_F_weighted_rate",
+  "verdict_U_weighted_rate",
+] as const;
+
 export const REQUIRED_REPORT_RATE_METRIC_IDS = [
   "scope_selection_rate",
   "retrieval_coverage",
@@ -851,6 +923,8 @@ export const reportArtifactPayloadSchema = z
     replayableFromInputs: z.literal(true),
     funnel: reportFunnelCountsSchema,
     rates: z.array(reportRateSchema),
+    /** F/D/E/U rates weighted by inverse probe inclusion probability. */
+    weightedRates: z.array(reportWeightedRateSchema),
     /** The scientific content: each family and its restatements in order. */
     familyMutations: z.array(reportFamilyMutationSchema),
     recordTraces: z.array(reportRecordTraceSchema),
@@ -1042,6 +1116,67 @@ function validateReportPayload(
         code: "custom",
         path: ["rates"],
         message: `verdict_${verdict}_unique_rate numerator must match the unique-unit ${verdict} count`,
+      });
+    }
+  }
+
+  const weightedRateIds = payload.weightedRates.map((rate) => rate.metricId);
+  if (
+    canonicalSerialize(weightedRateIds) !==
+    canonicalSerialize(REQUIRED_REPORT_WEIGHTED_RATE_METRIC_IDS)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["weightedRates"],
+      message:
+        "Report weighted rates must be exactly the F/D/E/U weighted rates ordered by metricId",
+    });
+  }
+  const weightedDenominators = new Set(
+    payload.weightedRates.map((rate) => rate.weightedDenominator),
+  );
+  if (weightedDenominators.size > 1) {
+    context.addIssue({
+      code: "custom",
+      path: ["weightedRates"],
+      message: "Weighted F/D/E/U rates must share one weighted denominator",
+    });
+  }
+  // Weighted rates rest on the adjudicated records from sampling-frame papers:
+  // one shared sample, split by verdict, inside the adjudicated counts.
+  const sampleDenominators = new Set(
+    payload.weightedRates.map((rate) => rate.sampleDenominator),
+  );
+  const sampleTotal = payload.weightedRates.reduce(
+    (total, rate) => total + rate.sampleNumerator,
+    0,
+  );
+  if (
+    payload.weightedRates.length > 0 &&
+    (sampleDenominators.size !== 1 ||
+      !sampleDenominators.has(sampleTotal) ||
+      sampleTotal > adjudicated)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["weightedRates"],
+      message:
+        "Weighted F/D/E/U rates must share one sample of adjudicated records, which their verdict counts partition",
+    });
+  }
+  for (const verdict of ["F", "D", "E", "U"] as const) {
+    const rate = payload.weightedRates.find(
+      (entry) => entry.metricId === `verdict_${verdict}_weighted_rate`,
+    );
+    if (rate == null) continue;
+    if (
+      rate.sampleNumerator >
+      payload.funnel.adjudicate.verdictCounts[verdict].count
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["weightedRates"],
+        message: `verdict_${verdict}_weighted_rate counts more ${verdict} records than were adjudicated ${verdict}`,
       });
     }
   }
@@ -1800,6 +1935,20 @@ export function buildReportRate(input: {
     input.denominator === 0 ? null : input.numerator / input.denominator;
   return reportRateSchema.parse({
     ...input,
+    value,
+  });
+}
+
+export function buildReportWeightedRate(
+  input: Omit<ReportWeightedRate, "value" | "weighting">,
+): ReportWeightedRate {
+  const value =
+    input.weightedDenominator === 0
+      ? null
+      : input.weightedNumerator / input.weightedDenominator;
+  return reportWeightedRateSchema.parse({
+    ...input,
+    weighting: "inverse_probe_inclusion_probability",
     value,
   });
 }
