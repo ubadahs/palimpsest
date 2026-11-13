@@ -17,8 +17,6 @@ import { sortedUnique } from "../../shared/order.js";
 import {
   addDuplicateIdentifierIssue,
   addIssue,
-  addSortedUniqueIdentifierIssue,
-  findDuplicate,
   normalizeDoi,
   normalizeWhitespace,
 } from "./checks.js";
@@ -179,16 +177,7 @@ export const discoverSeedSchema = z
         .strict(),
     ]),
   })
-  .strict()
-  .superRefine((seed, context) => {
-    if (seed.seedId !== buildSeedId(seed)) {
-      context.addIssue({
-        code: "custom",
-        path: ["seedId"],
-        message: "seedId does not match the normalized seed DOI",
-      });
-    }
-  });
+  .strict();
 export type DiscoverSeed = z.infer<typeof discoverSeedSchema>;
 
 /**
@@ -244,18 +233,6 @@ export const discoverProbeStratumSchema = z
   })
   .strict()
   .superRefine((stratum, context) => {
-    if (
-      stratum.frameCount > stratum.enumeratedCount ||
-      stratum.probedCount > stratum.enumeratedCount ||
-      stratum.probedFrameCount > stratum.frameCount ||
-      stratum.probedFrameCount > stratum.probedCount
-    ) {
-      addIssue(
-        context,
-        ["probedFrameCount"],
-        "Stratum counts must nest: probed frame works within both the frame and the probed works, all within the enumerated works",
-      );
-    }
     const expected =
       stratum.frameCount === 0
         ? null
@@ -303,69 +280,7 @@ export const discoverNeighborhoodQuerySchema = z
     responseArtifact: artifactReferenceSchema.optional(),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
   })
-  .strict()
-  .superRefine((query, context) => {
-    if (
-      query.neighborhoodId !==
-      buildNeighborhoodQueryId({
-        seedId: query.seedId,
-        provider: query.provider,
-        query: query.query,
-        limit: query.configuredLimit,
-        ...(query.configuredYearRange
-          ? { yearRange: query.configuredYearRange }
-          : {}),
-      })
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["neighborhoodId"],
-        message: "neighborhoodId does not match the configured query boundary",
-      });
-    }
-    const hasExecution =
-      query.requestHash != null &&
-      query.requestArtifact != null &&
-      query.responseArtifact != null;
-    if (query.status === "not_attempted" && hasExecution) {
-      context.addIssue({
-        code: "custom",
-        path: ["status"],
-        message: "A not-attempted neighborhood cannot carry query execution",
-      });
-    }
-    if (query.status !== "not_attempted" && !hasExecution) {
-      context.addIssue({
-        code: "custom",
-        path: ["requestArtifact"],
-        message:
-          "An attempted neighborhood requires request/response provenance",
-      });
-    }
-    if (query.status !== "completed" && query.returnedCount !== 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["returnedCount"],
-        message: "Only completed neighborhood queries can return papers",
-      });
-    }
-    addSortedUniqueIdentifierIssue(
-      query.probeStrata.map(probeStratumKeyOf),
-      ["probeStrata"],
-      context,
-    );
-    const enumerated = query.probeStrata.reduce(
-      (total, stratum) => total + stratum.enumeratedCount,
-      0,
-    );
-    if (enumerated !== query.returnedCount) {
-      addIssue(
-        context,
-        ["probeStrata"],
-        "Probe strata must partition every enumerated citing work",
-      );
-    }
-  });
+  .strict();
 export type DiscoverNeighborhoodQuery = z.infer<
   typeof discoverNeighborhoodQuerySchema
 >;
@@ -448,47 +363,7 @@ export const discoverCitingPaperRecordSchema = z
       observedMentionCount: z.number().int().nonnegative(),
     }),
   })
-  .strict()
-  .superRefine((paper, context) => {
-    if (paper.citingPaperRecordId !== buildCitingPaperRecordId(paper)) {
-      context.addIssue({
-        code: "custom",
-        path: ["citingPaperRecordId"],
-        message: "citingPaperRecordId does not match its source observation",
-      });
-    }
-    if (
-      paper.probe.status === "not_selected" &&
-      (paper.materialization.status !== "not_attempted" ||
-        paper.harvest.status !== "not_attempted")
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["probe"],
-        message: "An unprobed paper cannot be materialized or harvested",
-      });
-    }
-    if (
-      paper.materialization.status !== "succeeded" &&
-      paper.harvest.status !== "not_attempted"
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["harvest"],
-        message: "Harvest requires successful materialization",
-      });
-    }
-    if (
-      paper.harvest.status !== "succeeded" &&
-      paper.harvest.observedMentionCount !== 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["harvest", "observedMentionCount"],
-        message: "Only successful harvests can report citation occurrences",
-      });
-    }
-  });
+  .strict();
 export type DiscoverCitingPaperRecord = z.infer<
   typeof discoverCitingPaperRecordSchema
 >;
@@ -532,52 +407,7 @@ export const discoverCitationOccurrenceSchema = z
       })
       .strict(),
   })
-  .strict()
-  .superRefine((mention, context) => {
-    const hasOffsetStart = mention.charOffsetStart != null;
-    const hasOffsetEnd = mention.charOffsetEnd != null;
-    if (hasOffsetStart !== hasOffsetEnd) {
-      context.addIssue({
-        code: "custom",
-        path: ["charOffsetStart"],
-        message: "Citation source offsets must be both present or both absent",
-      });
-    } else if (
-      mention.charOffsetStart != null &&
-      mention.charOffsetEnd != null &&
-      mention.charOffsetEnd <= mention.charOffsetStart
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["charOffsetEnd"],
-        message: "Citation source offset end must be greater than start",
-      });
-    }
-    if (mention.mentionId !== buildCitationOccurrenceId(mention)) {
-      context.addIssue({
-        code: "custom",
-        path: ["mentionId"],
-        message: "mentionId does not match the citation occurrence",
-      });
-    }
-    if (
-      (mention.isBundledCitation && mention.bundleSize < 2) ||
-      (!mention.isBundledCitation && mention.bundleSize !== 1)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["bundleSize"],
-        message: "bundleSize is inconsistent with isBundledCitation",
-      });
-    }
-    if (mention.bundleRefIds.length > mention.bundleSize) {
-      context.addIssue({
-        code: "custom",
-        path: ["bundleRefIds"],
-        message: "bundleRefIds cannot exceed the observed bundle size",
-      });
-    }
-  });
+  .strict();
 export type DiscoverCitationOccurrence = z.infer<
   typeof discoverCitationOccurrenceSchema
 >;
@@ -653,44 +483,7 @@ export const discoverClaimExtractionObservationSchema = z
       modelExecutionSchema,
     ]),
   })
-  .strict()
-  .superRefine((observation, context) => {
-    if (
-      observation.extractionId !==
-      buildClaimExtractionObservationId(observation)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["extractionId"],
-        message: "extractionId does not match the source citation occurrence",
-      });
-    }
-    if (
-      observation.status === "claims_extracted" &&
-      observation.claimRecordIds.length === 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["claimRecordIds"],
-        message: "claims_extracted requires at least one claim record",
-      });
-    }
-    if (
-      observation.status !== "claims_extracted" &&
-      observation.claimRecordIds.length !== 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["claimRecordIds"],
-        message: "Only claims_extracted observations can reference claims",
-      });
-    }
-    addDuplicateIdentifierIssue(
-      observation.claimRecordIds,
-      ["claimRecordIds"],
-      context,
-    );
-  });
+  .strict();
 export type DiscoverClaimExtractionObservation = z.infer<
   typeof discoverClaimExtractionObservationSchema
 >;
@@ -702,25 +495,7 @@ export const discoverClaimSupportSpanSchema = z
     charOffsetEnd: z.number().int().positive(),
     verificationStatus: z.literal("verified_exact"),
   })
-  .strict()
-  .superRefine((span, context) => {
-    if (span.charOffsetEnd <= span.charOffsetStart) {
-      context.addIssue({
-        code: "custom",
-        path: ["charOffsetEnd"],
-        message:
-          "supportSpan charOffsetEnd must be greater than charOffsetStart",
-      });
-    }
-    if (span.charOffsetEnd - span.charOffsetStart !== span.text.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["text"],
-        message:
-          "supportSpan text length must equal charOffsetEnd - charOffsetStart",
-      });
-    }
-  });
+  .strict();
 export type DiscoverClaimSupportSpan = z.infer<
   typeof discoverClaimSupportSpanSchema
 >;
@@ -744,17 +519,7 @@ export const discoverAttributedClaimRecordSchema = z
     confidence: z.enum(["high", "medium", "low"]).optional(),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
   })
-  .strict()
-  .superRefine((record, context) => {
-    if (record.claimRecordId !== buildAttributedClaimRecordId(record)) {
-      context.addIssue({
-        code: "custom",
-        path: ["claimRecordId"],
-        message:
-          "claimRecordId does not match seed, mention, normalized claim, and duplicate ordinal",
-      });
-    }
-  });
+  .strict();
 export type DiscoverAttributedClaimRecord = z.infer<
   typeof discoverAttributedClaimRecordSchema
 >;
@@ -840,41 +605,7 @@ export const discoverClaimEquivalenceSchema = z.discriminatedUnion("method", [
       /** Merge calls that saw a representative of this candidate's clusters. */
       merges: z.array(blockedMergeCallSchema),
     })
-    .strict()
-    .superRefine((equivalence, context) => {
-      const blockIndexes = equivalence.blocks.map((block) => block.blockIndex);
-      blockIndexes.forEach((blockIndex, index) => {
-        if (blockIndex >= equivalence.blockCount) {
-          context.addIssue({
-            code: "custom",
-            path: ["blocks", index, "blockIndex"],
-            message: "Block index is outside the seed's block count",
-          });
-        }
-        if (index > 0 && blockIndex <= blockIndexes[index - 1]!) {
-          context.addIssue({
-            code: "custom",
-            path: ["blocks", index, "blockIndex"],
-            message: "Blocks must be unique and in block order",
-          });
-        }
-      });
-      equivalence.merges.forEach((merge, index) => {
-        const prior = equivalence.merges[index - 1];
-        if (
-          prior &&
-          (merge.round < prior.round ||
-            (merge.round === prior.round &&
-              merge.blockIndex <= prior.blockIndex))
-        ) {
-          context.addIssue({
-            code: "custom",
-            path: ["merges", index],
-            message: "Merges must be unique and in round, then block, order",
-          });
-        }
-      });
-    }),
+    .strict(),
 ]);
 export type DiscoverClaimEquivalence = z.infer<
   typeof discoverClaimEquivalenceSchema
@@ -891,33 +622,7 @@ export const discoverClaimCandidateSchema = z
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
     equivalence: discoverClaimEquivalenceSchema.optional(),
   })
-  .strict()
-  .superRefine((candidate, context) => {
-    if (
-      candidate.candidateId !==
-      buildClaimCandidateId({
-        seedId: candidate.seedId,
-        normalizedClaim: candidate.normalizedClaim,
-        sourceClaimRecordIds: candidate.sourceClaimRecordIds,
-      })
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["candidateId"],
-        message: "candidateId does not match claim text and membership",
-      });
-    }
-    addDuplicateIdentifierIssue(
-      candidate.memberMentionIds,
-      ["memberMentionIds"],
-      context,
-    );
-    addDuplicateIdentifierIssue(
-      candidate.sourceClaimRecordIds,
-      ["sourceClaimRecordIds"],
-      context,
-    );
-  });
+  .strict();
 export type DiscoverClaimCandidate = z.infer<
   typeof discoverClaimCandidateSchema
 >;
@@ -1006,87 +711,33 @@ function validateDiscoverLedger(
   payload: DiscoverArtifactPayload,
   context: z.RefinementCtx,
 ): void {
-  const uniqueCollections: Array<{
-    values: string[];
-    path: string;
-  }> = [
-    { values: payload.seeds.map((seed) => seed.seedId), path: "seeds" },
-    {
-      values: payload.neighborhoodQueries.map((query) => query.neighborhoodId),
-      path: "neighborhoodQueries",
-    },
-    {
-      values: payload.citingPapers.map((paper) => paper.citingPaperRecordId),
-      path: "citingPapers",
-    },
-    {
-      values: payload.citationMentions.map((mention) => mention.mentionId),
-      path: "citationMentions",
-    },
-    {
-      values: payload.claimExtractionObservations.map(
-        (observation) => observation.extractionId,
-      ),
-      path: "claimExtractionObservations",
-    },
-    {
-      values: payload.attributedClaimRecords.map(
-        (record) => record.claimRecordId,
-      ),
-      path: "attributedClaimRecords",
-    },
-    {
-      values: payload.claimCandidates.map((candidate) => candidate.candidateId),
-      path: "claimCandidates",
-    },
-    {
-      values: payload.candidateDispositions.map(
-        (disposition) => disposition.candidateId,
-      ),
-      path: "candidateDispositions",
-    },
-  ];
-  for (const collection of uniqueCollections) {
-    addDuplicateIdentifierIssue(collection.values, [collection.path], context);
-  }
+  addDuplicateIdentifierIssue(
+    payload.citingPapers.map((paper) => paper.citingPaperRecordId),
+    ["citingPapers"],
+    context,
+  );
+  addDuplicateIdentifierIssue(
+    payload.citationMentions.map((mention) => mention.mentionId),
+    ["citationMentions"],
+    context,
+  );
 
-  const seedsById = new Map(payload.seeds.map((seed) => [seed.seedId, seed]));
-  const neighborhoodsById = new Map(
-    payload.neighborhoodQueries.map((query) => [query.neighborhoodId, query]),
-  );
-  const citingPapersById = new Map(
-    payload.citingPapers.map((paper) => [paper.citingPaperRecordId, paper]),
-  );
   const mentionsById = new Map(
     payload.citationMentions.map((mention) => [mention.mentionId, mention]),
-  );
-  const extractionsById = new Map(
-    payload.claimExtractionObservations.map((observation) => [
-      observation.extractionId,
-      observation,
-    ]),
-  );
-  const claimRecordsById = new Map(
-    payload.attributedClaimRecords.map((record) => [
-      record.claimRecordId,
-      record,
-    ]),
-  );
-  const candidatesById = new Map(
-    payload.claimCandidates.map((candidate) => [
-      candidate.candidateId,
-      candidate,
-    ]),
   );
   const dispositionIds = new Set(
     payload.candidateDispositions.map((disposition) => disposition.candidateId),
   );
 
+  const queryCountBySeed = new Map<string, number>();
+  for (const query of payload.neighborhoodQueries) {
+    queryCountBySeed.set(
+      query.seedId,
+      (queryCountBySeed.get(query.seedId) ?? 0) + 1,
+    );
+  }
   for (const seed of payload.seeds) {
-    const queryCount = payload.neighborhoodQueries.filter(
-      (query) => query.seedId === seed.seedId,
-    ).length;
-    if (queryCount !== 1) {
+    if (queryCountBySeed.get(seed.seedId) !== 1) {
       addIssue(
         context,
         ["neighborhoodQueries"],
@@ -1095,29 +746,18 @@ function validateDiscoverLedger(
     }
   }
 
+  const papersByNeighborhood = new Map<string, DiscoverCitingPaperRecord[]>();
+  for (const paper of payload.citingPapers) {
+    const papers = papersByNeighborhood.get(paper.neighborhoodId);
+    if (papers) papers.push(paper);
+    else papersByNeighborhood.set(paper.neighborhoodId, [paper]);
+  }
   payload.neighborhoodQueries.forEach((query, index) => {
-    if (!seedsById.has(query.seedId)) {
-      addIssue(
-        context,
-        ["neighborhoodQueries", index, "seedId"],
-        "Neighborhood query references an unknown seed",
-      );
-    }
-    const returnedPapers = payload.citingPapers.filter(
-      (paper) => paper.neighborhoodId === query.neighborhoodId,
-    );
-    if (returnedPapers.length !== query.returnedCount) {
-      addIssue(
-        context,
-        ["neighborhoodQueries", index, "returnedCount"],
-        "Neighborhood returnedCount does not match its citing-paper ledger",
-      );
-    }
     const observedStrata = new Map<
       string,
       { enumerated: number; frame: number; probed: number; probedFrame: number }
     >();
-    for (const paper of returnedPapers) {
+    for (const paper of papersByNeighborhood.get(query.neighborhoodId) ?? []) {
       const key = probeStratumKeyOf(paper.probe.stratum);
       const bucket = observedStrata.get(key) ?? {
         enumerated: 0,
@@ -1152,296 +792,48 @@ function validateDiscoverLedger(
         "Probe strata do not match the neighborhood's citing-paper probe ledger",
       );
     }
-    const duplicatePosition = findDuplicate(
-      returnedPapers.map((paper) => String(paper.providerPosition)),
-    );
-    if (duplicatePosition) {
-      addIssue(
-        context,
-        ["citingPapers"],
-        `Duplicate provider position in neighborhood ${query.neighborhoodId}: ${duplicatePosition}`,
-      );
-    }
   });
 
-  const mentionCountByCitingPaper = new Map<string, number>();
-  for (const mention of payload.citationMentions) {
-    mentionCountByCitingPaper.set(
-      mention.citingPaperRecordId,
-      (mentionCountByCitingPaper.get(mention.citingPaperRecordId) ?? 0) + 1,
+  const extractionCountByMention = new Map<string, number>();
+  for (const observation of payload.claimExtractionObservations) {
+    extractionCountByMention.set(
+      observation.mentionId,
+      (extractionCountByMention.get(observation.mentionId) ?? 0) + 1,
     );
   }
-  payload.citingPapers.forEach((paper, index) => {
-    const neighborhood = neighborhoodsById.get(paper.neighborhoodId);
-    if (!seedsById.has(paper.seedId)) {
-      addIssue(
-        context,
-        ["citingPapers", index, "seedId"],
-        "Citing-paper observation references an unknown seed",
-      );
-    }
-    if (!neighborhood) {
-      addIssue(
-        context,
-        ["citingPapers", index, "neighborhoodId"],
-        "Citing-paper observation references an unknown neighborhood",
-      );
-    } else if (
-      neighborhood.seedId !== paper.seedId ||
-      neighborhood.provider !== paper.provider
-    ) {
-      addIssue(
-        context,
-        ["citingPapers", index, "neighborhoodId"],
-        "Citing paper and neighborhood have inconsistent seed/provider identity",
-      );
-    }
-    const observedMentionCount =
-      mentionCountByCitingPaper.get(paper.citingPaperRecordId) ?? 0;
-    if (observedMentionCount !== paper.harvest.observedMentionCount) {
-      addIssue(
-        context,
-        ["citingPapers", index, "harvest", "observedMentionCount"],
-        "Harvest mention count does not match citation occurrence records",
-      );
-    }
-    if (paper.harvest.status === "succeeded" && observedMentionCount === 0) {
-      addIssue(
-        context,
-        ["citingPapers", index, "harvest", "status"],
-        "A successful harvest must preserve at least one occurrence",
-      );
-    }
-  });
-
-  payload.citationMentions.forEach((mention, index) => {
-    const seed = seedsById.get(mention.seedId);
-    const citingPaper = citingPapersById.get(mention.citingPaperRecordId);
-    if (!seed) {
-      addIssue(
-        context,
-        ["citationMentions", index, "seedId"],
-        "Citation occurrence references an unknown seed",
-      );
-    }
-    if (!citingPaper) {
-      addIssue(
-        context,
-        ["citationMentions", index, "citingPaperRecordId"],
-        "Citation occurrence references an unknown citing-paper observation",
-      );
-    } else if (
-      citingPaper.seedId !== mention.seedId ||
-      citingPaper.paper.paperId !== mention.citingPaperId
-    ) {
-      addIssue(
-        context,
-        ["citationMentions", index, "citingPaperRecordId"],
-        "Citation occurrence and citing-paper observation are inconsistent",
-      );
-    }
-    if (
-      seed?.resolution.status === "resolved" &&
-      seed.resolution.paper.paperId !== mention.citedPaperId
-    ) {
-      addIssue(
-        context,
-        ["citationMentions", index, "citedPaperId"],
-        "Citation occurrence does not reference its resolved seed paper",
-      );
-    }
-    const extractionCount = payload.claimExtractionObservations.filter(
-      (observation) => observation.mentionId === mention.mentionId,
-    ).length;
-    if (extractionCount !== 1) {
+  for (const mention of payload.citationMentions) {
+    if (extractionCountByMention.get(mention.mentionId) !== 1) {
       addIssue(
         context,
         ["claimExtractionObservations"],
         `Citation occurrence must have exactly one extraction outcome: ${mention.mentionId}`,
       );
     }
-  });
-
-  payload.claimExtractionObservations.forEach((observation, index) => {
-    const mention = mentionsById.get(observation.mentionId);
-    if (!mention) {
-      addIssue(
-        context,
-        ["claimExtractionObservations", index, "mentionId"],
-        "Extraction observation references an unknown mention",
-      );
-    } else if (mention.seedId !== observation.seedId) {
-      addIssue(
-        context,
-        ["claimExtractionObservations", index, "mentionId"],
-        "Extraction observation and mention belong to different seeds",
-      );
-    }
-    for (const claimRecordId of observation.claimRecordIds) {
-      const record = claimRecordsById.get(claimRecordId);
-      if (!record) {
-        addIssue(
-          context,
-          ["claimExtractionObservations", index, "claimRecordIds"],
-          `Extraction references an unknown claim record: ${claimRecordId}`,
-        );
-      } else if (
-        record.extractionId !== observation.extractionId ||
-        record.mentionId !== observation.mentionId ||
-        record.seedId !== observation.seedId
-      ) {
-        addIssue(
-          context,
-          ["claimExtractionObservations", index, "claimRecordIds"],
-          `Extraction and claim record are inconsistent: ${claimRecordId}`,
-        );
-      }
-    }
-  });
-
-  const claimRecordsByExtraction = new Map<
-    string,
-    DiscoverAttributedClaimRecord[]
-  >();
-  payload.attributedClaimRecords.forEach((record, index) => {
-    const mention = mentionsById.get(record.mentionId);
-    const extraction = extractionsById.get(record.extractionId);
-    const extractionRecords =
-      claimRecordsByExtraction.get(record.extractionId) ?? [];
-    extractionRecords.push(record);
-    claimRecordsByExtraction.set(record.extractionId, extractionRecords);
-    if (!mention) {
-      addIssue(
-        context,
-        ["attributedClaimRecords", index, "mentionId"],
-        "Attributed claim record references an unknown mention",
-      );
-    } else if (mention.seedId !== record.seedId) {
-      addIssue(
-        context,
-        ["attributedClaimRecords", index, "mentionId"],
-        "Attributed claim record and mention belong to different seeds",
-      );
-    } else if (record.supportSpan) {
-      const slice = mention.rawContext.slice(
-        record.supportSpan.charOffsetStart,
-        record.supportSpan.charOffsetEnd,
-      );
-      if (slice !== record.supportSpan.text) {
-        addIssue(
-          context,
-          ["attributedClaimRecords", index, "supportSpan"],
-          "supportSpan text must exactly equal the occurrence rawContext slice at the stored offsets",
-        );
-      }
-    }
-    if (!extraction?.claimRecordIds.includes(record.claimRecordId)) {
-      addIssue(
-        context,
-        ["attributedClaimRecords", index, "extractionId"],
-        "Attributed claim record is not owned by its extraction observation",
-      );
-    }
-  });
-  for (const [extractionId, records] of claimRecordsByExtraction) {
-    const sourceIndexes = records
-      .map((record) => record.sourceClaimIndex)
-      .sort((left, right) => left - right);
-    if (sourceIndexes.some((sourceIndex, index) => sourceIndex !== index)) {
-      addIssue(
-        context,
-        ["attributedClaimRecords"],
-        `Source claim indexes must be unique and contiguous within extraction: ${extractionId}`,
-      );
-    }
-
-    const recordsByNormalizedClaim = new Map<
-      string,
-      DiscoverAttributedClaimRecord[]
-    >();
-    for (const record of records) {
-      const normalizedClaim = normalizeDiscoverClaimText(
-        record.extractedClaimText,
-      );
-      const duplicateGroup =
-        recordsByNormalizedClaim.get(normalizedClaim) ?? [];
-      duplicateGroup.push(record);
-      recordsByNormalizedClaim.set(normalizedClaim, duplicateGroup);
-    }
-    for (const [normalizedClaim, duplicateGroup] of recordsByNormalizedClaim) {
-      const ordinals = duplicateGroup
-        .map((record) => record.duplicateOrdinal)
-        .sort((left, right) => left - right);
-      if (ordinals.some((ordinal, index) => ordinal !== index)) {
-        addIssue(
-          context,
-          ["attributedClaimRecords"],
-          `Duplicate ordinals must be unique and contiguous for extraction ${extractionId} and claim ${normalizedClaim}`,
-        );
-      }
-    }
   }
 
-  const claimCandidateMembershipCount = new Map<string, number>();
-  payload.claimCandidates.forEach((candidate, index) => {
-    if (!seedsById.has(candidate.seedId)) {
+  payload.attributedClaimRecords.forEach((record, index) => {
+    const mention = mentionsById.get(record.mentionId);
+    if (!mention || !record.supportSpan) return;
+    const slice = mention.rawContext.slice(
+      record.supportSpan.charOffsetStart,
+      record.supportSpan.charOffsetEnd,
+    );
+    if (slice !== record.supportSpan.text) {
       addIssue(
         context,
-        ["claimCandidates", index, "seedId"],
-        "Claim candidate references an unknown seed",
+        ["attributedClaimRecords", index, "supportSpan"],
+        "supportSpan text must exactly equal the occurrence rawContext slice at the stored offsets",
       );
     }
-    const expectedMentionIds = new Set<string>();
+  });
+
+  const claimCandidateMembershipCount = new Map<string, number>();
+  for (const candidate of payload.claimCandidates) {
     for (const claimRecordId of candidate.sourceClaimRecordIds) {
-      const claimRecord = claimRecordsById.get(claimRecordId);
       claimCandidateMembershipCount.set(
         claimRecordId,
         (claimCandidateMembershipCount.get(claimRecordId) ?? 0) + 1,
       );
-      if (!claimRecord) {
-        addIssue(
-          context,
-          ["claimCandidates", index, "sourceClaimRecordIds"],
-          `Claim candidate references unknown attributed claim record: ${claimRecordId}`,
-        );
-      } else if (claimRecord.seedId !== candidate.seedId) {
-        addIssue(
-          context,
-          ["claimCandidates", index, "sourceClaimRecordIds"],
-          `Claim candidate source record belongs to another seed: ${claimRecordId}`,
-        );
-      } else {
-        expectedMentionIds.add(claimRecord.mentionId);
-      }
-    }
-    const actualMentionIds = new Set(candidate.memberMentionIds);
-    if (
-      expectedMentionIds.size !== actualMentionIds.size ||
-      [...expectedMentionIds].some(
-        (mentionId) => !actualMentionIds.has(mentionId),
-      )
-    ) {
-      addIssue(
-        context,
-        ["claimCandidates", index, "memberMentionIds"],
-        "Candidate mention membership must exactly cover its source claim records",
-      );
-    }
-    for (const mentionId of candidate.memberMentionIds) {
-      const mention = mentionsById.get(mentionId);
-      if (!mention) {
-        addIssue(
-          context,
-          ["claimCandidates", index, "memberMentionIds"],
-          `Claim candidate references unknown mention: ${mentionId}`,
-        );
-      } else if (mention.seedId !== candidate.seedId) {
-        addIssue(
-          context,
-          ["claimCandidates", index, "memberMentionIds"],
-          `Claim candidate mention belongs to another seed: ${mentionId}`,
-        );
-      }
     }
     if (!dispositionIds.has(candidate.candidateId)) {
       addIssue(
@@ -1450,7 +842,7 @@ function validateDiscoverLedger(
         `Missing disposition for candidate: ${candidate.candidateId}`,
       );
     }
-  });
+  }
 
   for (const record of payload.attributedClaimRecords) {
     if (claimCandidateMembershipCount.get(record.claimRecordId) !== 1) {
@@ -1458,32 +850,6 @@ function validateDiscoverLedger(
         context,
         ["claimCandidates"],
         `Attributed claim record must belong to exactly one candidate: ${record.claimRecordId}`,
-      );
-    }
-  }
-
-  const ranksBySeed = new Map<string, number[]>();
-  payload.candidateDispositions.forEach((disposition, index) => {
-    const candidate = candidatesById.get(disposition.candidateId);
-    if (!candidate) {
-      addIssue(
-        context,
-        ["candidateDispositions", index, "candidateId"],
-        "Disposition references an unknown claim candidate",
-      );
-      return;
-    }
-    const ranks = ranksBySeed.get(candidate.seedId) ?? [];
-    ranks.push(disposition.rank);
-    ranksBySeed.set(candidate.seedId, ranks);
-  });
-  for (const [seedId, ranks] of ranksBySeed) {
-    const sortedRanks = [...ranks].sort((left, right) => left - right);
-    if (sortedRanks.some((rank, index) => rank !== index + 1)) {
-      addIssue(
-        context,
-        ["candidateDispositions"],
-        `Candidate ranks must be unique and contiguous within seed: ${seedId}`,
       );
     }
   }

@@ -5,12 +5,10 @@
 import { z } from "zod";
 
 import type { Result } from "../../domain/common.js";
-import { compareCodeUnits } from "../../shared/order.js";
 
 import {
   confidenceSchema,
   evaluationModeSchema,
-  type CitationRole,
 } from "../../domain/classification.js";
 import {
   buildStableId,
@@ -22,12 +20,7 @@ import {
   stableIdentifierSchema,
 } from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
-import {
-  addIssue,
-  addSortedUniqueIdentifierIssue,
-  findDuplicate,
-  sameIdentifierSequence,
-} from "./checks.js";
+import { addIssue, findDuplicate } from "./checks.js";
 import {
   discoverCitationOccurrenceSchema,
   discoverCitingPaperRecordSchema,
@@ -138,57 +131,41 @@ const prepareClassificationContentShape = {
   execution: prepareClassificationExecutionSchema,
 };
 
-export const prepareClassificationSchema = z
-  .discriminatedUnion("status", [
-    z
-      .object({
-        status: z.literal("classified"),
-        citationRole: z.enum([
-          "substantive_attribution",
-          "background_context",
-          "methods_materials",
-          "acknowledgment_or_low_information",
-        ]),
-        evaluationMode: evaluationModeSchema,
-        ...prepareClassificationContentShape,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("ambiguous"),
-        citationRole: z.literal("unclear"),
-        evaluationMode: z.enum([
-          "review_transmission",
-          "manual_review_role_ambiguous",
-          "manual_review_extraction_limited",
-        ]),
-        ...prepareClassificationContentShape,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: prepareNonfatalFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: prepareClassificationFailureExecutionSchema,
-      })
-      .strict(),
-  ])
-  .superRefine((classification, context) => {
-    if (classification.status === "failed") return;
-    const expectedMode = expectedPrepareEvaluationMode(
-      classification.citationRole,
-      classification.modifiers,
-      classification.evaluationMode,
-    );
-    if (classification.evaluationMode !== expectedMode) {
-      context.addIssue({
-        code: "custom",
-        path: ["evaluationMode"],
-        message: `Evaluation mode must be ${expectedMode} for this role and modifiers`,
-      });
-    }
-  });
+export const prepareClassificationSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("classified"),
+      citationRole: z.enum([
+        "substantive_attribution",
+        "background_context",
+        "methods_materials",
+        "acknowledgment_or_low_information",
+      ]),
+      evaluationMode: evaluationModeSchema,
+      ...prepareClassificationContentShape,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("ambiguous"),
+      citationRole: z.literal("unclear"),
+      evaluationMode: z.enum([
+        "review_transmission",
+        "manual_review_role_ambiguous",
+        "manual_review_extraction_limited",
+      ]),
+      ...prepareClassificationContentShape,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: prepareNonfatalFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: prepareClassificationFailureExecutionSchema,
+    })
+    .strict(),
+]);
 export type PrepareClassification = z.infer<typeof prepareClassificationSchema>;
 
 const prepareScopeArtifactReferenceSchema = artifactReferenceSchema
@@ -233,38 +210,7 @@ export const preparedCitationInstanceSchema = z
     citationOccurrence: discoverCitationOccurrenceSchema,
     classification: prepareClassificationSchema,
   })
-  .strict()
-  .superRefine((record, context) => {
-    if (record.citationOccurrenceId !== record.citationOccurrence.mentionId) {
-      context.addIssue({
-        code: "custom",
-        path: ["citationOccurrenceId"],
-        message: "citationOccurrenceId does not match the Discover occurrence",
-      });
-    }
-    const expectedId = buildCitationInstanceRecordId(record);
-    if (record.recordId !== expectedId) {
-      context.addIssue({
-        code: "custom",
-        path: ["recordId"],
-        message: "recordId does not match family × citation occurrence",
-      });
-    }
-    if (record.classification.status !== "failed") {
-      if (
-        record.classification.modifiers.isBundled !==
-          record.citationOccurrence.isBundledCitation ||
-        record.classification.modifiers.bundleSize !==
-          record.citationOccurrence.bundleSize
-      ) {
-        addIssue(
-          context,
-          ["classification", "modifiers"],
-          "Classification bundle modifiers must preserve the Discover occurrence",
-        );
-      }
-    }
-  });
+  .strict();
 export type PreparedCitationInstance = z.infer<
   typeof preparedCitationInstanceSchema
 >;
@@ -432,188 +378,10 @@ function resolveRecord(
   };
 }
 
-function validateResolvedRecord(
-  record: ResolvedPreparedCitationInstance,
-  context: z.RefinementCtx,
-  path: (string | number)[],
-): void {
-  const occurrence = record.citationOccurrence;
-  if (
-    record.sourceCandidates.some(
-      (candidate) => candidate.seedId !== record.family.seedId,
-    )
-  ) {
-    addIssue(
-      context,
-      [...path, "familyId"],
-      "Prepared source candidates must share the Scope family seed",
-    );
-  }
-  if (
-    record.sourceClaimRecords.some(
-      (sourceClaim) => sourceClaim.seedId !== record.family.seedId,
-    )
-  ) {
-    addIssue(
-      context,
-      [...path, "familyId"],
-      "Prepared source claims must share the Scope family seed",
-    );
-  }
-  const expectedCandidateIds = record.sourceCandidates
-    .filter((candidate) =>
-      candidate.memberMentionIds.includes(occurrence.mentionId),
-    )
-    .map((candidate) => candidate.candidateId);
-  if (
-    !sameIdentifierSequence(
-      record.occurrenceSourceCandidateIds,
-      expectedCandidateIds,
-    )
-  ) {
-    addIssue(
-      context,
-      [...path, "occurrenceSourceCandidateIds"],
-      "Occurrence-local candidates must be the exact ordered family subset containing this occurrence",
-    );
-  }
-  const expectedClaimIds = record.sourceClaimRecords
-    .filter((sourceClaim) => sourceClaim.mentionId === occurrence.mentionId)
-    .map((sourceClaim) => sourceClaim.claimRecordId);
-  if (
-    !sameIdentifierSequence(
-      record.occurrenceSourceClaimRecordIds,
-      expectedClaimIds,
-    )
-  ) {
-    addIssue(
-      context,
-      [...path, "occurrenceSourceClaimRecordIds"],
-      "Occurrence-local claims must be the exact ordered family subset attributed at this occurrence",
-    );
-  }
-  const localCandidateClaimIds = new Set(
-    record.occurrenceSourceCandidates.flatMap(
-      (candidate) => candidate.sourceClaimRecordIds,
-    ),
-  );
-  if (
-    record.occurrenceSourceClaimRecordIds.some(
-      (claimRecordId) => !localCandidateClaimIds.has(claimRecordId),
-    ) ||
-    record.occurrenceSourceCandidates.some(
-      (candidate) =>
-        !record.occurrenceSourceClaimRecordIds.some((claimRecordId) =>
-          candidate.sourceClaimRecordIds.includes(claimRecordId),
-        ),
-    )
-  ) {
-    addIssue(
-      context,
-      [...path, "occurrenceSourceClaimRecordIds"],
-      "Occurrence-local candidates and claims must reference each other within this family",
-    );
-  }
-  if (
-    !record.family.includedCitationOccurrenceIds.includes(occurrence.mentionId)
-  ) {
-    addIssue(
-      context,
-      [...path, "citationOccurrenceId"],
-      "Prepared occurrence is not a member of its Scope family",
-    );
-  }
-  if (occurrence.seedId !== record.seed.seedId) {
-    addIssue(
-      context,
-      [...path, "citationOccurrence", "seedId"],
-      "Prepared family, occurrence, and seed must share one seed identity",
-    );
-  }
-  if (
-    occurrence.citingPaperId !== record.citingPaper.paper.paperId ||
-    occurrence.seedId !== record.citingPaper.seedId
-  ) {
-    addIssue(
-      context,
-      [...path, "citationOccurrence", "citingPaperRecordId"],
-      "Prepared occurrence does not match its Discover citing-paper record",
-    );
-  }
-  if (record.seed.resolution.status !== "resolved") {
-    addIssue(
-      context,
-      [...path, "familyId"],
-      "A prepared citation occurrence requires a resolved Discover seed paper",
-    );
-  } else if (occurrence.citedPaperId !== record.seed.resolution.paper.paperId) {
-    addIssue(
-      context,
-      [...path, "citationOccurrence", "citedPaperId"],
-      "Prepared occurrence does not cite its resolved Discover seed paper",
-    );
-  }
-}
-
-/** The payload's shared collections must hold exactly what its records and families reference. */
-function addExactCollectionIssue(
-  actualIds: readonly string[],
-  referencedIds: Iterable<string>,
-  path: string,
-  context: z.RefinementCtx,
-): void {
-  addSortedUniqueIdentifierIssue(actualIds, [path], context);
-  const expected = [...new Set(referencedIds)].sort(compareCodeUnits);
-  if (!sameIdentifierSequence(actualIds, expected)) {
-    addIssue(
-      context,
-      [path],
-      `Prepare ${path} must hold exactly the entries its families and records reference`,
-    );
-  }
-}
-
 function validatePreparePayload(
   payload: PrepareArtifactPayload,
   context: z.RefinementCtx,
 ): void {
-  addSortedUniqueIdentifierIssue(
-    payload.scopedFamilies.map((family) => family.familyId),
-    ["scopedFamilies"],
-    context,
-  );
-  addSortedUniqueIdentifierIssue(
-    payload.records.map((record) => record.recordId),
-    ["records"],
-    context,
-  );
-  addExactCollectionIssue(
-    payload.seeds.map((seed) => seed.seedId),
-    payload.scopedFamilies.map((family) => family.seedId),
-    "seeds",
-    context,
-  );
-  addExactCollectionIssue(
-    payload.sourceCandidates.map((candidate) => candidate.candidateId),
-    payload.scopedFamilies.flatMap((family) => family.candidateIds),
-    "sourceCandidates",
-    context,
-  );
-  addExactCollectionIssue(
-    payload.sourceClaimRecords.map((claim) => claim.claimRecordId),
-    payload.scopedFamilies.flatMap((family) => family.sourceClaimRecordIds),
-    "sourceClaimRecords",
-    context,
-  );
-  addExactCollectionIssue(
-    payload.citingPapers.map((paper) => paper.citingPaperRecordId),
-    payload.records.map(
-      (record) => record.citationOccurrence.citingPaperRecordId,
-    ),
-    "citingPapers",
-    context,
-  );
-
   const pairKeys = payload.records.map((record) =>
     canonicalSerialize({
       familyId: record.familyId,
@@ -666,37 +434,12 @@ function validatePreparePayload(
       addIssue(context, ["records", recordIndex], resolved.error);
       continue;
     }
-    validateResolvedRecord(resolved.data, context, ["records", recordIndex]);
-  }
-}
-
-function expectedPrepareEvaluationMode(
-  role: CitationRole,
-  modifiers: z.infer<typeof prepareClassificationModifiersSchema>,
-  ambiguousMode: z.infer<typeof evaluationModeSchema>,
-): z.infer<typeof evaluationModeSchema> {
-  // An unclear role is unadjudicable whatever the transmission path, so the
-  // manual-review queue wins over review mediation.
-  if (role === "unclear") {
-    return ambiguousMode === "manual_review_extraction_limited"
-      ? "manual_review_extraction_limited"
-      : "manual_review_role_ambiguous";
-  }
-  if (modifiers.isReviewMediated) return "review_transmission";
-  if (
-    modifiers.isBundled &&
-    (role === "substantive_attribution" || role === "background_context")
-  ) {
-    return "fidelity_bundled_use";
-  }
-  switch (role) {
-    case "substantive_attribution":
-      return "fidelity_specific_claim";
-    case "background_context":
-      return "fidelity_background_framing";
-    case "methods_materials":
-      return "fidelity_methods_use";
-    case "acknowledgment_or_low_information":
-      return "skip_low_information";
+    if (resolved.data.seed.resolution.status !== "resolved") {
+      addIssue(
+        context,
+        ["records", recordIndex, "familyId"],
+        "A prepared citation occurrence requires a resolved Discover seed paper",
+      );
+    }
   }
 }

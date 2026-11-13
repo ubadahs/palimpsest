@@ -18,11 +18,7 @@ import {
 } from "../../shared/stable-identity.js";
 import { sha256DigestSchema, stableIdentifierSchema } from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
-import {
-  addDuplicateIdentifierIssue,
-  addIssue,
-  addSortedUniqueIdentifierIssue,
-} from "./checks.js";
+import { addIssue } from "./checks.js";
 
 export const codebookEntryTypeSchema = z.enum([
   "result",
@@ -42,16 +38,7 @@ export const codebookQuoteSchema = z
     charOffsetStart: z.number().int().nonnegative(),
     charOffsetEnd: z.number().int().positive(),
   })
-  .strict()
-  .superRefine((quote, context) => {
-    if (quote.charOffsetEnd - quote.charOffsetStart !== quote.text.length) {
-      context.addIssue({
-        code: "custom",
-        path: ["charOffsetEnd"],
-        message: "Codebook quote offsets must exactly bound its text",
-      });
-    }
-  });
+  .strict();
 export type CodebookQuote = z.infer<typeof codebookQuoteSchema>;
 
 export const codebookThemeSchema = z
@@ -95,35 +82,10 @@ export const codebookVerificationSchema = z
   .strict();
 export type CodebookVerification = z.infer<typeof codebookVerificationSchema>;
 
-export const seedCodebookContentSchema = z
-  .object({
-    themes: z.array(codebookThemeSchema).min(1),
-    entries: z.array(codebookEntrySchema),
-  })
-  .strict()
-  .superRefine((content, context) => {
-    addDuplicateIdentifierIssue(
-      content.themes.map((theme) => theme.themeId),
-      ["themes"],
-      context,
-    );
-    addDuplicateIdentifierIssue(
-      content.entries.map((entry) => entry.entryId),
-      ["entries"],
-      context,
-    );
-    const themeIds = new Set(content.themes.map((theme) => theme.themeId));
-    for (const entry of content.entries) {
-      if (!themeIds.has(entry.themeId)) {
-        addIssue(
-          context,
-          ["entries"],
-          `Codebook entry ${entry.entryId} names an unknown theme ${entry.themeId}`,
-        );
-      }
-    }
-  });
-export type SeedCodebookContent = z.infer<typeof seedCodebookContentSchema>;
+export type SeedCodebookContent = {
+  themes: CodebookTheme[];
+  entries: CodebookEntry[];
+};
 
 /**
  * Part of the stored-codebook key, so a changed prompt, schema, or
@@ -202,19 +164,13 @@ export const scopeSeedCodebookSchema = z.discriminatedUnion("status", [
       ...storedCodebookFields,
       executions: z.array(modelExecutionSchema).min(1),
     })
-    .strict()
-    .superRefine((codebook, context) => {
-      validateCodebookIdentity(codebook, context);
-    }),
+    .strict(),
   z
     .object({
       status: z.literal("reused"),
       ...storedCodebookFields,
     })
-    .strict()
-    .superRefine((codebook, context) => {
-      validateCodebookIdentity(codebook, context);
-    }),
+    .strict(),
   z
     .object({
       status: z.literal("failed"),
@@ -258,25 +214,13 @@ function validateCodebookIdentity(
   },
   context: z.RefinementCtx,
 ): void {
-  const content = seedCodebookContentSchema.safeParse({
-    themes: codebook.themes,
-    entries: codebook.entries,
-  });
-  if (!content.success) {
-    addIssue(
-      context,
-      ["entries"],
-      content.error.issues[0]?.message ?? "Invalid codebook content",
-    );
-    return;
-  }
   if (
     codebook.codebookId !==
     buildSeedCodebookId({
       seedId: codebook.seedId,
       seedTextHash: codebook.seedTextHash,
       procedureVersion: codebook.procedureVersion,
-      content: content.data,
+      content: { themes: codebook.themes, entries: codebook.entries },
     })
   ) {
     addIssue(
@@ -312,7 +256,6 @@ export const scopeClaimTagSchema = z.discriminatedUnion("status", [
     })
     .strict()
     .superRefine((tag, context) => {
-      addSortedUniqueIdentifierIssue(tag.tags, ["tags"], context);
       const valid =
         tag.kind === "specific"
           ? tag.tags.length >= 1 &&

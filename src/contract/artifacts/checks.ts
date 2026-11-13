@@ -61,21 +61,6 @@ export function addDuplicateIdentifierIssue(
   }
 }
 
-export function addSortedUniqueIdentifierIssue(
-  values: readonly string[],
-  path: (string | number)[],
-  context: z.RefinementCtx,
-): void {
-  addDuplicateIdentifierIssue(values, path, context);
-  if (!sameIdentifierSequence(values, [...values].sort(compareCodeUnits))) {
-    context.addIssue({
-      code: "custom",
-      path,
-      message: "Stable identifier references must be sorted deterministically",
-    });
-  }
-}
-
 export function sameIdentifierSequence(
   left: readonly string[],
   right: readonly string[],
@@ -83,15 +68,6 @@ export function sameIdentifierSequence(
   return (
     left.length === right.length &&
     left.every((value, index) => value === right[index])
-  );
-}
-
-export function hasArtifactReference(
-  references: readonly ArtifactReference[],
-  expected: ArtifactReference,
-): boolean {
-  return references.some((reference) =>
-    sameArtifactReference(reference, expected),
   );
 }
 

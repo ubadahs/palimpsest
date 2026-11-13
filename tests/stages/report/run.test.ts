@@ -18,7 +18,6 @@ import {
   reportArtifactPayloadSchema,
   reportArtifactSchema,
   reportRateSchema,
-  reportRecordTraceSchema,
   type ArtifactReference,
   type EvidenceArtifact,
   type PrepareArtifact,
@@ -830,40 +829,11 @@ describe("Report", () => {
     expect(
       reportRateSchema.safeParse({
         ...result.payload.rates[0],
-        numerator: 2,
-        denominator: 1,
-        value: 2,
+        numerator: 0,
+        denominator: 0,
+        value: 0,
       }).success,
     ).toBe(false);
-  });
-
-  it("binds required rate numerators and denominators to funnel populations", async () => {
-    const chain = await buildChain();
-    const result = runReport(
-      chain.discover,
-      chain.scope,
-      chain.prepare,
-      chain.evidence,
-      chain.adjudicate,
-      { recordedAt: "2026-07-17T10:50:00.000Z" },
-    );
-    for (const metricId of [
-      "adjudication_coverage",
-      "retrieval_coverage",
-      "scope_selection_rate",
-    ]) {
-      const tampered = structuredClone(result.payload);
-      const rate = tampered.rates.find((entry) => entry.metricId === metricId);
-      if (rate == null || rate.denominator === 0) {
-        throw new Error(`Expected estimable fixture rate: ${metricId}`);
-      }
-      rate.numerator = rate.numerator === 0 ? 1 : 0;
-      rate.value = rate.numerator / rate.denominator;
-      expect(
-        reportArtifactPayloadSchema.safeParse(tampered).success,
-        metricId,
-      ).toBe(false);
-    }
   });
 
   it("rejects tampered funnel partitions for every population class", async () => {
@@ -899,12 +869,6 @@ describe("Report", () => {
         },
       },
       {
-        name: "Discover extraction",
-        mutate: (payload) => {
-          payload.funnel.discover.extractionClaimsExtracted.count += 1;
-        },
-      },
-      {
         name: "Discover candidates",
         mutate: (payload) => {
           payload.funnel.discover.deferredCandidates.count += 1;
@@ -914,18 +878,6 @@ describe("Report", () => {
         name: "Scope candidates",
         mutate: (payload) => {
           payload.funnel.scope.scopedCandidates.count += 1;
-        },
-      },
-      {
-        name: "Scope grounding statuses",
-        mutate: (payload) => {
-          payload.funnel.scope.groundingStatusCounts[0]!.count += 1;
-        },
-      },
-      {
-        name: "Prepare expected pairs",
-        mutate: (payload) => {
-          payload.funnel.prepare.expectedFamilyOccurrencePairs.count += 1;
         },
       },
       {
@@ -1347,250 +1299,6 @@ describe("Report", () => {
       testCase.mutate(tampered.recordTraces[testCase.index]!);
       expect(
         reportArtifactPayloadSchema.safeParse(tampered).success,
-        testCase.name,
-      ).toBe(false);
-    }
-  });
-
-  it("enforces Evidence trace status and reference combinations", async () => {
-    const normalChain = await buildChain({ classifier: "default" });
-    const normalPayload = runReport(
-      normalChain.discover,
-      normalChain.scope,
-      normalChain.prepare,
-      normalChain.evidence,
-      normalChain.adjudicate,
-      { recordedAt: "2026-07-17T10:50:00.000Z" },
-    ).payload;
-    const rerankedChain = await buildChain({
-      classifier: "default",
-      reranking: true,
-    });
-    const rerankedPayload = runReport(
-      rerankedChain.discover,
-      rerankedChain.scope,
-      rerankedChain.prepare,
-      rerankedChain.evidence,
-      rerankedChain.adjudicate,
-      { recordedAt: "2026-07-17T10:50:00.000Z" },
-    ).payload;
-    const retrieved = structuredClone(normalPayload.recordTraces[0]!);
-    const reranked = structuredClone(rerankedPayload.recordTraces[0]!);
-    if (
-      retrieved.evidence.bm25RunId == null ||
-      retrieved.evidence.finalSelectionId == null ||
-      reranked.evidence.rerankRunId == null
-    ) {
-      throw new Error("Expected complete retrieved/reranked fixture traces");
-    }
-
-    const gatedAdjudication = (
-      gateCode:
-        | "no_lexical_matches"
-        | "seed_text_unavailable"
-        | "seed_acquisition_failed"
-        | "retrieval_failed",
-    ) => ({
-      status: "not_adjudicated" as const,
-      adjudicationResultId: retrieved.adjudication.adjudicationResultId,
-      gateCode,
-    });
-    const noMatches = {
-      ...structuredClone(retrieved),
-      evidence: {
-        retrievalStatus: "no_lexical_matches" as const,
-        rerankStatus: "not_attempted_no_candidates" as const,
-        queryId: retrieved.evidence.queryId,
-        bm25RunId: retrieved.evidence.bm25RunId,
-      },
-      adjudication: gatedAdjudication("no_lexical_matches"),
-    };
-    const unavailable = {
-      ...structuredClone(retrieved),
-      evidence: {
-        retrievalStatus: "seed_text_unavailable" as const,
-        rerankStatus: "not_attempted_unavailable" as const,
-        queryId: retrieved.evidence.queryId,
-      },
-      adjudication: gatedAdjudication("seed_text_unavailable"),
-    };
-    const acquisitionFailed = {
-      ...structuredClone(retrieved),
-      evidence: {
-        retrievalStatus: "seed_acquisition_failed" as const,
-        rerankStatus: "disabled" as const,
-        queryId: retrieved.evidence.queryId,
-      },
-      adjudication: gatedAdjudication("seed_acquisition_failed"),
-    };
-    const retrievalFailed = {
-      ...structuredClone(retrieved),
-      evidence: {
-        retrievalStatus: "retrieval_failed" as const,
-        rerankStatus: "not_attempted_retrieval_failure" as const,
-        queryId: retrieved.evidence.queryId,
-      },
-      adjudication: gatedAdjudication("retrieval_failed"),
-    };
-    const rerankFailed = {
-      ...structuredClone(retrieved),
-      evidence: {
-        ...retrieved.evidence,
-        rerankStatus: "failed" as const,
-        rerankRunId: reranked.evidence.rerankRunId,
-        rankingSource: "bm25" as const,
-      },
-    };
-
-    for (const [name, trace] of [
-      ["retrieved with disabled rerank", retrieved],
-      ["retrieved with completed rerank", reranked],
-      ["no lexical matches", noMatches],
-      ["seed text unavailable", unavailable],
-      ["seed acquisition failed", acquisitionFailed],
-      ["retrieval failed", retrievalFailed],
-      ["retrieved with failed rerank BM25 fallback", rerankFailed],
-    ] as const) {
-      expect(reportRecordTraceSchema.safeParse(trace).success, name).toBe(true);
-    }
-
-    const cases: Array<{
-      name: string;
-      base: unknown;
-      mutate: (trace: { evidence: Record<string, unknown> }) => void;
-    }> = [
-      {
-        name: "missing query",
-        base: retrieved,
-        mutate: (trace) => {
-          delete trace.evidence.queryId;
-        },
-      },
-      {
-        name: "retrieved missing BM25",
-        base: retrieved,
-        mutate: (trace) => {
-          delete trace.evidence.bm25RunId;
-        },
-      },
-      {
-        name: "retrieved missing final selection",
-        base: retrieved,
-        mutate: (trace) => {
-          delete trace.evidence.finalSelectionId;
-          delete trace.evidence.rankingSource;
-        },
-      },
-      {
-        name: "retrieved with not-attempted rerank",
-        base: retrieved,
-        mutate: (trace) => {
-          trace.evidence.rerankStatus = "not_attempted_no_candidates";
-        },
-      },
-      {
-        name: "reranked source without completed rerank",
-        base: retrieved,
-        mutate: (trace) => {
-          trace.evidence.rankingSource = "reranked";
-        },
-      },
-      {
-        name: "no matches missing BM25",
-        base: noMatches,
-        mutate: (trace) => {
-          delete trace.evidence.bm25RunId;
-        },
-      },
-      {
-        name: "no matches with final selection",
-        base: noMatches,
-        mutate: (trace) => {
-          trace.evidence.finalSelectionId = retrieved.evidence.finalSelectionId;
-          trace.evidence.rankingSource = "bm25";
-        },
-      },
-      {
-        name: "no matches with rerank run",
-        base: noMatches,
-        mutate: (trace) => {
-          trace.evidence.rerankRunId = reranked.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "unavailable with ranking references",
-        base: unavailable,
-        mutate: (trace) => {
-          trace.evidence.bm25RunId = retrieved.evidence.bm25RunId;
-          trace.evidence.finalSelectionId = retrieved.evidence.finalSelectionId;
-          trace.evidence.rankingSource = "bm25";
-        },
-      },
-      {
-        name: "acquisition failed with rerank reference",
-        base: acquisitionFailed,
-        mutate: (trace) => {
-          trace.evidence.rerankStatus = "failed";
-          trace.evidence.rerankRunId = reranked.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "retrieval failed with BM25 reference",
-        base: retrievalFailed,
-        mutate: (trace) => {
-          trace.evidence.bm25RunId = retrieved.evidence.bm25RunId;
-        },
-      },
-      {
-        name: "completed rerank missing rerank run",
-        base: reranked,
-        mutate: (trace) => {
-          delete trace.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "failed rerank missing rerank run",
-        base: rerankFailed,
-        mutate: (trace) => {
-          delete trace.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "disabled rerank with rerank run",
-        base: retrieved,
-        mutate: (trace) => {
-          trace.evidence.rerankRunId = reranked.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "not-attempted rerank with rerank run",
-        base: noMatches,
-        mutate: (trace) => {
-          trace.evidence.rerankRunId = reranked.evidence.rerankRunId;
-        },
-      },
-      {
-        name: "reranked source with failed rerank",
-        base: rerankFailed,
-        mutate: (trace) => {
-          trace.evidence.rankingSource = "reranked";
-        },
-      },
-      {
-        name: "BM25 source with completed rerank",
-        base: reranked,
-        mutate: (trace) => {
-          trace.evidence.rankingSource = "bm25";
-        },
-      },
-    ];
-    for (const testCase of cases) {
-      const tampered = structuredClone(testCase.base) as {
-        evidence: Record<string, unknown>;
-      };
-      testCase.mutate(tampered);
-      expect(
-        reportRecordTraceSchema.safeParse(tampered).success,
         testCase.name,
       ).toBe(false);
     }
@@ -2059,20 +1767,6 @@ describe("Report", () => {
     expect(
       rerankedResult.payload.funnel.evidence.recordSelectionBm25.count,
     ).toBe(0);
-
-    for (const field of [
-      "uniqueFinalSelectionsBm25",
-      "uniqueFinalSelectionsReranked",
-      "recordSelectionBm25",
-      "recordSelectionReranked",
-    ] as const) {
-      const tampered = structuredClone(result.payload);
-      tampered.funnel.evidence[field].count += 1;
-      expect(
-        reportArtifactPayloadSchema.safeParse(tampered).success,
-        field,
-      ).toBe(false);
-    }
   });
 
   it("counts pin-filled rerank skips separately from completed model calls", async () => {

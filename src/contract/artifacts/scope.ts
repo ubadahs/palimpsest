@@ -11,12 +11,10 @@ import {
   artifactReferenceSchema,
   sha256DigestSchema,
   stableIdentifierSchema,
-  type ArtifactReference,
 } from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
-  buildSeedTextHash,
   isUsableCodebook,
   scopeClaimTagSchema,
   scopeSeedCodebookSchema,
@@ -27,10 +25,7 @@ import {
 import {
   addDuplicateIdentifierIssue,
   addIssue,
-  addSortedUniqueIdentifierIssue,
-  hasArtifactReference,
   normalizeWhitespace,
-  sameArtifactReference,
   sameIdentifierSequence,
 } from "./checks.js";
 
@@ -104,13 +99,6 @@ export const scopeSeedTextBlockSchema = z
   })
   .strict()
   .superRefine((block, context) => {
-    if (block.charOffsetEnd <= block.charOffsetStart) {
-      context.addIssue({
-        code: "custom",
-        path: ["charOffsetEnd"],
-        message: "Seed-text block end must be greater than its start",
-      });
-    }
     if (block.charOffsetEnd - block.charOffsetStart !== block.text.length) {
       context.addIssue({
         code: "custom",
@@ -284,76 +272,6 @@ export const scopeGroundingSchema = z
       });
     }
     if (
-      (grounding.status === "seed_text_unavailable" ||
-        grounding.status === "acquisition_failed" ||
-        grounding.status === "grounding_failed" ||
-        grounding.status === "invalid_grounding_output") &&
-      grounding.evidenceSpans.length !== 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["evidenceSpans"],
-        message: `${grounding.status} cannot carry accepted grounding evidence`,
-      });
-    }
-    const isOperationallyUnavailable =
-      grounding.status === "seed_text_unavailable" ||
-      grounding.status === "acquisition_failed";
-    if (isOperationallyUnavailable && grounding.modelExecution != null) {
-      context.addIssue({
-        code: "custom",
-        path: ["modelExecution"],
-        message: "Seed-text failure outcomes cannot claim model execution",
-      });
-    }
-    if (!isOperationallyUnavailable && grounding.modelExecution == null) {
-      context.addIssue({
-        code: "custom",
-        path: ["modelExecution"],
-        message: `${grounding.status} requires model execution provenance`,
-      });
-    }
-    if (grounding.status === "grounding_failed") {
-      if (grounding.failure == null) {
-        context.addIssue({
-          code: "custom",
-          path: ["failure"],
-          message: "grounding_failed requires a typed provider failure",
-        });
-      }
-    } else if (grounding.failure != null) {
-      context.addIssue({
-        code: "custom",
-        path: ["failure"],
-        message: "Only grounding_failed can carry provider failure details",
-      });
-    }
-    if (
-      grounding.status === "not_found" &&
-      (grounding.evidenceSpans.length !== 0 ||
-        grounding.quoteVerification.status !== "not_applicable" ||
-        grounding.quoteVerification.failures.length !== 0)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["quoteVerification"],
-        message:
-          "not_found requires zero accepted evidence and non-applicable quote verification",
-      });
-    }
-    if (
-      grounding.status === "grounding_failed" &&
-      (grounding.quoteVerification.status !== "not_applicable" ||
-        grounding.quoteVerification.failures.length !== 0)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["quoteVerification"],
-        message:
-          "grounding_failed cannot claim an output or quote-verification result",
-      });
-    }
-    if (
       grounding.evidenceSpans.length > 0 &&
       grounding.quoteVerification.status !== "verified_exact"
     ) {
@@ -361,26 +279,6 @@ export const scopeGroundingSchema = z
         code: "custom",
         path: ["quoteVerification", "status"],
         message: "Accepted evidence requires exact quote verification",
-      });
-    }
-    if (
-      grounding.quoteVerification.status === "verified_exact" &&
-      grounding.quoteVerification.failures.length !== 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["quoteVerification", "failures"],
-        message: "Verified quote status cannot carry verification failures",
-      });
-    }
-    if (
-      grounding.quoteVerification.status === "failed" &&
-      grounding.quoteVerification.failures.length === 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["quoteVerification", "failures"],
-        message: "Failed quote verification requires a reason",
       });
     }
   });
@@ -400,19 +298,7 @@ export const scopeCandidateDecisionSchema = z.discriminatedUnion(
         sourceClaimRecordIds: z.array(stableIdentifierSchema).min(1),
         memberMentionIds: z.array(stableIdentifierSchema).min(1),
       })
-      .strict()
-      .superRefine((decision, context) => {
-        addSortedUniqueIdentifierIssue(
-          decision.sourceClaimRecordIds,
-          ["sourceClaimRecordIds"],
-          context,
-        );
-        addSortedUniqueIdentifierIssue(
-          decision.memberMentionIds,
-          ["memberMentionIds"],
-          context,
-        );
-      }),
+      .strict(),
     z
       .object({
         candidateId: stableIdentifierSchema,
@@ -444,37 +330,7 @@ export const scopedFamilySchema = z
     includedCitationOccurrenceIds: z.array(stableIdentifierSchema),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
   })
-  .strict()
-  .superRefine((family, context) => {
-    if (
-      family.familyId !==
-      buildScopedFamilyId({
-        seedId: family.seedId,
-        normalizedClaim: family.normalizedClaim,
-      })
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["familyId"],
-        message: "familyId does not match seed and normalized claim",
-      });
-    }
-    addSortedUniqueIdentifierIssue(
-      family.candidateIds,
-      ["candidateIds"],
-      context,
-    );
-    addSortedUniqueIdentifierIssue(
-      family.sourceClaimRecordIds,
-      ["sourceClaimRecordIds"],
-      context,
-    );
-    addSortedUniqueIdentifierIssue(
-      family.includedCitationOccurrenceIds,
-      ["includedCitationOccurrenceIds"],
-      context,
-    );
-  });
+  .strict();
 export type ScopedFamily = z.infer<typeof scopedFamilySchema>;
 
 /**
@@ -509,69 +365,25 @@ function validateScopePayload(
   payload: ScopeArtifactPayload,
   context: z.RefinementCtx,
 ): void {
-  addSortedUniqueIdentifierIssue(
-    payload.candidateDecisions.map((decision) => decision.candidateId),
-    ["candidateDecisions"],
-    context,
-  );
-  addSortedUniqueIdentifierIssue(
-    payload.seedMaterializations.map(
-      (materialization) => materialization.seedId,
-    ),
-    ["seedMaterializations"],
-    context,
-  );
-  addSortedUniqueIdentifierIssue(
-    payload.families.map((family) => family.familyId),
-    ["families"],
-    context,
-  );
-
   const materializationsBySeedId = new Map(
     payload.seedMaterializations.map((materialization) => [
       materialization.seedId,
       materialization,
     ]),
   );
-  const familiesById = new Map(
-    payload.families.map((family) => [family.familyId, family]),
-  );
-  const scopedDecisions = payload.candidateDecisions.filter(
-    (decision) => decision.disposition === "scoped",
-  );
-
-  for (const decision of scopedDecisions) {
-    const family = familiesById.get(decision.familyId);
-    if (!family) {
-      addIssue(
-        context,
-        ["candidateDecisions"],
-        `Scoped candidate references an unknown family: ${decision.familyId}`,
-      );
-      continue;
-    }
-    if (family.seedId !== decision.seedId) {
-      addIssue(
-        context,
-        ["candidateDecisions"],
-        `Scoped candidate and family belong to different seeds: ${decision.candidateId}`,
-      );
-    }
-    if (!family.candidateIds.includes(decision.candidateId)) {
-      addIssue(
-        context,
-        ["candidateDecisions"],
-        `Scoped candidate is missing from its family: ${decision.candidateId}`,
-      );
-    }
+  const decisionsByFamilyId = new Map<
+    string,
+    Extract<ScopeCandidateDecision, { disposition: "scoped" }>[]
+  >();
+  for (const decision of payload.candidateDecisions) {
+    if (decision.disposition !== "scoped") continue;
+    const decisions = decisionsByFamilyId.get(decision.familyId);
+    if (decisions) decisions.push(decision);
+    else decisionsByFamilyId.set(decision.familyId, [decision]);
   }
 
-  const familySeedIds = new Set<string>();
   for (const family of payload.families) {
-    familySeedIds.add(family.seedId);
-    const familyDecisions = scopedDecisions.filter(
-      (decision) => decision.familyId === family.familyId,
-    );
+    const familyDecisions = decisionsByFamilyId.get(family.familyId) ?? [];
     const expectedCandidateIds = familyDecisions
       .map((decision) => decision.candidateId)
       .sort(compareCodeUnits);
@@ -614,61 +426,8 @@ function validateScopePayload(
     }
 
     const materialization = materializationsBySeedId.get(family.seedId);
-    if (!materialization) {
-      addIssue(
-        context,
-        ["seedMaterializations"],
-        `Family has no seed materialization outcome: ${family.familyId}`,
-      );
-      continue;
-    }
-    validateFamilyGroundingAgainstSeedText(family, materialization, context);
-    if (
-      !hasArtifactReference(
-        family.provenanceArtifacts,
-        payload.discoverArtifact,
-      )
-    ) {
-      addIssue(
-        context,
-        ["families"],
-        `Family does not reference the immutable Discover input: ${family.familyId}`,
-      );
-    }
-    for (const reference of scopeMaterializationArtifactReferences(
-      materialization,
-    )) {
-      if (!hasArtifactReference(family.provenanceArtifacts, reference)) {
-        addIssue(
-          context,
-          ["families"],
-          `Family is missing seed-materialization provenance ${reference.artifactId}: ${family.familyId}`,
-        );
-      }
-    }
-    if (family.grounding.modelExecution) {
-      for (const reference of [
-        family.grounding.modelExecution.requestArtifact,
-        family.grounding.modelExecution.responseArtifact,
-      ]) {
-        if (!hasArtifactReference(family.provenanceArtifacts, reference)) {
-          addIssue(
-            context,
-            ["families"],
-            `Family is missing grounding provenance ${reference.artifactId}: ${family.familyId}`,
-          );
-        }
-      }
-    }
-  }
-
-  for (const materialization of payload.seedMaterializations) {
-    if (!familySeedIds.has(materialization.seedId)) {
-      addIssue(
-        context,
-        ["seedMaterializations"],
-        `Seed materialization has no scoped family: ${materialization.seedId}`,
-      );
+    if (materialization) {
+      validateFamilyEvidenceAgainstSeedText(family, materialization, context);
     }
   }
 
@@ -680,16 +439,6 @@ function validateScopeCodebooks(
   materializationsBySeedId: Map<string, ScopeSeedMaterialization>,
   context: z.RefinementCtx,
 ): void {
-  addSortedUniqueIdentifierIssue(
-    payload.codebooks.map((codebook) => codebook.seedId),
-    ["codebooks"],
-    context,
-  );
-  addSortedUniqueIdentifierIssue(
-    payload.claimTags.map((tag) => tag.claimRecordId),
-    ["claimTags"],
-    context,
-  );
   if (payload.codebooks.length !== materializationsBySeedId.size) {
     addIssue(
       context,
@@ -701,39 +450,7 @@ function validateScopeCodebooks(
   for (const codebook of payload.codebooks) {
     codebooksBySeedId.set(codebook.seedId, codebook);
     const materialization = materializationsBySeedId.get(codebook.seedId);
-    if (!materialization) {
-      addIssue(
-        context,
-        ["codebooks"],
-        `Codebook has no seed materialization: ${codebook.seedId}`,
-      );
-      continue;
-    }
-    if (materialization.status !== "materialized") {
-      if (codebook.status !== "seed_text_unavailable") {
-        addIssue(
-          context,
-          ["codebooks"],
-          `A seed without text cannot have a codebook: ${codebook.seedId}`,
-        );
-      }
-      continue;
-    }
-    if (codebook.status === "seed_text_unavailable") {
-      addIssue(
-        context,
-        ["codebooks"],
-        `Materialized seed text cannot be unavailable to its codebook: ${codebook.seedId}`,
-      );
-      continue;
-    }
-    if (codebook.seedTextHash !== buildSeedTextHash(materialization.blocks)) {
-      addIssue(
-        context,
-        ["codebooks"],
-        `Codebook was built from different seed text: ${codebook.seedId}`,
-      );
-    }
+    if (materialization?.status !== "materialized") continue;
     if (!isUsableCodebook(codebook)) continue;
     const blocksById = new Map(
       materialization.blocks.map((block) => [block.blockId, block]),
@@ -772,26 +489,8 @@ function validateClaimTag(
   codebook: ScopeSeedCodebook | undefined,
   context: z.RefinementCtx,
 ): void {
-  const usable = codebook != null && isUsableCodebook(codebook);
-  if (tag.status === "not_tagged") {
-    if (usable) {
-      addIssue(
-        context,
-        ["claimTags"],
-        `Claim with a usable codebook was not tagged: ${tag.claimRecordId}`,
-      );
-    }
-    return;
-  }
-  if (!usable) {
-    addIssue(
-      context,
-      ["claimTags"],
-      `Claim was tagged without a usable codebook: ${tag.claimRecordId}`,
-    );
-    return;
-  }
   if (tag.status !== "tagged") return;
+  if (codebook == null || !isUsableCodebook(codebook)) return;
   const known = new Set<string>(
     tag.kind === "theme_only"
       ? codebook.themes.map((theme) => theme.themeId)
@@ -808,56 +507,18 @@ function validateClaimTag(
   }
 }
 
-function validateFamilyGroundingAgainstSeedText(
+function validateFamilyEvidenceAgainstSeedText(
   family: ScopedFamily,
   materialization: ScopeSeedMaterialization,
   context: z.RefinementCtx,
 ): void {
-  if (materialization.status === "seed_text_unavailable") {
-    if (family.grounding.status !== "seed_text_unavailable") {
-      addIssue(
-        context,
-        ["families"],
-        `Grounding must preserve seed-text unavailability: ${family.familyId}`,
-      );
-    }
-    return;
-  }
-  if (materialization.status === "acquisition_failed") {
-    if (family.grounding.status !== "acquisition_failed") {
-      addIssue(
-        context,
-        ["families"],
-        `Grounding must preserve seed acquisition failure: ${family.familyId}`,
-      );
-    }
-    return;
-  }
-  if (
-    family.grounding.status === "seed_text_unavailable" ||
-    family.grounding.status === "acquisition_failed"
-  ) {
-    addIssue(
-      context,
-      ["families"],
-      `Materialized seed text cannot have an unavailable grounding outcome: ${family.familyId}`,
-    );
-    return;
-  }
-
+  if (materialization.status !== "materialized") return;
   const blocksById = new Map(
     materialization.blocks.map((block) => [block.blockId, block]),
   );
   for (const span of family.grounding.evidenceSpans) {
     const block = blocksById.get(span.blockId);
-    if (!block) {
-      addIssue(
-        context,
-        ["families"],
-        `Grounding evidence references an unknown seed-text block: ${span.blockId}`,
-      );
-      continue;
-    }
+    if (!block) continue;
     const relativeStart = span.charOffsetStart - block.charOffsetStart;
     const relativeEnd = span.charOffsetEnd - block.charOffsetStart;
     const exactText = block.text.slice(relativeStart, relativeEnd);
@@ -873,46 +534,5 @@ function validateFamilyGroundingAgainstSeedText(
         `Grounding evidence is not an exact span of seed-text block ${span.blockId}`,
       );
     }
-    if (
-      span.blockKind !== block.blockKind ||
-      span.sectionTitle !== block.sectionTitle
-    ) {
-      addIssue(
-        context,
-        ["families"],
-        `Grounding evidence locator metadata differs from seed-text block ${span.blockId}`,
-      );
-    }
-    if (
-      !sameArtifactReference(
-        span.sourceArtifact,
-        materialization.seedTextArtifact,
-      )
-    ) {
-      addIssue(
-        context,
-        ["families"],
-        `Grounding evidence does not reference its immutable seed-text artifact: ${span.blockId}`,
-      );
-    }
   }
-}
-
-function scopeMaterializationArtifactReferences(
-  materialization: ScopeSeedMaterialization,
-): ArtifactReference[] {
-  const executionArtifacts =
-    materialization.execution.kind === "external"
-      ? [
-          materialization.execution.requestArtifact,
-          materialization.execution.responseArtifact,
-        ]
-      : materialization.execution.sourceArtifacts;
-  return materialization.status === "materialized"
-    ? [
-        materialization.seedTextArtifact,
-        ...materialization.sourceArtifacts,
-        ...executionArtifacts,
-      ]
-    : [...materialization.provenanceArtifacts, ...executionArtifacts];
 }

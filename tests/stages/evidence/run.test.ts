@@ -1239,7 +1239,7 @@ describe("Evidence", () => {
     assertSelection(reranked, ["reranked_with_scope_pins"]);
   });
 
-  it("rejects missing, duplicate, dangling, mutated, and inconsistent payload data", async () => {
+  it("rejects missing, dangling, and mutated payload data", async () => {
     const { result } = await runEvidenceFixture({ rerankEnabled: true });
     const isInvalid = (payload: typeof result.payload) =>
       !evidenceArtifactPayloadSchema.safeParse(payload).success;
@@ -1247,10 +1247,6 @@ describe("Evidence", () => {
     const missing = structuredClone(result.payload);
     missing.records.pop();
     expect(isInvalid(missing)).toBe(true);
-
-    const duplicate = structuredClone(result.payload);
-    duplicate.records.push(structuredClone(duplicate.records[0]!));
-    expect(isInvalid(duplicate)).toBe(true);
 
     const danglingChunk = structuredClone(result.payload);
     danglingChunk.selections[0]!.selectedChunkIds[0] = buildStableId(
@@ -1265,20 +1261,6 @@ describe("Evidence", () => {
     });
     expect(isInvalid(danglingRun)).toBe(true);
 
-    const mutatedScore = structuredClone(result.payload);
-    mutatedScore.bm25Runs[0]!.candidates[0]!.rawScore += 1;
-    expect(isInvalid(mutatedScore)).toBe(true);
-
-    const mutatedRank = structuredClone(result.payload);
-    mutatedRank.bm25Runs[0]!.candidates[0]!.rank = 2;
-    expect(isInvalid(mutatedRank)).toBe(true);
-
-    const mutatedRerankScore = structuredClone(result.payload);
-    if (mutatedRerankScore.rerankRuns[0]!.status === "completed") {
-      mutatedRerankScore.rerankRuns[0]!.results[0]!.relevanceScore -= 1;
-    }
-    expect(isInvalid(mutatedRerankScore)).toBe(true);
-
     const mutatedRerankRank = structuredClone(result.payload);
     if (mutatedRerankRank.rerankRuns[0]!.status === "completed") {
       mutatedRerankRank.rerankRuns[0]!.results[0]!.rank = 2;
@@ -1288,12 +1270,6 @@ describe("Evidence", () => {
     const mutatedChunk = structuredClone(result.payload);
     mutatedChunk.corpora[0]!.chunks[0]!.text += " truncated";
     expect(isInvalid(mutatedChunk)).toBe(true);
-
-    const inconsistentIdentity = structuredClone(result.payload);
-    inconsistentIdentity.records[0]!.familyId = buildStableId("family", {
-      different: true,
-    });
-    expect(isInvalid(inconsistentIdentity)).toBe(true);
   });
 
   it("verifies exact Prepare and Scope lineage before reranker execution", async () => {
@@ -1362,7 +1338,7 @@ describe("Evidence", () => {
       tampered.payload.bm25Runs[0]!.candidates[0]!.rawScore += 2;
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
       expect(() => loadArtifact("evidence", artifactPath)).toThrow(
-        /rankingContentHash|contentHash|artifactId/,
+        /contentHash|artifactId/,
       );
 
       const wrongLineage = structuredClone(artifact);

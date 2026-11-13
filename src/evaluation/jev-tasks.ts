@@ -1,5 +1,10 @@
 /** Pure, versioned Jev task construction and answer validation. */
 import { z } from "zod";
+import {
+  CITATION_ROLE_DEFINITIONS,
+  CITATION_ROLE_GUIDANCE,
+  rubricCriteria,
+} from "../domain/rubric.js";
 import { canonicalSha256, buildStableId } from "../shared/stable-identity.js";
 import { compareCodeUnits } from "../shared/order.js";
 import type { ProviderConfig } from "./config.js";
@@ -11,19 +16,9 @@ import type {
   JevVariant,
 } from "./optimization-contract.js";
 
-const RUBRIC_REVISION = "jev-citation-tasks-v2";
-const ROLE_CRITERIA = {
-  substantive_attribution:
-    "The citing text credits a specific finding, result, or measurement to the cited work.",
-  background_context:
-    "The citing text uses the cited work to establish general knowledge, motivation, or framing.",
-  methods_materials:
-    "The citing text uses the cited work for a method, protocol, reagent, dataset, or tool.",
-  acknowledgment_or_low_information:
-    "The citation carries no attributed content, such as a bare see-also or a list of examples.",
-  unclear:
-    "The context genuinely does not say which of the other roles it is. An unfamiliar heading alone is insufficient.",
-} as const;
+/** Part of every request hash; v3 took the role rubric from production. */
+const RUBRIC_REVISION = "jev-citation-tasks-v3";
+const ROLE_CRITERIA = rubricCriteria(CITATION_ROLE_DEFINITIONS);
 const RELEVANCE_CRITERIA = [
   "Irrelevant to the query, including material that cannot resolve it.",
   "Contextual information related to the query but not direct evidence.",
@@ -124,8 +119,7 @@ export function buildJevRequestSpecs(
             task: "Classify what the citing paper does with this cited reference.",
             scope:
               "Only sentences marked ▶ ... ◀ are attributed to this reference; use the full context to interpret them.",
-            unclear:
-              "Choose unclear only when the context is genuinely too thin to decide. An unfamiliar heading alone is insufficient.",
+            guidance: CITATION_ROLE_GUIDANCE,
           },
           criteria: ROLE_CRITERIA,
         },

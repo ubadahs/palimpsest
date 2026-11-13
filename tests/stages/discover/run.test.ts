@@ -10,7 +10,6 @@ import {
   canonicalSha256,
 } from "../../../src/shared/stable-identity.js";
 import {
-  discoverCitationOccurrenceSchema,
   isInSamplingFrame,
   probeTypeGroupOf,
   type ArtifactReference,
@@ -853,25 +852,6 @@ describe("Discover", () => {
         ...harvest,
         mentions: [invalidMention],
       });
-      expect(parsed.success).toBe(false);
-      if (!parsed.success) {
-        expect(
-          parsed.error.issues.some((issue) =>
-            issue.message.includes("Citation source offset"),
-          ),
-        ).toBe(true);
-      }
-    }
-
-    const firstMention = occurrence(result, "paper-a1", 0);
-    for (const invalidMention of [
-      { ...firstMention, charOffsetEnd: undefined },
-      {
-        ...firstMention,
-        charOffsetEnd: firstMention.charOffsetStart,
-      },
-    ]) {
-      const parsed = discoverCitationOccurrenceSchema.safeParse(invalidMention);
       expect(parsed.success).toBe(false);
       if (!parsed.success) {
         expect(

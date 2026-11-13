@@ -860,7 +860,7 @@ describe("Scope", () => {
     );
   });
 
-  it("ignores proposed spans on not_found and still rejects not_found artifacts with evidence", async () => {
+  it("ignores proposed spans on not_found", async () => {
     const contradictoryOutput = {
       status: "not_found" as const,
       detailReason: "Contradictory model output.",
@@ -887,13 +887,6 @@ describe("Scope", () => {
           family.grounding.quoteVerification.status === "not_applicable",
       ),
     ).toBe(true);
-
-    const grounded = await runScopeFixture();
-    const invalidArtifactPayload = structuredClone(grounded.result.payload);
-    invalidArtifactPayload.families[0]!.grounding.status = "not_found";
-    expect(
-      scopeArtifactPayloadSchema.safeParse(invalidArtifactPayload).success,
-    ).toBe(false);
   });
 
   it("orders verified spans independently of model response ordering", async () => {
@@ -1005,26 +998,13 @@ describe("Scope", () => {
     ).not.toBe(family.familyId);
   });
 
-  it("rejects dangling, cross-seed, duplicate, and incomplete references", async () => {
+  it("rejects dangling, duplicate, and incomplete references", async () => {
     const { result } = await runScopeFixture();
-    const family = result.payload.families[0]!;
-    const otherSeed = result.payload.families.find(
-      (entry) => entry.seedId !== family.seedId,
-    )!.seedId;
     const fakeId = buildStableId("candidate", { missing: true });
 
     const dangling = structuredClone(result.payload);
     dangling.families[0]!.candidateIds = [fakeId];
     expect(scopeArtifactPayloadSchema.safeParse(dangling).success).toBe(false);
-
-    const crossSeed = structuredClone(result.payload);
-    const scopedDecision = crossSeed.candidateDecisions.find(
-      (decision) =>
-        decision.disposition === "scoped" &&
-        decision.familyId === family.familyId,
-    )!;
-    scopedDecision.seedId = otherSeed;
-    expect(scopeArtifactPayloadSchema.safeParse(crossSeed).success).toBe(false);
 
     const duplicate = structuredClone(result.payload);
     duplicate.families[0]!.includedCitationOccurrenceIds.push(

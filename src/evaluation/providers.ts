@@ -1,5 +1,12 @@
 import { z } from "zod";
 import {
+  CITATION_ROLE_DEFINITIONS,
+  CITATION_ROLE_GUIDANCE,
+  FIDELITY_BOUNDARY_GUIDANCE,
+  rubricCriteria,
+  verdictDefinitionsOnly,
+} from "../domain/rubric.js";
+import {
   LLMProviderError,
   type LLMCallRecord,
   type LLMClient,
@@ -235,6 +242,10 @@ export function createRequestBudget(
   };
 }
 
+/**
+ * The question a jev or djev provider answers, worded from the production
+ * rubric. Changing it needs a new evaluation prompt revision.
+ */
 function systemQuestion(caseInput: EvaluationCase): {
   state: unknown;
   questions: Record<string, unknown>;
@@ -250,17 +261,8 @@ function systemQuestion(caseInput: EvaluationCase): {
       questions: {
         decision: {
           type: "choice",
-          instructions:
-            "Classify what the citing paper does with this cited reference. Choose unclear only if the context is too thin.",
-          criteria: {
-            substantive_attribution:
-              "Credits a specific finding, result or measurement",
-            background_context: "General knowledge, motivation or framing",
-            methods_materials: "Method, protocol, reagent, dataset or tool",
-            acknowledgment_or_low_information:
-              "Bare mention with no attributed content",
-            unclear: "Genuinely insufficient context",
-          },
+          instructions: `Classify what the citing paper does with this cited reference. ${CITATION_ROLE_GUIDANCE}`,
+          criteria: rubricCriteria(CITATION_ROLE_DEFINITIONS),
         },
       },
     };
@@ -270,14 +272,8 @@ function systemQuestion(caseInput: EvaluationCase): {
       questions: {
         decision: {
           type: "choice",
-          instructions:
-            "Compare only the citing attribution with selected cited-paper evidence. Judge substantive meaning; contradictions and qualifying conditions matter. Do not use U for missing evidence or tool failure.",
-          criteria: {
-            F: "Faithful substantive meaning, reasonable compression allowed",
-            D: "Real source kernel with materially changed scope, strength, certainty, causality, population, condition, endpoint or generality",
-            E: "Central attribution unsupported, contradicted, wrong entity or no source kernel",
-            U: "Exact evidence is present but genuine scientific ambiguity prevents F/D/E",
-          },
+          instructions: `Compare only the citing attribution with the selected cited-paper evidence; contradictions and qualifying conditions matter. ${FIDELITY_BOUNDARY_GUIDANCE}`,
+          criteria: rubricCriteria(verdictDefinitionsOnly()),
         },
       },
     };

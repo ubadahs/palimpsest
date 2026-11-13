@@ -4,12 +4,14 @@
 
 Adjudicate (`runAdjudicate`) is the production stage for record-level fidelity decisions. It is wired through the executor and CLI, and is explicitly **uncalibrated** until tested against blinded human labels.
 
-Verdicts follow the project taxonomy:
+The adjudicator is given these definitions. They live in `src/domain/rubric.ts`, the one source for every production prompt and for the questions evaluation puts to other providers, so this list quotes it:
 
-- `F` faithful: the attribution preserves the cited source’s substantive meaning; reasonable compression is allowed
-- `D` distortion: a real source kernel exists, but scope, strength, certainty, causality, population, conditions, or generality is materially altered
+- `F` faithful: the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel
+- `D` distortion: a real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered
 - `E` error: the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel
-- `U` uncertain: exact cited evidence exists, but genuine scientific/attribution ambiguity prevents a defensible F/D/E judgment
+- `U` uncertain: exact cited evidence is present, but genuine scientific or attribution ambiguity prevents a defensible F/D/E judgment. Do not use U for missing evidence or tool failure.
+
+The human review form words the same four verdicts in plain language for reviewers; it is kept separate on purpose, and changing it mid-calibration would make labels harder to compare.
 
 ### Where faithful ends
 

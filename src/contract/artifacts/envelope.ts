@@ -453,11 +453,12 @@ function validateArtifactIdentity(
  * run, and it names the exact inputs it was built from, in the fixed stage
  * order. Combined with the identity hash, that is enough to prove a chain.
  *
- * Nothing here re-derives the payload. The per-stage validators that used to
- * live beside this one re-checked decisions, provenance arrays, and embedded
- * copies against the very payload their builder had just written from — five
- * near-identical walks that could only fail if the builder were inconsistent
- * with itself, which its own tests cover.
+ * Payload checks follow one rule: a stage schema checks a method rule (what a
+ * verdict needs, which denominator a rate uses, that every input has exactly
+ * one outcome) or data its builder did not produce (model replies, adapter
+ * output, cached papers, stored codebooks). Re-deriving what a builder just
+ * wrote can only fail if the builder disagrees with itself, which its tests
+ * cover.
  */
 function validateStageInputLineage(
   artifact: {

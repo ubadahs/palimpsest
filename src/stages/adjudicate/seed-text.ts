@@ -17,7 +17,7 @@ import {
 import type { EvidenceChunk } from "../../contract/artifacts/index.js";
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import type { Result } from "../../domain/common.js";
-import { FIDELITY_BOUNDARY_GUIDANCE } from "../../shared/scientific-rubrics.js";
+import { FIDELITY_BOUNDARY_GUIDANCE } from "../../domain/rubric.js";
 import {
   judgmentFieldInstructions,
   renderCitingSide,
