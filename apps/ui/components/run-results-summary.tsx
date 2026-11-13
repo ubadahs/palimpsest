@@ -33,7 +33,7 @@ export function RunResultsSummary({ run }: { run: RunDetail }) {
     <Card className="overflow-hidden">
       <CardHeader>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
-          Canonical results
+          Results
         </p>
         <h2 className="mt-2 font-[var(--font-instrument)] text-3xl tracking-[-0.03em]">
           {headline(verdicts)}

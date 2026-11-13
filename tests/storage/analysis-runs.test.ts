@@ -29,7 +29,7 @@ describe("analysis runs repository", () => {
     rmSync(tempDirectory, { recursive: true, force: true });
   });
 
-  it("creates a DOI-first run with six canonical stage rows", () => {
+  it("creates a DOI-first run with six stage rows", () => {
     const database = openDatabase(join(tempDirectory, "runs.sqlite"));
     runMigrations(database);
 
@@ -130,7 +130,7 @@ describe("analysis runs repository", () => {
     }
   });
 
-  it("updates canonical resume config and target together", () => {
+  it("updates resume config and target together", () => {
     const database = openDatabase(join(tempDirectory, "resume-config.sqlite"));
     runMigrations(database);
     try {

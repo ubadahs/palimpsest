@@ -141,7 +141,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
       interpretationWarning:
         "F/D/E/U labels are uncalibrated research outputs and have not been validated against blinded human labels. Do not treat verdict rates as calibrated faithfulness rates.",
       method: {
-        methodId: "canonical-audit-report-v1",
+        methodId: "audit-report-v1",
         strategy: "deterministic_funnel",
         calibrationStatus: "uncalibrated",
         outputs: "json_and_markdown",
@@ -151,32 +151,32 @@ function buildPayload(): StageInspectorPayload<"report"> {
         discoverArtifact: {
           artifactId: "artifact_discover",
           contentHash: "a".repeat(64),
-          role: "canonical-discover-input",
-          canonicalStage: "discover",
+          role: "discover-input",
+          stage: "discover",
         },
         scopeArtifact: {
           artifactId: "artifact_scope",
           contentHash: "b".repeat(64),
-          role: "canonical-scope-input",
-          canonicalStage: "scope",
+          role: "scope-input",
+          stage: "scope",
         },
         prepareArtifact: {
           artifactId: "artifact_prepare",
           contentHash: "c".repeat(64),
-          role: "canonical-prepare-input",
-          canonicalStage: "prepare",
+          role: "prepare-input",
+          stage: "prepare",
         },
         evidenceArtifact: {
           artifactId: "artifact_evidence",
           contentHash: "d".repeat(64),
-          role: "canonical-evidence-input",
-          canonicalStage: "evidence",
+          role: "evidence-input",
+          stage: "evidence",
         },
         adjudicateArtifact: {
           artifactId: "artifact_adjudicate",
           contentHash: "e".repeat(64),
-          role: "canonical-adjudicate-input",
-          canonicalStage: "adjudicate",
+          role: "adjudicate-input",
+          stage: "adjudicate",
         },
       },
       funnel: {

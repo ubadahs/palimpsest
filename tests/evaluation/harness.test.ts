@@ -211,9 +211,7 @@ describe.sequential("evaluation harness", () => {
     const experiment = createExperiment(datasetId, {
       schemaVersion: "evaluation-experiment-config-v1",
       tasks: ["role"],
-      providers: [
-        { id: "rules", kind: "rules", model: "canonical-role-regex-v1" },
-      ],
+      providers: [{ id: "rules", kind: "rules", model: "role-regex-v1" }],
     });
     atomicJson(
       join(
@@ -494,7 +492,7 @@ describe.sequential("evaluation harness", () => {
         {
           id: "bm25",
           kind: "bm25",
-          model: "canonical-bm25-v1",
+          model: "bm25-v1",
           tasks: ["rerank"],
           concurrency: 1,
           minimumRequestIntervalMs: 100,
@@ -515,13 +513,13 @@ describe.sequential("evaluation harness", () => {
         {
           id: "bm25",
           kind: "bm25",
-          model: "canonical-bm25-v1",
+          model: "bm25-v1",
           tasks: ["rerank"],
         },
         {
           id: "rules",
           kind: "rules",
-          model: "canonical-role-regex-v1",
+          model: "role-regex-v1",
           tasks: ["role"],
         },
       ],

@@ -1,6 +1,6 @@
 /**
  * Shared regex patterns for classifying sections and context by type.
- * Used by deterministic citation-function classification.
+ * Used by the deterministic citation-role rules.
  */
 
 /**

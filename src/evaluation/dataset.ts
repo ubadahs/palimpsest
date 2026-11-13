@@ -2,24 +2,23 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import {
-  buildCanonicalAdjudicatePacket,
-  buildCanonicalAdjudicatePrompt,
+  buildAdjudicatePacket,
+  buildAdjudicatePrompt,
   assessAdjudicatePacketQuality,
-} from "../adjudication/canonical-adjudicate-packet.js";
+} from "../stages/adjudicate/packet.js";
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
 import { humanReviewEventLogSchema } from "../contract/human-review.js";
-import { resolvePreparedRecords } from "../contract/lean-artifacts.js";
+import { resolvePreparedRecords } from "../contract/artifacts/index.js";
 import {
   buildReportInspectorRecords,
-  loadCanonicalArtifact,
+  loadArtifact,
 } from "../contract/selectors.js";
 import type { StageArtifactMap } from "../contract/inspector-payloads.js";
-import type { StageKey } from "../contract/lean-stages.js";
+import type { StageKey } from "../contract/stages.js";
 import type { SeedSectionRole } from "../contract/artifacts/seed-section-role.js";
 import { inferSectionRoles } from "../domain/section-patterns.js";
-import { verifyReportAncestors } from "../pipeline/canonical-report.js";
-import { buildCitationRolePrompt } from "../pipeline/canonical-production-adapters.js";
-import { classifyPrepareOccurrenceDeterministically } from "../pipeline/canonical-prepare.js";
+import { verifyReportAncestors } from "../stages/report/run.js";
+import { classifyPrepareOccurrenceDeterministically } from "../stages/prepare/run.js";
 import { annotateCitingContext } from "../shared/citation-context-window.js";
 import {
   resolveHumanReviewEventsPath,
@@ -43,6 +42,7 @@ import {
   type EvaluationDataset,
   type SeedDocument,
 } from "./types.js";
+import { buildCitationRolePrompt } from "../stages/prepare/prompts.js";
 
 const BUILDER_VERSION = "evaluation-build-v3";
 
@@ -78,17 +78,13 @@ function loadAncestor<K extends AncestorStage>(
     throw new Error(`Missing ${stage} stage directory in ${runRoot}`);
   const matches = readdirSync(join(runRoot, folder.name)).filter(
     (name) =>
-      name.endsWith(`_canonical-${stage}.json`) &&
-      name.includes(reference.artifactId),
+      name.endsWith(`_${stage}.json`) && name.includes(reference.artifactId),
   );
   if (matches.length !== 1)
     throw new Error(
       `Expected one ${stage} artifact matching ${reference.artifactId}`,
     );
-  const artifact = loadCanonicalArtifact(
-    stage,
-    join(runRoot, folder.name, matches[0]!),
-  );
+  const artifact = loadArtifact(stage, join(runRoot, folder.name, matches[0]!));
   if (
     artifact.artifactId !== reference.artifactId ||
     artifact.contentHash !== reference.contentHash
@@ -99,7 +95,7 @@ function loadAncestor<K extends AncestorStage>(
 
 function loadChain(reportPath: string): { chain: Chain; runRoot: string } {
   const full = resolve(reportPath);
-  const report = loadCanonicalArtifact("report", full);
+  const report = loadArtifact("report", full);
   const runRoot = dirname(dirname(full));
   const lineage = report.payload.lineage;
   if (report.runId !== lineage.runId)
@@ -141,7 +137,7 @@ function casesFromChain(chain: Chain): {
   const { prepare, evidence, adjudicate, report } = chain;
   const hashes = Object.fromEntries(
     [chain.discover, chain.scope, prepare, evidence, adjudicate, report].map(
-      (artifact) => [artifact.canonicalStage, artifact.contentHash],
+      (artifact) => [artifact.stage, artifact.contentHash],
     ),
   );
   const cases: EvaluationCase[] = [];
@@ -315,7 +311,7 @@ function casesFromChain(chain: Chain): {
       );
       if (selectedChunks.some((chunk) => !chunk))
         throw new Error("Missing selected evidence chunk");
-      const packet = buildCanonicalAdjudicatePacket({
+      const packet = buildAdjudicatePacket({
         prepareRecord: record,
         selection,
         selectedChunks: selectedChunks.filter((chunk) => chunk != null),
@@ -335,7 +331,7 @@ function casesFromChain(chain: Chain): {
           task: "adjudication",
           unitKey,
           packet,
-          anthropicPrompt: buildCanonicalAdjudicatePrompt(packet),
+          anthropicPrompt: buildAdjudicatePrompt(packet),
         }),
       );
     }

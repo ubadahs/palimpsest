@@ -1,5 +1,5 @@
 /**
- * Canonical Prepare artifact payload: one stable record per scoped family and
+ * Prepare artifact payload: one stable record per scoped family and
  * citation occurrence, with its typed classification.
  */
 import { z } from "zod";
@@ -20,7 +20,7 @@ import {
   artifactReferenceSchema,
   sha256DigestSchema,
   stableIdentifierSchema,
-} from "../lean-artifact-primitives.js";
+} from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import {
   addIssue,
@@ -193,15 +193,15 @@ export type PrepareClassification = z.infer<typeof prepareClassificationSchema>;
 
 const prepareScopeArtifactReferenceSchema = artifactReferenceSchema
   .extend({
-    role: z.literal("canonical-scope-input"),
-    canonicalStage: z.literal("scope"),
+    role: z.literal("scope-input"),
+    stage: z.literal("scope"),
   })
   .strict();
 
 const prepareDiscoverArtifactReferenceSchema = artifactReferenceSchema
   .extend({
-    role: z.literal("canonical-discover-input"),
-    canonicalStage: z.literal("discover"),
+    role: z.literal("discover-input"),
+    stage: z.literal("discover"),
   })
   .strict();
 

@@ -81,7 +81,7 @@ This creates a latent bias in the corpus: a consensus built not on the primary e
 
 Extending the pipeline from one-hop fidelity auditing to multi-hop drift tracking would require:
 
-- **Claim identity across hops**: a way to recognize that a claim in Paper C is "the same claim" as one in Paper A, despite different wording. This is a canonicalization problem.
+- **Claim identity across hops**: a way to recognize that a claim in Paper C is "the same claim" as one in Paper A, despite different wording. This is a clustering problem.
 - **Graph structure beyond star topology**: the current claim family is a star (seed at center, citers around it). Multi-hop means a DAG where citers themselves become seeds for the next generation.
 - **Automated claim extraction**: at one hop, a human can hand-identify the seed claim. At multiple hops, the system needs to extract claim units from papers automatically — identifying which sentences assert the paper's own findings versus reference others' work.
 - **Drift quantification**: a way to measure cumulative fidelity loss across a chain, not just per-edge verdicts.

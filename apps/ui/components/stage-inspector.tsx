@@ -37,7 +37,7 @@ function Summary({ entries }: { entries: Array<[string, string | number]> }) {
   );
 }
 
-function CanonicalInspector({
+function Inspector({
   payload,
   runId,
 }: {
@@ -116,7 +116,7 @@ export function StageInspector({
         {detail.errorMessage ? (
           <ErrorBanner>{detail.errorMessage}</ErrorBanner>
         ) : null}
-        <CanonicalInspector payload={detail.inspectorPayload} runId={runId} />
+        <Inspector payload={detail.inspectorPayload} runId={runId} />
       </div>
     );
   }
@@ -130,14 +130,11 @@ export function StageInspector({
         <Card className="overflow-hidden">
           <CardHeader>
             <h3 className="font-semibold text-[var(--text)]">
-              Canonical {detail.stageTitle} inspector
+              {detail.stageTitle} inspector
             </h3>
           </CardHeader>
           <CardContent className="space-y-5">
-            <CanonicalInspector
-              payload={detail.inspectorPayload}
-              runId={runId}
-            />
+            <Inspector payload={detail.inspectorPayload} runId={runId} />
           </CardContent>
         </Card>
       ) : null}

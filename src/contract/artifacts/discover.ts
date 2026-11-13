@@ -1,5 +1,5 @@
 /**
- * Canonical Discover artifact payload: the lossless ledger of seeds, the
+ * Discover artifact payload: the lossless ledger of seeds, the
  * citing neighborhood, citation occurrences, attributed claims, and candidates.
  */
 import { z } from "zod";
@@ -11,7 +11,7 @@ import {
   artifactReferenceSchema,
   sha256DigestSchema,
   stableIdentifierSchema,
-} from "../lean-artifact-primitives.js";
+} from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { sortedUnique } from "../../shared/order.js";
 import {
@@ -884,7 +884,7 @@ export const discoverClaimCandidateSchema = z
   .object({
     candidateId: stableIdentifierSchema,
     seedId: stableIdentifierSchema,
-    canonicalClaim: z.string().min(1),
+    claim: z.string().min(1),
     normalizedClaim: z.string().min(1),
     memberMentionIds: z.array(stableIdentifierSchema).min(1),
     sourceClaimRecordIds: z.array(stableIdentifierSchema).min(1),

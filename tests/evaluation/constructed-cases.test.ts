@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildCanonicalAdjudicatePrompt,
-  type CanonicalAdjudicatePacket,
-} from "../../src/adjudication/canonical-adjudicate-packet.js";
+  buildAdjudicatePrompt,
+  type AdjudicatePacket,
+} from "../../src/stages/adjudicate/packet.js";
 import { blindCaseView } from "../../src/evaluation/annotations.js";
 import {
   buildConstructedCases,
@@ -15,7 +15,7 @@ import type { EvaluationCase } from "../../src/evaluation/types.js";
 type AdjudicationCase = Extract<EvaluationCase, { task: "adjudication" }>;
 type Distortion = Extract<Mutation, { expectedVerdict: "D" | "E" }>;
 
-const packet: CanonicalAdjudicatePacket = {
+const packet: AdjudicatePacket = {
   recordId: "record_source",
   familyId: "fam_1",
   citationOccurrenceId: "occ_1",
@@ -61,7 +61,7 @@ const source: AdjudicationCase = {
   task: "adjudication",
   unitKey: "unit_source",
   packet,
-  anthropicPrompt: buildCanonicalAdjudicatePrompt(packet),
+  anthropicPrompt: buildAdjudicatePrompt(packet),
 };
 
 /** The source's retrieval case; `pins` grounding pins against a limit of one. */
@@ -110,7 +110,7 @@ function construct(overrides: Partial<Distortion> = {}) {
 describe("constructed cases", () => {
   it("edits the citing text, the support span, and the claim, and nothing else", () => {
     const built = construct();
-    const edited = built.packet as CanonicalAdjudicatePacket;
+    const edited = built.packet as AdjudicatePacket;
     expect(edited.markedCitingContext).toBe(
       "Background on the region. ▶ Marlowe et al. (2021) reported three marker classes in human Norel. ◀ Later text.",
     );
@@ -122,7 +122,7 @@ describe("constructed cases", () => {
       },
     ]);
     expect(edited.selectedChunks).toEqual(packet.selectedChunks);
-    expect(built.anthropicPrompt).toBe(buildCanonicalAdjudicatePrompt(edited));
+    expect(built.anthropicPrompt).toBe(buildAdjudicatePrompt(edited));
     expect(built.constructed).toEqual({
       sourceCaseId: "case_source",
       rationale: "The seed studied mouse, not human.",
@@ -170,9 +170,7 @@ describe("constructed cases", () => {
     expect(built.recordId).toMatch(/^record_[0-9a-f]{64}$/);
     expect(built.recordId).not.toBe(source.recordId);
     expect(built.unitKey).not.toBe(source.unitKey);
-    expect((built.packet as CanonicalAdjudicatePacket).recordId).toBe(
-      built.recordId,
-    );
+    expect((built.packet as AdjudicatePacket).recordId).toBe(built.recordId);
   });
 
   it("shows a blind reviewer the edited source text and nothing that marks it as constructed", () => {

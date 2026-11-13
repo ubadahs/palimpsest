@@ -1,13 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "ignoreIssues": {
-    "src/domain/taxonomy.ts": [
-      "exports",
-      "types",
-      "enumMembers",
-      "nsExports",
-      "nsTypes"
-    ],
     "apps/ui/components/ui/button.tsx": ["exports", "types"]
   }
 }

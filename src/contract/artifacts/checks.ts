@@ -8,7 +8,7 @@ import type { z } from "zod";
 
 import { compareCodeUnits } from "../../shared/order.js";
 import { canonicalSerialize } from "../../shared/stable-identity.js";
-import type { ArtifactReference } from "../lean-artifact-primitives.js";
+import type { ArtifactReference } from "./primitives.js";
 
 export function addIssue(
   context: z.RefinementCtx,

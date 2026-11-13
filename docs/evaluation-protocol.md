@@ -3,10 +3,10 @@
 ## Evaluation Protocol
 
 **Date:** July 2026
-**Status:** Active for uncalibrated canonical outputs
-**Purpose:** Define how to evaluate whether the canonical six-stage pipeline produces scientifically useful, reviewable fidelity judgments.
+**Status:** Active for uncalibrated outputs
+**Purpose:** Define how to evaluate whether the six-stage pipeline produces scientifically useful, reviewable fidelity judgments.
 
-## Canonical Reference
+## Reference
 
 Authoritative current docs:
 
@@ -18,7 +18,7 @@ Authoritative current docs:
 
 Can the system correctly determine when a citation record is eligible for adjudication and, when it is, produce span-grounded F/D/E/U judgments that are accurate enough to surface real mutation patterns in a small claim-family cluster?
 
-This protocol evaluates the system as a triage instrument, not as an autonomous judge. Canonical Adjudicate remains **uncalibrated** until blinded human labels exist.
+This protocol evaluates the system as a triage instrument, not as an autonomous judge. Adjudicate remains **uncalibrated** until blinded human labels exist.
 
 ## What Is Being Evaluated
 

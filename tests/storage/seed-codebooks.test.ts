@@ -12,22 +12,22 @@ import {
   buildSeedTextHash,
   scopeSeedCodebookSchema,
   type ScopeSeedCodebook,
-} from "../../src/contract/lean-artifacts.js";
+} from "../../src/contract/artifacts/index.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import type {
   GenerateObjectParams,
   LLMClient,
 } from "../../src/integrations/llm-client.js";
-import { buildCanonicalScopeAdapters } from "../../src/pipeline/canonical-production-adapters.js";
-import { createCanonicalProvenanceStore } from "../../src/pipeline/canonical-provenance-store.js";
+import { createProvenanceStore } from "../../src/pipeline/provenance-store.js";
 import {
   resolveSeedCodebook,
   type GeneratedCodebookOutcome,
-} from "../../src/pipeline/seed-codebook.js";
+} from "../../src/stages/scope/seed-codebook.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
 import { createSqliteSeedCodebookStore } from "../../src/storage/seed-codebooks.js";
-import { fixtureCodebookContent } from "../pipeline/codebook.fixture.js";
+import { fixtureCodebookContent } from "../stages/scope/codebook.fixture.js";
+import { buildScopeAdapters } from "../../src/stages/scope/adapters.js";
 
 const tempRoots: string[] = [];
 afterEach(() => {
@@ -268,7 +268,7 @@ describe("production codebook adapter", () => {
         },
       });
     });
-    const adapter = buildCanonicalScopeAdapters({
+    const adapter = buildScopeAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({}),
       llmClient: {
@@ -277,9 +277,7 @@ describe("production codebook adapter", () => {
           throw new Error("unused");
         },
       } as unknown as LLMClient,
-      provenanceStore: createCanonicalProvenanceStore(
-        tempDir("codebook-prov-"),
-      ),
+      provenanceStore: createProvenanceStore(tempDir("codebook-prov-")),
       codebookStore: createSqliteSeedCodebookStore(input.database),
       ...(input.forceRefresh ? { forceRefresh: true } : {}),
       ...(input.regenerateCodebook ? { regenerateCodebook: true } : {}),
@@ -375,13 +373,11 @@ describe("production codebook adapter", () => {
         },
       }),
     );
-    const tagger = buildCanonicalScopeAdapters({
+    const tagger = buildScopeAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({}),
       llmClient: { generateObject } as unknown as LLMClient,
-      provenanceStore: createCanonicalProvenanceStore(
-        tempDir("codebook-prov-"),
-      ),
+      provenanceStore: createProvenanceStore(tempDir("codebook-prov-")),
     });
     for (const claimText of ["Moths see moonlight.", "Moths migrate."]) {
       await tagger.tagClaim({

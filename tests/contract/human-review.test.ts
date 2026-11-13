@@ -66,7 +66,7 @@ describe("human review contracts", () => {
     ).toBe(false);
   });
 
-  it("keeps canonical context and Evidence chunk lists server-owned", () => {
+  it("keeps citation context and Evidence chunk lists server-owned", () => {
     const request = {
       reportArtifactId: `artifact_${"a".repeat(64)}`,
       reportContentHash: "b".repeat(64),

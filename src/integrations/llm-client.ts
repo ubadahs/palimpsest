@@ -25,7 +25,7 @@ import {
   type BatchTransportSettings,
   type FetchFunction,
 } from "./batch-transport.js";
-import type { StageKey } from "../contract/lean-stages.js";
+import type { StageKey } from "../contract/stages.js";
 import type { ThinkingEffort } from "../contract/model-execution.js";
 import type { DatabaseConnection } from "../storage/database.js";
 import { createSqliteBatchRequestStore } from "../storage/llm-batch-requests.js";
@@ -41,7 +41,7 @@ import {
 
 export type LLMPurpose =
   | "attributed-claim-extraction"
-  | "claim-canonicalization"
+  | "claim-clustering"
   | "citation-role-classification"
   | "seed-grounding"
   | "seed-codebook"
@@ -151,13 +151,6 @@ export type LLMTelemetryCollector = {
 // ---------------------------------------------------------------------------
 
 export type LLMClient = {
-  /**
-   * Free-form text generation. No canonical purpose uses it: every one moved
-   * to provider-enforced structured output. It is kept deliberately as the
-   * documented fallback, because that move is not yet proven on a run — if
-   * adjudication reasons worse through a tool schema, this is the way back.
-   */
-
   /** Structured JSON output via a Zod schema; the path every stage uses. */
   generateObject: <T extends z.ZodType>(
     params: GenerateObjectParams<T>,
@@ -200,7 +193,7 @@ type ExactCacheConfig = {
 };
 
 /**
- * Every canonical purpose returns a few hundred visible tokens plus thinking.
+ * Every purpose returns a few hundred visible tokens plus thinking.
  * The SDK default for Opus is 128k on a non-streaming request, which invites
  * HTTP timeouts and unbounded spend on a runaway completion.
  */

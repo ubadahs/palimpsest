@@ -103,7 +103,7 @@ describe("human review API", () => {
     vi.clearAllMocks();
   });
 
-  it("rejects client-supplied canonical validation data", async () => {
+  it("rejects client-supplied validation data", async () => {
     const result = response();
     await eventsHandler(
       request({

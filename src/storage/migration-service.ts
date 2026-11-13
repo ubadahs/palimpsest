@@ -5,14 +5,14 @@ import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 
 import { analysisRunConfigSchema } from "../contract/run-types.js";
-import { stageKeyValues } from "../contract/lean-stages.js";
+import { stageKeyValues } from "../contract/stages.js";
 
 const migrationsDirectoryPath = join(
   dirname(fileURLToPath(import.meta.url)),
   "migrations",
 );
 
-const canonicalStageKeys = new Set<string>(stageKeyValues);
+const stageKeys = new Set<string>(stageKeyValues);
 
 type MigrationFile = {
   name: string;
@@ -61,7 +61,7 @@ function getAppliedMigrationNames(database: Database.Database): Set<string> {
 
 /**
  * Delete run-registry rows whose stored config or stage vocabulary cannot be
- * loaded by the canonical six-stage executor. Preserves paper/LLM caches.
+ * loaded by the six-stage executor. Preserves paper/LLM caches.
  */
 export function purgeUnsupportedAnalysisRuns(
   database: Database.Database,
@@ -72,7 +72,7 @@ export function purgeUnsupportedAnalysisRuns(
 
   const obsoleteIds: string[] = [];
   for (const row of rows) {
-    if (!canonicalStageKeys.has(row.target_stage)) {
+    if (!stageKeys.has(row.target_stage)) {
       obsoleteIds.push(row.id);
       continue;
     }

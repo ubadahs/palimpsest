@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  buildCanonicalAdjudicatePrompt,
-  type CanonicalAdjudicatePacket,
-} from "../../src/adjudication/canonical-adjudicate-packet.js";
+  buildAdjudicatePrompt,
+  type AdjudicatePacket,
+} from "../../src/stages/adjudicate/packet.js";
 import type { GenerateObjectParams } from "../../src/integrations/llm-client.js";
 import {
   buildConstructedCases,
@@ -78,7 +78,7 @@ const seedDocument: SeedDocument = {
 };
 
 function adjudicationCase(index: number, version: Version): EvaluationCase {
-  const packet: CanonicalAdjudicatePacket = {
+  const packet: AdjudicatePacket = {
     recordId: `record_${String(index)}`,
     familyId: "fam_1",
     citationOccurrenceId: `occ_${String(index)}`,
@@ -115,7 +115,7 @@ function adjudicationCase(index: number, version: Version): EvaluationCase {
     sourceArtifactHashes: { report: canonicalSha256("fixture") },
     unitKey: `unit_${String(index)}`,
     packet,
-    anthropicPrompt: buildCanonicalAdjudicatePrompt(packet),
+    anthropicPrompt: buildAdjudicatePrompt(packet),
   };
   return {
     ...input,

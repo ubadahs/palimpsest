@@ -4,22 +4,20 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { adaptivePortfolioPolicySchema } from "../../src/contract/candidate-selection-policy.js";
-import type { ArtifactReference } from "../../src/contract/lean-artifacts.js";
+import { adaptivePortfolioPolicySchema } from "../../src/stages/discover/candidate-selection.js";
+import type { ArtifactReference } from "../../src/contract/artifacts/index.js";
 import {
-  mapFullTextAcquisitionFailure,
-  selectSeedReferenceMentions,
-} from "../../src/pipeline/canonical-production-adapters.js";
-import {
-  buildCanonicalDiscoverArtifact,
-  runCanonicalDiscover,
-  type CanonicalDiscoverAdapters,
-} from "../../src/pipeline/canonical-discover.js";
+  buildDiscoverArtifact,
+  runDiscover,
+  type DiscoverAdapters,
+} from "../../src/stages/discover/run.js";
 import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 import {
   buildStableId,
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
+import { selectSeedReferenceMentions } from "../../src/stages/discover/adapters.js";
+import { mapFullTextAcquisitionFailure } from "../../src/stages/production.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -53,7 +51,7 @@ function modelExecution(key: string) {
     kind: "model" as const,
     provider: "fixture-model-provider",
     model: "fixture-model",
-    promptId: "canonical-attributed-claim-extraction",
+    promptId: "attributed-claim-extraction",
     promptVersion: "v1",
     promptContentHash: canonicalSha256({ prompt: "replay" }),
     requestHash: canonicalSha256({ key, direction: "request" }),
@@ -123,7 +121,7 @@ function harvestFromFixtureXml(xmlPath: string, paperId: string) {
   };
 }
 
-function buildReplayAdapters(): CanonicalDiscoverAdapters {
+function buildReplayAdapters(): DiscoverAdapters {
   return {
     resolveSeed: ({ doi }) =>
       Promise.resolve({
@@ -278,8 +276,8 @@ describe("Recorded Discover replay", () => {
       }),
       recordedAt: "2026-07-19T12:00:00.000Z",
     };
-    const result = await runCanonicalDiscover(options, buildReplayAdapters());
-    const artifact = buildCanonicalDiscoverArtifact({
+    const result = await runDiscover(options, buildReplayAdapters());
+    const artifact = buildDiscoverArtifact({
       result,
       runId: "run-replay",
       createdAt: "2026-07-19T12:05:00.000Z",
@@ -287,7 +285,7 @@ describe("Recorded Discover replay", () => {
         contentHash: canonicalSha256(options),
       },
     });
-    expect(artifact.canonicalStage).toBe("discover");
+    expect(artifact.stage).toBe("discover");
     expect(result.payload.citationMentions.length).toBeGreaterThanOrEqual(2);
 
     const bundledMentions = result.payload.citationMentions.filter(
@@ -334,7 +332,7 @@ describe("Recorded Discover replay", () => {
         const candidate = result.payload.claimCandidates.find(
           (entry) => entry.candidateId === disposition.candidateId,
         );
-        return candidate?.canonicalClaim === PVALB_CLAIM;
+        return candidate?.claim === PVALB_CLAIM;
       }),
     ).toBe(true);
     expect(

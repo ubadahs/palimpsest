@@ -143,7 +143,7 @@ export function appendHumanReviewEventForRun(input: {
     artifactId: string;
     contentHash: string;
   };
-  canonicalRecord: {
+  reportRecord: {
     recordId: string;
     familyId: string;
     citationContext: string;
@@ -177,16 +177,16 @@ export function appendHumanReviewEventForRun(input: {
   }
 
   if (
-    request.recordId !== input.canonicalRecord.recordId ||
-    request.familyId !== input.canonicalRecord.familyId
+    request.recordId !== input.reportRecord.recordId ||
+    request.familyId !== input.reportRecord.familyId
   ) {
     throw new HumanReviewConflictError(
       "record_identity_mismatch",
       "Review record/family identity does not match the current report",
       {
         current: {
-          recordId: input.canonicalRecord.recordId,
-          familyId: input.canonicalRecord.familyId,
+          recordId: input.reportRecord.recordId,
+          familyId: input.reportRecord.familyId,
         },
         received: {
           recordId: request.recordId,
@@ -199,13 +199,13 @@ export function appendHumanReviewEventForRun(input: {
   if (request.assessment.correctedCitingSpan) {
     assertCorrectedCitingSpanInContext(
       request.assessment.correctedCitingSpan,
-      input.canonicalRecord.citationContext,
+      input.reportRecord.citationContext,
     );
   }
   if (request.assessment.correctedCitedChunkIds) {
     assertCorrectedCitedChunksKnown(
       request.assessment.correctedCitedChunkIds,
-      input.canonicalRecord.knownCitedChunkIds,
+      input.reportRecord.knownCitedChunkIds,
     );
   }
 

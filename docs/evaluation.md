@@ -1,13 +1,13 @@
 # Local evaluation
 
-Evaluation is separate from the six-stage production pipeline. It freezes cases from a completed canonical report, stores them under gitignored `data/evaluations/`, and compares providers without changing production artifacts. Datasets, trials, labels, and scores stay on the machine that created them.
+Evaluation is separate from the six-stage production pipeline. It freezes cases from a completed report, stores them under gitignored `data/evaluations/`, and compares providers without changing production artifacts. Datasets, trials, labels, and scores stay on the machine that created them.
 
 How to judge the system is in [evaluation-protocol.md](./evaluation-protocol.md). Adjudicate stays uncalibrated until blinded human labels exist.
 
 ## Commands
 
 ```bash
-npm run dev -- eval dataset --report data/runs/<run-id>/05-report/<canonical-report>.json --name <name> [--mutations <path>]
+npm run dev -- eval dataset --report data/runs/<run-id>/05-report/<report>.json --name <name> [--mutations <path>]
 npm run dev -- eval validate --dataset <dataset-id>
 npm run dev -- eval request --dataset <dataset-id> --title <title> --purpose <why> --cases <case-ids.json>
 npm run dev -- eval run --dataset <dataset-id> --config docs/evaluation.example.json
@@ -21,7 +21,7 @@ npm run dev -- eval report --experiment <experiment-id>
 
 ## Adjudicating from the whole seed paper
 
-The production pipeline adjudicates from the whole seed text by default (see [pipeline.md](./pipeline.md)); the harness can compare that with the older chunk reading. An evaluation provider reads the chunks the run selected unless its config says `"adjudicationEvidence": "seed_text"`. With that setting it gets the seed's full text as a prompt prefix, which the provider caches because it is the same for every record of a seed, and it must point at its evidence by quoting the text. Each quote is checked as an exact substring of the block it names. A quote that fails is dropped and counted; an `F`, `D`, or `U` verdict left with no verified quote is an invalid response. An `E` may quote nothing, because the model has read the whole paper and the paper may say nothing on the point. The first request for each seed runs alone to write the cache; the rest then run side by side and read it.
+The production pipeline adjudicates from the whole seed text by default (see [pipeline.md](./pipeline.md)); the harness can compare that with reading only the chunks Evidence selected. An evaluation provider reads the chunks the run selected unless its config says `"adjudicationEvidence": "seed_text"`. With that setting it gets the seed's full text as a prompt prefix, which the provider caches because it is the same for every record of a seed, and it must point at its evidence by quoting the text. Each quote is checked as an exact substring of the block it names. A quote that fails is dropped and counted; an `F`, `D`, or `U` verdict left with no verified quote is an invalid response. An `E` may quote nothing, because the model has read the whole paper and the paper may say nothing on the point. The first request for each seed runs alone to write the cache; the rest then run side by side and read it.
 
 `docs/evaluation.adjudication-arms.example.json` compares Haiku 5.5, Sonnet 5.5 and Opus 5.5, each reading chunks and reading the whole paper, on the same cases, twice. `docs/evaluation.adjudication-probe.example.json` holds only the two Haiku arms and costs a few cents: run it first as a live check of the request path and of how hard the constructed cases are. Its trials are reused when the full comparison runs.
 

@@ -10,7 +10,7 @@ The CLI and artifacts are the source of truth. SQLite stores local run state. Th
 
 - Node.js 22+
 - `GROBID_BASE_URL` for validated PDF parsing
-- `ANTHROPIC_API_KEY` for model-backed canonical pipeline work, including attributed-claim extraction, grounding, evidence reranking (on by default), and eligible-record adjudication.
+- `ANTHROPIC_API_KEY` for model-backed pipeline work, including attributed-claim extraction, grounding, evidence reranking (on by default), and eligible-record adjudication.
 
 See [docs/runtime-setup.md](docs/runtime-setup.md) for environment variables, GROBID setup, and optional providers.
 
@@ -39,7 +39,7 @@ Use a DOI-first run when Palimpsest should discover claim families from citing b
 npm run dev -- pipeline --input path/to/dois.json
 ```
 
-Stop after a canonical stage or resume a managed run:
+Stop after a stage or resume a managed run:
 
 ```bash
 npm run dev -- pipeline --input path/to/dois.json --stop-after evidence
@@ -77,7 +77,7 @@ Pipeline and UI artifacts are written locally under `data/runs/` when using mana
 
 ## Output
 
-The final `report` stage writes authoritative JSON funnel/rate/trace accounting and a deterministic Markdown rendering under `data/runs/<run>/05-report/`. Canonical Adjudicate's `F`/`D`/`E`/`U` outcomes are **uncalibrated**; a runnable pipeline is not a validated method or a basis for trust claims.
+The final `report` stage writes authoritative JSON funnel/rate/trace accounting and a deterministic Markdown rendering under `data/runs/<run>/05-report/`. Adjudicate's `F`/`D`/`E`/`U` outcomes are **uncalibrated**; a runnable pipeline is not a validated method or a basis for trust claims.
 
 ## Pipeline
 

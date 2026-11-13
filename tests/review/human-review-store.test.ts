@@ -70,7 +70,7 @@ function appendInput(
       artifactId: REPORT_ID,
       contentHash: REPORT_HASH,
     },
-    canonicalRecord: {
+    reportRecord: {
       recordId: reviewRequest.recordId,
       familyId: reviewRequest.familyId,
       citationContext: "Context with a citing claim span here.",
@@ -170,15 +170,15 @@ describe("human review store", () => {
     expect(() =>
       appendHumanReviewEventForRun({
         ...input,
-        canonicalRecord: {
-          ...input.canonicalRecord,
+        reportRecord: {
+          ...input.reportRecord,
           familyId: "family_current",
         },
       }),
     ).toThrow(/identity does not match/i);
   });
 
-  it("validates corrections against canonical context and Evidence chunks", () => {
+  it("validates corrections against the citation context and Evidence chunks", () => {
     expect(() =>
       appendHumanReviewEventForRun(
         appendInput(

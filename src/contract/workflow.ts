@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { stageKeyValues } from "./lean-stages.js";
+import { stageKeyValues } from "./stages.js";
 
 const stageKeySchema = z.enum(stageKeyValues);
 type StageKey = (typeof stageKeyValues)[number];
@@ -223,8 +223,7 @@ const workflowDefinitions = [
     stageKey: "adjudicate",
     title: "Adjudicate",
     pendingSummary: "Adjudication has not started.",
-    completedSummary:
-      "Canonical F/D/E/U outcomes and operational gates are recorded.",
+    completedSummary: "F/D/E/U outcomes and operational gates are recorded.",
     failedSummary: "Adjudication stopped before outcomes were finalized.",
     steps: [
       {
@@ -253,12 +252,12 @@ const workflowDefinitions = [
     stageKey: "report",
     title: "Report",
     pendingSummary: "Report has not started.",
-    completedSummary: "The deterministic canonical report is complete.",
-    failedSummary: "Report stopped before its canonical chain was summarized.",
+    completedSummary: "The deterministic report is complete.",
+    failedSummary: "Report stopped before its artifact chain was summarized.",
     steps: [
       {
         id: "verify_chain",
-        label: "Verify canonical chain",
+        label: "Verify artifact chain",
         description: "Tamper-verify all five direct ancestor artifacts.",
       },
       {

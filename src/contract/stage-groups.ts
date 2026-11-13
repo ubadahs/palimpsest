@@ -1,4 +1,4 @@
-import { stageDefinitions, type StageKey } from "./lean-stages.js";
+import { stageDefinitions, type StageKey } from "./stages.js";
 import type {
   AnalysisRunStage,
   AnalysisRunStageStatus,
@@ -12,7 +12,7 @@ const TERMINAL: ReadonlySet<AnalysisRunStageStatus> = new Set([
   "interrupted",
 ]);
 
-/** Resolve the status for a canonical stage's single registry row. */
+/** Resolve the status for a stage's single registry row. */
 export function computeAggregateStageStatus(
   members: AnalysisRunStage[],
 ): AnalysisRunStageStatus {
@@ -44,7 +44,7 @@ function mergeGroupSummary(
   return members[0]?.summary;
 }
 
-/** Group the six flat DB rows into one logical entry per canonical stage. */
+/** Group the six flat DB rows into one logical entry per stage. */
 export function buildLogicalStageGroups(
   flat: AnalysisRunStage[],
 ): LogicalStageGroup[] {
@@ -61,9 +61,7 @@ export function buildLogicalStageGroups(
       return [];
     }
     if (members.length !== 1) {
-      throw new Error(
-        `Canonical stage ${def.key} must have exactly one registry row`,
-      );
+      throw new Error(`Stage ${def.key} must have exactly one registry row`);
     }
     const aggregateStatus = computeAggregateStageStatus(members);
     const summary = mergeGroupSummary(members);

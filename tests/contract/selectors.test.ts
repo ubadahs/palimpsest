@@ -12,31 +12,31 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildStageInspectorPayload,
-  deriveCanonicalStageSummary,
-  deriveCanonicalStageSummaryFromPath,
+  deriveStageSummary,
+  deriveStageSummaryFromPath,
   listStageArtifacts,
 } from "../../src/contract/selectors.js";
 
-describe("canonical selectors", () => {
+describe("selectors", () => {
   let tempRoot = "";
 
   beforeEach(() => {
     tempRoot = mkdtempSync(join(tmpdir(), "palimpsest-selectors-"));
   });
 
-  it("discovers only canonical artifact suffixes", () => {
-    writeArtifact("2026-04-07_003_extraction-results.json", {});
-    writeArtifact("2026-04-07_003_canonical-prepare.json", {});
+  it("discovers only artifact suffixes", () => {
+    writeFixture("2026-04-07_003_extraction-results.json", {});
+    writeFixture("2026-04-07_003_prepare.json", {});
     writeFileSync(
-      join(tempRoot, "2026-04-07_003_canonical-prepare.md"),
-      "# Not a canonical report\n",
+      join(tempRoot, "2026-04-07_003_prepare.md"),
+      "# Not a report\n",
       "utf8",
     );
 
     const artifacts = listStageArtifacts("prepare", tempRoot);
 
     expect(artifacts.primaryArtifactPath).toBe(
-      join(tempRoot, "2026-04-07_003_canonical-prepare.json"),
+      join(tempRoot, "2026-04-07_003_prepare.json"),
     );
     expect(artifacts.reportArtifactPath).toBeUndefined();
     expect(artifacts.extraArtifacts).toEqual([]);
@@ -46,28 +46,28 @@ describe("canonical selectors", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  function writeArtifact(name: string, payload: unknown): string {
+  function writeFixture(name: string, payload: unknown): string {
     const path = join(tempRoot, name);
     writeFileSync(path, JSON.stringify(payload, null, 2), "utf8");
     return path;
   }
 
-  it("accepts only validated canonical artifacts for summaries and inspection", () => {
-    const artifactPath = writeArtifact("invalid.json", { unknown: true });
+  it("accepts only validated artifacts for summaries and inspection", () => {
+    const artifactPath = writeFixture("invalid.json", { unknown: true });
 
     expect(() => buildStageInspectorPayload("discover", artifactPath)).toThrow(
-      /Invalid canonical Discover/i,
+      /Invalid Discover/i,
     );
-    expect(() =>
-      deriveCanonicalStageSummaryFromPath("discover", artifactPath),
-    ).toThrow(/Invalid canonical Discover/i);
+    expect(() => deriveStageSummaryFromPath("discover", artifactPath)).toThrow(
+      /Invalid Discover/i,
+    );
 
-    // The overload remains constrained to the six canonical stage artifacts.
-    expect(deriveCanonicalStageSummary).toBeTypeOf("function");
+    // The overload remains constrained to the six stage artifacts.
+    expect(deriveStageSummary).toBeTypeOf("function");
   });
 
   it("requires upstream artifact paths for report inspector joins", () => {
-    const artifactPath = writeArtifact("report.json", { unknown: true });
+    const artifactPath = writeFixture("report.json", { unknown: true });
     expect(() => buildStageInspectorPayload("report", artifactPath)).toThrow(
       /preparePath, evidencePath, and adjudicatePath/i,
     );
@@ -85,11 +85,11 @@ describe("canonical selectors", () => {
       return name ? join(runRoot, dir, name) : undefined;
     };
 
-    const reportPath = pick("05-report", "_canonical-report.json");
-    const markdownPath = pick("05-report", "_canonical-report.md");
-    const preparePath = pick("02-prepare", "_canonical-prepare.json");
-    const evidencePath = pick("03-evidence", "_canonical-evidence.json");
-    const adjudicatePath = pick("04-adjudicate", "_canonical-adjudicate.json");
+    const reportPath = pick("05-report", "_report.json");
+    const markdownPath = pick("05-report", "_report.md");
+    const preparePath = pick("02-prepare", "_prepare.json");
+    const evidencePath = pick("03-evidence", "_evidence.json");
+    const adjudicatePath = pick("04-adjudicate", "_adjudicate.json");
     if (
       reportPath == null ||
       markdownPath == null ||
@@ -112,7 +112,7 @@ describe("canonical selectors", () => {
       // Pre-span-binding report artifacts are not bridged.
       if (
         error instanceof Error &&
-        /Invalid canonical Report artifact|attributedClaimsWithVerifiedSupportSpan|evidenceSufficiency/i.test(
+        /Invalid Report artifact|attributedClaimsWithVerifiedSupportSpan|evidenceSufficiency/i.test(
           error.message,
         )
       ) {
@@ -122,7 +122,7 @@ describe("canonical selectors", () => {
     }
 
     expect(payload.stageKey).toBe("report");
-    expect(payload.markdownPath).toContain("_canonical-report.md");
+    expect(payload.markdownPath).toContain("_report.md");
     expect(payload.summary.interpretationStatus).toBe(
       "uncalibrated_research_output",
     );

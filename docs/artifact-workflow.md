@@ -1,6 +1,6 @@
 # Artifact Workflow
 
-Canonical runs write a validated, lineage-bound artifact chain:
+Runs write a validated, lineage-bound artifact chain:
 
 ```text
 Discover → Scope → Prepare → Evidence → Adjudicate → Report
@@ -26,20 +26,20 @@ data/runs/<runId>/
   cost-summary.json
 ```
 
-Stage directories contain append-only, time-sortable attempts named `<timestamp>_<nonce>_<artifactId>_canonical-<stage>.json`; rerunning identical semantic work keeps the same artifact ID but writes a distinct attempt path. Report JSON and Markdown share the same attempt stem. Every primary JSON has a manifest, and the run registry points to the current JSON, manifest, and Report Markdown.
+Stage directories contain append-only, time-sortable attempts named `<timestamp>_<nonce>_<artifactId>_<stage>.json`; rerunning identical semantic work keeps the same artifact ID but writes a distinct attempt path. Report JSON and Markdown share the same attempt stem. Every primary JSON has a manifest, and the run registry points to the current JSON, manifest, and Report Markdown.
 
-`inputs/run-config.json` is the current convenience copy. Every distinct canonical config is also stored immutably under `provenance/`, and each stage envelope binds the exact config artifact used for that attempt. Provenance filenames use semantic provenance artifact IDs, so identical bodies stored under different roles cannot overwrite each other.
+`inputs/run-config.json` is the current convenience copy. Every distinct config is also stored immutably under `provenance/`, and each stage envelope binds the exact config artifact used for that attempt. Provenance filenames use semantic provenance artifact IDs, so identical bodies stored under different roles cannot overwrite each other.
 
 ## Artifact chain
 
 | Stage | Primary output | Direct inputs |
 |---|---|---|
-| `discover` | Canonical Discover envelope | DOI input and recorded external/model provenance |
-| `scope` | Canonical Scope envelope | Verified Discover |
-| `prepare` | Canonical Prepare envelope | Verified Scope and exact Discover ancestor |
-| `evidence` | Canonical Evidence envelope | Verified Prepare and exact Scope ancestor |
-| `adjudicate` | Canonical Adjudicate envelope | Verified Evidence and exact Prepare ancestor |
-| `report` | Canonical Report JSON and Markdown | Verified Discover, Scope, Prepare, Evidence, and Adjudicate |
+| `discover` | Discover envelope | DOI input and recorded external/model provenance |
+| `scope` | Scope envelope | Verified Discover |
+| `prepare` | Prepare envelope | Verified Scope and exact Discover ancestor |
+| `evidence` | Evidence envelope | Verified Prepare and exact Scope ancestor |
+| `adjudicate` | Adjudicate envelope | Verified Evidence and exact Prepare ancestor |
+| `report` | Report JSON and Markdown | Verified Discover, Scope, Prepare, Evidence, and Adjudicate |
 
 Discover records a lossless source ledger; Scope freezes membership; Prepare preserves every family × occurrence record; Evidence preserves every retrieval outcome; Adjudicate preserves every gate/model outcome; Report reconciles the complete chain.
 
@@ -49,7 +49,7 @@ Artifact readers validate JSON shape, stable IDs, internal references, content h
 
 ## Human review sidecar
 
-Human calibration labels are **not** a seventh pipeline stage and never overwrite canonical machine artifacts. After Report succeeds, the local UI may append review events under:
+Human calibration labels are **not** a seventh pipeline stage and never overwrite machine artifacts. After Report succeeds, the local UI may append review events under:
 
 ```text
 data/runs/<runId>/review/<reportArtifactId>/events.json
@@ -59,4 +59,4 @@ The event log is bound to the Report `artifactId` + `contentHash`. A rerun that 
 
 ## Interpretation
 
-Canonical Report is the authoritative accounting artifact. Canonical Adjudicate is runnable but **uncalibrated**: its `F`/`D`/`E`/`U` outputs require blinded human calibration before they support validation or trust claims. Human review sidecars are the calibration input; they do not rewrite Report JSON.
+Report is the authoritative accounting artifact. Adjudicate is runnable but **uncalibrated**: its `F`/`D`/`E`/`U` outputs require blinded human calibration before they support validation or trust claims. Human review sidecars are the calibration input; they do not rewrite Report JSON.

@@ -16,10 +16,7 @@ import {
   buildStableId,
   canonicalSha256,
 } from "../../shared/stable-identity.js";
-import {
-  sha256DigestSchema,
-  stableIdentifierSchema,
-} from "../lean-artifact-primitives.js";
+import { sha256DigestSchema, stableIdentifierSchema } from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import {
   addDuplicateIdentifierIssue,

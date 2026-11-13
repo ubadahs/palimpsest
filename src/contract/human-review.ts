@@ -1,14 +1,14 @@
 import { z } from "zod";
 
 import {
-  fidelityTopLabelSchema,
+  fidelityVerdictSchema,
   mutationKindSchema,
   mutationKindValues,
 } from "../domain/taxonomy.js";
 import {
-  leanArtifactIdSchema,
+  artifactIdSchema,
   sha256DigestSchema,
-} from "./lean-artifact-primitives.js";
+} from "./artifacts/primitives.js";
 
 /** Re-exported so the review form and the adjudicator cannot drift apart. */
 export { mutationKindValues };
@@ -26,10 +26,10 @@ export type HumanYesNoNa = z.infer<typeof humanYesNoNaSchema>;
 /**
  * The reviewer's own label. `not_adjudicable` is the human counterpart of an
  * operational non-verdict: the record should not have been judged at all. It
- * is never a fidelity outcome, so it stays out of `FidelityTopLabel`.
+ * is never a fidelity outcome, so it stays out of `FidelityVerdict`.
  */
 export const humanVerdictSchema = z.enum([
-  ...fidelityTopLabelSchema.options,
+  ...fidelityVerdictSchema.options,
   "not_adjudicable",
 ]);
 export type HumanVerdict = z.infer<typeof humanVerdictSchema>;
@@ -166,7 +166,7 @@ export type HumanReviewEvent = z.infer<typeof humanReviewEventSchema>;
 export const humanReviewLineageSchema = z
   .object({
     runId: z.string().min(1),
-    reportArtifactId: leanArtifactIdSchema,
+    reportArtifactId: artifactIdSchema,
     reportContentHash: sha256DigestSchema,
   })
   .strict();
@@ -266,11 +266,11 @@ export type HumanReviewState = z.infer<typeof humanReviewStateSchema>;
 
 /**
  * Client → API append payload. Server assigns eventId/createdAt and resolves
- * the canonical citation context and Evidence chunks by recordId.
+ * the citation context and Evidence chunks by recordId.
  */
 export const appendHumanReviewRequestSchema = z
   .object({
-    reportArtifactId: leanArtifactIdSchema,
+    reportArtifactId: artifactIdSchema,
     reportContentHash: sha256DigestSchema,
     expectedHeadEventId: humanReviewEventIdSchema.nullable(),
     recordId: z.string().min(1),

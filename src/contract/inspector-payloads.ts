@@ -5,8 +5,8 @@ import type {
   PrepareArtifact,
   ReportArtifact,
   ScopeArtifact,
-} from "./lean-artifacts.js";
-import type { StageKey } from "./lean-stages.js";
+} from "./artifacts/index.js";
+import type { StageKey } from "./stages.js";
 
 export type StageArtifactMap = {
   discover: DiscoverArtifact;
@@ -17,7 +17,7 @@ export type StageArtifactMap = {
   report: ReportArtifact;
 };
 
-type CanonicalInspectorPayload<
+type InspectorPayload<
   K extends StageKey,
   TArtifact extends StageArtifactMap[K],
   TSummary,
@@ -66,7 +66,7 @@ export type ReportInspectorOccurrenceClaim = {
 };
 
 /**
- * Lean, client-safe row for one Prepare × Evidence × Adjudicate record.
+ * Client-safe row for one Prepare × Evidence × Adjudicate record.
  * Joined from upstream artifacts using the report `recordTraces` spine.
  */
 export type ReportInspectorRecordRow = {
@@ -131,7 +131,7 @@ export type MutationFamilyVerdictCounts = {
 
 /**
  * Family-centered mutation projection for the Report Families tab.
- * Deterministic inspector view only — never mutates canonical Report JSON.
+ * Deterministic inspector view only — never mutates Report JSON.
  */
 export type MutationFamilyView = {
   familyId: string;
@@ -142,7 +142,7 @@ export type MutationFamilyView = {
   groundingStatus?: string;
   verifiedSeedGroundingSpans: ReportInspectorGroundingSpan[];
   recordCount: number;
-  /** Distinct citing-paper × claim units, from the canonical Report. */
+  /** Distinct citing-paper × claim units, from the Report. */
   uniqueClaimUnits?: number;
   /** How Discover judged the member claims equivalent. */
   equivalenceMethod?: "model" | "blocked_model" | "exact_normalized_text";
@@ -171,7 +171,7 @@ export type ReportInspectorSummary = {
 };
 
 export type StageInspectorPayloadMap = {
-  discover: CanonicalInspectorPayload<
+  discover: InspectorPayload<
     "discover",
     DiscoverArtifact,
     {
@@ -183,7 +183,7 @@ export type StageInspectorPayloadMap = {
       selectedForScope: number;
     }
   >;
-  scope: CanonicalInspectorPayload<
+  scope: InspectorPayload<
     "scope",
     ScopeArtifact,
     {
@@ -193,7 +193,7 @@ export type StageInspectorPayloadMap = {
       materializedSeeds: number;
     }
   >;
-  prepare: CanonicalInspectorPayload<
+  prepare: InspectorPayload<
     "prepare",
     PrepareArtifact,
     {
@@ -204,7 +204,7 @@ export type StageInspectorPayloadMap = {
       failed: number;
     }
   >;
-  evidence: CanonicalInspectorPayload<
+  evidence: InspectorPayload<
     "evidence",
     EvidenceArtifact,
     {
@@ -215,7 +215,7 @@ export type StageInspectorPayloadMap = {
       rerankRuns: number;
     }
   >;
-  adjudicate: CanonicalInspectorPayload<
+  adjudicate: InspectorPayload<
     "adjudicate",
     AdjudicateArtifact,
     {
@@ -230,11 +230,7 @@ export type StageInspectorPayloadMap = {
       invalidOutput: number;
     }
   >;
-  report: CanonicalInspectorPayload<
-    "report",
-    ReportArtifact,
-    ReportInspectorSummary
-  > & {
+  report: InspectorPayload<"report", ReportArtifact, ReportInspectorSummary> & {
     markdownPath?: string;
   };
 };

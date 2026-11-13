@@ -1,5 +1,5 @@
 /**
- * Canonical Scope artifact payload: frozen family identities, seed-text
+ * Scope artifact payload: frozen family identities, seed-text
  * materialization, and verified grounding.
  */
 import { z } from "zod";
@@ -12,7 +12,7 @@ import {
   sha256DigestSchema,
   stableIdentifierSchema,
   type ArtifactReference,
-} from "../lean-artifact-primitives.js";
+} from "./primitives.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
@@ -486,8 +486,8 @@ export const scopeArtifactPayloadSchema = z
   .object({
     discoverArtifact: artifactReferenceSchema
       .extend({
-        role: z.literal("canonical-discover-input"),
-        canonicalStage: z.literal("discover"),
+        role: z.literal("discover-input"),
+        stage: z.literal("discover"),
       })
       .strict(),
     candidateDecisions: z.array(scopeCandidateDecisionSchema),

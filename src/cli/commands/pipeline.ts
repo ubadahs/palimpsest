@@ -2,18 +2,15 @@ import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import {
   adjudicationEvidenceSchema,
-  CANONICAL_RUN_CONFIG_DEFAULTS,
+  RUN_CONFIG_DEFAULTS,
   type AdjudicationEvidence,
 } from "../../contract/run-types.js";
-import {
-  compareStageKeys,
-  stageKeyValues,
-} from "../../contract/lean-stages.js";
-import type { StageKey } from "../../contract/lean-stages.js";
-import type { CanonicalPipelineCliOverrides } from "../../pipeline/canonical-executor.js";
+import { compareStageKeys, stageKeyValues } from "../../contract/stages.js";
+import type { StageKey } from "../../contract/stages.js";
+import type { PipelineCliOverrides } from "../../pipeline/executor.js";
 import { openDatabase } from "../../storage/database.js";
 
-const canonicalStages = new Set<string>(stageKeyValues);
+const knownStages = new Set<string>(stageKeyValues);
 
 function fail(message: string): never {
   console.error(message);
@@ -64,23 +61,17 @@ function readYear(argv: string[], index: number, flag: string): number {
   return parsed;
 }
 
-function readCanonicalStage(
-  argv: string[],
-  index: number,
-  flag: string,
-): StageKey {
+function readStage(argv: string[], index: number, flag: string): StageKey {
   const value = readValue(argv, index, flag);
-  if (!canonicalStages.has(value)) {
+  if (!knownStages.has(value)) {
     fail(
-      `Invalid ${flag} stage "${value}". Canonical stages: ${stageKeyValues.join(", ")}.`,
+      `Invalid ${flag} stage "${value}". Stages: ${stageKeyValues.join(", ")}.`,
     );
   }
   return value as StageKey;
 }
 
-export function parseCanonicalPipelineArgs(
-  argv: string[],
-): CanonicalPipelineCliOverrides {
+export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
   let input: string | undefined;
   let runId: string | undefined;
   let seedPdfPath: string | undefined;
@@ -134,7 +125,7 @@ export function parseCanonicalPipelineArgs(
         forceRefresh = true;
         break;
       case "--stop-after":
-        stopAfterStage = readCanonicalStage(argv, index, flag);
+        stopAfterStage = readStage(argv, index, flag);
         index++;
         break;
       case "--neighborhood-limit":
@@ -260,7 +251,7 @@ export function parseCanonicalPipelineArgs(
         break;
       }
       case "--rerun-from":
-        rerunFromStage = readCanonicalStage(argv, index, flag);
+        rerunFromStage = readStage(argv, index, flag);
         index++;
         break;
       case "--max-cost":
@@ -275,7 +266,7 @@ export function parseCanonicalPipelineArgs(
         break;
       default:
         fail(
-          `Unknown pipeline flag: ${flag}. Run "pipeline --help" for canonical options.`,
+          `Unknown pipeline flag: ${flag}. Run "pipeline --help" for options.`,
         );
     }
   }
@@ -287,7 +278,7 @@ export function parseCanonicalPipelineArgs(
   }
   if (!input && !runId) {
     fail(
-      "A fresh canonical pipeline run requires --input <dois.json> (DOI-first); use --run-id <uuid> to resume.",
+      "A fresh pipeline run requires --input <dois.json> (DOI-first); use --run-id <uuid> to resume.",
     );
   }
   if (census) {
@@ -356,31 +347,31 @@ export function parseCanonicalPipelineArgs(
   };
 }
 
-function printCanonicalPipelineHelp(): void {
+function printPipelineHelp(): void {
   console.info(`Usage: pipeline --input <dois.json> [options]
        pipeline --run-id <uuid> [options]
 
-Run the canonical six-stage pipeline:
+Run the six-stage pipeline:
   discover → scope → prepare → evidence → adjudicate → report
 
 Fresh runs require DOI-first input: { "dois": ["10.xxxx/example"] }.
 
 Options:
   --input <path>                    DOI input JSON for a fresh run
-  --run-id <uuid>                   Resume an existing canonical run
+  --run-id <uuid>                   Resume an existing run
   --seed-pdf <path>                 Local seed PDF (single-DOI runs only)
   --force-refresh                   Refresh provider-derived inputs
   --stop-after <stage>              discover, scope, prepare, evidence, adjudicate, or report
-  --neighborhood-limit <n>          Safety cap on citing works enumerated (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit})
-  --probe-budget <n|all>            Discover citing-paper probe budget (default ${String(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget)});
+  --neighborhood-limit <n>          Safety cap on citing works enumerated (default ${RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit})
+  --probe-budget <n|all>            Discover citing-paper probe budget (default ${String(RUN_CONFIG_DEFAULTS.discover.probeBudget)});
                                     all probes every enumerated citer
   --census                          Analyze every citer: --probe-budget all plus candidate
                                     selection mode "all" (every family, no caps)
-  --model-concurrency <n>           Model requests in flight per stage (default ${CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency})
-  --fetch-concurrency <n>           Citing papers fetched and parsed at once in Discover (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency})
-  --min-families <n>                Adaptive portfolio minimum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})
-  --max-families <n>                Adaptive portfolio maximum families (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies})
-  --max-prepared-records <n>        Prepared-record budget for portfolio (default ${CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords})
+  --model-concurrency <n>           Model requests in flight per stage (default ${RUN_CONFIG_DEFAULTS.modelConcurrency})
+  --fetch-concurrency <n>           Citing papers fetched and parsed at once in Discover (default ${RUN_CONFIG_DEFAULTS.discover.fetchConcurrency})
+  --min-families <n>                Adaptive portfolio minimum families (default ${RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies})
+  --max-families <n>                Adaptive portfolio maximum families (default ${RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies})
+  --max-prepared-records <n>        Prepared-record budget for portfolio (default ${RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords})
   --from-year <year>                Earliest citing-paper year
   --to-year <year>                  Latest citing-paper year
   --extraction-model <model>        Discover attributed-claim extraction model
@@ -399,7 +390,7 @@ Options:
   --no-adjudicate-thinking          Disable adjudication thinking
   --adjudicate-effort <level>       Thinking effort when on: low|medium|high|max
   --adjudicate-evidence <basis>     What the adjudicator reads: seed_text|selected_chunks
-  --rerun-from <stage>              Rerun a canonical stage and downstream stages
+  --rerun-from <stage>              Rerun a stage and downstream stages
   --max-cost <usd>                  Stop sending model requests once the run's estimated
                                     spend reaches this; resume with a higher value to go on
   --batch                           Send model requests through the Message Batches API at
@@ -410,18 +401,17 @@ Options:
 
 export async function runPipelineCommand(argv: string[]): Promise<void> {
   if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
-    printCanonicalPipelineHelp();
+    printPipelineHelp();
     return;
   }
 
-  const args = parseCanonicalPipelineArgs(argv);
+  const args = parsePipelineArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
 
   const database = openDatabase(config.databasePath);
-  const { orchestrateCanonicalPipelineRun } =
-    await import("../../pipeline/canonical-executor.js");
-  await orchestrateCanonicalPipelineRun({
+  const { runPipeline } = await import("../../pipeline/executor.js");
+  await runPipeline({
     args,
     config,
     apiKey: config.anthropicApiKey,

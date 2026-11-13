@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-12
 
-This document records shipped behavior. The runnable production workflow is the canonical six-stage pipeline:
+This document records shipped behavior. The runnable production workflow is the six-stage pipeline:
 
 ```text
 discover → scope → prepare → evidence → adjudicate → report
@@ -31,7 +31,7 @@ npm run dev -- runs:gc --dry-run   # superseded stage attempts + unreferenced pr
 npm run test:live-smoke   # optional; requires PALIMPSEST_LIVE_SMOKE=1 and credentials
 ```
 
-Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six canonical keys.
+Unknown CLI flags and stage names are ordinary invalid input. `--stop-after` and `--rerun-from` accept only the six stage keys.
 
 Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-blocking for normal CI. The recorded replay fixtures under `fixtures/pipeline/replay/` exercise paywall, bundled-reference, and repeated-marker cases without network calls.
 
@@ -40,14 +40,14 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
 Landed as code, still unmeasured:
 
 - **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). When a specific finding also motivates a method or framing, the fallback rubric prefers substantive attribution. The loss this pass targets has not been re-measured.
-- **Structured outputs.** Every canonical model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
+- **Structured outputs.** Every model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
 - **Instrumented ledger.** `cost-summary.json` records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred. It is rewritten after every model call, so spend can be watched during a run (the run page shows it live), and `--max-cost` stops a run before it spends past a limit.
 - **Side-by-side model calls.** Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`). Artifacts are identical at any concurrency; only wall time changes.
 
 ## Scaling to heavily cited seeds (November 2026)
 
 - **Whole-neighborhood sampling.** Discover lists every citing work before probing (listing a few thousand citers takes about 15 metadata requests at 200 per page) and draws the probe set from all of them instead of from the provider's first 200, which skewed old. Sampling covers the frame of works not marked closed or abstract-only, stratified by year band × type group (article, review, other). Each probe goes to the stratum where a probed work stands for the most frame works, so a 100-probe sample tracks the frame's year mix closely and the large strata end up with similar inclusion probabilities. Report's `weightedRates` estimate F/D/E/U over the frame with 1/π weights; the unweighted rates remain the observed sample.
-- **Lean Prepare.** Prepare records no longer copy their family's candidates, claims, and Scope family; a seed with large families no longer multiplies family size by record count.
+- **Prepare stores family data once.** Candidates, claims, and the Scope family sit once on the payload and records refer to them by id, so a seed with large families does not multiply family size by record count.
 - **Parallel harvest.** Citing papers are fetched and parsed `discover.fetchConcurrency` at a time (default 6, `--fetch-concurrency`); the artifact is byte-identical at any value.
 - **Batch transport.** `pipeline --batch` sends model requests through the Message Batches API at half price, as a `fetch` under the provider, so requests, validation, and artifacts are unchanged. Submitted requests are recorded (migration 0014) so a crash or resume takes a pending batch's result instead of paying twice, `--max-cost` reserves an expected cost per queued request (about 2.3 times real cost on whole-paper adjudication), shared prefixes use the 1-hour cache TTL, and `db:gc` prunes request rows past the 29-day results retention. Tested against a mocked API only; no real batched run yet.
 - **Census runs.** `--census` probes every enumerated citer (`probeBudget: "all"`) and keeps every candidate as a family (`candidateSelection.mode: "all"`, every disposition still in the ledger with its reason). The UI new-run form offers both.
@@ -60,7 +60,7 @@ Landed as code, still unmeasured:
 
 A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history, and runs blind annotation plus resumable provider comparisons. Datasets, trials, and scores stay on disk. The UI grades one case at a time from the keyboard, and `eval request` saves a named set of cases that shows up there as waiting until each has a final label. See [evaluation.md](./evaluation.md).
 
-Built for evaluation: constructed cases (`eval dataset --mutations`), which edit restatements a human labelled `F` so the expected verdict is known, as distortions that count missed distortions and wording-only controls that count false alarms; a repeat-agreement figure for run-to-run noise; and whole-paper adjudication (`adjudicationEvidence: "seed_text"`), which gives the adjudicator the seed's full text as a cached prefix and verifies the quotes it relies on. A comparison of three models on one seed used all three. Its write-up stays outside the repository, and one seed with one reviewer calibrates nothing. On that comparison, production Adjudicate now reads the whole seed text with `claude-sonnet-5-5` at `high` effort; the Report counts whole-paper verdicts, those quoting a passage Evidence did not select, and those where a quote failed verification. The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`. The canonical run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort. No canonical run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
+Built for evaluation: constructed cases (`eval dataset --mutations`), which edit restatements a human labelled `F` so the expected verdict is known, as distortions that count missed distortions and wording-only controls that count false alarms; a repeat-agreement figure for run-to-run noise; and whole-paper adjudication (`adjudicationEvidence: "seed_text"`), which gives the adjudicator the seed's full text as a cached prefix and verifies the quotes it relies on. A comparison of three models on one seed used all three. Its write-up stays outside the repository, and one seed with one reviewer calibrates nothing. On that comparison, production Adjudicate now reads the whole seed text with `claude-sonnet-5-5` at `high` effort; the Report counts whole-paper verdicts, those quoting a passage Evidence did not select, and those where a quote failed verification. The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`. The run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort. No run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
 
 Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
 
@@ -70,7 +70,7 @@ Landed as an additive annotation, untested at scale. Family partitions move with
 
 ## Scientific status
 
-Canonical Adjudicate is **uncalibrated**. Successful execution does not validate its judgments, establish accuracy, or support trust claims. Blinded human calibration and separate evaluation reporting remain required.
+Adjudicate is **uncalibrated**. Successful execution does not validate its judgments, establish accuracy, or support trust claims. Blinded human calibration and separate evaluation reporting remain required.
 
 Scope, Prepare, Evidence, and Adjudicate retain complete record accounting: every record a stage receives has an outcome.
 
@@ -82,11 +82,11 @@ The SQLite column `analysis_run_stages.family_index` is part of an immutable mig
 
 ## Local UI
 
-`apps/ui` is a local-only launcher and inspector for the canonical pipeline. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, presents the six canonical logical stages, and reads typed inspector payloads. It is not a hosted product.
+`apps/ui` is a local-only launcher and inspector for the pipeline. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, presents the six logical stages, and reads typed inspector payloads. It is not a hosted product.
 
-The Report stage explorer joins Prepare/Evidence/Adjudicate onto the canonical report spine for Overview, Families (mutation view), Records, Review, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
+The Report stage explorer joins Prepare/Evidence/Adjudicate onto the report spine for Overview, Families (mutation view), Records, Review, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
 
-Human review is a post-report sidecar, not a seventh stage. Reviews append under `data/runs/<runId>/review/<reportArtifactId>/events.json`, bound to the current Report artifact ID/content hash, and never overwrite canonical machine artifacts. The Review tab exports JSON/CSV calibration datasets from that lineage.
+Human review is a post-report sidecar, not a seventh stage. Reviews append under `data/runs/<runId>/review/<reportArtifactId>/events.json`, bound to the current Report artifact ID/content hash, and never overwrite machine artifacts. The Review tab exports JSON/CSV calibration datasets from that lineage.
 
 ## Cross-cutting implementation
 
@@ -95,4 +95,4 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
-- LLM purposes are limited to `attributed-claim-extraction`, `claim-canonicalization`, `seed-grounding`, `seed-codebook`, `codebook-tagging`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.
+- LLM purposes are limited to `attributed-claim-extraction`, `claim-clustering`, `seed-grounding`, `seed-codebook`, `codebook-tagging`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.

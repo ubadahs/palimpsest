@@ -4,7 +4,7 @@ Use this as the map of the docs set. The goal is not to document every internal 
 
 If design documents disagree on scope, follow this order:
 
-1. [pipeline.md](./pipeline.md) — runnable canonical six-stage workflow
+1. [pipeline.md](./pipeline.md) — runnable six-stage workflow
 2. [status.md](./status.md) — what is implemented in the repo today
 3. [adjudication-rubric.md](./adjudication-rubric.md) — F/D/E/U and Report denominator rules
 4. [evaluation-protocol.md](./evaluation-protocol.md) — how uncalibrated outputs should be judged scientifically
@@ -13,7 +13,7 @@ If design documents disagree on scope, follow this order:
 
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
 - [runtime-setup.md](./runtime-setup.md) — environment variables, external services, required versus optional dependencies
-- [pipeline.md](./pipeline.md) — runnable canonical six-stage workflow
+- [pipeline.md](./pipeline.md) — runnable six-stage workflow
 - [pipeline-concepts.md](./pipeline-concepts.md) — short object-flow glossary for the pipeline
 
 ## If You Want To Run Or Inspect The Tool
@@ -33,7 +33,7 @@ If design documents disagree on scope, follow this order:
 
 ## Focused Reference Docs
 
-- [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric and Report denominator rules
+- [adjudication-rubric.md](./adjudication-rubric.md) — uncalibrated F/D/E/U rubric and Report denominator rules
 - [caching.md](./caching.md) — paper and LLM exact-result cache behavior
 
 ## Lint And Tests
