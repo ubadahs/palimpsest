@@ -44,11 +44,35 @@ export const providerConfigSchema = z.object({
 });
 export type ProviderConfig = z.infer<typeof providerConfigSchema>;
 
+const promptRevisionValues = [
+  "evaluation-prompts-v1",
+  "evaluation-prompts-v2",
+  "evaluation-prompts-v3",
+] as const;
+type PromptRevision = (typeof promptRevisionValues)[number];
+
+/** The only revision new trials run under; older experiments stay readable. */
+export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v3";
+
+/**
+ * The prompts a provider kind was shown under a revision. v3 reworded only
+ * the questions jev and djev providers answer, to the production rubric, so
+ * other kinds' v2 trials remain reusable under v3.
+ */
+export function promptsSeen(
+  revision: PromptRevision,
+  kind: ProviderConfig["kind"],
+): PromptRevision {
+  return revision === "evaluation-prompts-v3" &&
+    kind !== "jev" &&
+    kind !== "djev"
+    ? "evaluation-prompts-v2"
+    : revision;
+}
+
 export const experimentConfigSchema = z.object({
   schemaVersion: z.literal("evaluation-experiment-config-v1"),
-  promptRevision: z
-    .enum(["evaluation-prompts-v1", "evaluation-prompts-v2"])
-    .default("evaluation-prompts-v2"),
+  promptRevision: z.enum(promptRevisionValues).default(CURRENT_PROMPT_REVISION),
   tasks: z.array(evaluationTaskSchema).min(1),
   providers: z.array(providerConfigSchema).min(1),
   repetitions: z.number().int().positive().default(1),

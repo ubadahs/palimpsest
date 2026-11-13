@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { experimentConfigSchema } from "../../src/evaluation/config.js";
+import {
+  CURRENT_PROMPT_REVISION,
+  experimentConfigSchema,
+  promptsSeen,
+} from "../../src/evaluation/config.js";
 
 function example(name: string) {
   return experimentConfigSchema.parse(
@@ -45,5 +49,33 @@ describe("evaluation example configs", () => {
     ])
       for (const provider of example(name).providers)
         expect(provider.model).not.toMatch(/claude-(opus|sonnet|haiku)-4/);
+  });
+});
+
+describe("evaluation prompt revisions", () => {
+  it("runs new experiments under the current revision", () => {
+    expect(
+      experimentConfigSchema.parse({
+        schemaVersion: "evaluation-experiment-config-v1",
+        tasks: ["role"],
+        providers: [{ id: "rules", kind: "rules", model: "role-regex-v1" }],
+      }).promptRevision,
+    ).toBe(CURRENT_PROMPT_REVISION);
+  });
+
+  it("keeps v2 trials reusable under v3 except where v3 changed the question", () => {
+    for (const kind of ["anthropic", "bm25", "rules"] as const) {
+      expect(promptsSeen("evaluation-prompts-v3", kind)).toBe(
+        "evaluation-prompts-v2",
+      );
+    }
+    for (const kind of ["jev", "djev"] as const) {
+      expect(promptsSeen("evaluation-prompts-v3", kind)).toBe(
+        "evaluation-prompts-v3",
+      );
+    }
+    expect(promptsSeen("evaluation-prompts-v1", "anthropic")).toBe(
+      "evaluation-prompts-v1",
+    );
   });
 });

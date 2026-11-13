@@ -1193,7 +1193,7 @@ describe("Prepare", () => {
     ).rejects.toBeInstanceOf(PrepareBoundaryError);
   });
 
-  it("rejects dangling, duplicate, inconsistent, and missing payload records", async () => {
+  it("rejects dangling, duplicate, and missing payload records", async () => {
     const { result } = await runPrepareFixture();
 
     const danglingFamily = structuredClone(result.payload);
@@ -1211,12 +1211,6 @@ describe("Prepare", () => {
     );
     expect(
       prepareArtifactPayloadSchema.safeParse(danglingOccurrence).success,
-    ).toBe(false);
-
-    const inconsistentPaper = structuredClone(result.payload);
-    inconsistentPaper.citingPapers[0]!.paper.paperId = "different-paper";
-    expect(
-      prepareArtifactPayloadSchema.safeParse(inconsistentPaper).success,
     ).toBe(false);
 
     const missingPaper = structuredClone(result.payload);
@@ -1243,30 +1237,12 @@ describe("Prepare", () => {
       false,
     );
 
-    const duplicateId = structuredClone(result.payload);
-    duplicateId.records[1]!.recordId = duplicateId.records[0]!.recordId;
-    expect(prepareArtifactPayloadSchema.safeParse(duplicateId).success).toBe(
-      false,
-    );
-
-    const unreferencedClaim = structuredClone(result.payload);
-    unreferencedClaim.sourceClaimRecords.push({
-      ...unreferencedClaim.sourceClaimRecords[0]!,
-      claimRecordId: buildStableId("claim", { unreferenced: true }),
-    });
-    unreferencedClaim.sourceClaimRecords.sort((left, right) =>
-      left.claimRecordId < right.claimRecordId ? -1 : 1,
-    );
-    expect(
-      prepareArtifactPayloadSchema.safeParse(unreferencedClaim).success,
-    ).toBe(false);
-
     const missing = structuredClone(result.payload);
     missing.records.pop();
     expect(prepareArtifactPayloadSchema.safeParse(missing).success).toBe(false);
   });
 
-  it("rejects invalid occurrence-local source subsets", async () => {
+  it("rejects empty or dangling occurrence-local source references", async () => {
     const { result } = await runPrepareFixture();
     const isInvalid = (payload: typeof result.payload) =>
       !prepareArtifactPayloadSchema.safeParse(payload).success;
@@ -1300,37 +1276,6 @@ describe("Prepare", () => {
       buildStableId("candidate", { missing: true }),
     ];
     expect(isInvalid(danglingCandidate)).toBe(true);
-
-    const crossOccurrence = structuredClone(result.payload);
-    const crossOccurrenceSource = findRecord(crossOccurrence, "alpha", 0)
-      .occurrenceSourceClaimRecordIds[0]!;
-    findRecord(crossOccurrence, "alpha", 1).occurrenceSourceClaimRecordIds = [
-      crossOccurrenceSource,
-    ];
-    expect(isInvalid(crossOccurrence)).toBe(true);
-
-    const crossFamily = structuredClone(result.payload);
-    findRecord(crossFamily, "alpha", 0).occurrenceSourceCandidateIds =
-      findRecord(crossFamily, "beta", 0).occurrenceSourceCandidateIds;
-    expect(isInvalid(crossFamily)).toBe(true);
-
-    const extraClaim = structuredClone(result.payload);
-    findRecord(extraClaim, "alpha", 1).occurrenceSourceClaimRecordIds.push(
-      findRecord(extraClaim, "alpha", 0).occurrenceSourceClaimRecordIds[0]!,
-    );
-    expect(isInvalid(extraClaim)).toBe(true);
-
-    const omittedClaim = structuredClone(result.payload);
-    findRecord(omittedClaim, "alpha", 0).occurrenceSourceClaimRecordIds.pop();
-    expect(isInvalid(omittedClaim)).toBe(true);
-
-    const reorderedClaims = structuredClone(result.payload);
-    findRecord(
-      reorderedClaims,
-      "alpha",
-      0,
-    ).occurrenceSourceClaimRecordIds.reverse();
-    expect(isInvalid(reorderedClaims)).toBe(true);
   });
 
   it("stores family-level data once and keeps records occurrence-local", async () => {

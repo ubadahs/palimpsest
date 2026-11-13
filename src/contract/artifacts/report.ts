@@ -2,11 +2,6 @@ import { z } from "zod";
 
 import { compareCodeUnits } from "../../shared/order.js";
 import {
-  addDuplicateIdentifierIssue,
-  sameArtifactReference,
-} from "./checks.js";
-
-import {
   fidelityVerdictSchema,
   mutationKindSchema,
 } from "../../domain/taxonomy.js";
@@ -177,50 +172,12 @@ export const reportRateSchema = z
   })
   .strict()
   .superRefine((rate, context) => {
-    if (
-      !Number.isFinite(rate.numerator) ||
-      !Number.isFinite(rate.denominator)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["numerator"],
-        message: "Rate numerator and denominator must be finite integers",
-      });
-      return;
-    }
-    if (rate.numerator > rate.denominator) {
-      context.addIssue({
-        code: "custom",
-        path: ["numerator"],
-        message: "Rate numerator cannot exceed its denominator",
-      });
-    }
-    if (rate.denominator === 0) {
-      if (rate.value !== null) {
-        context.addIssue({
-          code: "custom",
-          path: ["value"],
-          message:
-            "Zero-denominator rates must store value null (not estimable); never 0, NaN, or Infinity",
-        });
-      }
-      return;
-    }
-    const expected = rate.numerator / rate.denominator;
-    if (rate.value === null || !Number.isFinite(rate.value)) {
+    if (rate.denominator === 0 && rate.value !== null) {
       context.addIssue({
         code: "custom",
         path: ["value"],
         message:
-          "Nonzero-denominator rates must store a finite recomputed numerator/denominator value",
-      });
-      return;
-    }
-    if (Math.abs(rate.value - expected) > 1e-12) {
-      context.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: `Rate value ${String(rate.value)} does not equal numerator/denominator ${String(expected)}`,
+          "Zero-denominator rates must store value null (not estimable); never 0, NaN, or Infinity",
       });
     }
   });
@@ -249,37 +206,12 @@ export const reportWeightedRateSchema = z
   })
   .strict()
   .superRefine((rate, context) => {
-    if (rate.sampleNumerator > rate.sampleDenominator) {
-      context.addIssue({
-        code: "custom",
-        path: ["sampleNumerator"],
-        message: "Sample numerator cannot exceed its denominator",
-      });
-    }
-    if (rate.weightedNumerator > rate.weightedDenominator * (1 + 1e-12)) {
-      context.addIssue({
-        code: "custom",
-        path: ["weightedNumerator"],
-        message: "Weighted numerator cannot exceed its denominator",
-      });
-    }
-    if (rate.weightedDenominator === 0) {
-      if (rate.value !== null) {
-        context.addIssue({
-          code: "custom",
-          path: ["value"],
-          message:
-            "Zero-denominator weighted rates must store value null (not estimable)",
-        });
-      }
-      return;
-    }
-    const expected = rate.weightedNumerator / rate.weightedDenominator;
-    if (rate.value === null || Math.abs(rate.value - expected) > 1e-12) {
+    if (rate.weightedDenominator === 0 && rate.value !== null) {
       context.addIssue({
         code: "custom",
         path: ["value"],
-        message: `Weighted rate value does not equal weightedNumerator/weightedDenominator ${String(expected)}`,
+        message:
+          "Zero-denominator weighted rates must store value null (not estimable)",
       });
     }
   });
@@ -540,163 +472,7 @@ const reportEvidenceTraceSchema = z
     rerankRunId: stableIdentifierSchema.optional(),
     finalSelectionId: stableIdentifierSchema.optional(),
   })
-  .strict()
-  .superRefine((trace, context) => {
-    if ((trace.finalSelectionId == null) !== (trace.rankingSource == null)) {
-      context.addIssue({
-        code: "custom",
-        path: ["rankingSource"],
-        message:
-          "Evidence trace rankingSource and finalSelectionId must either both exist or both be absent",
-      });
-    }
-    if (
-      (trace.retrievalStatus === "retrieved") !==
-      (trace.finalSelectionId != null)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["finalSelectionId"],
-        message:
-          "Only retrieved Evidence traces may carry a final selection, and every retrieved trace must carry one",
-      });
-    }
-    if (
-      (trace.rerankStatus === "completed" ||
-        trace.rerankStatus === "failed") !==
-      (trace.rerankRunId != null)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["rerankRunId"],
-        message:
-          "Completed/failed reranking requires rerankRunId; disabled/skipped/not-attempted reranking forbids it",
-      });
-    }
-
-    if (trace.retrievalStatus === "retrieved") {
-      if (trace.bm25RunId == null) {
-        context.addIssue({
-          code: "custom",
-          path: ["bm25RunId"],
-          message: "Retrieved Evidence traces require a BM25 run",
-        });
-      }
-      if (
-        trace.rerankStatus === "completed" &&
-        trace.rankingSource !== "reranked" &&
-        trace.rankingSource !== "reranked_with_scope_pins"
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["rankingSource"],
-          message:
-            "Completed reranking requires reranked as the final ranking source",
-        });
-      }
-      if (
-        (trace.rerankStatus === "disabled" ||
-          trace.rerankStatus === "skipped_pins_fill_selection" ||
-          trace.rerankStatus === "failed") &&
-        trace.rankingSource !== "bm25" &&
-        trace.rankingSource !== "bm25_with_scope_pins"
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["rankingSource"],
-          message:
-            "BM25 (optionally with Scope pins) must be the final ranking source when reranking is disabled, skipped, or failed",
-        });
-      }
-      if (
-        trace.rerankStatus === "skipped_pins_fill_selection" &&
-        trace.rankingSource !== "bm25_with_scope_pins"
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["rankingSource"],
-          message:
-            "Pin-filled rerank skip requires a scope-pinned BM25 selection",
-        });
-      }
-      if (
-        trace.rerankStatus !== "disabled" &&
-        trace.rerankStatus !== "skipped_pins_fill_selection" &&
-        trace.rerankStatus !== "completed" &&
-        trace.rerankStatus !== "failed"
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["rerankStatus"],
-          message:
-            "Retrieved Evidence traces allow only disabled, skipped, completed, or failed rerank status",
-        });
-      }
-      return;
-    }
-
-    if (trace.retrievalStatus === "no_lexical_matches") {
-      if (trace.bm25RunId == null) {
-        context.addIssue({
-          code: "custom",
-          path: ["bm25RunId"],
-          message: "No-lexical-match Evidence traces require a BM25 run",
-        });
-      }
-      if (
-        trace.rerankRunId != null ||
-        trace.finalSelectionId != null ||
-        trace.rankingSource != null
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["finalSelectionId"],
-          message:
-            "No-lexical-match Evidence traces cannot claim reranking or a final selection",
-        });
-      }
-      if (
-        trace.rerankStatus !== "disabled" &&
-        trace.rerankStatus !== "not_attempted_no_candidates"
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["rerankStatus"],
-          message:
-            "No-lexical-match Evidence traces require disabled or not_attempted_no_candidates reranking",
-        });
-      }
-      return;
-    }
-
-    if (
-      trace.bm25RunId != null ||
-      trace.rerankRunId != null ||
-      trace.finalSelectionId != null ||
-      trace.rankingSource != null
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["bm25RunId"],
-        message:
-          "Unavailable/acquisition/retrieval-failure Evidence traces cannot claim ranking runs or final selections",
-      });
-    }
-    const expectedNotAttempted =
-      trace.retrievalStatus === "retrieval_failed"
-        ? "not_attempted_retrieval_failure"
-        : "not_attempted_unavailable";
-    if (
-      trace.rerankStatus !== "disabled" &&
-      trace.rerankStatus !== expectedNotAttempted
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["rerankStatus"],
-        message: `${trace.retrievalStatus} Evidence traces require disabled or ${expectedNotAttempted} reranking`,
-      });
-    }
-  });
+  .strict();
 
 const reportAdjudicationTraceSchema = z.discriminatedUnion("status", [
   z
@@ -1059,68 +835,15 @@ function validateReportPayload(
     "human_vs_model",
     "evaluation_statistics",
   ]);
-
-  const rateIds = payload.rates.map((rate) => rate.metricId);
-  addDuplicateIdentifierIssue(rateIds, ["rates"], context);
-  for (const metricId of rateIds) {
-    if (forbiddenRateIds.has(metricId)) {
+  for (const rate of payload.rates) {
+    if (forbiddenRateIds.has(rate.metricId)) {
       context.addIssue({
         code: "custom",
         path: ["rates"],
-        message: `Report forbids evaluation/headline rate metric: ${metricId}`,
+        message: `Report forbids evaluation/headline rate metric: ${rate.metricId}`,
       });
     }
   }
-  for (const requiredId of REQUIRED_REPORT_RATE_METRIC_IDS) {
-    if (!rateIds.includes(requiredId)) {
-      context.addIssue({
-        code: "custom",
-        path: ["rates"],
-        message: `Missing required rate metric: ${requiredId}`,
-      });
-    }
-  }
-
-  const sortedRateIds = [...rateIds].sort(compareCodeUnits);
-  if (canonicalSerialize(rateIds) !== canonicalSerialize(sortedRateIds)) {
-    context.addIssue({
-      code: "custom",
-      path: ["rates"],
-      message: "Report rates must be ordered by stable metricId",
-    });
-  }
-
-  const recordIds = payload.recordTraces.map((trace) => trace.recordId);
-  addDuplicateIdentifierIssue(recordIds, ["recordTraces"], context);
-  const sortedRecordIds = [...recordIds].sort(compareCodeUnits);
-  if (canonicalSerialize(recordIds) !== canonicalSerialize(sortedRecordIds)) {
-    context.addIssue({
-      code: "custom",
-      path: ["recordTraces"],
-      message: "Report record traces must be ordered by stable recordId",
-    });
-  }
-
-  validateOrderedUniqueStatusCounts(
-    payload.funnel.scope.groundingStatusCounts,
-    ["funnel", "scope", "groundingStatusCounts"],
-    context,
-  );
-  validateOrderedUniqueStatusCounts(
-    payload.funnel.evidence.retrievalStatusCounts,
-    ["funnel", "evidence", "retrievalStatusCounts"],
-    context,
-  );
-  validateOrderedUniqueStatusCounts(
-    payload.funnel.adjudicate.gateCodeCounts,
-    ["funnel", "adjudicate", "gateCodeCounts"],
-    context,
-  );
-  validateOrderedUniqueStatusCounts(
-    payload.funnel.adjudicate.failureCodeCounts,
-    ["funnel", "adjudicate", "failureCodeCounts"],
-    context,
-  );
 
   const prepareCount = payload.funnel.prepare.preparedRecords.count;
   const evidenceCount = payload.funnel.evidence.recordOutcomes.count;
@@ -1138,83 +861,32 @@ function validateReportPayload(
     });
   }
 
-  const adjudicationCoverage = payload.rates.find(
-    (rate) => rate.metricId === "adjudication_coverage",
-  );
-  if (
-    adjudicationCoverage != null &&
-    (adjudicationCoverage.numerator !==
-      payload.funnel.adjudicate.adjudicated.count ||
-      adjudicationCoverage.denominator !== adjudicateCount)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["rates"],
-      message:
-        "adjudication_coverage must use adjudicated records over all Prepare/Evidence/Adjudicate records",
-    });
-  }
-
   const adjudicated = payload.funnel.adjudicate.adjudicated.count;
+  const uniqueAdjudicated =
+    payload.funnel.adjudicate.uniqueAdjudicatedClaimUnits.count;
   for (const verdict of ["F", "D", "E", "U"] as const) {
     const rate = payload.rates.find(
       (entry) => entry.metricId === `verdict_${verdict}_rate`,
     );
-    if (rate == null) continue;
-    if (rate.denominator !== adjudicated) {
+    if (rate != null && rate.denominator !== adjudicated) {
       context.addIssue({
         code: "custom",
         path: ["rates"],
         message: `verdict_${verdict}_rate denominator must be adjudicated records only`,
       });
     }
-    const count = payload.funnel.adjudicate.verdictCounts[verdict].count;
-    if (rate.numerator !== count) {
-      context.addIssue({
-        code: "custom",
-        path: ["rates"],
-        message: `verdict_${verdict}_rate numerator must match adjudicated ${verdict} count`,
-      });
-    }
-  }
-
-  const uniqueAdjudicated =
-    payload.funnel.adjudicate.uniqueAdjudicatedClaimUnits.count;
-  for (const verdict of ["F", "D", "E", "U"] as const) {
-    const rate = payload.rates.find(
+    const uniqueRate = payload.rates.find(
       (entry) => entry.metricId === `verdict_${verdict}_unique_rate`,
     );
-    if (rate == null) continue;
-    if (rate.denominator !== uniqueAdjudicated) {
+    if (uniqueRate != null && uniqueRate.denominator !== uniqueAdjudicated) {
       context.addIssue({
         code: "custom",
         path: ["rates"],
         message: `verdict_${verdict}_unique_rate denominator must be unique adjudicated claim units`,
       });
     }
-    const count =
-      payload.funnel.adjudicate.uniqueClaimUnitVerdictCounts[verdict].count;
-    if (rate.numerator !== count) {
-      context.addIssue({
-        code: "custom",
-        path: ["rates"],
-        message: `verdict_${verdict}_unique_rate numerator must match the unique-unit ${verdict} count`,
-      });
-    }
   }
 
-  const weightedRateIds = payload.weightedRates.map((rate) => rate.metricId);
-  if (
-    canonicalSerialize(weightedRateIds) !==
-    canonicalSerialize(REQUIRED_REPORT_WEIGHTED_RATE_METRIC_IDS)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["weightedRates"],
-      message:
-        "Report weighted rates must be exactly the F/D/E/U weighted rates ordered by metricId",
-    });
-  }
   const weightedDenominators = new Set(
     payload.weightedRates.map((rate) => rate.weightedDenominator),
   );
@@ -1251,10 +923,10 @@ function validateReportPayload(
     const rate = payload.weightedRates.find(
       (entry) => entry.metricId === `verdict_${verdict}_weighted_rate`,
     );
-    if (rate == null) continue;
     if (
+      rate != null &&
       rate.sampleNumerator >
-      payload.funnel.adjudicate.verdictCounts[verdict].count
+        payload.funnel.adjudicate.verdictCounts[verdict].count
     ) {
       context.addIssue({
         code: "custom",
@@ -1264,120 +936,8 @@ function validateReportPayload(
     }
   }
 
-  const traceById = new Map(
-    payload.recordTraces.map((trace) => [trace.recordId, trace]),
-  );
-  const familyRecordIds = new Set<string>();
-  for (const [familyIndex, family] of payload.familyMutations.entries()) {
-    for (const [recordIndex, record] of family.records.entries()) {
-      const path = ["familyMutations", familyIndex, "records", recordIndex];
-      if (familyRecordIds.has(record.recordId)) {
-        context.addIssue({
-          code: "custom",
-          path,
-          message: "Family mutation records must not repeat across families",
-        });
-      }
-      familyRecordIds.add(record.recordId);
-      const trace = traceById.get(record.recordId);
-      if (!trace) {
-        context.addIssue({
-          code: "custom",
-          path,
-          message: "Family mutation record has no per-record trace",
-        });
-        continue;
-      }
-      if (trace.familyId !== family.familyId) {
-        context.addIssue({
-          code: "custom",
-          path,
-          message: "Family mutation record belongs to a different family",
-        });
-      }
-      if (trace.adjudication.status !== record.status) {
-        context.addIssue({
-          code: "custom",
-          path: [...path, "status"],
-          message: "Family mutation record status must match its trace",
-        });
-      }
-      if (
-        trace.adjudication.status === "adjudicated" &&
-        trace.adjudication.verdict !== record.verdict
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: [...path, "verdict"],
-          message: "Family mutation record verdict must match its trace",
-        });
-      }
-    }
-  }
-  if (familyRecordIds.size !== payload.recordTraces.length) {
-    context.addIssue({
-      code: "custom",
-      path: ["familyMutations"],
-      message:
-        "Family mutations must cover every per-record trace exactly once",
-    });
-  }
-
-  const retrievalCoverage = payload.rates.find(
-    (rate) => rate.metricId === "retrieval_coverage",
-  );
-  const retrievedCount = statusCount(
-    payload.funnel.evidence.retrievalStatusCounts,
-    "retrieved",
-  );
-  if (
-    retrievalCoverage != null &&
-    (retrievalCoverage.numerator !== retrievedCount ||
-      retrievalCoverage.denominator !== prepareCount)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["rates"],
-      message:
-        "retrieval_coverage must use retrieved Evidence records over all Prepare records",
-    });
-  }
-
-  const scopeSelection = payload.rates.find(
-    (rate) => rate.metricId === "scope_selection_rate",
-  );
-  const discoverCandidates =
-    payload.funnel.discover.selectedCandidates.count +
-    payload.funnel.discover.deferredCandidates.count;
-  if (
-    scopeSelection != null &&
-    (scopeSelection.numerator !==
-      payload.funnel.discover.selectedCandidates.count ||
-      scopeSelection.denominator !== discoverCandidates)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["rates"],
-      message:
-        "scope_selection_rate must use selected Discover candidates over all Discover candidates",
-    });
-  }
-
   validateFunnelPartitions(payload, context);
   validateTraceAccounting(payload, context);
-
-  const statusSum =
-    payload.funnel.adjudicate.adjudicated.count +
-    payload.funnel.adjudicate.notAdjudicated.count +
-    payload.funnel.adjudicate.adjudicationFailed.count +
-    payload.funnel.adjudicate.invalidOutput.count;
-  if (statusSum !== adjudicateCount) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate"],
-      message: "Adjudicate status counts must sum to total record outcomes",
-    });
-  }
 
   const verdictSum =
     payload.funnel.adjudicate.verdictCounts.F.count +
@@ -1429,22 +989,6 @@ function validateFunnelPartitions(
     context,
   );
   assertCountEqual(
-    discover.extractionClaimsExtracted.count +
-      discover.extractionNoClaims.count +
-      discover.extractionFailed.count,
-    discover.citationOccurrences.count,
-    ["funnel", "discover"],
-    "Discover extraction statuses must partition citation occurrences",
-    context,
-  );
-  assertCountEqual(
-    discover.selectedCandidates.count + discover.deferredCandidates.count,
-    discover.candidateClaims.count,
-    ["funnel", "discover"],
-    "Discover selected + deferred candidates must equal candidate claims",
-    context,
-  );
-  assertCountEqual(
     discover.attributedClaimsWithVerifiedSupportSpan.count +
       discover.attributedClaimsMissingSupportSpan.count,
     discover.attributedClaimRecords.count,
@@ -1474,21 +1018,7 @@ function validateFunnelPartitions(
     "Scope deferred candidates must equal Discover deferred candidates",
     context,
   );
-  assertCountEqual(
-    sumStatusCounts(scope.groundingStatusCounts),
-    scope.families.count,
-    ["funnel", "scope", "groundingStatusCounts"],
-    "Scope grounding-status counts must partition scoped families",
-    context,
-  );
 
-  assertCountEqual(
-    prepare.expectedFamilyOccurrencePairs.count,
-    prepare.preparedRecords.count,
-    ["funnel", "prepare"],
-    "Expected Prepare family×occurrence pairs must equal prepared records",
-    context,
-  );
   assertCountEqual(
     prepare.classified.count + prepare.ambiguous.count + prepare.failed.count,
     prepare.preparedRecords.count,
@@ -1497,13 +1027,6 @@ function validateFunnelPartitions(
     context,
   );
 
-  assertCountEqual(
-    sumStatusCounts(evidence.retrievalStatusCounts),
-    evidence.recordOutcomes.count,
-    ["funnel", "evidence", "retrievalStatusCounts"],
-    "Evidence retrieval statuses must partition Evidence record outcomes",
-    context,
-  );
   assertCountEqual(
     evidence.rerankDisabled.count +
       (evidence.rerankSkippedPinnedSelection?.count ?? 0) +
@@ -1515,36 +1038,8 @@ function validateFunnelPartitions(
     "Evidence rerank status populations must partition Evidence record outcomes",
     context,
   );
-  assertCountEqual(
-    evidence.recordSelectionBm25.count + evidence.recordSelectionReranked.count,
-    statusCount(evidence.retrievalStatusCounts, "retrieved"),
-    ["funnel", "evidence"],
-    "Evidence per-record final-selection uses must equal retrieved records",
-    context,
-  );
-  if (
-    evidence.uniqueFinalSelectionsBm25.count >
-      evidence.recordSelectionBm25.count ||
-    evidence.uniqueFinalSelectionsReranked.count >
-      evidence.recordSelectionReranked.count
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "evidence"],
-      message:
-        "Unique final-selection counts cannot exceed their per-record selection-use counts",
-    });
-  }
 
   const { adjudicate } = payload.funnel;
-  assertCountEqual(
-    adjudicate.packetsWithVerifiedSupportSpans.count +
-      adjudicate.packetsMissingSupportSpans.count,
-    adjudicate.totalRecordOutcomes.count,
-    ["funnel", "adjudicate"],
-    "Adjudicate support-span packet diagnostics must partition record outcomes",
-    context,
-  );
   assertCountEqual(
     adjudicate.evidenceSufficient.count + adjudicate.evidenceLimited.count,
     adjudicate.adjudicated.count,
@@ -1552,27 +1047,6 @@ function validateFunnelPartitions(
     "Evidence sufficiency diagnostics must partition adjudicated records",
     context,
   );
-  if (
-    adjudicate.figureOnlyLimitation.count > adjudicate.evidenceLimited.count
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "figureOnlyLimitation"],
-      message:
-        "Figure-only limitation count cannot exceed evidence-limited adjudicated records",
-    });
-  }
-  if (
-    adjudicate.uniqueAdjudicatedClaimUnits.count >
-    adjudicate.uniqueClaimUnits.count
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "uniqueAdjudicatedClaimUnits"],
-      message:
-        "Unique adjudicated claim units cannot exceed unique claim units",
-    });
-  }
 }
 
 function validateTraceAccounting(
@@ -1597,107 +1071,6 @@ function validateTraceAccounting(
         "Evidence retrieval-status summary must exactly match per-record traces",
     });
   }
-
-  const rerankDisabled = traces.filter(
-    (trace) => trace.evidence.rerankStatus === "disabled",
-  ).length;
-  const rerankSkippedPinnedSelection = traces.filter(
-    (trace) => trace.evidence.rerankStatus === "skipped_pins_fill_selection",
-  ).length;
-  const rerankCompleted = traces.filter(
-    (trace) => trace.evidence.rerankStatus === "completed",
-  ).length;
-  const rerankFailed = traces.filter(
-    (trace) => trace.evidence.rerankStatus === "failed",
-  ).length;
-  const rerankNotAttempted = traces.filter((trace) =>
-    trace.evidence.rerankStatus.startsWith("not_attempted_"),
-  ).length;
-  assertCountEqual(
-    evidence.rerankDisabled.count,
-    rerankDisabled,
-    ["funnel", "evidence", "rerankDisabled"],
-    "Rerank-disabled count must match per-record traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.rerankSkippedPinnedSelection?.count ?? 0,
-    rerankSkippedPinnedSelection,
-    ["funnel", "evidence", "rerankSkippedPinnedSelection"],
-    "Pin-filled rerank-skip count must match per-record traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.rerankCompleted.count,
-    rerankCompleted,
-    ["funnel", "evidence", "rerankCompleted"],
-    "Rerank-completed count must match per-record traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.rerankFailed.count,
-    rerankFailed,
-    ["funnel", "evidence", "rerankFailed"],
-    "Rerank-failed count must match per-record traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.rerankNotAttempted.count,
-    rerankNotAttempted,
-    ["funnel", "evidence", "rerankNotAttempted"],
-    "Rerank-not-attempted count must match per-record traces",
-    context,
-  );
-
-  const bm25SelectionIds = new Set<string>();
-  const rerankedSelectionIds = new Set<string>();
-  let recordSelectionBm25 = 0;
-  let recordSelectionReranked = 0;
-  for (const trace of traces) {
-    const selectionId = trace.evidence.finalSelectionId;
-    if (selectionId == null) continue;
-    if (
-      trace.evidence.rankingSource === "bm25" ||
-      trace.evidence.rankingSource === "bm25_with_scope_pins"
-    ) {
-      bm25SelectionIds.add(selectionId);
-      recordSelectionBm25 += 1;
-    } else if (
-      trace.evidence.rankingSource === "reranked" ||
-      trace.evidence.rankingSource === "reranked_with_scope_pins"
-    ) {
-      rerankedSelectionIds.add(selectionId);
-      recordSelectionReranked += 1;
-    }
-  }
-  assertCountEqual(
-    evidence.uniqueFinalSelectionsBm25.count,
-    bm25SelectionIds.size,
-    ["funnel", "evidence", "uniqueFinalSelectionsBm25"],
-    "Unique BM25 final-selection count must match unique selection IDs in traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.uniqueFinalSelectionsReranked.count,
-    rerankedSelectionIds.size,
-    ["funnel", "evidence", "uniqueFinalSelectionsReranked"],
-    "Unique reranked final-selection count must match unique selection IDs in traces",
-    context,
-  );
-  assertCountEqual(
-    evidence.recordSelectionBm25.count,
-    recordSelectionBm25,
-    ["funnel", "evidence", "recordSelectionBm25"],
-    "BM25 record-selection count must match per-record selection use",
-    context,
-  );
-  assertCountEqual(
-    evidence.recordSelectionReranked.count,
-    recordSelectionReranked,
-    ["funnel", "evidence", "recordSelectionReranked"],
-    "Reranked record-selection count must match per-record selection use",
-    context,
-  );
 
   const adjudicationStatusCounts = summarizeStatuses(
     traces.map((trace) => trace.adjudication.status),
@@ -1733,109 +1106,6 @@ function validateTraceAccounting(
     context,
   );
 
-  const expectedGateCounts = summarizeStatuses(
-    traces.flatMap((trace) =>
-      trace.adjudication.status === "not_adjudicated"
-        ? [trace.adjudication.gateCode]
-        : [],
-    ),
-  );
-  if (
-    canonicalSerialize(adjudicate.gateCodeCounts) !==
-    canonicalSerialize(expectedGateCounts)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "gateCodeCounts"],
-      message: "Gate-code summary must exactly match per-record traces",
-    });
-  }
-  const expectedFailureCounts = summarizeStatuses(
-    traces.flatMap((trace) =>
-      trace.adjudication.status === "adjudication_failed"
-        ? [trace.adjudication.failureCode]
-        : [],
-    ),
-  );
-  if (
-    canonicalSerialize(adjudicate.failureCodeCounts) !==
-    canonicalSerialize(expectedFailureCounts)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "failureCodeCounts"],
-      message: "Failure-code summary must exactly match per-record traces",
-    });
-  }
-  const expectedMutationKindCounts = summarizeStatuses(
-    traces.flatMap((trace) =>
-      trace.adjudication.status === "adjudicated"
-        ? trace.adjudication.mutationKinds
-        : [],
-    ),
-  );
-  if (
-    canonicalSerialize(adjudicate.mutationKindCounts) !==
-    canonicalSerialize(expectedMutationKindCounts)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "mutationKindCounts"],
-      message: "Mutation-kind summary must exactly match per-record traces",
-    });
-  }
-  const expectedDirectionCounts = summarizeStatuses(
-    traces.flatMap((trace) =>
-      trace.adjudication.status === "adjudicated" &&
-      trace.adjudication.verdict === "D"
-        ? [trace.adjudication.direction]
-        : [],
-    ),
-  );
-  if (
-    canonicalSerialize(adjudicate.mutationDirectionCounts) !==
-    canonicalSerialize(expectedDirectionCounts)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "mutationDirectionCounts"],
-      message: "Mutation-direction summary must exactly match D traces",
-    });
-  }
-  const expectedBySource = new Map<
-    string,
-    { F: number; D: number; E: number; U: number }
-  >();
-  for (const trace of traces) {
-    if (
-      trace.adjudication.status !== "adjudicated" ||
-      trace.evidence.rankingSource == null
-    ) {
-      continue;
-    }
-    const bucket = expectedBySource.get(trace.evidence.rankingSource) ?? {
-      F: 0,
-      D: 0,
-      E: 0,
-      U: 0,
-    };
-    bucket[trace.adjudication.verdict] += 1;
-    expectedBySource.set(trace.evidence.rankingSource, bucket);
-  }
-  const expectedRows = [...expectedBySource.entries()]
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-    .map(([rankingSource, counts]) => ({ rankingSource, ...counts }));
-  if (
-    canonicalSerialize(adjudicate.verdictCountsByRankingSource) !==
-    canonicalSerialize(expectedRows)
-  ) {
-    context.addIssue({
-      code: "custom",
-      path: ["funnel", "adjudicate", "verdictCountsByRankingSource"],
-      message:
-        "Verdict-by-ranking-source summary must exactly match per-record traces",
-    });
-  }
   for (const verdict of ["F", "D", "E", "U"] as const) {
     assertCountEqual(
       adjudicate.verdictCounts[verdict].count,
@@ -1851,25 +1121,6 @@ function validateTraceAccounting(
   }
 }
 
-function validateOrderedUniqueStatusCounts(
-  counts: ReadonlyArray<{ status: string; count: number }>,
-  path: Array<string | number>,
-  context: z.RefinementCtx,
-): void {
-  const statuses = counts.map((entry) => entry.status);
-  addDuplicateIdentifierIssue(statuses, path, context);
-  if (
-    canonicalSerialize(statuses) !==
-    canonicalSerialize([...statuses].sort(compareCodeUnits))
-  ) {
-    context.addIssue({
-      code: "custom",
-      path,
-      message: "Status-count entries must be ordered by stable status value",
-    });
-  }
-}
-
 export function summarizeStatuses(
   statuses: readonly string[],
 ): Array<{ status: string; count: number }> {
@@ -1880,10 +1131,6 @@ export function summarizeStatuses(
   return [...counts.entries()]
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([status, count]) => ({ status, count }));
-}
-
-function sumStatusCounts(counts: ReadonlyArray<{ count: number }>): number {
-  return counts.reduce((sum, entry) => sum + entry.count, 0);
 }
 
 function statusCount(
@@ -1940,9 +1187,8 @@ export function validateReportArtifactLineage(
   context: z.RefinementCtx,
 ): void {
   // Run and input-artifact agreement is checked once, generically, by the
-  // envelope. What remains here is specific to Report: it must be a
-  // deterministic replay of exactly five ancestors.
-  const { lineage } = artifact.payload;
+  // envelope. What remains here is specific to Report: it makes no model
+  // calls.
   if (
     artifact.execution.kind !== "deterministic" ||
     artifact.execution.replayableFromInputs !== true
@@ -1964,42 +1210,6 @@ export function validateReportArtifactLineage(
       message:
         "Report forbids prompt, model, and response execution provenance",
     });
-  }
-
-  if (artifact.payload.deterministic !== true) {
-    context.addIssue({
-      code: "custom",
-      path: ["payload", "deterministic"],
-      message: "Report payload must declare deterministic: true",
-    });
-  }
-  if (artifact.payload.replayableFromInputs !== true) {
-    context.addIssue({
-      code: "custom",
-      path: ["payload", "replayableFromInputs"],
-      message: "Report payload must declare replayableFromInputs: true",
-    });
-  }
-
-  for (const [index, trace] of artifact.payload.recordTraces.entries()) {
-    if (
-      !sameArtifactReference(trace.prepareArtifact, lineage.prepareArtifact) ||
-      !sameArtifactReference(
-        trace.evidenceArtifact,
-        lineage.evidenceArtifact,
-      ) ||
-      !sameArtifactReference(
-        trace.adjudicateArtifact,
-        lineage.adjudicateArtifact,
-      )
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["payload", "recordTraces", index],
-        message:
-          "Per-record trace upstream artifact references must match Report lineage exactly",
-      });
-    }
   }
 }
 

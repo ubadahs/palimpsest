@@ -17,9 +17,9 @@ import { assessEvidenceLimitation } from "../../shared/evidence-limitation.js";
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import { mutationDirectionSchema } from "../../contract/artifacts/adjudicate.js";
 import {
-  adjudicationVerdictDefinitions,
   FIDELITY_BOUNDARY_GUIDANCE,
-} from "../../shared/scientific-rubrics.js";
+  verdictRubric,
+} from "../../domain/rubric.js";
 
 export const ADJUDICATE_PROMPT_ID = "categorical-adjudicate" as const;
 export const ADJUDICATE_PROMPT_VERSION = PROMPT_VERSIONS.adjudication;
@@ -279,7 +279,7 @@ ${claimsBlock}`;
 
 /** Reply fields every adjudication prompt asks for, after the two statements. */
 export function judgmentFieldInstructions(): string {
-  return `${adjudicationVerdictDefinitions()}
+  return `${verdictRubric()}
 - mutationKinds: for D only, one to three of ${mutationKindSchema.options.join(" | ")}; an empty array for F, E, and U
 - direction: one of ${mutationDirectionSchema.options.join(" | ")} — how the citing version moved relative to the source (strengthened = stronger, broader, or more certain; weakened = hedged or narrowed; shifted = changed entity, endpoint, or population). Use none for F.
 - rationale: 2-3 sentences explaining the comparison without advocacy

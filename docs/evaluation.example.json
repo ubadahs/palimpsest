@@ -1,6 +1,6 @@
 {
   "schemaVersion": "evaluation-experiment-config-v1",
-  "promptRevision": "evaluation-prompts-v2",
+  "promptRevision": "evaluation-prompts-v3",
   "tasks": ["role", "rerank", "span", "adjudication"],
   "repetitions": 1,
   "maxRequests": 3000,

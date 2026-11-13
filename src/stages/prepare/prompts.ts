@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import { annotateCitingContext } from "../../shared/citation-context-window.js";
-import { CITATION_ROLE_DEFINITIONS } from "../../shared/scientific-rubrics.js";
+import { citationRoleRubric } from "../../domain/rubric.js";
 import { type PrepareClassifierInput } from "./run.js";
 
 export const ROLE_CLASSIFICATION_PROMPT_ID =
@@ -55,7 +55,7 @@ ${annotateCitingContext(
 Text the extractor bound to the cited reference:
 ${spans}
 
-${CITATION_ROLE_DEFINITIONS}
+${citationRoleRubric()}
 
 Respond with JSON (no markdown fences):
 { "citationRole": "...", "rationale": "one sentence" }`;

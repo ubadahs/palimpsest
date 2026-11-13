@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { z } from "zod";
 import { createLLMClient } from "../integrations/llm-client.js";
 import { buildStableId } from "../shared/stable-identity.js";
-import { experimentConfigSchema } from "./config.js";
+import {
+  CURRENT_PROMPT_REVISION,
+  experimentConfigSchema,
+  promptsSeen,
+} from "./config.js";
 import { validateEvaluationDataset } from "./dataset.js";
 import {
   classifyProviderError,
@@ -144,6 +148,7 @@ function compatibleSavedTrials(
   const root = join(evaluationRoot(), "experiments");
   if (!existsSync(root)) return candidates;
   const requestSettings = (
+    revision: Experiment["config"]["promptRevision"],
     provider: Experiment["config"]["providers"][number],
     task: Trial["task"],
   ) => {
@@ -160,6 +165,7 @@ function compatibleSavedTrials(
     void maxTransientRetries;
     void rerankMinFallbackBatchSize;
     return buildStableId("provider-request-settings", {
+      prompts: promptsSeen(revision, provider.kind),
       ...settings,
       ...(task === "rerank" && rerankBatchSize != null
         ? { rerankBatchSize }
@@ -183,8 +189,7 @@ function compatibleSavedTrials(
     const prior = loadExperiment(entry.name);
     if (
       prior.datasetId !== experiment.datasetId ||
-      prior.datasetHash !== experiment.datasetHash ||
-      prior.config.promptRevision !== experiment.config.promptRevision
+      prior.datasetHash !== experiment.datasetHash
     )
       continue;
     const priorPlan = new Map(
@@ -210,7 +215,10 @@ function compatibleSavedTrials(
         continue;
       const priorProvider = priorProviders.get(saved.providerId);
       if (!priorProvider) continue;
-      const key = keyOf(saved, requestSettings(priorProvider, saved.task));
+      const key = keyOf(
+        saved,
+        requestSettings(prior.config.promptRevision, priorProvider, saved.task),
+      );
       if (!candidates.has(key)) candidates.set(key, saved);
     }
   }
@@ -220,7 +228,14 @@ function compatibleSavedTrials(
       (item) => item.providerId === provider.id,
     )) {
       const prior = candidates.get(
-        keyOf(trial, requestSettings(provider, trial.task)),
+        keyOf(
+          trial,
+          requestSettings(
+            experiment.config.promptRevision,
+            provider,
+            trial.task,
+          ),
+        ),
       );
       if (prior) compatible.set(trial.trialId, prior);
     }
@@ -348,9 +363,9 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
   accessErrors: string[];
 }> {
   const id = experiment.experimentId;
-  if (experiment.config.promptRevision !== "evaluation-prompts-v2")
+  if (experiment.config.promptRevision !== CURRENT_PROMPT_REVISION)
     throw new Error(
-      "This experiment used an older evaluation prompt revision; create a fresh experiment to avoid mixing methods",
+      `This experiment uses ${experiment.config.promptRevision}; new trials run only under ${CURRENT_PROMPT_REVISION}. Set promptRevision to ${CURRENT_PROMPT_REVISION} (or leave it out) and create a fresh experiment, which reuses every saved trial whose prompts did not change.`,
     );
   const dataset = loadDataset(experiment.datasetId);
   validateEvaluationDataset(experiment.datasetId);

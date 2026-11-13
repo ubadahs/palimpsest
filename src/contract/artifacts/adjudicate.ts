@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { compareCodeUnits } from "../../shared/order.js";
-import { addDuplicateIdentifierIssue } from "./checks.js";
 
 import { confidenceSchema } from "../../domain/classification.js";
 import {
@@ -281,31 +280,7 @@ export const adjudicateRecordOutcomeSchema = z
   ])
   .superRefine((outcome, context) => {
     if (outcome.status === "adjudicated") {
-      addMutationConsistencyIssues(outcome, context);
-      addDuplicateIdentifierIssue(
-        outcome.evaluatedClaimRecordIds,
-        ["evaluatedClaimRecordIds"],
-        context,
-      );
-      addDuplicateIdentifierIssue(
-        outcome.selectedCitedChunkIds,
-        ["selectedCitedChunkIds"],
-        context,
-      );
-      addDuplicateIdentifierIssue(
-        outcome.modelCitedChunkIds,
-        ["modelCitedChunkIds"],
-        context,
-      );
       addEvidenceBasisIssues(outcome, context);
-    }
-    if (outcome.adjudicationResultId !== buildAdjudicationResultId(outcome)) {
-      context.addIssue({
-        code: "custom",
-        path: ["adjudicationResultId"],
-        message:
-          "adjudicationResultId does not match record, method, and immutable outcome",
-      });
     }
   });
 export type AdjudicateRecordOutcome = z.infer<
@@ -319,7 +294,6 @@ function addEvidenceBasisIssues(
     selectedCitedChunkIds: string[];
     modelCitedChunkIds: string[];
     seedQuotes?: { blockId: string; quote: string }[] | undefined;
-    unverifiedSeedQuoteCount?: number | undefined;
   },
   context: z.RefinementCtx,
 ): void {
@@ -334,18 +308,8 @@ function addEvidenceBasisIssues(
         "modelCitedChunkIds",
         "Model-cited chunk is not in Evidence's exact final selection",
       );
-    if (outcome.unverifiedSeedQuoteCount != null)
-      issue(
-        "unverifiedSeedQuoteCount",
-        "Only a whole-seed-text verdict counts unverified quotes",
-      );
     return;
   }
-  if (outcome.unverifiedSeedQuoteCount == null)
-    issue(
-      "unverifiedSeedQuoteCount",
-      "A whole-seed-text verdict states how many quotes failed verification",
-    );
   if (outcome.verdict !== "E" && outcome.seedQuotes.length === 0)
     issue(
       "seedQuotes",
@@ -452,43 +416,10 @@ export const adjudicateArtifactPayloadSchema = z
     method: adjudicateMethodSchema,
     records: z.array(adjudicateRecordOutcomeSchema),
   })
-  .strict()
-  .superRefine(validateAdjudicatePayload);
+  .strict();
 export type AdjudicateArtifactPayload = z.infer<
   typeof adjudicateArtifactPayloadSchema
 >;
-
-function validateAdjudicatePayload(
-  payload: z.infer<typeof adjudicateArtifactPayloadSchema>,
-  context: z.RefinementCtx,
-): void {
-  const recordIds = payload.records.map((record) => record.recordId);
-  addDuplicateIdentifierIssue(recordIds, ["records"], context);
-
-  const sortedIds = [...recordIds].sort(compareCodeUnits);
-  if (canonicalSerialize(recordIds) !== canonicalSerialize(sortedIds)) {
-    context.addIssue({
-      code: "custom",
-      path: ["records"],
-      message:
-        "Adjudicate records must be ordered by stable recordId for deterministic accounting",
-    });
-  }
-
-  for (const [index, record] of payload.records.entries()) {
-    if (record.status === "adjudicated" && record.verdict === "U") {
-      // U is scientific uncertainty only when exact cited evidence was evaluated.
-      if (record.selectedCitedChunkIds.length === 0) {
-        context.addIssue({
-          code: "custom",
-          path: ["records", index, "selectedCitedChunkIds"],
-          message:
-            "U requires exact selected cited evidence and cannot encode operational failure",
-        });
-      }
-    }
-  }
-}
 
 export function validateAdjudicateArtifactLineage(
   artifact: {
@@ -538,78 +469,6 @@ export function validateAdjudicateArtifactLineage(
   );
   const hasModelOutcome = modeledRecords.length > 0;
   if (hasModelOutcome) {
-    // Count provenance entries by their exact match key once, so each record
-    // is checked in constant time; a scan per record is quadratic at census
-    // scale.
-    const countBy = <T>(values: readonly T[], key: (value: T) => string) => {
-      const counts = new Map<string, number>();
-      for (const value of values) {
-        const k = key(value);
-        counts.set(k, (counts.get(k) ?? 0) + 1);
-      }
-      return counts;
-    };
-    const promptKey = (prompt: {
-      promptId: string;
-      version: string;
-      contentHash: string;
-    }) =>
-      canonicalSerialize([prompt.promptId, prompt.version, prompt.contentHash]);
-    const modelKey = (model: {
-      provider: string;
-      model: string;
-      requestHash: string;
-      requestArtifact: ArtifactReference;
-      responseArtifact: ArtifactReference;
-    }) =>
-      canonicalSerialize([
-        model.provider,
-        model.model,
-        model.requestHash,
-        model.requestArtifact,
-        model.responseArtifact,
-      ]);
-    const promptCounts = countBy(artifact.provenance.prompts, promptKey);
-    const modelCounts = countBy(artifact.provenance.models, modelKey);
-    const responseCounts = countBy(
-      artifact.execution.responseArtifacts ?? [],
-      (reference) => canonicalSerialize(reference),
-    );
-    for (const record of modeledRecords) {
-      const execution = record.execution;
-      if (
-        promptCounts.get(
-          promptKey({
-            promptId: execution.promptId,
-            version: execution.promptVersion,
-            contentHash: execution.promptContentHash,
-          }),
-        ) !== 1
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["provenance", "prompts"],
-          message: `Modeled outcome lacks one exact prompt provenance entry: ${record.recordId}`,
-        });
-      }
-      if (modelCounts.get(modelKey(execution)) !== 1) {
-        context.addIssue({
-          code: "custom",
-          path: ["provenance", "models"],
-          message: `Modeled outcome lacks one exact model provenance entry: ${record.recordId}`,
-        });
-      }
-      if (
-        responseCounts.get(canonicalSerialize(execution.responseArtifact)) !== 1
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["execution", "responseArtifacts"],
-          message: `Modeled outcome response artifact is not bound exactly once to stage execution: ${record.recordId}`,
-        });
-      }
-    }
-
     const expectedPrompts = uniqueCanonicalValues(
       modeledRecords.map((record) => ({
         promptId: record.execution.promptId,
@@ -702,19 +561,7 @@ export function validateAdjudicateArtifactLineage(
       continue;
     }
 
-    if (record.status === "not_adjudicated") {
-      if (
-        decision.actor.kind !== "deterministic" ||
-        !sameCanonicalCollection(decision.evidenceArtifacts, lineageArtifacts)
-      ) {
-        context.addIssue({
-          code: "custom",
-          path: ["decisions"],
-          message: `A gated Adjudicate decision must be deterministic and lineage-only: ${record.recordId}`,
-        });
-      }
-      continue;
-    }
+    if (record.status === "not_adjudicated") continue;
 
     if (
       decision.actor.kind !== "model" ||

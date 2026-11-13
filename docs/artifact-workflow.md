@@ -45,7 +45,7 @@ Discover records a lossless source ledger; Scope freezes membership; Prepare pre
 
 ## Validation and resume
 
-Artifact readers validate JSON shape, stable IDs, internal references, content hashes, and direct lineage. Resume reloads the already-succeeded prefix and refuses missing, malformed, tampered, cross-run, or mismatched inputs rather than silently recomputing them.
+Artifact readers validate JSON shape, content hashes, direct lineage, and the method rules each stage encodes (what a verdict needs, which denominator a rate uses, that every input record has exactly one outcome), plus any data the stage took from outside itself, such as model replies and cached papers. Resume reloads the already-succeeded prefix and refuses missing, malformed, tampered, cross-run, or mismatched inputs rather than silently recomputing them.
 
 ## Human review sidecar
 

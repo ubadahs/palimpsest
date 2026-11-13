@@ -69,7 +69,9 @@ A model asked the same case twice does not always answer the same way. Set `"rep
 
 Credentials come from environment variables named in the config (`ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `DJEV_ENDPOINT`, `DJEV_API_KEY`) and are not written into experiment files. A missing key leaves those trials pending.
 
-Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, prompt revision, and repetition match. Changed scientific inputs invalidate reuse. Concurrency and spacing do not.
+Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, the prompts the provider was shown, and repetition match. Changed scientific inputs invalidate reuse. Concurrency and spacing do not.
+
+New trials run only under the current prompt revision, `evaluation-prompts-v3`; an experiment created under an older one stays readable but cannot run more trials. A revision records which providers it changed, so the rest keep their saved trials: v3 reworded only the questions jev and djev providers answer, to the production rubric in `src/domain/rubric.ts`, so Anthropic, BM25, and rules trials from v2 experiments are reused.
 
 ## Grading in the local UI
 
