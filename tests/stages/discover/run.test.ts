@@ -5,14 +5,10 @@ import { adaptivePortfolioPolicySchema } from "../../../src/stages/discover/cand
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import {
-  buildStableId,
-  canonicalSha256,
-} from "../../../src/shared/stable-identity.js";
+import { canonicalSha256 } from "../../../src/shared/stable-identity.js";
 import {
   isInSamplingFrame,
   probeTypeGroupOf,
-  type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverCitationOccurrence,
 } from "../../../src/contract/artifacts/index.js";
@@ -33,6 +29,12 @@ import {
   loadArtifact,
   writeArtifact,
 } from "../../../src/contract/selectors.js";
+import { expectRejected } from "../../rejection.fixture.js";
+import {
+  artifactReference,
+  externalExecution,
+  extractionModelExecution,
+} from "../chain.fixture.js";
 
 type FixtureVariant = {
   parser?: string;
@@ -45,40 +47,6 @@ type FixtureVariant = {
   maxFamilies?: number;
   recordedAt?: string;
 };
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(key: string, model: string) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model,
-    promptId: "attributed-claim-extraction",
-    promptVersion: "v1",
-    promptContentHash: canonicalSha256({
-      prompt: "extract all citing-side attributed claims",
-    }),
-    requestHash: canonicalSha256({ key, model, direction: "request" }),
-    requestArtifact: artifactReference("model-request", `${key}-${model}`),
-    responseArtifact: artifactReference("model-response", `${key}-${model}`),
-  };
-}
 
 function citingPaper(
   paperId: string,
@@ -328,7 +296,7 @@ function buildFixtureAdapters(variant: FixtureVariant = {}): DiscoverAdapters {
           status: "completed",
           reason: "Mention contains no empirical attribution",
           claims: [],
-          execution: modelExecution(key, model),
+          execution: extractionModelExecution(key, model),
         });
       }
       if (paper.paperId === "paper-a4") {
@@ -336,7 +304,7 @@ function buildFixtureAdapters(variant: FixtureVariant = {}): DiscoverAdapters {
           status: "failed",
           reasonCode: "extraction_failed",
           reason: "Model response could not be parsed",
-          execution: modelExecution(key, model),
+          execution: extractionModelExecution(key, model),
         });
       }
       if (paper.paperId === "paper-a1" && mention.mentionIndex === 0) {
@@ -370,7 +338,7 @@ function buildFixtureAdapters(variant: FixtureVariant = {}): DiscoverAdapters {
           status: "completed",
           reason: "Attributed claims were extracted",
           claims,
-          execution: modelExecution(key, model),
+          execution: extractionModelExecution(key, model),
         });
       }
       return Promise.resolve({
@@ -389,7 +357,7 @@ function buildFixtureAdapters(variant: FixtureVariant = {}): DiscoverAdapters {
             confidence: "high",
           },
         ],
-        execution: modelExecution(key, model),
+        execution: extractionModelExecution(key, model),
       });
     },
   };
@@ -616,8 +584,9 @@ describe("Discover", () => {
           !("grounding" in candidate) && !("seedGrounding" in candidate),
       ),
     ).toBe(true);
-    expect(
-      claimExtractionResultSchema.safeParse({
+    expectRejected(
+      claimExtractionResultSchema,
+      {
         status: "completed",
         reason: "Malformed fixture with Discover-time grounding",
         claims: [
@@ -626,9 +595,13 @@ describe("Discover", () => {
             groundingStatus: "not_found",
           },
         ],
-        execution: modelExecution("grounding-malformed", "fixture-model"),
-      }).success,
-    ).toBe(false);
+        execution: extractionModelExecution(
+          "grounding-malformed",
+          "fixture-model",
+        ),
+      },
+      /claims\.0: Unrecognized key: "groundingStatus"/,
+    );
   });
 
   it("keeps identities stable across parser, model, portfolio, and timestamps", async () => {
@@ -822,8 +795,10 @@ describe("Discover", () => {
         .success,
     ).toBe(true);
     // Without a code the Report could not say why the paper was lost.
-    expect(mentionHarvestResultSchema.safeParse(harvest({})).success).toBe(
-      false,
+    expectRejected(
+      mentionHarvestResultSchema,
+      harvest({}),
+      /harvest\.reasonCode: Invalid option/,
     );
   });
 
@@ -884,7 +859,7 @@ describe("Discover", () => {
           status: "completed",
           reason: "Malformed claim output",
           claims: [{ text: "" }],
-          execution: modelExecution("malformed", "fixture-model"),
+          execution: extractionModelExecution("malformed", "fixture-model"),
         }),
     };
     await expect(
@@ -975,7 +950,7 @@ describe("Discover", () => {
           ...artifact,
           artifactVersion: 2,
         } as unknown as DiscoverArtifact),
-      ).toThrow();
+      ).toThrow(/"path": \[\s*"artifactVersion"/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -1018,7 +993,7 @@ describe("Discover claim clustering", () => {
       supportSpanText?: string;
       confidence?: string;
     }>;
-    execution: ReturnType<typeof modelExecution>;
+    execution: ReturnType<typeof extractionModelExecution>;
   };
 
   /** Give every citing paper its own paraphrase so exact grouping cannot merge. */
@@ -1064,7 +1039,10 @@ describe("Discover claim clustering", () => {
           },
         ],
         execution: {
-          ...modelExecution(`canon-${seed.paper.paperId}`, "fixture-canon"),
+          ...extractionModelExecution(
+            `canon-${seed.paper.paperId}`,
+            "fixture-canon",
+          ),
           promptId: "claim-clustering",
         },
       }),
@@ -1130,7 +1108,7 @@ describe("Discover claim clustering", () => {
               ],
             },
           ],
-          execution: modelExecution(
+          execution: extractionModelExecution(
             `canon-${seed.paper.paperId}`,
             "fixture-canon",
           ),

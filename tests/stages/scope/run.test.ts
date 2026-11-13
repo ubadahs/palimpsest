@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptivePortfolioPolicySchema } from "../../../src/stages/discover/candidate-selection.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -12,14 +11,12 @@ import {
   createStageArtifact,
   discoverArtifactSchema,
   scopeArtifactPayloadSchema,
-  type ArtifactReference,
   type DiscoverArtifact,
 } from "../../../src/contract/artifacts/index.js";
 import {
   buildDiscoverArtifact,
   runDiscover,
   type DiscoverAdapters,
-  type DiscoverOptions,
 } from "../../../src/stages/discover/run.js";
 import {
   buildScopeArtifact,
@@ -47,6 +44,12 @@ import {
   SEED_CODEBOOK_PROCEDURE_VERSION,
   buildSeedCodebookId,
 } from "../../../src/contract/artifacts/index.js";
+import { expectRejected } from "../../rejection.fixture.js";
+import {
+  artifactReference,
+  discoverOptions,
+  externalExecution,
+} from "../chain.fixture.js";
 
 type ScopeFixtureOptions = {
   maxFamilies?: number;
@@ -64,24 +67,6 @@ type ScopeFixtureOptions = {
   unknownMaterializationFailureCode?: boolean;
   model?: string;
 };
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
 
 function discoverModelExecution(key: string) {
   return {
@@ -116,6 +101,13 @@ function scopeModelExecution(key: string, model = "fixture-scope-model") {
     ),
   };
 }
+
+const fixtureDiscoverOptions = (maxFamilies = 1) =>
+  discoverOptions({
+    dois: ["10.1000/seed-a", "10.1000/seed-b"],
+    maxFamilies,
+    recordedAt: "2026-07-16T12:00:00.000Z",
+  });
 
 function citingPaper(paperId: string) {
   return {
@@ -178,29 +170,7 @@ function successfulHarvest(
   };
 }
 
-function discoverOptions(maxFamilies = 1): DiscoverOptions {
-  return {
-    seeds: ["10.1000/seed-a", "10.1000/seed-b"].map((doi) => ({
-      doi,
-      provenanceArtifacts: [artifactReference("doi-input", doi)],
-    })),
-    neighborhood: {
-      provider: "fixture-citation-index",
-      query: "works-citing-seed",
-      limit: 10,
-    },
-    probeBudget: 10,
-    candidateSelection: adaptivePortfolioPolicySchema.parse({
-      mode: "adaptive_portfolio",
-      minFamilies: 1,
-      maxFamilies,
-      maxPreparedRecords: 1000,
-      minMarginalNovelty: 0,
-    }),
-    recordedAt: "2026-07-16T12:00:00.000Z",
-  };
-}
-
+// Local: two seeds with their own neighborhoods, not the shared single-seed chain.
 function discoverAdapters(): DiscoverAdapters {
   return {
     resolveSeed: ({ doi }) =>
@@ -319,7 +289,7 @@ function discoverAdapters(): DiscoverAdapters {
 
 async function discoverFixture(maxFamilies = 1): Promise<DiscoverArtifact> {
   const result = await runDiscover(
-    discoverOptions(maxFamilies),
+    fixtureDiscoverOptions(maxFamilies),
     discoverAdapters(),
   );
   return buildDiscoverArtifact({
@@ -327,7 +297,7 @@ async function discoverFixture(maxFamilies = 1): Promise<DiscoverArtifact> {
     runId: "run-scope-fixture",
     createdAt: "2026-07-16T12:05:00.000Z",
     configuration: {
-      contentHash: canonicalSha256(discoverOptions(maxFamilies)),
+      contentHash: canonicalSha256(fixtureDiscoverOptions(maxFamilies)),
     },
     code: {
       revision: "64890ed",
@@ -452,6 +422,7 @@ function splitEquivalentCandidate(
   return discoverArtifactSchema.parse(artifact);
 }
 
+// Local: fault-injection options and call recording, unlike the shared grounding variants.
 function scopeAdapters(
   options: ScopeFixtureOptions,
   materializationCalls: Map<string, number>,
@@ -1004,18 +975,28 @@ describe("Scope", () => {
 
     const dangling = structuredClone(result.payload);
     dangling.families[0]!.candidateIds = [fakeId];
-    expect(scopeArtifactPayloadSchema.safeParse(dangling).success).toBe(false);
+    expectRejected(
+      scopeArtifactPayloadSchema,
+      dangling,
+      /Family candidate references are incomplete or dangling/,
+    );
 
     const duplicate = structuredClone(result.payload);
     duplicate.families[0]!.includedCitationOccurrenceIds.push(
       duplicate.families[0]!.includedCitationOccurrenceIds[0]!,
     );
-    expect(scopeArtifactPayloadSchema.safeParse(duplicate).success).toBe(false);
+    expectRejected(
+      scopeArtifactPayloadSchema,
+      duplicate,
+      /Family occurrence membership must exactly equal its Discover candidate membership/,
+    );
 
     const incomplete = structuredClone(result.payload);
     incomplete.families[0]!.includedCitationOccurrenceIds = [];
-    expect(scopeArtifactPayloadSchema.safeParse(incomplete).success).toBe(
-      false,
+    expectRejected(
+      scopeArtifactPayloadSchema,
+      incomplete,
+      /Family occurrence membership must exactly equal its Discover candidate membership/,
     );
   });
 
@@ -1051,7 +1032,7 @@ describe("Scope", () => {
           ...artifact,
           artifactVersion: 2,
         } as unknown as typeof artifact),
-      ).toThrow();
+      ).toThrow(/"path": \[\s*"artifactVersion"/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -1370,7 +1351,11 @@ describe("scope seed codebook and claim tags", () => {
     const tag = payload.claimTags.find((entry) => entry.status === "tagged");
     if (!tag || tag.status !== "tagged") throw new Error("fixture needs a tag");
     tag.tags = ["E42"];
-    expect(scopeArtifactPayloadSchema.safeParse(payload).success).toBe(false);
+    expectRejected(
+      scopeArtifactPayloadSchema,
+      payload,
+      /Claim tag E42 is not in its seed codebook/,
+    );
   });
 
   it("rejects a codebook quote that is not exact seed text", async () => {
@@ -1381,6 +1366,10 @@ describe("scope seed codebook and claim tags", () => {
       throw new Error("fixture needs a codebook");
     codebook.entries[0]!.quotes[0]!.charOffsetStart += 1;
     codebook.entries[0]!.quotes[0]!.charOffsetEnd += 1;
-    expect(scopeArtifactPayloadSchema.safeParse(payload).success).toBe(false);
+    expectRejected(
+      scopeArtifactPayloadSchema,
+      payload,
+      /Codebook quote is not an exact span of seed-text block/,
+    );
   });
 });

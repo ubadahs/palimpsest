@@ -9,6 +9,7 @@ import {
   type CodebookOrganiseReply,
   type CodebookStep,
 } from "../../../src/stages/scope/seed-codebook.js";
+import { expectRejected } from "../../rejection.fixture.js";
 
 // An invented seed paper: a made-up protein in a made-up organism.
 const BLOCKS = [
@@ -279,19 +280,34 @@ describe("codebook tagging replies", () => {
   });
 
   it("rejects unknown ids, more than three entries, and a theme-only answer without a theme", () => {
-    for (const bad of [
-      { kind: "specific", entries: ["E09"], theme: null, reason: "x" },
-      { kind: "specific", entries: [], theme: null, reason: "x" },
-      {
-        kind: "specific",
-        entries: ["E01", "E02", "E03", "T1"],
-        theme: null,
-        reason: "x",
-      },
-      { kind: "theme_only", entries: [], theme: null, reason: "x" },
-      { kind: "theme_only", entries: [], theme: "E01", reason: "x" },
-    ]) {
-      expect(schema.safeParse(bad).success).toBe(false);
+    for (const [bad, message] of [
+      [
+        { kind: "specific", entries: ["E09"], theme: null, reason: "x" },
+        /entries: Unknown codebook entry: E09/,
+      ],
+      [
+        { kind: "specific", entries: [], theme: null, reason: "x" },
+        /A specific answer names 1 to 3 entries, not 0/,
+      ],
+      [
+        {
+          kind: "specific",
+          entries: ["E01", "E02", "E03", "T1"],
+          theme: null,
+          reason: "x",
+        },
+        /A specific answer names 1 to 3 entries, not 4/,
+      ],
+      [
+        { kind: "theme_only", entries: [], theme: null, reason: "x" },
+        /theme: Unknown codebook theme: null/,
+      ],
+      [
+        { kind: "theme_only", entries: [], theme: "E01", reason: "x" },
+        /theme: Unknown codebook theme: E01/,
+      ],
+    ] as const) {
+      expectRejected(schema, bad, message);
     }
   });
 });

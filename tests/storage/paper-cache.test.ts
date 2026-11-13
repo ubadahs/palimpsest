@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
   materializeParsedPaper,
   PARSED_PAPER_PARSER_VERSION,
@@ -20,6 +19,12 @@ import {
   upsertParsedData,
   upsertRawPaper,
 } from "../../src/storage/paper-cache.js";
+import { makePaper as makeBasePaper } from "../paper.fixture.js";
+
+const makePaper = () =>
+  makeBasePaper({
+    resolutionProvenance: { method: "doi", confidence: "exact" },
+  });
 
 const RAW_TEI = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI>
@@ -51,29 +56,6 @@ const UPDATED_RAW_TEI = `<?xml version="1.0" encoding="UTF-8"?>
     </body>
   </text>
 </TEI>`;
-
-function makePaper(): ResolvedPaper {
-  return {
-    id: "paper-1",
-    title: "Cached Paper",
-    doi: "10.1234/cached",
-    authors: ["Alice Smith"],
-    abstract: undefined,
-    source: "openalex",
-    fullTextHints: {
-      providerAvailability: "available",
-      providerSourceHint: "pdf",
-      pdfUrl: "https://example.com/paper.pdf",
-    },
-    paperType: "article",
-    referencedWorksCount: 12,
-    publicationYear: 2024,
-    resolutionProvenance: {
-      method: "doi",
-      confidence: "exact",
-    },
-  };
-}
 
 function makeAdapters(
   teiXml: string,

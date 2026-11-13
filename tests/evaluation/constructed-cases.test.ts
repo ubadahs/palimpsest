@@ -11,6 +11,7 @@ import {
   type Mutation,
 } from "../../src/evaluation/constructed-cases.js";
 import type { EvaluationCase } from "../../src/evaluation/types.js";
+import { expectRejected } from "../rejection.fixture.js";
 
 type AdjudicationCase = Extract<EvaluationCase, { task: "adjudication" }>;
 type Distortion = Extract<Mutation, { expectedVerdict: "D" | "E" }>;
@@ -141,15 +142,16 @@ describe("constructed cases", () => {
       evidencePinned: false,
       expectedVerdict: "F",
     });
-    expect(
-      mutationFileSchema.safeParse([
-        { ...control, mutationKind: "scope_broadened" },
-      ]).success,
-    ).toBe(false);
-    expect(
-      mutationFileSchema.safeParse([{ ...distortion, mutationKind: undefined }])
-        .success,
-    ).toBe(false);
+    expectRejected(
+      mutationFileSchema,
+      [{ ...control, mutationKind: "scope_broadened" }],
+      /0: Unrecognized key: "mutationKind"/,
+    );
+    expectRejected(
+      mutationFileSchema,
+      [{ ...distortion, mutationKind: undefined }],
+      /0\.mutationKind: Invalid option/,
+    );
   });
 
   it("marks evidence as pinned only when grounding pins fill the packet", () => {

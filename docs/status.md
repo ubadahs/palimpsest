@@ -12,14 +12,81 @@ The public CLI, SQLite run registry, local UI, artifact layout, resume logic, an
 
 ## Pipeline (CLI)
 
-| Stage | Status | Notes |
-|---|---|---|
-| `discover` | Runnable | Enumerates the whole citing neighborhood (metadata only, safety cap 10,000), stratifies the probe set over all of it and records each stratum's inclusion probability, harvests probed papers `fetchConcurrency` at a time, emits one seed occurrence per exact citation group carrying the parser's own `locationQuality`, records each citing paper's access channel and bibliography match method, exact-verifies claim support spans into offset-bound `supportSpan` fields, clusters paraphrased claims across citers into one candidate per seed finding, annotates candidates, and selects an adaptive 15–25 family portfolio under a prepared-record budget. Grounding is deferred. |
-| `scope` | Runnable | Accounts for every Discover candidate, freezes exact family and occurrence membership, materializes seed text once per seed, and records verified grounding without excluding a family. Also annotates: a seed codebook (themes and entries drawn from the seed paper by three cached-prefix calls, quotes exact-verified, stored in SQLite and reused across runs of the same seed text) and one codebook tag outcome per Discover claim. |
-| `prepare` | Runnable | Produces one stable record for every scoped family × citation occurrence with complete and occurrence-local claim membership plus typed classification. Family, seed, candidate, claim, and citing-paper data are stored once on the payload and records refer to them by id. A free deterministic regex pass runs first; only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku by default). Missing verified support spans, and roles neither pass can settle, remain queued for manual review. |
-| `evidence` | Runnable | Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), reciprocal-rank fusion, content-hash reuse, and an immutable relevance-rerank version that is on by default and sees section role and third-party-citation flags. Grounding pins lead the selection; reranking is skipped with a typed reason when pins fill every selected slot. One outcome per Prepare record. |
-| `adjudicate` | Runnable, uncalibrated | Applies deterministic gates (including broken citation-scope markers and missing verified spans) and one categorical model call per eligible record; emits `F`/`D`/`E`/`U` or a typed non-verdict plus evidence-sufficiency diagnostics; `D` outcomes also carry categorical `mutationKinds` and a `direction`. By default the model reads the whole seed text as a cached prompt prefix and its verdict rests on quotes verified against that text; `selected_chunks`, or an over-long seed text, falls back to the chunks Evidence selected. Manual-review roles are not auto-broadened to the model. |
-| `report` | Runnable, deterministic | Verifies the five upstream artifacts and writes authoritative JSON: `familyMutations` (each seed finding with its citing restatements in order, verdicts, and mutation kinds), funnel/rate/trace accounting (including unique claim units and per-unique-unit verdict rates, F/D/E/U rates weighted over the sampling frame by inverse probe inclusion probability beside the unweighted sample rates, probe strata with frame sizes and inclusion probabilities, the provider-reported neighborhood total and its coverage, access channel, materialization and harvest loss reasons, bibliography match method, verdicts by evidence regime, support-span coverage, evidence-sufficiency diagnostics, portfolio deferrals, and manual-review splits), `selectionAudit` (per-candidate portfolio scores), per-record citation-role signals, `seedCodebooks` (per codebook theme and entry: tagged claim units, adjudicated records, and F/D/E/U, with a theme roll-up), plus Markdown rendered from that JSON. |
+| Stage | Status |
+|---|---|
+| `discover` | Runnable |
+| `scope` | Runnable |
+| `prepare` | Runnable |
+| `evidence` | Runnable |
+| `adjudicate` | Runnable, uncalibrated |
+| `report` | Runnable, deterministic |
+
+What each stage ships today. [pipeline.md](./pipeline.md) has the full stage contracts.
+
+### `discover`
+
+- Enumerates the whole citing neighborhood (metadata only, safety cap 10,000).
+- Stratifies the probe set over the whole neighborhood and records each stratum's inclusion probability.
+- Harvests probed papers `fetchConcurrency` at a time.
+- Emits one seed occurrence per exact citation group, carrying the parser's own `locationQuality`.
+- Records each citing paper's access channel and bibliography match method.
+- Exact-verifies claim support spans into offset-bound `supportSpan` fields.
+- Clusters paraphrased claims across citers into one candidate per seed finding.
+- Annotates candidates and selects an adaptive 15–25 family portfolio under a prepared-record budget.
+- Grounding is deferred.
+
+### `scope`
+
+- Accounts for every Discover candidate.
+- Freezes exact family and occurrence membership.
+- Materializes seed text once per seed.
+- Records verified grounding without excluding a family.
+- Also annotates:
+  - a seed codebook: themes and entries drawn from the seed paper by three cached-prefix calls, quotes exact-verified, stored in SQLite and reused across runs of the same seed text;
+  - one codebook tag outcome per Discover claim.
+
+### `prepare`
+
+- Produces one stable record for every scoped family × citation occurrence, with complete and occurrence-local claim membership plus typed classification.
+- Stores family, seed, candidate, claim, and citing-paper data once on the payload. Records refer to them by id.
+- Runs a free deterministic regex pass first. Only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku by default).
+- Queues records for manual review when they lack a verified support span, or when neither pass can settle the role.
+
+### `evidence`
+
+- Retrieves over immutable Scope seed text with occurrence-local BM25 queries (family-claim fallback), reciprocal-rank fusion, and content-hash reuse.
+- Reranks with an immutable relevance-rerank version. It is on by default and sees section role and third-party-citation flags.
+- Grounding pins lead the selection.
+- Skips reranking, with a typed reason, when pins fill every selected slot.
+- Emits one outcome per Prepare record.
+
+### `adjudicate`
+
+- Applies deterministic gates, including broken citation-scope markers and missing verified spans.
+- Makes one categorical model call per eligible record.
+- Emits `F`/`D`/`E`/`U` or a typed non-verdict, plus evidence-sufficiency diagnostics.
+- `D` outcomes also carry categorical `mutationKinds` and a `direction`.
+- By default the model reads the whole seed text as a cached prompt prefix, and its verdict rests on quotes verified against that text.
+- `selected_chunks`, or an over-long seed text, falls back to the chunks Evidence selected.
+- Manual-review roles are not auto-broadened to the model.
+
+### `report`
+
+- Verifies the five upstream artifacts.
+- Writes authoritative JSON containing:
+  - `familyMutations`: each seed finding with its citing restatements in order, verdicts, and mutation kinds;
+  - funnel, rate, and trace accounting:
+    - unique claim units and per-unique-unit verdict rates;
+    - F/D/E/U rates weighted over the sampling frame by inverse probe inclusion probability, beside the unweighted sample rates;
+    - probe strata with frame sizes and inclusion probabilities;
+    - the provider-reported neighborhood total and its coverage;
+    - access channel, materialization and harvest loss reasons, and bibliography match method;
+    - verdicts by evidence regime, support-span coverage, and evidence-sufficiency diagnostics;
+    - portfolio deferrals and manual-review splits;
+  - `selectionAudit`: per-candidate portfolio scores;
+  - per-record citation-role signals;
+  - `seedCodebooks`: per codebook theme and entry, the tagged claim units, adjudicated records, and F/D/E/U, with a theme roll-up.
+- Renders Markdown from that JSON.
 
 Run with:
 
@@ -39,34 +106,123 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
 
 Landed as code, still unmeasured:
 
-- **Citation-role model fallback.** The deterministic regex pass runs first and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku). When a specific finding also motivates a method or framing, the fallback rubric prefers substantive attribution. The loss this pass targets has not been re-measured.
-- **Structured outputs.** Every model call uses provider-enforced structured output. The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults) and the reply is validated locally against the full Zod schema. A reply that fails the schema or is cut off at the token cap is not retried; its tokens are still recorded in the ledger and its raw text lands in the failure record. Whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`, are open questions that need one seed re-run each.
-- **Instrumented ledger.** `cost-summary.json` records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred. It is rewritten after every model call, so spend can be watched during a run (the run page shows it live), and `--max-cost` stops a run before it spends past a limit.
-- **Side-by-side model calls.** Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`). Artifacts are identical at any concurrency; only wall time changes.
+- **Citation-role model fallback.**
+  - The deterministic regex pass runs first, and only its `unclear` verdict reaches `prepare.roleClassifierModel` (Haiku).
+  - When a specific finding also motivates a method or framing, the fallback rubric prefers substantive attribution.
+  - The loss this pass targets has not been re-measured.
+- **Structured outputs.**
+  - Every model call uses provider-enforced structured output.
+  - The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults), and the reply is validated locally against the full Zod schema.
+  - A reply that fails the schema or is cut off at the token cap is not retried. Its tokens are still recorded in the ledger and its raw text lands in the failure record.
+  - Open questions, each needing one seed re-run: whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`.
+- **Instrumented ledger.**
+  - `cost-summary.json` records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
+  - It is rewritten after every model call, so spend can be watched during a run (the run page shows it live).
+  - `--max-cost` stops a run before it spends past a limit.
+- **Side-by-side model calls.**
+  - Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`).
+  - Artifacts are identical at any concurrency; only wall time changes.
 
 ## Scaling to heavily cited seeds (November 2026)
 
-- **Whole-neighborhood sampling.** Discover lists every citing work before probing (listing a few thousand citers takes about 15 metadata requests at 200 per page) and draws the probe set from all of them instead of from the provider's first 200, which skewed old. Sampling covers the frame of works not marked closed or abstract-only, stratified by year band × type group (article, review, other). Each probe goes to the stratum where a probed work stands for the most frame works, so a 100-probe sample tracks the frame's year mix closely and the large strata end up with similar inclusion probabilities. Report's `weightedRates` estimate F/D/E/U over the frame with 1/π weights; the unweighted rates remain the observed sample.
-- **Prepare stores family data once.** Candidates, claims, and the Scope family sit once on the payload and records refer to them by id, so a seed with large families does not multiply family size by record count.
-- **Parallel harvest.** Citing papers are fetched and parsed `discover.fetchConcurrency` at a time (default 6, `--fetch-concurrency`); the artifact is byte-identical at any value.
-- **Batch transport.** `pipeline --batch` sends model requests through the Message Batches API at half price, as a `fetch` under the provider, so requests, validation, and artifacts are unchanged. Submitted requests are recorded (migration 0014) so a crash or resume takes a pending batch's result instead of paying twice, `--max-cost` reserves an expected cost per queued request (about 2.3 times real cost on whole-paper adjudication), shared prefixes use the 1-hour cache TTL, and `db:gc` prunes request rows past the 29-day results retention. Tested against a mocked API only; no real batched run yet.
-- **Census runs.** `--census` probes every enumerated citer (`probeBudget: "all"`) and keeps every candidate as a family (`candidateSelection.mode: "all"`, every disposition still in the ledger with its reason). The UI new-run form offers both.
-- **Blocked claim clustering.** A seed whose claims exceed one request (150) is clustered in two levels: exact-text units, BM25-similar blocks of at most 150 clustered side by side, and merge rounds over one representative per cluster. Candidates record `equivalence.method: "blocked_model"` with every block and merge request that judged them. On 4,000 synthetic claims over 300 findings it took 31 requests (28 blocks of 81–150 units, one merge round of 3) and gave identical families at concurrency 1 and 8. Not yet run against real claims at that size.
-- **Summarized report.** Above 200 records the Markdown summarizes each family with two examples per verdict and points to the JSON; a synthetic 3,000-record, 120-family report is about 4,400 lines instead of about 16,000. The Report inspector's families now refer to rows by id instead of copying them (that payload went from about 24 MB to 16 MB, the families part from 8.3 MB to 0.3 MB) and render restatements 50 at a time.
-- **Census-scale fixes.** Prepare's role classifier runs `modelConcurrency` at a time; GROBID parses at most `GROBID_CONCURRENCY` PDFs at once (default 2); and Adjudicate's artifact check matched each record against every provenance entry, which made building and loading a 3,000-record chain take minutes, so it now indexes them.
+- **Whole-neighborhood sampling.**
+  - Discover lists every citing work before probing. Listing a few thousand citers takes about 15 metadata requests at 200 per page.
+  - The probe set is drawn from all of them instead of from the provider's first 200, which skewed old.
+  - Sampling covers the frame of works not marked closed or abstract-only, stratified by year band × type group (article, review, other).
+  - Each probe goes to the stratum where a probed work stands for the most frame works, so a 100-probe sample tracks the frame's year mix closely and the large strata end up with similar inclusion probabilities.
+  - Report's `weightedRates` estimate F/D/E/U over the frame with 1/π weights. The unweighted rates remain the observed sample.
+- **Prepare stores family data once.**
+  - Candidates, claims, and the Scope family sit once on the payload, and records refer to them by id.
+  - A seed with large families therefore does not multiply family size by record count.
+- **Parallel harvest.**
+  - Citing papers are fetched and parsed `discover.fetchConcurrency` at a time (default 6, `--fetch-concurrency`).
+  - The artifact is byte-identical at any value.
+- **Batch transport.**
+  - `pipeline --batch` sends model requests through the Message Batches API at half price, as a `fetch` under the provider, so requests, validation, and artifacts are unchanged.
+  - Submitted requests are recorded (migration 0014), so a crash or resume takes a pending batch's result instead of paying twice.
+  - `--max-cost` reserves an expected cost per queued request (about 2.3 times real cost on whole-paper adjudication).
+  - Shared prefixes use the 1-hour cache TTL.
+  - `db:gc` prunes request rows past the 29-day results retention.
+  - Tested against a mocked API only; no real batched run yet.
+- **Census runs.**
+  - `--census` probes every enumerated citer (`probeBudget: "all"`).
+  - It keeps every candidate as a family (`candidateSelection.mode: "all"`, every disposition still in the ledger with its reason).
+  - The UI new-run form offers both.
+- **Blocked claim clustering.**
+  - A seed whose claims exceed one request (150) is clustered in two levels: exact-text units, BM25-similar blocks of at most 150 clustered side by side, and merge rounds over one representative per cluster.
+  - Candidates record `equivalence.method: "blocked_model"` with every block and merge request that judged them.
+  - On 4,000 synthetic claims over 300 findings it took 31 requests (28 blocks of 81–150 units, one merge round of 3) and gave identical families at concurrency 1 and 8.
+  - Not yet run against real claims at that size.
+- **Summarized report.**
+  - Above 200 records the Markdown summarizes each family with two examples per verdict and points to the JSON.
+  - A synthetic 3,000-record, 120-family report is about 4,400 lines instead of about 16,000.
+  - The Report inspector's families now refer to rows by id instead of copying them. That payload went from about 24 MB to 16 MB, and the families part from 8.3 MB to 0.3 MB.
+  - The inspector renders restatements 50 at a time.
+- **Census-scale fixes.**
+  - Prepare's role classifier runs `modelConcurrency` at a time.
+  - GROBID parses at most `GROBID_CONCURRENCY` PDFs at once (default 2).
+  - Adjudicate's artifact check matched each record against every provenance entry, which made building and loading a 3,000-record chain take minutes. It now indexes them.
 - **Repeat runs.** A repeated run of one seed was compared offline. The write-up stays outside the repository.
-- **Blinded review.** The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time; the CSV export collapses to claim units. Local labels do not calibrate Adjudicate, so `calibrationStatus` stays `uncalibrated`.
-- **Citation targeting and pin-filled packets.** Markers are anchored to exact verified support spans and the resolved reference before the window is cut. An unverified target stays unmarked and is gated to manual review. When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip. A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.
+- **Blinded review.**
+  - The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time.
+  - The CSV export collapses to claim units.
+  - Local labels do not calibrate Adjudicate, so `calibrationStatus` stays `uncalibrated`.
+- **Citation targeting and pin-filled packets.**
+  - Markers are anchored to exact verified support spans and the resolved reference before the window is cut.
+  - An unverified target stays unmarked and is gated to manual review.
+  - When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip.
+  - A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.
 
-A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history, and runs blind annotation plus resumable provider comparisons. Datasets, trials, and scores stay on disk. The UI grades one case at a time from the keyboard, and `eval request` saves a named set of cases that shows up there as waiting until each has a final label. See [evaluation.md](./evaluation.md).
+### Evaluation harness
 
-Built for evaluation: constructed cases (`eval dataset --mutations`), which edit restatements a human labelled `F` so the expected verdict is known, as distortions that count missed distortions and wording-only controls that count false alarms; a repeat-agreement figure for run-to-run noise; and whole-paper adjudication (`adjudicationEvidence: "seed_text"`), which gives the adjudicator the seed's full text as a cached prefix and verifies the quotes it relies on. A comparison of three models on one seed used all three. Its write-up stays outside the repository, and one seed with one reviewer calibrates nothing. On that comparison, production Adjudicate now reads the whole seed text with `claude-sonnet-5-5` at `high` effort; the Report counts whole-paper verdicts, those quoting a passage Evidence did not select, and those where a quote failed verification. The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`. The run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort. No run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
+- A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history, and runs blind annotation plus resumable provider comparisons.
+- Datasets, trials, and scores stay on disk.
+- The UI grades one case at a time from the keyboard.
+- `eval request` saves a named set of cases that shows up in the UI as waiting until each has a final label.
+- See [evaluation.md](./evaluation.md).
 
-Still open from that plan: a second seed (step 0), the blinded re-review (step 3's "then use it"), the effort experiment (step 5), the four decisions in its "Decisions only you can make" section, and hop two (step 7, deliberately unstarted until hop one is calibrated).
+Built for evaluation:
+
+- **Constructed cases** (`eval dataset --mutations`). They edit restatements a human labelled `F` so the expected verdict is known: distortions count missed distortions, and wording-only controls count false alarms.
+- **A repeat-agreement figure** for run-to-run noise.
+- **Whole-paper adjudication** (`adjudicationEvidence: "seed_text"`). It gives the adjudicator the seed's full text as a cached prefix and verifies the quotes it relies on.
+
+A comparison of three models on one seed used all three:
+
+- Its write-up stays outside the repository, and one seed with one reviewer calibrates nothing.
+- On that comparison, production Adjudicate now reads the whole seed text with `claude-sonnet-5-5` at `high` effort.
+- The Report counts whole-paper verdicts, those quoting a passage Evidence did not select, and those where a quote failed verification.
+- The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`.
+- The run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort.
+- No run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
+
+Still open from that plan:
+
+- a second seed (step 0)
+- the blinded re-review (step 3's "then use it")
+- the effort experiment (step 5)
+- the four decisions in its "Decisions only you can make" section
+- hop two (step 7), deliberately unstarted until hop one is calibrated
 
 ## Seed codebook (November 2026)
 
-Landed as an additive annotation, untested at scale. Family partitions move with the citer list, so per-family numbers do not compare between runs. Scope now builds a codebook of the seed's citable statements from the seed paper itself (results and headline; relayed background, methods and resources; then an organise step into themes and entries whose headline theme holds the steps of the main claim), exact-verifies its quotes, and freezes it in SQLite per seed text and procedure version; `--force-refresh` and `db:gc` leave it, `--regenerate-codebook` replaces it. Each Discover claim is tagged with 1 to 3 entries, a theme alone, or none, one Haiku request per claim, and Report adds per-entry and per-theme tables beside the families, which are unchanged. An offline pilot found per-entry record counts stable across repeat taggings against a frozen codebook, but reworded claims kept identical tag sets only about 60% of the time, mostly by switching between a theme and an entry under it; the theme roll-up and the non-empty headline theme are meant to absorb that, and whether per-entry verdict rates are stable is unproven. Families, selection, records, and verdicts do not read the codebook. The UI Report Overview shows both tables.
+Landed as an additive annotation, untested at scale.
+
+- **Why.** Family partitions move with the citer list, so per-family numbers do not compare between runs.
+- **Codebook.** Scope now builds a codebook of the seed's citable statements from the seed paper itself:
+  - results and headline;
+  - relayed background, methods and resources;
+  - then an organise step into themes and entries, whose headline theme holds the steps of the main claim.
+- **Storage.** Quotes are exact-verified, and the codebook is frozen in SQLite per seed text and procedure version. `--force-refresh` and `db:gc` leave it; `--regenerate-codebook` replaces it.
+- **Tagging.** Each Discover claim is tagged with 1 to 3 entries, a theme alone, or none, one Haiku request per claim.
+- **Report.** It adds per-entry and per-theme tables beside the families, which are unchanged.
+- **Offline pilot.**
+  - Per-entry record counts were stable across repeat taggings against a frozen codebook.
+  - Reworded claims kept identical tag sets only about 60% of the time, mostly by switching between a theme and an entry under it.
+  - The theme roll-up and the non-empty headline theme are meant to absorb that.
+  - Whether per-entry verdict rates are stable is unproven.
+- **Independence.** Families, selection, records, and verdicts do not read the codebook.
+- **UI.** The Report Overview shows both tables.
 
 ## Scientific status
 

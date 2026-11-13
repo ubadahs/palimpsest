@@ -55,6 +55,7 @@ import {
   buildStableId,
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
+import { expectRejected } from "../rejection.fixture.js";
 
 const deterministicExecution: ExecutionMetadata = {
   kind: "deterministic",
@@ -1314,12 +1315,11 @@ describe("stage artifact contracts", () => {
     if (discover.stage !== "discover") {
       throw new Error("Expected discover artifact");
     }
-    expect(
-      discoverArtifactPayloadSchema.safeParse({
-        ...discover.payload,
-        candidateDispositions: [],
-      }).success,
-    ).toBe(false);
+    expectRejected(
+      discoverArtifactPayloadSchema,
+      { ...discover.payload, candidateDispositions: [] },
+      /Missing disposition for candidate/,
+    );
     expect(discover.payload.claimCandidates).toHaveLength(1);
     expect(discover.payload.citationMentions).toHaveLength(1);
     expect(discover.payload.attributedClaimRecords).toHaveLength(1);

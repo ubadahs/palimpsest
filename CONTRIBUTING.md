@@ -49,7 +49,7 @@ npm run typecheck      # tsc --noEmit (src + tests)
 npm run lint           # eslint src tests
 npm run format         # prettier --write
 npm run test           # vitest run
-npm run dev -- doctor  # check config and taxonomy
+npm run dev -- doctor  # check config and services
 npm run dev -- pipeline --input dois.json  # e2e pipeline
 npm run ui:dev         # local Next.js UI
 ```

@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ResolvedPaper } from "../../src/domain/common.js";
 import {
   createDefaultAdapters,
   acquireFullText,
@@ -18,6 +17,7 @@ import { loadEnvironment } from "../../src/config/env.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
 import { upsertRawPaper } from "../../src/storage/paper-cache.js";
+import { makePaper } from "../paper.fixture.js";
 
 const PMC_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <article>
@@ -35,26 +35,6 @@ const PMC_XML = `<?xml version="1.0" encoding="UTF-8"?>
     </sec>
   </body>
 </article>`;
-
-function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
-  return {
-    id: "paper-1",
-    doi: "10.1234/example",
-    title: "Example Paper",
-    authors: ["Author A"],
-    abstract: undefined,
-    source: "openalex",
-    fullTextHints: {
-      providerAvailability: "available",
-      providerSourceHint: "pdf",
-      pdfUrl: "https://example.com/paper.pdf",
-    },
-    paperType: "article",
-    referencedWorksCount: 10,
-    publicationYear: 2024,
-    ...overrides,
-  };
-}
 
 function makeXmlResponse(url: string): FullTextFetchResponse {
   return {

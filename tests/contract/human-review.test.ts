@@ -9,11 +9,13 @@ import {
   projectHumanReviewRecords,
   type HumanReviewEvent,
 } from "../../src/contract/human-review.js";
+import { expectRejected } from "../rejection.fixture.js";
 
 describe("human review contracts", () => {
   it("requires corrections only when validity is no", () => {
-    expect(
-      humanAssessmentSchema.safeParse({
+    expectRejected(
+      humanAssessmentSchema,
+      {
         eligibleForAdjudication: "yes",
         inScope: "yes",
         citingSpanValid: "no",
@@ -23,8 +25,9 @@ describe("human review contracts", () => {
         blinded: true,
         mutationKinds: [],
         notes: "",
-      }).success,
-    ).toBe(false);
+      },
+      /Corrected citing span is required when citingSpanValid=no/,
+    );
 
     expect(
       humanAssessmentSchema.safeParse({
@@ -46,8 +49,9 @@ describe("human review contracts", () => {
       }).success,
     ).toBe(true);
 
-    expect(
-      humanAssessmentSchema.safeParse({
+    expectRejected(
+      humanAssessmentSchema,
+      {
         eligibleForAdjudication: "yes",
         inScope: "yes",
         citingSpanValid: "yes",
@@ -62,8 +66,9 @@ describe("human review contracts", () => {
         blinded: true,
         mutationKinds: [],
         notes: "",
-      }).success,
-    ).toBe(false);
+      },
+      /Corrected citing span is only allowed when citingSpanValid=no/,
+    );
   });
 
   it("keeps citation context and Evidence chunk lists server-owned", () => {
@@ -91,13 +96,15 @@ describe("human review contracts", () => {
     expect(appendHumanReviewRequestSchema.safeParse(request).success).toBe(
       true,
     );
-    expect(
-      appendHumanReviewRequestSchema.safeParse({
+    expectRejected(
+      appendHumanReviewRequestSchema,
+      {
         ...request,
         citationContext: "client-controlled context",
         knownCitedChunkIds: ["client-controlled-chunk"],
-      }).success,
-    ).toBe(false);
+      },
+      /Unrecognized keys: "citationContext", "knownCitedChunkIds"/,
+    );
   });
 
   it("checks exact citing-span offsets against citation context", () => {
@@ -180,46 +187,48 @@ describe("human review contracts", () => {
     };
     const firstId = `hrevent_${"1".repeat(32)}`;
     const secondId = `hrevent_${"2".repeat(32)}`;
-    const result = humanReviewEventLogSchema.safeParse({
-      schemaVersion: "human-review-events-v1",
-      lineage: {
-        runId: "run_1",
-        reportArtifactId: `artifact_${"a".repeat(64)}`,
-        reportContentHash: "b".repeat(64),
+    expectRejected(
+      humanReviewEventLogSchema,
+      {
+        schemaVersion: "human-review-events-v2",
+        lineage: {
+          runId: "run_1",
+          reportArtifactId: `artifact_${"a".repeat(64)}`,
+          reportContentHash: "b".repeat(64),
+        },
+        events: [
+          {
+            eventId: firstId,
+            recordId: "record_1",
+            familyId: "family_1",
+            reviewer: "reviewer",
+            createdAt: "2026-08-08T00:00:00.000Z",
+            status: "draft",
+            assessment: baseAssessment,
+          },
+          {
+            eventId: secondId,
+            recordId: "record_1",
+            familyId: "family_2",
+            reviewer: "reviewer",
+            createdAt: "2026-08-08T01:00:00.000Z",
+            status: "final",
+            supersedesEventId: firstId,
+            assessment: baseAssessment,
+          },
+          {
+            eventId: `hrevent_${"3".repeat(32)}`,
+            recordId: "record_1",
+            familyId: "family_1",
+            reviewer: "reviewer",
+            createdAt: "2026-08-08T02:00:00.000Z",
+            status: "final",
+            supersedesEventId: firstId,
+            assessment: baseAssessment,
+          },
+        ],
       },
-      events: [
-        {
-          eventId: firstId,
-          recordId: "record_1",
-          familyId: "family_1",
-          reviewer: "reviewer",
-          createdAt: "2026-08-08T00:00:00.000Z",
-          status: "draft",
-          assessment: baseAssessment,
-        },
-        {
-          eventId: secondId,
-          recordId: "record_1",
-          familyId: "family_2",
-          reviewer: "reviewer",
-          createdAt: "2026-08-08T01:00:00.000Z",
-          status: "final",
-          supersedesEventId: firstId,
-          assessment: baseAssessment,
-        },
-        {
-          eventId: `hrevent_${"3".repeat(32)}`,
-          recordId: "record_1",
-          familyId: "family_1",
-          reviewer: "reviewer",
-          createdAt: "2026-08-08T02:00:00.000Z",
-          status: "final",
-          supersedesEventId: firstId,
-          assessment: baseAssessment,
-        },
-      ],
-    });
-
-    expect(result.success).toBe(false);
+      /A record cannot change family across review revisions[\s\S]*supersedesEventId must reference the latest earlier event for this record/,
+    );
   });
 });

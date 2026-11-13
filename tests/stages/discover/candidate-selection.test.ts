@@ -14,6 +14,7 @@ import {
   buildStableId,
   canonicalSha256,
 } from "../../../src/shared/stable-identity.js";
+import { expectRejected } from "../../rejection.fixture.js";
 
 function mention(input: {
   id: string;
@@ -705,9 +706,10 @@ describe("candidate selection mode all", () => {
   });
 
   it("rejects portfolio settings on the all mode", () => {
-    expect(
-      candidateSelectionPolicySchema.safeParse({ mode: "all", maxFamilies: 5 })
-        .success,
-    ).toBe(false);
+    expectRejected(
+      candidateSelectionPolicySchema,
+      { mode: "all", maxFamilies: 5 },
+      /Unrecognized key: "maxFamilies"/,
+    );
   });
 });

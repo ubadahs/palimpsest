@@ -458,8 +458,10 @@ describe.sequential("evaluation harness", () => {
     expect(validateJsSpan(context, { start: 3, end: 8, text: "claim" })).toBe(
       false,
     );
-    expect(() => pythonSpanToJs(context, 0, 99)).toThrow();
-    expect(() => pythonSpanToJs(context, 3, 3)).toThrow();
+    expect(() => pythonSpanToJs(context, 0, 99)).toThrow(
+      /Span offset exceeds context/,
+    );
+    expect(() => pythonSpanToJs(context, 3, 3)).toThrow(/Invalid span offsets/);
     expect(() => resolveExactQuote(context, "claim")).toThrow(/ambiguous/);
     expect(resolveExactQuote(context, "claim", "😀 ", "\n")).toEqual({
       start: 4,

@@ -39,11 +39,7 @@ import {
 } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
-import {
-  buildStableId,
-  canonicalSha256,
-} from "../../src/shared/stable-identity.js";
-import type { ArtifactReference } from "../../src/contract/artifacts/index.js";
+import { canonicalSha256 } from "../../src/shared/stable-identity.js";
 import { parsePipelineArgs } from "../../src/cli/commands/pipeline.js";
 import { hashAdjudicateRequest } from "../../src/contract/artifacts/adjudicate.js";
 import {
@@ -60,9 +56,14 @@ import {
 } from "../../src/contract/workflow.js";
 import { loadArtifact } from "../../src/contract/selectors.js";
 import { stubCodebookAdapters } from "../stages/scope/codebook.fixture.js";
+import {
+  FAMILY_CLAIM,
+  artifactReference,
+  externalExecution,
+  materializedBlocks,
+  modelExecution,
+} from "../stages/chain.fixture.js";
 
-const TRACKED_CLAIM =
-  "Ril9 silencing causes loss of surface ridges and pocket formation.";
 const SOURCE_BLOCKS = [
   {
     blockId: "scope-block-abstract",
@@ -86,64 +87,6 @@ afterEach(() => {
     if (root) rmSync(root, { recursive: true, force: true });
   }
 });
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(
-  purpose: "discover" | "scope" | "rerank" | "adjudicate",
-  key: string,
-  model = `fixture-${purpose}-model`,
-) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model,
-    promptId:
-      purpose === "adjudicate" ? ADJUDICATE_PROMPT_ID : `${purpose}-prompt`,
-    promptVersion: purpose === "adjudicate" ? ADJUDICATE_PROMPT_VERSION : "v1",
-    promptContentHash: canonicalSha256({ purpose, prompt: "fixture" }),
-    requestHash: canonicalSha256({
-      purpose,
-      key,
-      model,
-      direction: "request",
-    }),
-    requestArtifact: artifactReference(
-      "model-request",
-      `${purpose}-${key}-${model}`,
-    ),
-    responseArtifact: artifactReference(
-      "model-response",
-      `${purpose}-${key}-${model}`,
-    ),
-  };
-}
-
-function materializedBlocks() {
-  let offset = 0;
-  return SOURCE_BLOCKS.map((block) => {
-    const charOffsetStart = offset;
-    const charOffsetEnd = charOffsetStart + block.text.length;
-    offset = charOffsetEnd + 2;
-    return { ...block, charOffsetStart, charOffsetEnd };
-  });
-}
 
 function fixtureDiscoverAdapters(): DiscoverAdapters {
   return {
@@ -226,7 +169,7 @@ function fixtureDiscoverAdapters(): DiscoverAdapters {
         reason: "Fixture attributed claim extracted.",
         claims: [
           {
-            text: TRACKED_CLAIM,
+            text: FAMILY_CLAIM,
             supportSpanText: "reported phenotype",
             confidence: "high",
           },
@@ -248,7 +191,7 @@ function fixtureScopeAdapters(): ScopeAdapters {
           artifactReference("raw-seed-manuscript", seed.seedId),
         ],
         parser: { kind: "fixture-structured-parser", version: "v1" },
-        blocks: materializedBlocks(),
+        blocks: materializedBlocks(SOURCE_BLOCKS),
         execution: {
           kind: "external" as const,
           ...externalExecution("fixture-full-text", seed.seedId),
@@ -324,7 +267,10 @@ function fixtureAdjudicateAdapters(
   return {
     adjudicate: (input) => {
       const requestHash = hashAdjudicateRequest(input);
-      const base = modelExecution("adjudicate", input.recordId);
+      const base = modelExecution("adjudicate", input.recordId, undefined, {
+        id: ADJUDICATE_PROMPT_ID,
+        version: ADJUDICATE_PROMPT_VERSION,
+      });
       return Promise.resolve({
         status: "completed",
         rawOutput: {
@@ -1205,7 +1151,9 @@ describe("pipeline executor", () => {
         database,
         adapters: buildFixtureAdapters(),
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(
+      /Invalid Discover artifact at .*contentHash does not match payload/,
+    );
     process.chdir(previousCwd);
 
     // Scope must not have been written.
@@ -1557,7 +1505,7 @@ describe("pipeline executor", () => {
         database,
         adapters,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Fixture auth failure/);
 
     const runs = listRunStages(database, getOnlyRunId(database));
     const discover = runs.find((s) => s.stageKey === "discover")!;
