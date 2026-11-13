@@ -48,6 +48,7 @@ import {
   loadCanonicalArtifact,
   writeCanonicalArtifact,
 } from "../../src/contract/selectors.js";
+import { stubCodebookAdapters } from "./codebook.fixture.js";
 
 type GroundingVariant =
   | "grounded"
@@ -372,6 +373,7 @@ function scopeAdapters(variant: GroundingVariant): CanonicalScopeAdapters {
         execution,
       });
     },
+    ...stubCodebookAdapters(),
     groundFamily: ({ family }) => {
       const execution = {
         ...modelExecution(family.familyId, "scope"),

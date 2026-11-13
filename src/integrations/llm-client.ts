@@ -43,6 +43,8 @@ export type LLMPurpose =
   | "claim-canonicalization"
   | "citation-role-classification"
   | "seed-grounding"
+  | "seed-codebook"
+  | "codebook-tagging"
   | "evidence-rerank"
   | "adjudication";
 
@@ -204,6 +206,12 @@ export type PromptCachingOptions = {
  */
 type ExactCacheConfig = {
   keyVersion: string;
+  /**
+   * Skip the read but still write: the call is answered by the provider and
+   * its reply replaces the cached one. For a caller that asks for a fresh
+   * answer on purpose (`--regenerate-codebook`).
+   */
+  refresh?: boolean;
 };
 
 /**
@@ -505,14 +513,20 @@ const SHARED_SEED_TEXT_POLICY: PromptCachePolicy = {
 /**
  * Provider prompt caching is prefix-based and charges a write premium on every
  * cached request, so it pays only where many requests share a large prefix.
- * Seed grounding and whole-paper adjudication do: the seed text is the same
- * for every family and every record of a seed. A request that names no prefix
+ * Seed grounding, the seed codebook procedure, and whole-paper adjudication
+ * do: the seed text is the same for every family, codebook step, and record
+ * of a seed. Codebook tagging shares the seed's codebook across its claims.
+ * A request that names no prefix
  * is unique and is never cached.
  */
 const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
   Record<LLMPurpose, PromptCachePolicy>
 > = {
   "seed-grounding": SHARED_SEED_TEXT_POLICY,
+  // The three codebook calls share the seed text; every tagging request of a
+  // seed shares its codebook.
+  "seed-codebook": SHARED_SEED_TEXT_POLICY,
+  "codebook-tagging": SHARED_SEED_TEXT_POLICY,
   adjudication: SHARED_SEED_TEXT_POLICY,
 };
 
@@ -1318,7 +1332,12 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       };
 
       // --- Exact-result cache lookup ---
-      if (db && params.exactCache && !forceRefresh) {
+      if (
+        db &&
+        params.exactCache &&
+        !forceRefresh &&
+        !params.exactCache.refresh
+      ) {
         const cached = getCachedLLMResult(
           db,
           computeLLMCacheKey(cacheKeyInput),

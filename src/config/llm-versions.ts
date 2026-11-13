@@ -21,6 +21,10 @@ export const LLM_CACHE_VERSIONS = {
   rerank: "rerank-2026-09-02-v2",
   /** Citation fidelity adjudication. */
   adjudication: "adjudication-2026-09-23-v11",
+  /** Seed codebook procedure calls (canonical Scope). */
+  seedCodebook: "seed-codebook-2026-11-12-v2",
+  /** One citing claim tagged against its seed codebook (canonical Scope). */
+  codebookTagging: "codebook-tagging-2026-11-12-v1",
 } as const;
 
 export const LLM_PROMPT_VERSIONS = {
@@ -36,4 +40,11 @@ export const LLM_PROMPT_VERSIONS = {
   adjudication: "v5",
   /** Whole-seed-text adjudication prompt template. */
   seedTextAdjudication: "v1",
+  /**
+   * Seed codebook procedure prompts. The stored codebook is keyed by
+   * `SEED_CODEBOOK_PROCEDURE_VERSION`, which must be bumped with this.
+   */
+  seedCodebook: "2026-11-12-v2",
+  /** Codebook tagging prompt template. */
+  codebookTagging: "2026-11-12-v1",
 } as const;

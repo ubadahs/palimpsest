@@ -42,6 +42,7 @@ import {
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
 import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
+import { stubCodebookAdapters } from "./codebook.fixture.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -283,6 +284,7 @@ function productionPathScopeAdapters(): CanonicalScopeAdapters {
           ...externalExecution("fixture-full-text", seed.seedId),
         },
       }),
+    ...stubCodebookAdapters(),
     groundFamily: ({ family }) =>
       Promise.resolve({
         status: "completed",

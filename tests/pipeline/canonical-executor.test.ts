@@ -63,6 +63,7 @@ import {
   parseProgressEventLine,
 } from "../../src/contract/workflow.js";
 import { loadCanonicalArtifact } from "../../src/contract/selectors.js";
+import { stubCodebookAdapters } from "./codebook.fixture.js";
 
 const TRACKED_CLAIM =
   "Ril9 silencing causes loss of surface ridges and pocket formation.";
@@ -260,6 +261,7 @@ function fixtureScopeAdapters(): CanonicalScopeAdapters {
           ...externalExecution("fixture-full-text", seed.seedId),
         },
       }),
+    ...stubCodebookAdapters(),
     groundFamily: ({ family }) =>
       Promise.resolve({
         status: "completed",

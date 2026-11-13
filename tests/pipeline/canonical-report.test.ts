@@ -61,6 +61,7 @@ import {
   loadCanonicalArtifact,
 } from "../../src/contract/selectors.js";
 import { writeCanonicalReportArtifacts } from "../../src/pipeline/canonical-report-artifact.js";
+import { stubCodebookAdapters } from "./codebook.fixture.js";
 
 const TRACKED_CLAIM =
   "Ril9 silencing causes loss of surface ridges and pocket formation.";
@@ -377,6 +378,7 @@ function scopeAdapters(
         execution,
       });
     },
+    ...stubCodebookAdapters(),
     groundFamily: ({ family }) =>
       Promise.resolve({
         status: "completed",
@@ -1068,6 +1070,51 @@ describe("canonical Report", () => {
     ).toBeLessThan(markdown.indexOf("## Run and funnel coverage"));
     expect(markdown).toContain("### By unique claim unit");
     expect(markdown).toContain("Probe sampling design");
+  });
+
+  it("adds a seed codebook view beside the families without changing them", async () => {
+    const chain = await buildChain({
+      classifier: "mixed",
+      adjudicateVariant: "D",
+    });
+    const result = runCanonicalReport(
+      chain.discover,
+      chain.scope,
+      chain.prepare,
+      chain.evidence,
+      chain.adjudicate,
+      { recordedAt: "2026-07-17T10:50:00.000Z" },
+    );
+    const adjudicated = chain.adjudicate.payload.records.filter(
+      (record) => record.status === "adjudicated",
+    ).length;
+    expect(adjudicated).toBeGreaterThan(0);
+    const [view] = result.payload.seedCodebooks;
+    expect(view).toBeDefined();
+    // The fixture tagger puts every claim under E01, which sits under T1.
+    expect(view!.entries[0]!.counts).toMatchObject({
+      adjudicatedRecords: adjudicated,
+      D: adjudicated,
+    });
+    expect(view!.themes[0]!.counts).toEqual(view!.entries[0]!.counts);
+    expect(view!.themes[0]!.entryClaimUnits).toBe(
+      view!.entries[0]!.counts.taggedClaimUnits,
+    );
+    expect(view!.claims.total).toBe(
+      chain.discover.payload.attributedClaimRecords.length,
+    );
+    expect(view!.uncitedEntryIds).toEqual([]);
+
+    const markdown = renderCanonicalReportMarkdown(result.payload);
+    const families = markdown.indexOf(
+      "## Claim families and their restatements",
+    );
+    const codebook = markdown.indexOf("## Seed codebook view");
+    expect(families).toBeGreaterThanOrEqual(0);
+    expect(codebook).toBeGreaterThan(families);
+    expect(markdown).toContain("#### By theme");
+    expect(markdown).toContain("#### By entry");
+    expect(markdown).toContain("not a verdict");
   });
 
   it("requires stable identifiers throughout per-record traces", async () => {

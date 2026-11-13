@@ -38,6 +38,18 @@ import {
   type ScopeVerifiedEvidenceSpan,
 } from "../contract/lean-artifacts.js";
 import {
+  buildSeedTextHash,
+  isUsableCodebook,
+  scopeSeedCodebookSchema,
+  type ScopeClaimTag,
+  type ScopeSeedCodebook,
+  type UsableScopeSeedCodebook,
+} from "../contract/artifacts/codebook.js";
+import {
+  codebookTaggingReplySchema,
+  normalizeTaggingReply,
+} from "./seed-codebook.js";
+import {
   modelExecutionSchema,
   type ModelExecution,
 } from "../contract/model-execution.js";
@@ -134,8 +146,41 @@ type CanonicalScopeFamilyInput = {
   includedCitationOccurrenceIds: string[];
 };
 
+const canonicalScopeTaggingResultSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("completed"),
+      rawOutput: z.unknown(),
+      execution: modelExecutionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      reasonCode: scopeFailureCodeSchema,
+      reason: z.string().min(1),
+      execution: modelExecutionSchema,
+    })
+    .strict(),
+]);
+
 export type CanonicalScopeAdapters = {
   materializeSeed: (input: { seed: DiscoverSeed }) => Promise<unknown>;
+  /**
+   * The seed's codebook: the stored one for this seed text and procedure
+   * version, or a newly generated one. Never excludes anything.
+   */
+  buildCodebook: (input: {
+    seed: DiscoverSeed;
+    seedText: ScopeSeedMaterialization & { status: "materialized" };
+    seedTextHash: string;
+  }) => Promise<unknown>;
+  /** Tags one citing claim against its seed codebook; one request per claim. */
+  tagClaim: (input: {
+    seed: DiscoverSeed;
+    codebook: UsableScopeSeedCodebook;
+    claimText: string;
+  }) => Promise<unknown>;
   groundFamily: (input: {
     seed: DiscoverSeed;
     family: CanonicalScopeFamilyInput;
@@ -355,6 +400,47 @@ export async function runCanonicalScope(
     };
   }
 
+  // Codebooks before grounding: each seed's three calls run in order so the
+  // seed text is cached once, and seeds run side by side.
+  const codebooks = await pMap(
+    [...materializationsBySeedId.values()].sort((left, right) =>
+      compareCodeUnits(left.seedId, right.seedId),
+    ),
+    async (materialization): Promise<ScopeSeedCodebook> => {
+      if (materialization.status !== "materialized") {
+        return {
+          status: "seed_text_unavailable",
+          seedId: materialization.seedId,
+          reason: materialization.reason,
+        };
+      }
+      const seed = discoverSeedById(discoverArtifact, materialization.seedId);
+      const codebook = parseBoundary(
+        scopeSeedCodebookSchema,
+        await adapters.buildCodebook({
+          seed,
+          seedText: materialization,
+          seedTextHash: buildSeedTextHash(materialization.blocks),
+        }),
+        `seed codebook for ${materialization.seedId}`,
+      );
+      if (codebook.seedId !== materialization.seedId) {
+        throw new CanonicalScopeBoundaryError(
+          `Seed codebook returned ${codebook.seedId} for ${materialization.seedId}`,
+        );
+      }
+      return codebook;
+    },
+    { concurrency: options.concurrency ?? 1 },
+  );
+  for (const codebook of codebooks) {
+    if (codebook.status === "generated" || codebook.status === "failed") {
+      for (const execution of codebook.executions) {
+        recordModelExecution(execution, prompts, models, responseArtifacts);
+      }
+    }
+  }
+
   const grounded = await pMap(familyConstructions, groundConstruction, {
     concurrency: options.concurrency ?? 1,
   });
@@ -366,6 +452,16 @@ export async function runCanonicalScope(
     }
   }
 
+  const claimTags = await tagDiscoverClaims({
+    discoverArtifact,
+    codebooks,
+    adapters,
+    concurrency: options.concurrency ?? 1,
+  });
+  for (const execution of claimTags.executions) {
+    recordModelExecution(execution, prompts, models, responseArtifacts);
+  }
+
   const payload = scopeArtifactPayloadSchema.parse({
     discoverArtifact: discoverReference,
     candidateDecisions,
@@ -375,6 +471,8 @@ export async function runCanonicalScope(
     families: families.sort((left, right) =>
       compareCodeUnits(left.familyId, right.familyId),
     ),
+    codebooks,
+    claimTags: claimTags.tags,
   });
 
   return {
@@ -523,6 +621,194 @@ function buildFamilyConstructions(discoverArtifact: DiscoverArtifact): {
     candidateDecisions: candidateDecisions.sort((left, right) =>
       compareCodeUnits(left.candidateId, right.candidateId),
     ),
+  };
+}
+
+function discoverSeedById(
+  discoverArtifact: DiscoverArtifact,
+  seedId: string,
+): DiscoverSeed {
+  const seed = discoverArtifact.payload.seeds.find(
+    (entry) => entry.seedId === seedId,
+  );
+  if (!seed) {
+    throw new CanonicalScopeBoundaryError(`Unknown Discover seed: ${seedId}`);
+  }
+  return seed;
+}
+
+/**
+ * Tags every Discover claim, not only claims in selected families. Claims of
+ * a seed with the same whitespace-normalized text share one request, so a
+ * text is always tagged the same way within a run, and across runs through
+ * the exact-result cache. Each request carries only its claim beside the
+ * seed's codebook; the first per seed goes alone so it writes the prompt
+ * cache. A failed request is a typed outcome on its claims, never a stage
+ * failure (fatal provider errors excepted).
+ */
+async function tagDiscoverClaims(input: {
+  discoverArtifact: DiscoverArtifact;
+  codebooks: readonly ScopeSeedCodebook[];
+  adapters: CanonicalScopeAdapters;
+  concurrency: number;
+}): Promise<{ tags: ScopeClaimTag[]; executions: ModelExecution[] }> {
+  const codebookBySeedId = new Map(
+    input.codebooks.map((codebook) => [codebook.seedId, codebook]),
+  );
+  type Unit = {
+    seedId: string;
+    claimText: string;
+    claimRecordIds: string[];
+  };
+  const units = new Map<string, Unit>();
+  const tags: ScopeClaimTag[] = [];
+  const claims = [
+    ...input.discoverArtifact.payload.attributedClaimRecords,
+  ].sort((left, right) =>
+    compareCodeUnits(left.claimRecordId, right.claimRecordId),
+  );
+  for (const claim of claims) {
+    const codebook = codebookBySeedId.get(claim.seedId);
+    if (!codebook || !isUsableCodebook(codebook)) {
+      tags.push({
+        claimRecordId: claim.claimRecordId,
+        seedId: claim.seedId,
+        status: "not_tagged",
+        reason: "codebook_unavailable",
+      });
+      continue;
+    }
+    const claimText = normalizeWhitespace(claim.extractedClaimText);
+    const key = `${claim.seedId}\u0000${claimText}`;
+    const unit = units.get(key) ?? {
+      seedId: claim.seedId,
+      claimText,
+      claimRecordIds: [],
+    };
+    unit.claimRecordIds.push(claim.claimRecordId);
+    units.set(key, unit);
+  }
+
+  const orderedUnits = [...units.values()].sort(
+    (left, right) =>
+      compareCodeUnits(left.seedId, right.seedId) ||
+      compareCodeUnits(left.claimText, right.claimText),
+  );
+  const primedSeeds = new Map<string, Promise<unknown>>();
+  async function withPrimedCodebook<T>(
+    seedId: string,
+    call: () => Promise<T>,
+  ): Promise<T> {
+    const primer = primedSeeds.get(seedId);
+    if (primer) {
+      await primer;
+      return call();
+    }
+    const first = call();
+    primedSeeds.set(
+      seedId,
+      first.catch(() => undefined),
+    );
+    return first;
+  }
+
+  const outcomes = await pMap(
+    orderedUnits,
+    async (unit) => {
+      const codebook = codebookBySeedId.get(unit.seedId);
+      if (!codebook || !isUsableCodebook(codebook)) {
+        throw new Error("Tagging unit lost its codebook");
+      }
+      const seed = discoverSeedById(input.discoverArtifact, unit.seedId);
+      const result = parseBoundary(
+        canonicalScopeTaggingResultSchema,
+        await withPrimedCodebook(unit.seedId, () =>
+          input.adapters.tagClaim({
+            seed,
+            codebook,
+            claimText: unit.claimText,
+          }),
+        ),
+        `codebook tagging for ${unit.claimRecordIds[0]!}`,
+      );
+      if (result.status === "failed") {
+        throwIfFatal(result);
+        const code = scopeNonfatalFailureCodeSchema.parse(result.reasonCode);
+        return {
+          unit,
+          execution: result.execution,
+          outcome: {
+            status: "tagging_failed" as const,
+            failure: {
+              code:
+                code === "not_found" || code === "unavailable"
+                  ? ("provider_failure" as const)
+                  : code,
+              reason: result.reason,
+            },
+          },
+        };
+      }
+      const parsed = codebookTaggingReplySchema(codebook).safeParse(
+        result.rawOutput,
+      );
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        return {
+          unit,
+          execution: result.execution,
+          outcome: {
+            status: "tagging_failed" as const,
+            failure: {
+              code: "invalid_response" as const,
+              reason: `Invalid tagging output at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
+            },
+          },
+        };
+      }
+      return {
+        unit,
+        execution: result.execution,
+        outcome: {
+          status: "tagged" as const,
+          ...normalizeTaggingReply(parsed.data),
+          reason: parsed.data.reason,
+        },
+      };
+    },
+    { concurrency: input.concurrency },
+  );
+
+  const executions: ModelExecution[] = [];
+  for (const { unit, execution, outcome } of outcomes) {
+    executions.push(execution);
+    for (const claimRecordId of unit.claimRecordIds) {
+      tags.push(
+        outcome.status === "tagged"
+          ? {
+              claimRecordId,
+              seedId: unit.seedId,
+              status: "tagged",
+              kind: outcome.kind,
+              tags: outcome.tags,
+              reason: outcome.reason,
+              execution,
+            }
+          : {
+              claimRecordId,
+              seedId: unit.seedId,
+              status: "tagging_failed",
+              failure: outcome.failure,
+              execution,
+            },
+      );
+    }
+  }
+  return {
+    tags: tags.sort((left, right) =>
+      compareCodeUnits(left.claimRecordId, right.claimRecordId),
+    ),
+    executions,
   };
 }
 
