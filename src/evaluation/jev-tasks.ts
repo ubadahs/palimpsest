@@ -16,8 +16,11 @@ import type {
   JevVariant,
 } from "./optimization-contract.js";
 
-/** Part of every request hash; v3 took the role rubric from production. */
-const RUBRIC_REVISION = "jev-citation-tasks-v3";
+/**
+ * Part of every request hash, for changes the request body does not show.
+ * A reworded question changes the body, and so its hash, by itself.
+ */
+const RUBRIC_REVISION = "jev-citation-tasks-v2";
 const ROLE_CRITERIA = rubricCriteria(CITATION_ROLE_DEFINITIONS);
 const RELEVANCE_CRITERIA = [
   "Irrelevant to the query, including material that cannot resolve it.",

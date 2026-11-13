@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { thinkingEffortSchema } from "../contract/model-execution.js";
-import { evaluationTaskSchema } from "./types.js";
+import { evaluationTaskSchema, type EvaluationTask } from "./types.js";
 import { jevVariantSchema } from "./optimization-contract.js";
 
 export const providerConfigSchema = z.object({
@@ -55,17 +55,19 @@ type PromptRevision = (typeof promptRevisionValues)[number];
 export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v3";
 
 /**
- * The prompts a provider kind was shown under a revision. v3 reworded only
- * the questions jev and djev providers answer, to the production rubric, so
- * other kinds' v2 trials remain reusable under v3.
+ * The prompts a provider was shown for a task under a revision. v3 reworded
+ * only the role and adjudication questions jev and djev providers answer, to
+ * the production rubric, so every other v2 trial remains reusable under v3.
  */
 export function promptsSeen(
   revision: PromptRevision,
   kind: ProviderConfig["kind"],
+  task: EvaluationTask,
 ): PromptRevision {
-  return revision === "evaluation-prompts-v3" &&
-    kind !== "jev" &&
-    kind !== "djev"
+  const reworded =
+    (kind === "jev" || kind === "djev") &&
+    (task === "role" || task === "adjudication");
+  return revision === "evaluation-prompts-v3" && !reworded
     ? "evaluation-prompts-v2"
     : revision;
 }

@@ -71,7 +71,7 @@ Credentials come from environment variables named in the config (`ANTHROPIC_API_
 
 Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, the prompts the provider was shown, and repetition match. Changed scientific inputs invalidate reuse. Concurrency and spacing do not.
 
-New trials run only under the current prompt revision, `evaluation-prompts-v3`; an experiment created under an older one stays readable but cannot run more trials. A revision records which providers it changed, so the rest keep their saved trials: v3 reworded only the questions jev and djev providers answer, to the production rubric in `src/domain/rubric.ts`, so Anthropic, BM25, and rules trials from v2 experiments are reused.
+New trials run only under the current prompt revision, `evaluation-prompts-v3`; an experiment created under an older one stays readable but cannot run more trials. A revision records which providers and tasks it changed, so everything else keeps its saved trials: v3 reworded only the role and adjudication questions jev and djev providers answer, to the production rubric in `src/domain/rubric.ts`, so every other v2 trial is reused. Saved jev optimization experiments whose planned role questions predate v3 refuse to resume, since their remaining requests would be asked differently from their completed ones; start a fresh experiment for that work.
 
 ## Grading in the local UI
 

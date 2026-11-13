@@ -554,7 +554,7 @@ export async function runJevOptimization(
       JSON.stringify(optimizationRequestPlan(datasetId, config))
     )
       throw new Error(
-        "Optimization request plan changed; refusing to dispatch",
+        "Optimization request plan changed since this experiment was planned, so its remaining requests would ask different questions than its completed ones; refusing to dispatch. Create a fresh experiment for the remaining work.",
       );
     const missingKeys =
       transport === fetchJev

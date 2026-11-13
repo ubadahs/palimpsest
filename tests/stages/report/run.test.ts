@@ -1,12 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptivePortfolioPolicySchema } from "../../../src/stages/discover/candidate-selection.js";
 
 import { describe, expect, it } from "vitest";
 
 import {
-  buildStableId,
   canonicalSerialize,
   canonicalSha256,
 } from "../../../src/shared/stable-identity.js";
@@ -18,25 +16,17 @@ import {
   reportArtifactPayloadSchema,
   reportArtifactSchema,
   reportRateSchema,
-  type ArtifactReference,
   type EvidenceArtifact,
   type PrepareArtifact,
 } from "../../../src/contract/artifacts/index.js";
 import {
   buildDiscoverArtifact,
   runDiscover,
-  type DiscoverAdapters,
-  type DiscoverOptions,
 } from "../../../src/stages/discover/run.js";
-import {
-  buildScopeArtifact,
-  runScope,
-  type ScopeAdapters,
-} from "../../../src/stages/scope/run.js";
+import { buildScopeArtifact, runScope } from "../../../src/stages/scope/run.js";
 import {
   buildPrepareArtifact,
   runPrepare,
-  type PrepareAdapters,
 } from "../../../src/stages/prepare/run.js";
 import {
   buildEvidenceArtifact,
@@ -60,406 +50,16 @@ import {
   loadArtifact,
 } from "../../../src/contract/selectors.js";
 import { writeReportArtifacts } from "../../../src/stages/report/write.js";
-import { stubCodebookAdapters } from "../scope/codebook.fixture.js";
-
-const TRACKED_CLAIM =
-  "Ril9 silencing causes loss of surface ridges and pocket formation.";
-const SOURCE_BLOCKS = [
-  {
-    blockId: "scope-block-abstract",
-    text: "The abstract describes epithelial lumen organization and general polarity controls.",
-    sectionTitle: "Abstract",
-    blockKind: "abstract" as const,
-  },
-  {
-    blockId: "scope-block-results",
-    text: "Silencing Ril9 caused loss of surface ridges and pocket formation in lining cells. The resulting lumens lost their normal anisotropy.",
-    sectionTitle: "Results",
-    blockKind: "body_paragraph" as const,
-  },
-  {
-    blockId: "scope-block-methods",
-    text: "Ril9 was silenced with a validated small interfering RNA protocol before confocal imaging.",
-    sectionTitle: "Methods",
-    blockKind: "body_paragraph" as const,
-  },
-];
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(
-  purpose: "discover" | "scope" | "rerank" | "adjudicate",
-  key: string,
-  model = `fixture-${purpose}-model`,
-) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model,
-    promptId: `${purpose}-prompt`,
-    promptVersion: "v1",
-    promptContentHash: canonicalSha256({ purpose, prompt: "fixture" }),
-    requestHash: canonicalSha256({
-      purpose,
-      key,
-      model,
-      direction: "request",
-    }),
-    requestArtifact: artifactReference(
-      "model-request",
-      `${purpose}-${key}-${model}`,
-    ),
-    responseArtifact: artifactReference(
-      "model-response",
-      `${purpose}-${key}-${model}`,
-    ),
-  };
-}
-
-function discoverOptions(probeBudget = 10): DiscoverOptions {
-  return {
-    seeds: [
-      {
-        doi: "10.1000/report-seed",
-        provenanceArtifacts: [
-          artifactReference("doi-input", "10.1000/report-seed"),
-        ],
-      },
-    ],
-    neighborhood: {
-      provider: "fixture-citation-index",
-      query: "works-citing-report-seed",
-      limit: 10,
-    },
-    probeBudget,
-    candidateSelection: adaptivePortfolioPolicySchema.parse({
-      mode: "adaptive_portfolio",
-      minFamilies: 1,
-      maxFamilies: 5,
-      maxPreparedRecords: 1000,
-      minMarginalNovelty: 0,
-    }),
-    recordedAt: "2026-07-17T10:00:00.000Z",
-  };
-}
-
-/**
- * Readable neighbors are frame papers: with a probe budget of 2 the two
- * strata carry inclusion probabilities 1 and 1/4. Closed neighbors sit
- * outside the frame: probed only with budget left over, they add records the
- * weighted rates must leave out.
- */
-type Neighbors = "readable" | "closed";
-
-/**
- * A second citing paper in its own stratum, plus three neighbors beside the
- * first.
- */
-const neighborhoodPapers = (neighbors: Neighbors) => [
-  {
-    providerRecordId: "provider-citing-paper-old",
-    paperId: "citing-paper-old",
-    title: "Citing paper old",
-    doi: "10.2000/citing-paper-old",
-    authors: ["Old Author"],
-    publicationYear: 2011,
-    fullTextAvailability: "available" as const,
-    provenanceArtifacts: [
-      artifactReference("provider-paper", "citing-paper-old"),
-    ],
-  },
-  ...[1, 2, 3].map((index) => ({
-    providerRecordId: `provider-neighbor-${String(index)}`,
-    paperId: `neighbor-${String(index)}`,
-    title: `Neighbor paper ${String(index)}`,
-    authors: ["Neighbor Author"],
-    publicationYear: 2026,
-    fullTextAvailability:
-      neighbors === "readable"
-        ? ("available" as const)
-        : ("unavailable" as const),
-    provenanceArtifacts: [
-      artifactReference("provider-paper", `neighbor-${String(index)}`),
-    ],
-  })),
-];
-
-function discoverAdapters(neighbors?: Neighbors): DiscoverAdapters {
-  return {
-    resolveSeed: ({ doi }) =>
-      Promise.resolve({
-        status: "resolved",
-        paper: {
-          paperId: "seed-paper",
-          providerRecordId: "provider-seed-paper",
-          title: "Seed report paper",
-          doi,
-          authors: ["Seed Author"],
-          publicationYear: 2020,
-        },
-        execution: externalExecution("fixture-resolver", "seed"),
-      }),
-    retrieveCitingNeighborhood: () =>
-      Promise.resolve({
-        status: "completed",
-        providerReportedTotal: neighbors ? 5 : 1,
-        coverage: "complete",
-        papers: [
-          ...(neighbors ? neighborhoodPapers(neighbors) : []),
-          {
-            providerRecordId: "provider-citing-paper",
-            paperId: "citing-paper",
-            title: "Citing paper",
-            doi: "10.2000/citing-paper",
-            authors: ["Citing Author"],
-            publicationYear: 2025,
-            fullTextAvailability: "available",
-            provenanceArtifacts: [
-              artifactReference("provider-paper", "citing-paper"),
-            ],
-          },
-        ],
-        execution: externalExecution("fixture-citation-index", "neighborhood"),
-      }),
-    harvestMentions: () =>
-      Promise.resolve({
-        materialization: {
-          status: "succeeded",
-          reason: "Fixture citing text materialized.",
-          provenanceArtifacts: [
-            artifactReference("raw-citing-paper", "citing-paper"),
-          ],
-        },
-        harvest: {
-          status: "succeeded",
-          reason: "Two distinct occurrences were harvested.",
-          provenanceArtifacts: [
-            artifactReference("mention-harvest", "citing-paper"),
-          ],
-        },
-        mentions: [
-          {
-            mentionIndex: 0,
-            refId: "seed-ref",
-            charOffsetStart: 100,
-            charOffsetEnd: 158,
-            sourceLocator: {
-              kind: "xml_path" as const,
-              value: "/article/body/sec[1]/p[1]/xref[1]",
-            },
-            citationMarker: "[3]",
-            rawContext: "The reported phenotype followed Ril9 depletion [3].",
-            sectionTitle: "Results",
-            seedRefLabel: "Seed Author, 2020",
-            isBundledCitation: false,
-            bundleSize: 1,
-            bundleRefIds: ["seed-ref"],
-            bundlePattern: "single" as const,
-            sourceType: "jats_xml" as const,
-            parser: "fixture-parser-a",
-            parserVersion: "1.0.0",
-            provenanceArtifacts: [
-              artifactReference("occurrence-source", "occurrence-0"),
-            ],
-          },
-          {
-            mentionIndex: 1,
-            refId: "seed-ref",
-            charOffsetStart: 300,
-            charOffsetEnd: 354,
-            sourceLocator: {
-              kind: "xml_path" as const,
-              value: "/article/body/sec[2]/p[2]/xref[2]",
-            },
-            citationMarker: "[3–5]",
-            rawContext:
-              "Bulkhead defects are discussed with several references [3–5].",
-            sectionTitle: "Discussion",
-            seedRefLabel: "Seed Author, 2020",
-            isBundledCitation: true,
-            bundleSize: 3,
-            bundleRefIds: ["seed-ref", "other-4", "other-5"],
-            bundlePattern: "numeric_range" as const,
-            sourceType: "jats_xml" as const,
-            parser: "fixture-parser-b",
-            parserVersion: "2.0.0",
-            provenanceArtifacts: [
-              artifactReference("occurrence-source", "occurrence-1"),
-            ],
-          },
-        ],
-      }),
-    extractAttributedClaims: ({ mention }) =>
-      Promise.resolve({
-        status: "completed",
-        reason: "Fixture attributed claim extracted.",
-        claims: [
-          {
-            text:
-              mention.mentionIndex === 0
-                ? TRACKED_CLAIM
-                : `  ${TRACKED_CLAIM.toUpperCase()}  `,
-            supportSpanText:
-              mention.mentionIndex === 0
-                ? "reported phenotype"
-                : "Bulkhead defects",
-            confidence: mention.mentionIndex === 0 ? "high" : "medium",
-          },
-        ],
-        execution: modelExecution(
-          "discover",
-          `occurrence-${String(mention.mentionIndex)}`,
-        ),
-      }),
-  };
-}
-
-function materializedBlocks() {
-  let offset = 0;
-  return SOURCE_BLOCKS.map((block) => {
-    const charOffsetStart = offset;
-    const charOffsetEnd = charOffsetStart + block.text.length;
-    offset = charOffsetEnd + 2;
-    return { ...block, charOffsetStart, charOffsetEnd };
-  });
-}
-
-function scopeAdapters(
-  grounding: "grounded" | "seed_text_unavailable" = "grounded",
-): ScopeAdapters {
-  return {
-    materializeSeed: ({ seed }) => {
-      const execution = {
-        kind: "external" as const,
-        ...externalExecution("fixture-full-text", seed.seedId),
-      };
-      if (grounding === "seed_text_unavailable") {
-        return Promise.resolve({
-          seedId: seed.seedId,
-          status: "seed_text_unavailable",
-          reasonCode: "unavailable" as const,
-          reason: "No inspectable seed manuscript was available.",
-          provenanceArtifacts: [
-            artifactReference("seed-acquisition-trace", grounding),
-          ],
-          execution,
-        });
-      }
-      return Promise.resolve({
-        seedId: seed.seedId,
-        status: "materialized",
-        reason: "Fixture seed manuscript materialized.",
-        seedTextArtifact: artifactReference("parsed-seed-text", seed.seedId),
-        sourceArtifacts: [
-          artifactReference("raw-seed-manuscript", seed.seedId),
-        ],
-        parser: {
-          kind: "fixture-structured-parser",
-          version: "v1",
-        },
-        blocks: materializedBlocks(),
-        execution,
-      });
-    },
-    ...stubCodebookAdapters(),
-    groundFamily: ({ family }) =>
-      Promise.resolve({
-        status: "completed",
-        rawOutput: {
-          status: "grounded",
-          detailReason: "The Results block directly reports the claim.",
-          supportSpans: [
-            {
-              verbatimQuote:
-                "Silencing Ril9 caused loss of surface ridges and pocket formation in lining cells.",
-              blockId: "scope-block-results",
-            },
-          ],
-        },
-        execution: {
-          ...modelExecution("scope", family.familyId),
-        },
-      }),
-  };
-}
-
-function prepareAdapters(mode: "mixed" | "default" = "mixed"): PrepareAdapters {
-  return {
-    classifyCitation: ({ citationOccurrence }) => {
-      if (mode === "mixed" && citationOccurrence.mentionIndex === 1) {
-        return Promise.resolve({
-          status: "classified",
-          citationRole: "acknowledgment_or_low_information",
-          evaluationMode: "skip_low_information",
-          modifiers: {
-            isBundled: citationOccurrence.isBundledCitation,
-            isReviewMediated: false,
-            bundleSize: citationOccurrence.bundleSize,
-          },
-          signals: ["fixture:low-info"],
-          rationale: "Fixture low-information gate.",
-          confidence: "high",
-          execution: {
-            kind: "deterministic",
-            implementation: "fixture-classifier-low-info-v1",
-          },
-        });
-      }
-      if (citationOccurrence.isBundledCitation) {
-        return Promise.resolve({
-          status: "classified",
-          citationRole: "background_context",
-          evaluationMode: "fidelity_bundled_use",
-          modifiers: {
-            isBundled: true,
-            isReviewMediated: false,
-            bundleSize: citationOccurrence.bundleSize,
-          },
-          signals: ["fixture:bundled-background"],
-          rationale: "Fixture bundled background attribution.",
-          confidence: "medium",
-          execution: {
-            kind: "deterministic",
-            implementation: "fixture-classifier-v1",
-          },
-        });
-      }
-      return Promise.resolve({
-        status: "classified",
-        citationRole: "substantive_attribution",
-        evaluationMode: "fidelity_specific_claim",
-        modifiers: {
-          isBundled: false,
-          isReviewMediated: false,
-          bundleSize: 1,
-        },
-        signals: ["fixture:direct-attribution"],
-        rationale: "Fixture substantive attribution.",
-        confidence: "high",
-        execution: {
-          kind: "deterministic",
-          implementation: "fixture-classifier-v1",
-        },
-      });
-    },
-  };
-}
+import {
+  artifactReference,
+  discoverAdapters,
+  discoverOptions,
+  modelExecution,
+  prepareAdapters,
+  scopeAdapters,
+  type Neighbors,
+} from "../chain.fixture.js";
+import { expectRejected } from "../../rejection.fixture.js";
 
 async function buildChain(
   options: {
@@ -482,8 +82,11 @@ async function buildChain(
 ) {
   const runId = options.runId ?? "run-report-fixture";
   const discoverResult = await runDiscover(
-    discoverOptions(options.neighbors === "readable" ? 2 : 10),
-    discoverAdapters(options.neighbors),
+    discoverOptions({
+      probeBudget: options.neighbors === "readable" ? 2 : 10,
+      recordedAt: "2026-07-17T10:00:00.000Z",
+    }),
+    discoverAdapters({ neighbors: options.neighbors }),
   );
   const discover = buildDiscoverArtifact({
     result: discoverResult,
@@ -826,14 +429,16 @@ describe("Report", () => {
       expect(rate.numeratorDefinition.length).toBeGreaterThan(0);
       expect(rate.denominatorDefinition.length).toBeGreaterThan(0);
     }
-    expect(
-      reportRateSchema.safeParse({
+    expectRejected(
+      reportRateSchema,
+      {
         ...result.payload.rates[0],
         numerator: 0,
         denominator: 0,
         value: 0,
-      }).success,
-    ).toBe(false);
+      },
+      /value: Zero-denominator rates must store value null/,
+    );
   });
 
   it("rejects tampered funnel partitions for every population class", async () => {
@@ -848,64 +453,81 @@ describe("Report", () => {
     );
     const cases: Array<{
       name: string;
+      message: RegExp;
       mutate: (payload: typeof result.payload) => void;
     }> = [
       {
         name: "Discover probe",
+        message:
+          /Discover probed \+ notProbed must equal returned citing-paper observations/,
         mutate: (payload) => {
           payload.funnel.discover.probed.count += 1;
         },
       },
       {
         name: "Discover materialization",
+        message: /Discover materialization statuses must partition/,
         mutate: (payload) => {
           payload.funnel.discover.materializationSucceeded.count += 1;
         },
       },
       {
         name: "Discover harvest",
+        message: /Discover harvest statuses must partition/,
         mutate: (payload) => {
           payload.funnel.discover.harvestSucceeded.count += 1;
         },
       },
       {
         name: "Discover candidates",
+        message:
+          /Scope deferred candidates must equal Discover deferred candidates/,
         mutate: (payload) => {
           payload.funnel.discover.deferredCandidates.count += 1;
         },
       },
       {
         name: "Scope candidates",
+        message:
+          /Scope scoped \+ deferred candidates must equal all Discover candidates/,
         mutate: (payload) => {
           payload.funnel.scope.scopedCandidates.count += 1;
         },
       },
       {
         name: "Prepare classifications",
+        message:
+          /Prepare classification statuses must partition prepared records/,
         mutate: (payload) => {
           payload.funnel.prepare.classified.count += 1;
         },
       },
       {
         name: "Evidence retrieval",
+        message:
+          /Evidence retrieval-status summary must exactly match per-record traces/,
         mutate: (payload) => {
           payload.funnel.evidence.retrievalStatusCounts[0]!.count += 1;
         },
       },
       {
         name: "Evidence rerank",
+        message:
+          /Evidence rerank status populations must partition Evidence record outcomes/,
         mutate: (payload) => {
           payload.funnel.evidence.rerankDisabled.count += 1;
         },
       },
       {
         name: "Adjudicate statuses",
+        message: /Not-adjudicated count must match per-record traces/,
         mutate: (payload) => {
           payload.funnel.adjudicate.notAdjudicated.count += 1;
         },
       },
       {
         name: "Adjudicate verdicts",
+        message: /Verdict F count must match per-record traces/,
         mutate: (payload) => {
           payload.funnel.adjudicate.verdictCounts.F.count += 1;
         },
@@ -914,10 +536,12 @@ describe("Report", () => {
     for (const testCase of cases) {
       const tampered = structuredClone(result.payload);
       testCase.mutate(tampered);
-      expect(
-        reportArtifactPayloadSchema.safeParse(tampered).success,
+      expectRejected(
+        reportArtifactPayloadSchema,
+        tampered,
+        testCase.message,
         testCase.name,
-      ).toBe(false);
+      );
     }
   });
 
@@ -936,8 +560,10 @@ describe("Report", () => {
     duplicate.funnel.evidence.retrievalStatusCounts.push(
       structuredClone(duplicate.funnel.evidence.retrievalStatusCounts[0]!),
     );
-    expect(reportArtifactPayloadSchema.safeParse(duplicate).success).toBe(
-      false,
+    expectRejected(
+      reportArtifactPayloadSchema,
+      duplicate,
+      /Evidence retrieval-status summary must exactly match per-record traces/,
     );
 
     const unordered = structuredClone(result.payload);
@@ -945,24 +571,30 @@ describe("Report", () => {
       { status: "retrieved", count: unordered.recordTraces.length },
       { status: "no_lexical_matches", count: 0 },
     ];
-    expect(reportArtifactPayloadSchema.safeParse(unordered).success).toBe(
-      false,
+    expectRejected(
+      reportArtifactPayloadSchema,
+      unordered,
+      /Evidence retrieval-status summary must exactly match per-record traces/,
     );
 
     const inventedRetrieval = structuredClone(result.payload);
     Object.assign(inventedRetrieval.recordTraces[0]!.evidence, {
       retrievalStatus: "invented_retrieval_status",
     });
-    expect(
-      reportArtifactPayloadSchema.safeParse(inventedRetrieval).success,
-    ).toBe(false);
+    expectRejected(
+      reportArtifactPayloadSchema,
+      inventedRetrieval,
+      /recordTraces\.0\.evidence\.retrievalStatus: Invalid option/,
+    );
 
     const inventedRerank = structuredClone(result.payload);
     Object.assign(inventedRerank.recordTraces[0]!.evidence, {
       rerankStatus: "invented_rerank_status",
     });
-    expect(reportArtifactPayloadSchema.safeParse(inventedRerank).success).toBe(
-      false,
+    expectRejected(
+      reportArtifactPayloadSchema,
+      inventedRerank,
+      /recordTraces\.0\.evidence\.rerankStatus: Invalid option/,
     );
   });
 
@@ -1134,10 +766,12 @@ describe("Report", () => {
     for (const testCase of fields) {
       const tampered = structuredClone(result.payload);
       testCase.mutate(tampered);
-      expect(
-        reportArtifactPayloadSchema.safeParse(tampered).success,
+      expectRejected(
+        reportArtifactPayloadSchema,
+        tampered,
+        new RegExp(`${testCase.name}: Expected a namespaced stable identifier`),
         testCase.name,
-      ).toBe(false);
+      );
     }
   });
 
@@ -1188,11 +822,13 @@ describe("Report", () => {
     const cases: Array<{
       name: string;
       payload: typeof normal;
+      message: RegExp;
       index: number;
       mutate: (trace: (typeof normal.recordTraces)[number]) => void;
     }> = [
       {
         name: "adjudicated missing verdict",
+        message: /adjudication\.verdict: Invalid option/,
         payload: normal,
         index: adjudicatedIndex,
         mutate: (trace) => {
@@ -1201,6 +837,7 @@ describe("Report", () => {
       },
       {
         name: "adjudicated with gate",
+        message: /Unrecognized key: "gateCode"/,
         payload: normal,
         index: adjudicatedIndex,
         mutate: (trace) => {
@@ -1211,6 +848,7 @@ describe("Report", () => {
       },
       {
         name: "adjudicated with failure",
+        message: /Unrecognized key: "failureCode"/,
         payload: normal,
         index: adjudicatedIndex,
         mutate: (trace) => {
@@ -1219,6 +857,7 @@ describe("Report", () => {
       },
       {
         name: "not_adjudicated missing gate",
+        message: /adjudication\.gateCode: Invalid option/,
         payload: normal,
         index: gatedIndex,
         mutate: (trace) => {
@@ -1227,6 +866,7 @@ describe("Report", () => {
       },
       {
         name: "not_adjudicated with verdict",
+        message: /Unrecognized key: "verdict"/,
         payload: normal,
         index: gatedIndex,
         mutate: (trace) => {
@@ -1235,6 +875,7 @@ describe("Report", () => {
       },
       {
         name: "not_adjudicated with failure",
+        message: /Unrecognized key: "failureCode"/,
         payload: normal,
         index: gatedIndex,
         mutate: (trace) => {
@@ -1243,6 +884,7 @@ describe("Report", () => {
       },
       {
         name: "adjudication_failed missing failure",
+        message: /adjudication\.failureCode: Invalid option/,
         payload: failed,
         index: 0,
         mutate: (trace) => {
@@ -1251,6 +893,7 @@ describe("Report", () => {
       },
       {
         name: "adjudication_failed with verdict",
+        message: /Unrecognized key: "verdict"/,
         payload: failed,
         index: 0,
         mutate: (trace) => {
@@ -1259,6 +902,7 @@ describe("Report", () => {
       },
       {
         name: "adjudication_failed with gate",
+        message: /Unrecognized key: "gateCode"/,
         payload: failed,
         index: 0,
         mutate: (trace) => {
@@ -1269,6 +913,7 @@ describe("Report", () => {
       },
       {
         name: "invalid_output with verdict",
+        message: /Unrecognized key: "verdict"/,
         payload: invalid,
         index: 0,
         mutate: (trace) => {
@@ -1277,6 +922,7 @@ describe("Report", () => {
       },
       {
         name: "invalid_output with gate",
+        message: /Unrecognized key: "gateCode"/,
         payload: invalid,
         index: 0,
         mutate: (trace) => {
@@ -1287,6 +933,7 @@ describe("Report", () => {
       },
       {
         name: "invalid_output with failure",
+        message: /Unrecognized key: "failureCode"/,
         payload: invalid,
         index: 0,
         mutate: (trace) => {
@@ -1297,10 +944,12 @@ describe("Report", () => {
     for (const testCase of cases) {
       const tampered = structuredClone(testCase.payload);
       testCase.mutate(tampered.recordTraces[testCase.index]!);
-      expect(
-        reportArtifactPayloadSchema.safeParse(tampered).success,
+      expectRejected(
+        reportArtifactPayloadSchema,
+        tampered,
+        testCase.message,
         testCase.name,
-      ).toBe(false);
+      );
     }
   });
 
@@ -1321,7 +970,11 @@ describe("Report", () => {
     Object.assign(tampered.recordTraces[0]!.adjudication, {
       failureCode: "quota",
     });
-    expect(reportArtifactPayloadSchema.safeParse(tampered).success).toBe(false);
+    expectRejected(
+      reportArtifactPayloadSchema,
+      tampered,
+      /recordTraces\.0\.adjudication\.failureCode: Invalid option/,
+    );
   });
 
   it("uses adjudicated denominator for F/D/E/U rates and all records for coverage", async () => {
@@ -1459,7 +1112,11 @@ describe("Report", () => {
 
     const tampered = structuredClone(result.payload);
     tampered.weightedRates[0]!.sampleNumerator += 1;
-    expect(reportArtifactPayloadSchema.safeParse(tampered).success).toBe(false);
+    expectRejected(
+      reportArtifactPayloadSchema,
+      tampered,
+      /verdict_D_weighted_rate counts more D records than were adjudicated D/,
+    );
   });
 
   it("leaves records from papers outside the sampling frame out of the weighted rates", async () => {
@@ -1816,17 +1473,21 @@ describe("Report", () => {
     });
     const duplicated = structuredClone(artifact);
     duplicated.payload.recordTraces.push(duplicated.payload.recordTraces[0]!);
-    expect(reportArtifactSchema.safeParse(duplicated).success).toBe(false);
+    rehashArtifact(duplicated);
+    expectRejected(
+      reportArtifactSchema,
+      duplicated,
+      /Report must emit exactly one per-record trace/,
+    );
 
     const missing = structuredClone(artifact);
     missing.payload.recordTraces = missing.payload.recordTraces.slice(1);
-    missing.payload.funnel.prepare.preparedRecords.count =
-      missing.payload.recordTraces.length;
-    missing.payload.funnel.evidence.recordOutcomes.count =
-      missing.payload.recordTraces.length;
-    missing.payload.funnel.adjudicate.totalRecordOutcomes.count =
-      missing.payload.recordTraces.length;
-    expect(reportArtifactSchema.safeParse(missing).success).toBe(false);
+    rehashArtifact(missing);
+    expectRejected(
+      reportArtifactSchema,
+      missing,
+      /Report must emit exactly one per-record trace/,
+    );
   });
 
   it("is stable and deterministic across identical inputs excluding createdAt", async () => {
@@ -2062,6 +1723,10 @@ describe("Report", () => {
       },
     ];
     rehashArtifact(withModel);
-    expect(reportArtifactSchema.safeParse(withModel).success).toBe(false);
+    expectRejected(
+      reportArtifactSchema,
+      withModel,
+      /execution: Report must be deterministic and replayable from inputs/,
+    );
   });
 });

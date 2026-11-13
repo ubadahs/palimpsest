@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adaptivePortfolioPolicySchema } from "../../../src/stages/discover/candidate-selection.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +8,6 @@ import {
   buildCitationInstanceRecordId,
   prepareArtifactPayloadSchema,
   prepareClassificationSchema,
-  type ArtifactReference,
   type DiscoverArtifact,
   type DiscoverCitationOccurrence,
   type PrepareClassification,
@@ -20,7 +18,6 @@ import {
   buildDiscoverArtifact,
   runDiscover,
   type DiscoverAdapters,
-  type DiscoverOptions,
 } from "../../../src/stages/discover/run.js";
 import {
   buildPrepareArtifact,
@@ -49,6 +46,20 @@ import {
   writeArtifact,
 } from "../../../src/contract/selectors.js";
 import { stubCodebookAdapters } from "../scope/codebook.fixture.js";
+import {
+  artifactReference,
+  discoverOptions,
+  externalExecution,
+  modelExecution,
+} from "../chain.fixture.js";
+import { expectRejected } from "../../rejection.fixture.js";
+
+const fixtureDiscoverOptions = () =>
+  discoverOptions({
+    dois: ["10.1000/prepare-seed"],
+    maxFamilies: 2,
+    recordedAt: "2026-07-16T10:00:00.000Z",
+  });
 
 type GroundingVariant =
   | "grounded"
@@ -65,68 +76,7 @@ type ClassifierVariant =
   | "fatal"
   | "malformed";
 
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(
-  key: string,
-  purpose: "discover" | "scope" | "prepare",
-) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model: `fixture-${purpose}-model`,
-    promptId: `${purpose}-prompt`,
-    promptVersion: "v1",
-    promptContentHash: canonicalSha256({ purpose, prompt: "fixture" }),
-    requestHash: canonicalSha256({ purpose, key, direction: "request" }),
-    requestArtifact: artifactReference("model-request", `${purpose}-${key}`),
-    responseArtifact: artifactReference("model-response", `${purpose}-${key}`),
-  };
-}
-
-function discoverOptions(): DiscoverOptions {
-  return {
-    seeds: [
-      {
-        doi: "10.1000/prepare-seed",
-        provenanceArtifacts: [
-          artifactReference("doi-input", "10.1000/prepare-seed"),
-        ],
-      },
-    ],
-    neighborhood: {
-      provider: "fixture-citation-index",
-      query: "works-citing-seed",
-      limit: 10,
-    },
-    probeBudget: 10,
-    candidateSelection: adaptivePortfolioPolicySchema.parse({
-      mode: "adaptive_portfolio",
-      minFamilies: 1,
-      maxFamilies: 2,
-      maxPreparedRecords: 1000,
-      minMarginalNovelty: 0,
-    }),
-    recordedAt: "2026-07-16T10:00:00.000Z",
-  };
-}
-
+// Local: a three-occurrence seed with a parser knob, not the shared two-occurrence chain.
 function discoverAdapters(parser = "fixture-parser-v1"): DiscoverAdapters {
   return {
     resolveSeed: ({ doi }) =>
@@ -290,8 +240,8 @@ function discoverAdapters(parser = "fixture-parser-v1"): DiscoverAdapters {
             : "No attributed claim in this occurrence",
         claims,
         execution: modelExecution(
-          `discover-${String(mention.mentionIndex)}`,
           "discover",
+          `discover-${String(mention.mentionIndex)}`,
         ),
       });
     },
@@ -302,13 +252,16 @@ async function discoverFixture(
   runId = "run-prepare-fixture",
   parser = "fixture-parser-v1",
 ): Promise<DiscoverArtifact> {
-  const result = await runDiscover(discoverOptions(), discoverAdapters(parser));
+  const result = await runDiscover(
+    fixtureDiscoverOptions(),
+    discoverAdapters(parser),
+  );
   return buildDiscoverArtifact({
     result,
     runId,
     createdAt: "2026-07-16T10:05:00.000Z",
     configuration: {
-      contentHash: canonicalSha256(discoverOptions()),
+      contentHash: canonicalSha256(fixtureDiscoverOptions()),
     },
     code: {
       revision: "2d1b9f2",
@@ -317,6 +270,7 @@ async function discoverFixture(
   });
 }
 
+// Local: seed ids key the provenance and the grounding variants differ from the shared chain.
 function scopeAdapters(variant: GroundingVariant): ScopeAdapters {
   return {
     materializeSeed: ({ seed }) => {
@@ -371,7 +325,7 @@ function scopeAdapters(variant: GroundingVariant): ScopeAdapters {
     ...stubCodebookAdapters(),
     groundFamily: ({ family }) => {
       const execution = {
-        ...modelExecution(family.familyId, "scope"),
+        ...modelExecution("scope", family.familyId),
       };
       if (variant === "grounding_failed") {
         return Promise.resolve({
@@ -438,7 +392,7 @@ async function scopeFixture(
 
 function classificationExecution(key: string, kind: "model" | "external") {
   if (kind === "model") {
-    return modelExecution(key, "prepare");
+    return modelExecution("prepare", key);
   }
   return {
     kind,
@@ -469,6 +423,7 @@ function successfulClassification(
   };
 }
 
+// Local: scripts the classifier-failure modes and records its calls, unlike the shared classifier.
 function prepareAdapters(
   variant: ClassifierVariant,
   calls?: string[],
@@ -884,22 +839,26 @@ describe("Prepare", () => {
       kind: "deterministic" as const,
       implementation: "fixture-deterministic-classifier",
     };
-    expect(
-      prepareClassificationSchema.safeParse({
+    expectRejected(
+      prepareClassificationSchema,
+      {
         status: "failed",
         reasonCode: "timeout",
         reason: "A deterministic timeout is semantically impossible.",
         execution: deterministicExecution,
-      }).success,
-    ).toBe(false);
-    expect(
-      prepareClassificationResultSchema.safeParse({
+      },
+      /execution: Invalid input/,
+    );
+    expectRejected(
+      prepareClassificationResultSchema,
+      {
         status: "failed",
         reasonCode: "quota",
         reason: "A deterministic quota failure is semantically impossible.",
         execution: deterministicExecution,
-      }).success,
-    ).toBe(false);
+      },
+      /Invalid input/,
+    );
 
     const external = classificationExecution(
       "external-failure-boundary",
@@ -1168,12 +1127,11 @@ describe("Prepare", () => {
   });
 
   it("has no sampling or cap boundary and loses no outcomes", async () => {
-    expect(
-      prepareOptionsSchema.safeParse({
-        recordedAt: "2026-07-16T10:20:00.000Z",
-        targetSize: 1,
-      }).success,
-    ).toBe(false);
+    expectRejected(
+      prepareOptionsSchema,
+      { recordedAt: "2026-07-16T10:20:00.000Z", targetSize: 1 },
+      /Unrecognized key: "targetSize"/,
+    );
     const { scope, result } = await runPrepareFixture();
     const expectedTotal = scope.payload.families.reduce(
       (total, family) => total + family.includedCitationOccurrenceIds.length,
@@ -1200,8 +1158,10 @@ describe("Prepare", () => {
     danglingFamily.records[0]!.familyId = buildStableId("family", {
       missing: true,
     });
-    expect(prepareArtifactPayloadSchema.safeParse(danglingFamily).success).toBe(
-      false,
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      danglingFamily,
+      /Missing Prepare outcome for scoped pair[\s\S]*outside frozen Scope membership/,
     );
 
     const danglingOccurrence = structuredClone(result.payload);
@@ -1209,43 +1169,55 @@ describe("Prepare", () => {
       "mention",
       { missing: true },
     );
-    expect(
-      prepareArtifactPayloadSchema.safeParse(danglingOccurrence).success,
-    ).toBe(false);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      danglingOccurrence,
+      /Missing Prepare outcome for scoped pair[\s\S]*outside frozen Scope membership/,
+    );
 
     const missingPaper = structuredClone(result.payload);
     missingPaper.citingPapers.pop();
-    expect(prepareArtifactPayloadSchema.safeParse(missingPaper).success).toBe(
-      false,
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      missingPaper,
+      /unknown citing paper/,
     );
 
     const missingCandidate = structuredClone(result.payload);
     missingCandidate.sourceCandidates.pop();
-    expect(
-      prepareArtifactPayloadSchema.safeParse(missingCandidate).success,
-    ).toBe(false);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      missingCandidate,
+      /Unknown Prepare source candidate/,
+    );
 
     const missingSeed = structuredClone(result.payload);
     missingSeed.seeds = [];
-    expect(prepareArtifactPayloadSchema.safeParse(missingSeed).success).toBe(
-      false,
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      missingSeed,
+      /Prepare family references an unknown seed/,
     );
 
     const duplicate = structuredClone(result.payload);
     duplicate.records.push(structuredClone(duplicate.records[0]!));
-    expect(prepareArtifactPayloadSchema.safeParse(duplicate).success).toBe(
-      false,
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      duplicate,
+      /Duplicate prepared family × occurrence pair/,
     );
 
     const missing = structuredClone(result.payload);
     missing.records.pop();
-    expect(prepareArtifactPayloadSchema.safeParse(missing).success).toBe(false);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      missing,
+      /Missing Prepare outcome for scoped pair/,
+    );
   });
 
   it("rejects empty or dangling occurrence-local source references", async () => {
     const { result } = await runPrepareFixture();
-    const isInvalid = (payload: typeof result.payload) =>
-      !prepareArtifactPayloadSchema.safeParse(payload).success;
     const findRecord = (
       payload: typeof result.payload,
       claim: "alpha" | "beta",
@@ -1265,17 +1237,29 @@ describe("Prepare", () => {
 
     const emptyCandidates = structuredClone(result.payload);
     findRecord(emptyCandidates, "alpha", 0).occurrenceSourceCandidateIds = [];
-    expect(isInvalid(emptyCandidates)).toBe(true);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      emptyCandidates,
+      /occurrenceSourceCandidateIds: Too small/,
+    );
 
     const emptyClaims = structuredClone(result.payload);
     findRecord(emptyClaims, "alpha", 0).occurrenceSourceClaimRecordIds = [];
-    expect(isInvalid(emptyClaims)).toBe(true);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      emptyClaims,
+      /occurrenceSourceClaimRecordIds: Too small/,
+    );
 
     const danglingCandidate = structuredClone(result.payload);
     findRecord(danglingCandidate, "alpha", 0).occurrenceSourceCandidateIds = [
       buildStableId("candidate", { missing: true }),
     ];
-    expect(isInvalid(danglingCandidate)).toBe(true);
+    expectRejected(
+      prepareArtifactPayloadSchema,
+      danglingCandidate,
+      /Unknown Prepare occurrence candidate/,
+    );
   });
 
   it("stores family-level data once and keeps records occurrence-local", async () => {
@@ -1384,7 +1368,7 @@ describe("Prepare", () => {
           ...artifact,
           artifactVersion: 2,
         } as unknown as typeof artifact),
-      ).toThrow();
+      ).toThrow(/"path": \[\s*"artifactVersion"/);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

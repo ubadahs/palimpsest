@@ -65,16 +65,22 @@ describe("evaluation prompt revisions", () => {
 
   it("keeps v2 trials reusable under v3 except where v3 changed the question", () => {
     for (const kind of ["anthropic", "bm25", "rules"] as const) {
-      expect(promptsSeen("evaluation-prompts-v3", kind)).toBe(
+      expect(promptsSeen("evaluation-prompts-v3", kind, "role")).toBe(
         "evaluation-prompts-v2",
       );
     }
     for (const kind of ["jev", "djev"] as const) {
-      expect(promptsSeen("evaluation-prompts-v3", kind)).toBe(
+      expect(promptsSeen("evaluation-prompts-v3", kind, "role")).toBe(
         "evaluation-prompts-v3",
       );
+      expect(promptsSeen("evaluation-prompts-v3", kind, "adjudication")).toBe(
+        "evaluation-prompts-v3",
+      );
+      expect(promptsSeen("evaluation-prompts-v3", kind, "rerank")).toBe(
+        "evaluation-prompts-v2",
+      );
     }
-    expect(promptsSeen("evaluation-prompts-v1", "anthropic")).toBe(
+    expect(promptsSeen("evaluation-prompts-v1", "anthropic", "role")).toBe(
       "evaluation-prompts-v1",
     );
   });

@@ -5,19 +5,20 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { adaptivePortfolioPolicySchema } from "../../src/stages/discover/candidate-selection.js";
-import type { ArtifactReference } from "../../src/contract/artifacts/index.js";
 import {
   buildDiscoverArtifact,
   runDiscover,
   type DiscoverAdapters,
 } from "../../src/stages/discover/run.js";
 import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
-import {
-  buildStableId,
-  canonicalSha256,
-} from "../../src/shared/stable-identity.js";
+import { canonicalSha256 } from "../../src/shared/stable-identity.js";
 import { selectSeedReferenceMentions } from "../../src/stages/discover/adapters.js";
 import { mapFullTextAcquisitionFailure } from "../../src/stages/production.js";
+import {
+  artifactReference,
+  externalExecution,
+  extractionModelExecution,
+} from "../stages/chain.fixture.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -27,38 +28,6 @@ const SEED_DOI = "10.1000/jin.20210042";
 const PVALB_CLAIM =
   "Lorn+ relay cells increase burst rate after a patterned stimulus.";
 const CALMIC_CLAIM = "Calmic interneurons play an important role in the brain.";
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(key: string) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model: "fixture-model",
-    promptId: "attributed-claim-extraction",
-    promptVersion: "v1",
-    promptContentHash: canonicalSha256({ prompt: "replay" }),
-    requestHash: canonicalSha256({ key, direction: "request" }),
-    requestArtifact: artifactReference("model-request", key),
-    responseArtifact: artifactReference("model-response", key),
-  };
-}
 
 function harvestFromFixtureXml(xmlPath: string, paperId: string) {
   const xml = readFileSync(xmlPath, "utf8");
@@ -245,8 +214,9 @@ function buildReplayAdapters(): DiscoverAdapters {
             confidence: "high",
           },
         ],
-        execution: modelExecution(
+        execution: extractionModelExecution(
           `${citingPaper.paperId}-${String(mention.mentionIndex)}`,
+          "fixture-model",
         ),
       });
     },

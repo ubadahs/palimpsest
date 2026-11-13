@@ -215,9 +215,9 @@ describe("Prepare production adapter", () => {
     const adapter = prepareAdapterFor(() =>
       Promise.resolve(roleClassifierReply({ citationRole: "not_a_role" })),
     );
-    await expect(
-      adapter.classifyCitation(unclearRoleInput()),
-    ).rejects.toThrow();
+    await expect(adapter.classifyCitation(unclearRoleInput())).rejects.toThrow(
+      /"path": \[\s*"citationRole"/,
+    );
   });
 
   it("does not send a missing-support-span record to the model", async () => {

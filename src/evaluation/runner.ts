@@ -165,7 +165,7 @@ function compatibleSavedTrials(
     void maxTransientRetries;
     void rerankMinFallbackBatchSize;
     return buildStableId("provider-request-settings", {
-      prompts: promptsSeen(revision, provider.kind),
+      prompts: promptsSeen(revision, provider.kind, task),
       ...settings,
       ...(task === "rerank" && rerankBatchSize != null
         ? { rerankBatchSize }

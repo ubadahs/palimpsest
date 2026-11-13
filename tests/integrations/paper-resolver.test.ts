@@ -19,6 +19,23 @@ vi.mock("../../src/integrations/semantic-scholar.js", () => ({
 import * as openalex from "../../src/integrations/openalex.js";
 import * as semanticScholar from "../../src/integrations/semantic-scholar.js";
 import { resolvePaperByMetadata } from "../../src/integrations/paper-resolver.js";
+import { makePaper as makeBasePaper } from "../paper.fixture.js";
+
+const makePaper = (overrides: Partial<ResolvedPaper> = {}) =>
+  makeBasePaper({
+    title: "Seed Paper Title",
+    doi: "10.1234/seed",
+    authors: ["Harlow"],
+    fullTextHints: {
+      providerAvailability: "available",
+      providerSourceHint: "pdf",
+      pdfUrl: "https://example.com/paper.pdf",
+      repositoryUrl: "https://example.com/paper.pdf",
+    },
+    publicationYear: 2021,
+    resolutionProvenance: { method: "doi", confidence: "exact" },
+    ...overrides,
+  });
 
 const CONFIG = {
   openAlexBaseUrl: "https://api.openalex.org",
@@ -26,30 +43,6 @@ const CONFIG = {
   openAlexEmail: undefined,
   semanticScholarApiKey: undefined,
 };
-
-function makePaper(overrides: Partial<ResolvedPaper> = {}): ResolvedPaper {
-  return {
-    id: "paper-1",
-    title: "Seed Paper Title",
-    doi: "10.1234/seed",
-    authors: ["Harlow"],
-    source: "openalex",
-    fullTextHints: {
-      providerAvailability: "available",
-      providerSourceHint: "pdf",
-      pdfUrl: "https://example.com/paper.pdf",
-      repositoryUrl: "https://example.com/paper.pdf",
-    },
-    paperType: "article",
-    referencedWorksCount: 10,
-    publicationYear: 2021,
-    resolutionProvenance: {
-      method: "doi",
-      confidence: "exact",
-    },
-    ...overrides,
-  };
-}
 
 describe("resolvePaperByMetadata", () => {
   beforeEach(() => {

@@ -4,6 +4,7 @@ import {
   analysisRunConfigSchema,
   RUN_CONFIG_DEFAULTS,
 } from "../../src/contract/run-types.js";
+import { expectRejected } from "../rejection.fixture.js";
 
 describe("analysis run config", () => {
   it("defaults the nested stage configuration", () => {
@@ -38,13 +39,19 @@ describe("analysis run config", () => {
   });
 
   it("rejects unknown fields, stage names, and models", () => {
-    for (const config of [
-      { unknownField: true },
-      { scope: { unknownModel: "claude-sonnet-5-5" } },
-      { stopAfterStage: "unknown" },
-      { adjudicate: { model: "claude-opus-4-6" } },
-    ]) {
-      expect(analysisRunConfigSchema.safeParse(config).success).toBe(false);
+    for (const [config, message] of [
+      [{ unknownField: true }, /Unrecognized key: "unknownField"/],
+      [
+        { scope: { unknownModel: "claude-sonnet-5-5" } },
+        /scope: Unrecognized key: "unknownModel"/,
+      ],
+      [{ stopAfterStage: "unknown" }, /stopAfterStage: Invalid option/],
+      [
+        { adjudicate: { model: "claude-opus-4-6" } },
+        /adjudicate\.model: Invalid option/,
+      ],
+    ] as const) {
+      expectRejected(analysisRunConfigSchema, config, message);
     }
   });
 });

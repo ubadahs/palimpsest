@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { modelExecutionSchema } from "../../src/contract/model-execution.js";
 import { canonicalSha256 } from "../../src/shared/stable-identity.js";
+import { expectRejected } from "../rejection.fixture.js";
 
 const digest = canonicalSha256("fixture");
 const artifact = {
@@ -27,6 +28,6 @@ describe("shared model execution schema", () => {
     expect(modelExecutionSchema.parse(sample)).toEqual(sample);
     const withoutKind = { ...sample };
     delete (withoutKind as { kind?: string }).kind;
-    expect(modelExecutionSchema.safeParse(withoutKind).success).toBe(false);
+    expectRejected(modelExecutionSchema, withoutKind, /kind: Invalid input/);
   });
 });

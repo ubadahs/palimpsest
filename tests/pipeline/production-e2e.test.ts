@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AppConfig } from "../../src/config/app-config.js";
-import type { ArtifactReference } from "../../src/contract/artifacts/index.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import type { LLMClient } from "../../src/integrations/llm-client.js";
 import { createProvenanceStore } from "../../src/pipeline/provenance-store.js";
@@ -32,15 +31,17 @@ import { parseParsedPaperDocument } from "../../src/retrieval/parsed-paper.js";
 import { getRunStage } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
-import {
-  buildStableId,
-  canonicalSha256,
-} from "../../src/shared/stable-identity.js";
+import { canonicalSha256 } from "../../src/shared/stable-identity.js";
 import { loadArtifact } from "../../src/contract/selectors.js";
 import { stubCodebookAdapters } from "../stages/scope/codebook.fixture.js";
 import { selectSeedReferenceMentions } from "../../src/stages/discover/adapters.js";
 import { buildPrepareAdapters } from "../../src/stages/prepare/adapters.js";
 import { mapFullTextAcquisitionFailure } from "../../src/stages/production.js";
+import {
+  artifactReference,
+  externalExecution,
+  modelExecution,
+} from "../stages/chain.fixture.js";
 
 const FIXTURE_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -54,38 +55,6 @@ afterEach(() => {
     rmSync(tempRoots.pop()!, { recursive: true, force: true });
   }
 });
-
-function artifactReference(role: string, key: string): ArtifactReference {
-  return {
-    artifactId: buildStableId("fixture", { role, key }),
-    contentHash: canonicalSha256({ role, key }),
-    role,
-    uri: `fixture://${role}/${key}`,
-  };
-}
-
-function externalExecution(provider: string, key: string) {
-  return {
-    provider,
-    requestHash: canonicalSha256({ provider, key, direction: "request" }),
-    requestArtifact: artifactReference("external-request", key),
-    responseArtifact: artifactReference("external-response", key),
-  };
-}
-
-function modelExecution(stage: string, key: string) {
-  return {
-    kind: "model" as const,
-    provider: "fixture-model-provider",
-    model: "fixture-model",
-    promptId: `${stage}-prompt`,
-    promptVersion: "v1",
-    promptContentHash: canonicalSha256({ stage, key }),
-    requestHash: canonicalSha256({ stage, key, direction: "request" }),
-    requestArtifact: artifactReference("model-request", `${stage}-${key}`),
-    responseArtifact: artifactReference("model-response", `${stage}-${key}`),
-  };
-}
 
 function harvestFromFixture(xmlName: string, paperId: string) {
   const parsed = parseParsedPaperDocument(

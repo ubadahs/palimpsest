@@ -20,6 +20,7 @@ import {
   removeStores,
   seed,
 } from "../adapters.fixture.js";
+import { expectRejected } from "../../rejection.fixture.js";
 
 afterEach(removeStores);
 
@@ -339,11 +340,11 @@ describe("Discover production adapter", () => {
   });
 
   it("rejects malformed extraction output", () => {
-    expect(
-      claimExtractionOutputSchema.safeParse({
-        claims: [{ text: "" }],
-      }).success,
-    ).toBe(false);
+    expectRejected(
+      claimExtractionOutputSchema,
+      { claims: [{ text: "" }] },
+      /claims\.0\.text: Too small/,
+    );
   });
 
   it("maps all extracted claims through the Discover adapter", async () => {
