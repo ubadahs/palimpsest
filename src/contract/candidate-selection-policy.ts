@@ -15,7 +15,6 @@ import {
 
 export {
   adaptivePortfolioPolicySchema,
-  allCandidatesPolicySchema,
   candidateSelectionPolicySchema,
   type AdaptivePortfolioPolicy,
   type CandidateSelectionPolicy,
@@ -741,7 +740,7 @@ export function selectCandidates(input: {
  * candidate ID, so the order is deterministic and the most-repeated findings
  * lead. There is no utility to report, because nothing is traded off.
  */
-export function selectAllCandidates(input: {
+function selectAllCandidates(input: {
   candidates: readonly DiscoverClaimCandidate[];
   mentions: readonly DiscoverCitationOccurrence[];
   claims: readonly DiscoverAttributedClaimRecord[];

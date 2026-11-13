@@ -1,7 +1,5 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
-
 const KNOWN_MODELS = [
   { id: "claude-fable-5-2", label: "claude-fable-5-2", cost: "$8 / $40" },
   { id: "claude-opus-5-5", label: "claude-opus-5-5", cost: "$4 / $20" },
@@ -13,10 +11,6 @@ const selectClass =
   "h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm";
 const labelClass = "text-sm font-semibold text-[var(--text)]";
 const hintClass = "text-xs text-[var(--text-muted)]";
-
-function isKnownModel(value: string): boolean {
-  return KNOWN_MODELS.some((m) => m.id === value);
-}
 
 // ---------------------------------------------------------------------------
 // ModelSelect
@@ -37,37 +31,18 @@ export function ModelSelect({
   description,
   className,
 }: ModelSelectProps) {
-  const known = isKnownModel(value);
-
   const select = (
-    <>
-      <select
-        className={selectClass}
-        value={known ? value : "__custom__"}
-        onChange={(e) => {
-          if (e.target.value === "__custom__") {
-            onChange("");
-          } else {
-            onChange(e.target.value);
-          }
-        }}
-      >
-        {KNOWN_MODELS.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label} ({m.cost} per 1M tokens)
-          </option>
-        ))}
-        <option value="__custom__">Custom model…</option>
-      </select>
-      {!known ? (
-        <Input
-          autoComplete="off"
-          placeholder="Model ID, e.g. claude-sonnet-5-5"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      ) : null}
-    </>
+    <select
+      className={selectClass}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {KNOWN_MODELS.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.label} ({m.cost} per 1M tokens)
+        </option>
+      ))}
+    </select>
   );
 
   if (!label) {

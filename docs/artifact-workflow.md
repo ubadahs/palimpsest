@@ -6,7 +6,7 @@ Canonical runs write a validated, lineage-bound artifact chain:
 Discover → Scope → Prepare → Evidence → Adjudicate → Report
 ```
 
-Each artifact is current-version-only, content-hashed, and reloaded after writing before it is used downstream. Old seven-stage-executor artifacts are unsupported and are never converted or used as compatibility inputs.
+Each artifact is content-hashed and reloaded after writing before it is used downstream. An artifact written by an earlier version of the code is not read.
 
 ## Run layout
 
@@ -43,15 +43,9 @@ Stage directories contain append-only, time-sortable attempts named `<timestamp>
 
 Discover records a lossless source ledger; Scope freezes membership; Prepare preserves every family × occurrence record; Evidence preserves every retrieval outcome; Adjudicate preserves every gate/model outcome; Report reconciles the complete chain.
 
-No stage reads or writes a shortlist, screen, extract, classify, curate, audit-sample, advisor, or vector-routing artifact. There is no sampling handoff.
-
 ## Validation and resume
 
 Artifact readers validate JSON shape, stable IDs, internal references, content hashes, and direct lineage. Resume reloads the already-succeeded prefix and refuses missing, malformed, tampered, cross-run, or mismatched inputs rather than silently recomputing them.
-
-## Data compatibility
-
-Old local SQLite rows and `data/runs/` directories created by the seven-stage executor are unsupported. Delete or recreate them before running the canonical pipeline. Keep scientific raw inputs and provenance where useful, but do not bridge old operational artifact formats into the canonical chain.
 
 ## Human review sidecar
 

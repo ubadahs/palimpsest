@@ -417,7 +417,7 @@ const OPENALEX_MAX_PER_PAGE = 200;
  * paging goes further but needs an API key, which this client does not send;
  * the neighborhood limit's default matches this ceiling.
  */
-export const OPENALEX_MAX_PAGED_RESULTS = 10_000;
+const OPENALEX_MAX_PAGED_RESULTS = 10_000;
 
 /**
  * Retrieve up to `limit` citing works (and never more than OpenAlex's

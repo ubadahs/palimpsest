@@ -24,11 +24,8 @@ export type LLMCacheKeyInput = {
   model: string;
   /** Full prompt text (or promptPrefix + promptSuffix concatenated). */
   prompt: string;
-  /**
-   * Stringified thinking config (`adaptive:<effort>`, `enabled:<budget>`,
-   * or empty when disabled).
-   */
-  thinkingConfig: string;
+  /** Thinking effort, or empty for the model's default. */
+  effort: string;
   /**
    * Purpose-specific version string (prompt / schema lineage). Bump when
    * the prompt template or output schema changes to auto-invalidate stale
@@ -52,7 +49,7 @@ export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
     input.purpose,
     input.model,
     input.prompt,
-    input.thinkingConfig,
+    input.effort,
     input.keyVersion,
     input.schemaFingerprint ?? "",
     input.promptCachePolicy ?? "",

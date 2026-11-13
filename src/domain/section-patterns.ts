@@ -38,8 +38,8 @@ export const METHODS_SECTION_PATTERNS: RegExp[] = [
 export const BACKGROUND_SECTION_RE =
   /\b(?:introduction|background|overview|context|related\s+work|literature)\b/i;
 
-export const RESULTS_SECTION_RE = /\b(?:results?|findings)\b/i;
-export const DISCUSSION_SECTION_RE =
+const RESULTS_SECTION_RE = /\b(?:results?|findings)\b/i;
+const DISCUSSION_SECTION_RE =
   /\b(?:discussion|conclusions?|perspectives?|outlook|limitations|summary)\b/i;
 
 const REPORTED_FINDING_RE =

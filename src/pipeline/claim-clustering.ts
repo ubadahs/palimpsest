@@ -99,7 +99,7 @@ function exactCanonicalClaim(
 }
 
 /** Deterministic fallback: one group per exact normalized claim text. */
-export function groupRecordsByNormalizedText(
+function groupRecordsByNormalizedText(
   records: readonly DiscoverAttributedClaimRecord[],
   fallbackReason?: string,
 ): ClaimGroup[] {
@@ -120,7 +120,7 @@ export function groupRecordsByNormalizedText(
  * become singleton clusters. Empty clusters vanish. The repair is recorded so
  * the artifact says how much of the grouping was the model's.
  */
-export function repairClusterPartition(
+function repairClusterPartition(
   clusters: ReadonlyArray<{ canonicalClaim: string; claimRecordIds: string[] }>,
   records: readonly DiscoverAttributedClaimRecord[],
 ): {
@@ -175,7 +175,7 @@ export function repairClusterPartition(
  * its block. Without a floor, common words alone fill a block, and a finding's
  * paraphrases scatter across blocks that the merge pass then sees apart.
  */
-export const BLOCK_SIMILARITY_FLOOR = 0.25;
+const BLOCK_SIMILARITY_FLOOR = 0.25;
 
 /** Something to block: a key, the text BM25 sees, and how much it weighs. */
 type BlockItem = { key: string; text: string; weight: number };

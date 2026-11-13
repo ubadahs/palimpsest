@@ -25,8 +25,6 @@ If design documents disagree on scope, follow this order:
 - [ui-setup.md](./ui-setup.md) — run the local Next.js UI
 - [ui-architecture.md](./ui-architecture.md) — local UI routes, API, supervisor model, shared contract
 
-## Archived / Historical
-
 ## Focused Reference Docs
 
 - [adjudication-rubric.md](./adjudication-rubric.md) — canonical uncalibrated F/D/E/U rubric and Report denominator rules
@@ -36,7 +34,7 @@ If design documents disagree on scope, follow this order:
 
 - Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
 - UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (Vitest + `happy-dom`; `@vitejs/plugin-react` aligns with Vite 6 alongside root Vitest 3.x)
-- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so legacy modules stay visible
+- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so dead code stays visible
 
 ## Large-Change Checklist
 

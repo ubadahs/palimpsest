@@ -418,7 +418,7 @@ function buildAllStageArtifacts() {
           seedId,
           candidateIds: [candidateId],
           sourceClaimRecordIds: [sourceClaimRecordId],
-          trackedClaim: canonicalClaim,
+          claim: canonicalClaim,
           normalizedClaim: canonicalClaim,
           grounding: {
             status: "seed_text_unavailable",
@@ -551,11 +551,11 @@ function buildAllStageArtifacts() {
     role: "canonical-scope-input" as const,
     canonicalStage: "scope" as const,
   };
-  const evidenceQueryText = family.trackedClaim;
+  const evidenceQueryText = family.claim;
   const evidenceQueryId = buildEvidenceQueryId({
     familyId: family.familyId,
     text: evidenceQueryText,
-    source: "scope-family-tracked-claim",
+    source: "scope-family-claim",
   });
   const evidenceInputArtifacts = [
     evidencePrepareReference,
@@ -625,7 +625,7 @@ function buildAllStageArtifacts() {
           familyId: family.familyId,
           text: evidenceQueryText,
           contentHash: canonicalSha256(evidenceQueryText),
-          source: "scope-family-tracked-claim",
+          source: "scope-family-claim",
           groundingStatus: "seed_text_unavailable",
           verificationStatus: "unverified_attributed_claim",
         },
@@ -672,7 +672,6 @@ function buildAllStageArtifacts() {
         methodId: "canonical-categorical-adjudicate-v2",
         strategy: "single_categorical",
         calibrationStatus: "uncalibrated",
-        routing: "none",
       },
       records: [],
     },
@@ -1616,7 +1615,6 @@ describe("lean stage artifact contracts", () => {
             methodId: "canonical-categorical-adjudicate-v2",
             strategy: "single_categorical",
             calibrationStatus: "uncalibrated",
-            routing: "none",
           },
           records: [],
         },
@@ -1758,7 +1756,7 @@ describe("canonical scientific identities", () => {
       seedId,
       candidateIds: [candidateId],
       sourceClaimRecordIds: [claimRecordId],
-      trackedClaim: "The measured effect changed.",
+      claim: "The measured effect changed.",
       normalizedClaim: "The measured effect changed.",
       grounding: {
         status: "seed_text_unavailable" as const,
@@ -1825,7 +1823,7 @@ describe("citation-instance and decision provenance", () => {
       recordId,
       decisionType: "scope",
       outcome: "include",
-      reason: "The citation instance directly addresses the tracked claim.",
+      reason: "The citation instance directly addresses the family claim.",
       recordedAt: "2026-07-16T12:01:00.000Z",
       actor: {
         kind: "deterministic",
@@ -1857,7 +1855,7 @@ describe("citation-instance and decision provenance", () => {
       recordId,
       decisionType: "scope",
       outcome: "include",
-      reason: "The citation instance directly addresses the tracked claim.",
+      reason: "The citation instance directly addresses the family claim.",
       recordedAt: "2026-07-17T12:01:00.000Z",
       actor: {
         kind: "deterministic",

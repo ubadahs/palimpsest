@@ -584,7 +584,7 @@ export function NewRunForm() {
                   onThinkingChange={(v) =>
                     updateStage("scope", "groundingThinking", v)
                   }
-                  thinkingDescription="Enable Anthropic thinking when grounding tracked claims against the seed paper."
+                  thinkingDescription="Enable Anthropic thinking when grounding family claims against the seed paper."
                 />
               </div>
             </details>

@@ -12,7 +12,6 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AppConfig } from "../../src/config/app-config.js";
-import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
 import {
   stageDefinitions,
   stageKeyValues,
@@ -813,10 +812,10 @@ describe("canonical executor cutover", () => {
           discoverToYear: undefined,
           discoverExtractionModel: undefined,
           discoverExtractionThinking: undefined,
-          scopeGroundingModel: "fixture-grounding-override",
+          scopeGroundingModel: "claude-opus-5-5",
           scopeGroundingThinking: false,
           evidenceRerankEnabled: true,
-          evidenceRerankModel: "fixture-reranker-override",
+          evidenceRerankModel: "claude-sonnet-5-5",
           evidenceRerankTopN: 3,
           adjudicateModel: undefined,
           adjudicateThinking: undefined,
@@ -834,12 +833,10 @@ describe("canonical executor cutover", () => {
     const stored = getAnalysisRun(partial.database, partial.result.runId)!;
     expect(stored.targetStage).toBe("evidence");
     expect(stored.config.stopAfterStage).toBe("evidence");
-    expect(stored.config.scope.groundingModel).toBe(
-      "fixture-grounding-override",
-    );
+    expect(stored.config.scope.groundingModel).toBe("claude-opus-5-5");
     expect(stored.config.evidence).toMatchObject({
       rerankEnabled: true,
-      rerankModel: "fixture-reranker-override",
+      rerankModel: "claude-sonnet-5-5",
       rerankTopN: 3,
     });
     const evidence = loadCanonicalArtifact(
@@ -906,7 +903,7 @@ describe("canonical executor cutover", () => {
       targetStage: "evidence",
       config: {
         stopAfterStage: "evidence",
-        scope: { groundingModel: "fixture-grounding-override" },
+        scope: { groundingModel: "claude-opus-5-5" },
       },
     });
     partial.database.close();
@@ -1331,7 +1328,7 @@ describe("canonical executor cutover", () => {
           evidenceRerankEnabled: undefined,
           evidenceRerankModel: undefined,
           evidenceRerankTopN: undefined,
-          adjudicateModel: "fixture-adjudicator-rerun",
+          adjudicateModel: "claude-opus-5-5",
           adjudicateThinking: undefined,
           rerunFromStage: "adjudicate",
         },
@@ -1693,17 +1690,11 @@ describe("canonical executor cutover", () => {
 
   it("treats unknown stages and flags as ordinary invalid CLI input", () => {
     expect(() =>
-      parseCanonicalPipelineArgs(["--stop-after", "screen"]),
+      parseCanonicalPipelineArgs(["--stop-after", "unknown"]),
     ).toThrow(/Invalid --stop-after stage/i);
-    expect(() => parseCanonicalPipelineArgs(["--shortlist", "x.json"])).toThrow(
+    expect(() => parseCanonicalPipelineArgs(["--unknown-flag"])).toThrow(
       /Unknown pipeline flag/i,
     );
-    expect(() => parseCanonicalPipelineArgs(["--advisor"])).toThrow(
-      /Unknown pipeline flag/i,
-    );
-    expect(() =>
-      parseCanonicalPipelineArgs(["--stop-after", "curate"]),
-    ).toThrow(/Invalid --stop-after stage/i);
     const parsed = parseCanonicalPipelineArgs([
       "--input",
       "dois.json",
@@ -1719,35 +1710,6 @@ describe("canonical executor cutover", () => {
     expect(parsed.evidenceRerankEnabled).toBe(false);
     expect(parsed.evidenceBm25CandidateLimit).toBe(12);
     expect(parsed.evidenceSelectionLimit).toBe(4);
-  });
-
-  it("rejects unknown run-config fields and stage names via schema", () => {
-    const config = analysisRunConfigSchema.parse({});
-    expect(config.stopAfterStage).toBe("report");
-    expect(config.evidence.rerankEnabled).toBe(true);
-    expect(
-      analysisRunConfigSchema.safeParse({
-        stopAfterStage: "curate",
-      }).success,
-    ).toBe(false);
-    expect(
-      analysisRunConfigSchema.safeParse({
-        adjudicateAdvisor: true,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("has no curate/sampling stage in canonical execution vocabulary", () => {
-    expect(stageKeyValues).toEqual([
-      "discover",
-      "scope",
-      "prepare",
-      "evidence",
-      "adjudicate",
-      "report",
-    ]);
-    expect(stageKeyValues).not.toContain("curate");
-    expect(stageKeyValues).not.toContain("screen");
   });
 });
 

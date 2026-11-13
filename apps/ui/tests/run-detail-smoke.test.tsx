@@ -230,7 +230,7 @@ describe("Run detail smoke", () => {
               url.endsWith("/cost")
                 ? { totalEstimatedCostUsd: 0, source: "cost_file" }
                 : url.includes("/log")
-                  ? { content: "CF_PROGRESS live canonical output" }
+                  ? { content: "PALIMPSEST_PROGRESS live canonical output" }
                   : completed,
             ),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -244,7 +244,9 @@ describe("Run detail smoke", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByText("CF_PROGRESS live canonical output")).toBeTruthy();
+    expect(
+      screen.getByText("PALIMPSEST_PROGRESS live canonical output"),
+    ).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });

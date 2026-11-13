@@ -1810,7 +1810,7 @@ function buildFamilyMutations(input: {
     const claims = prepareRecord.occurrenceSourceClaimRecords;
     const citingRestatement =
       claims.map((claim) => claim.extractedClaimText).join("\n") ||
-      prepareRecord.family.trackedClaim;
+      prepareRecord.family.claim;
     const rankingSource = rankingSourceByRecordId.get(prepareRecord.recordId);
     const row: ReportFamilyMutationRecord = {
       recordId: prepareRecord.recordId,
@@ -1903,7 +1903,7 @@ function buildFamilyMutations(input: {
       ...(seed.resolution.status === "resolved"
         ? { seedTitle: seed.resolution.paper.title }
         : {}),
-      trackedClaim: family.trackedClaim,
+      claim: family.claim,
       ...(equivalenceMethod ? { equivalenceMethod } : {}),
       groundingStatus: grounding.status,
       verifiedSeedGroundingSpans: spans,
@@ -1916,7 +1916,7 @@ function buildFamilyMutations(input: {
 
   return families.sort(
     (left, right) =>
-      compareCodeUnits(left.trackedClaim, right.trackedClaim) ||
+      compareCodeUnits(left.claim, right.claim) ||
       compareCodeUnits(left.familyId, right.familyId),
   );
 }

@@ -79,7 +79,7 @@ const organiseEntrySchema = z
  * and third calls read the cache the first wrote. Each step fills only its
  * own arrays and leaves the others empty.
  */
-export const codebookStepReplySchema = z
+const codebookStepReplySchema = z
   .object({
     headline: z.array(draftItemSchema),
     results: z.array(draftItemSchema),
@@ -89,7 +89,7 @@ export const codebookStepReplySchema = z
     entries: z.array(organiseEntrySchema),
   })
   .strict();
-export type CodebookStepReply = z.infer<typeof codebookStepReplySchema>;
+type CodebookStepReply = z.infer<typeof codebookStepReplySchema>;
 
 export type CodebookOrganiseReply = Pick<
   CodebookStepReply,
@@ -100,15 +100,10 @@ export type CodebookOrganiseReply = Pick<
 // Prompts
 // ---------------------------------------------------------------------------
 
-export const CODEBOOK_STEPS = [
-  "draft_results",
-  "draft_background",
-  "organise",
-] as const;
-export type CodebookStep = (typeof CODEBOOK_STEPS)[number];
+export type CodebookStep = "draft_results" | "draft_background" | "organise";
 
 /** The seed text, shared and cached across all three codebook calls. */
-export function buildCodebookPromptPrefix(input: {
+function buildCodebookPromptPrefix(input: {
   seedTitle: string;
   blocks: readonly CodebookSeedBlock[];
 }): string {
@@ -134,7 +129,7 @@ const DRAFT_RESULTS_TASK = `TASK (fill only "headline" and "results"; leave ever
 
 const DRAFT_BACKGROUND_TASK = `TASK (fill only "background" and "methods"; leave every other array empty): List (a) background statements the paper relays from prior work, mainly in the introduction and discussion: each distinct factual statement the paper makes while citing other work, which a later paper might cite this paper for (attributedToOtherWork=true). Be exhaustive: go through the introduction and discussion paragraph by paragraph; one item per distinct statement. (b) methods, techniques, reagents, cell or animal lines, datasets and resources the paper used, generated or made available, that a later paper could cite it for (attributedToOtherWork=true for ones made by others, false for ones the paper generated). Do NOT list the paper's own results here. Each item: one short plain sentence and 1-3 quotes.`;
 
-export function buildCodebookOrganiseTask(drafts: {
+function buildCodebookOrganiseTask(drafts: {
   headline: unknown[];
   results: unknown[];
   background: unknown[];
@@ -424,7 +419,7 @@ export { SEED_CODEBOOK_PROCEDURE_VERSION };
 // ---------------------------------------------------------------------------
 
 /** The codebook as the tagger sees it: themes, each followed by its entries. */
-export function renderCodebookForTagging(codebook: {
+function renderCodebookForTagging(codebook: {
   themes: readonly CodebookTheme[];
   entries: readonly CodebookEntry[];
 }): string {

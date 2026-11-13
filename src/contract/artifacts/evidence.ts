@@ -322,7 +322,7 @@ export type EvidenceQueryIdentityInputs =
   | {
       familyId: string;
       text: string;
-      source: "scope-family-tracked-claim";
+      source: "scope-family-claim";
       citationOccurrenceId?: never;
     }
   | {
@@ -353,7 +353,7 @@ export const evidenceQuerySchema = z
     citationOccurrenceId: stableIdentifierSchema.optional(),
     text: z.string().min(1),
     contentHash: sha256DigestSchema,
-    source: z.enum(["scope-family-tracked-claim", "occurrence-local-claims"]),
+    source: z.enum(["scope-family-claim", "occurrence-local-claims"]),
     groundingStatus: scopeGroundingStatusSchema,
     verificationStatus: z.enum([
       "scope_grounded",
@@ -366,7 +366,7 @@ export const evidenceQuerySchema = z
     if (
       (query.source === "occurrence-local-claims" &&
         query.citationOccurrenceId == null) ||
-      (query.source === "scope-family-tracked-claim" &&
+      (query.source === "scope-family-claim" &&
         query.citationOccurrenceId != null)
     ) {
       context.addIssue({
@@ -945,7 +945,7 @@ export const evidenceRecordOutcomeSchema = z
     fallbackQueryId: stableIdentifierSchema.optional(),
     componentBm25RunIds: z.array(stableIdentifierSchema).min(1).optional(),
     primaryQuerySource: z
-      .enum(["scope-family-tracked-claim", "occurrence-local-claims"])
+      .enum(["scope-family-claim", "occurrence-local-claims"])
       .optional(),
     corpusId: stableIdentifierSchema.optional(),
     bm25RunId: stableIdentifierSchema.optional(),
@@ -1254,7 +1254,7 @@ function validateEvidencePayload(
       if (
         !fallbackQuery ||
         fallbackQuery.familyId !== outcome.familyId ||
-        fallbackQuery.source !== "scope-family-tracked-claim"
+        fallbackQuery.source !== "scope-family-claim"
       ) {
         addIssue(
           context,

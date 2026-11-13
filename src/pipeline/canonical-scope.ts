@@ -141,7 +141,7 @@ type CanonicalScopeFamilyInput = {
   seedId: string;
   candidateIds: string[];
   sourceClaimRecordIds: string[];
-  trackedClaim: string;
+  claim: string;
   normalizedClaim: string;
   includedCitationOccurrenceIds: string[];
 };
@@ -382,7 +382,7 @@ export async function runCanonicalScope(
         seedId: construction.seedId,
         candidateIds: construction.candidateIds,
         sourceClaimRecordIds: construction.sourceClaimRecordIds,
-        trackedClaim: construction.trackedClaim,
+        claim: construction.claim,
         normalizedClaim: construction.normalizedClaim,
         grounding,
         includedCitationOccurrenceIds:
@@ -604,7 +604,7 @@ function buildFamilyConstructions(discoverArtifact: DiscoverArtifact): {
             (candidate) => candidate.sourceClaimRecordIds,
           ),
         ),
-        trackedClaim: orderedCandidates
+        claim: orderedCandidates
           .map((candidate) => normalizeWhitespace(candidate.canonicalClaim))
           .sort(compareCodeUnits)[0]!,
         normalizedClaim: first.normalizedClaim,

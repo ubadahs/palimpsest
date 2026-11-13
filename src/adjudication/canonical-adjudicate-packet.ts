@@ -14,7 +14,7 @@ import {
   extractCitingWindow,
 } from "../shared/citation-context-window.js";
 import { assessEvidenceLimitation } from "../shared/evidence-limitation.js";
-import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+import { PROMPT_VERSIONS } from "../config/prompt-versions.js";
 import { mutationDirectionSchema } from "../contract/canonical-adjudicate.js";
 import {
   adjudicationVerdictDefinitions,
@@ -23,8 +23,7 @@ import {
 
 export const CANONICAL_ADJUDICATE_PROMPT_ID =
   "canonical-categorical-adjudicate" as const;
-export const CANONICAL_ADJUDICATE_PROMPT_VERSION =
-  LLM_PROMPT_VERSIONS.adjudication;
+export const CANONICAL_ADJUDICATE_PROMPT_VERSION = PROMPT_VERSIONS.adjudication;
 
 const packetChunkSchema = z
   .object({
@@ -51,7 +50,9 @@ const packetClaimSchema = z
 
 /**
  * Everything the adjudicator is shown about one record. A packet saved to disk
- * (a frozen evaluation case) is read back through this schema.
+ * (a frozen evaluation case) is read back through this schema, and case ids
+ * hash its content, so its keys stay as they are: `familyTrackedClaim` is the
+ * Scope family's `claim`.
  */
 export const canonicalAdjudicatePacketSchema = z
   .object({
@@ -166,7 +167,7 @@ export function buildCanonicalAdjudicatePacket(
       prepareRecord.seed.resolution.status === "resolved"
         ? prepareRecord.seed.resolution.paper.title
         : prepareRecord.seed.doi,
-    familyTrackedClaim: prepareRecord.family.trackedClaim,
+    familyTrackedClaim: prepareRecord.family.claim,
     markedCitingContext,
     occurrenceClaims: prepareRecord.occurrenceSourceClaimRecords.map(
       (claim) => ({

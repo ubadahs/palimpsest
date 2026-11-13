@@ -167,7 +167,7 @@ export function contentAddressedModelExecution(input: {
   /** How the call was served; see `modelExecutionSchema`. Never identity. */
   servedModel?: string | undefined;
   exactCacheHit?: boolean | undefined;
-  thinking?: ModelExecution["thinking"];
+  effort?: ModelExecution["effort"];
   promptId: string;
   promptVersion: string;
   promptText: string;
@@ -203,7 +203,7 @@ export function contentAddressedModelExecution(input: {
     ...(input.exactCacheHit != null
       ? { exactCacheHit: input.exactCacheHit }
       : {}),
-    ...(input.thinking != null ? { thinking: input.thinking } : {}),
+    ...(input.effort != null ? { effort: input.effort } : {}),
     promptId: input.promptId,
     promptVersion: input.promptVersion,
     promptContentHash,

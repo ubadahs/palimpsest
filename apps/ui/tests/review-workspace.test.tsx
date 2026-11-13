@@ -25,7 +25,7 @@ function record(
   return {
     familyId: "family_1",
     citationOccurrenceId: "mention_1",
-    trackedClaim: "Tracked claim",
+    familyClaim: "Family claim",
     evaluatedClaimText: "Evaluated claim text",
     seedId: "seed_1",
     seedTitle: "Seed",

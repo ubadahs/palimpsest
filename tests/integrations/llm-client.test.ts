@@ -24,13 +24,10 @@ import {
   classifyProviderError,
   toProviderJsonSchema,
   createLLMClient,
-  modelSupportsAdaptiveThinking,
-  modelThinksByDefault,
   resolvePromptCacheControl,
   resolveSentPromptCacheControl,
-  resolveThinkingConfig,
+  resolveThinkingEffort,
   schemaFingerprint,
-  thinkingConfigKey,
   type LLMRunLedger,
 } from "../../src/integrations/llm-client.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
@@ -97,173 +94,64 @@ describe("resolvePromptCacheControl", () => {
   });
 });
 
-describe("adaptive vs legacy thinking helpers", () => {
-  it("detects Sonnet/Opus 4.6+ adaptive support", () => {
-    expect(modelSupportsAdaptiveThinking("claude-sonnet-4-6")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-opus-4-6")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-opus-4-7")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-sonnet-4-5")).toBe(false);
-    expect(modelSupportsAdaptiveThinking("claude-haiku-4-5")).toBe(false);
+describe("thinking effort helpers", () => {
+  it("uses the configured effort when thinking is on, high by default", () => {
+    expect(resolveThinkingEffort({ enabled: true, effort: "medium" })).toBe(
+      "medium",
+    );
+    expect(resolveThinkingEffort({ enabled: true })).toBe("high");
   });
 
-  it("uses adaptive thinking for every family from 5 on", () => {
-    expect(modelSupportsAdaptiveThinking("claude-haiku-5-5")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-sonnet-5-5")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-opus-5-5")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-fable-5-1")).toBe(true);
-    expect(modelSupportsAdaptiveThinking("claude-opus-4-20250514")).toBe(false);
-    expect(
-      resolveThinkingConfig({
-        model: "claude-haiku-5-5",
-        enabled: true,
-        effort: "low",
-        budgetTokens: 4_000,
-      }),
-    ).toEqual({ type: "adaptive", effort: "low" });
+  it("turns thinking off with the lowest effort", () => {
+    expect(resolveThinkingEffort({ enabled: false, effort: "max" })).toBe(
+      "low",
+    );
   });
 
-  it("resolves adaptive+effort for 4.6+ and fixed budget for older models", () => {
-    expect(
-      resolveThinkingConfig({
-        model: "claude-sonnet-4-6",
-        enabled: true,
-        budgetTokens: 10_000,
-      }),
-    ).toEqual({ type: "adaptive", effort: "high" });
-
-    expect(
-      resolveThinkingConfig({
-        model: "claude-opus-4-6",
-        enabled: true,
-        effort: "medium",
-        budgetTokens: 12_000,
-      }),
-    ).toEqual({ type: "adaptive", effort: "medium" });
-
-    expect(
-      resolveThinkingConfig({
-        model: "claude-haiku-4-5",
-        enabled: true,
-        budgetTokens: 8_000,
-      }),
-    ).toEqual({ type: "enabled", budgetTokens: 8_000 });
-
-    expect(
-      resolveThinkingConfig({
-        model: "claude-sonnet-4-6",
-        enabled: false,
-        budgetTokens: 10_000,
-      }),
-    ).toBeUndefined();
-  });
-
-  it("turns thinking off by sending nothing to models that think only when asked", () => {
-    for (const model of [
-      "claude-haiku-4-5",
-      "claude-opus-4-6",
-      "claude-opus-4-8",
-    ]) {
-      expect(modelThinksByDefault(model)).toBe(false);
-      expect(resolveThinkingConfig({ model, enabled: false })).toBeUndefined();
-    }
-  });
-
-  it("turns thinking off with the lowest effort on models that think by default", () => {
-    for (const model of [
-      "claude-haiku-5-5",
-      "claude-sonnet-5-5",
-      "claude-opus-5-5",
-      "claude-fable-5-2",
-    ]) {
-      expect(modelThinksByDefault(model)).toBe(true);
-      expect(resolveThinkingConfig({ model, enabled: false })).toEqual({
-        type: "adaptive",
-        effort: "low",
-      });
-    }
-  });
-
-  it("refuses to turn thinking on for a budget-only model without a budget", () => {
-    expect(() =>
-      resolveThinkingConfig({ model: "claude-haiku-4-5", enabled: true }),
-    ).toThrow("needs a thinking budget");
-  });
-
-  it("builds Anthropic provider options for adaptive and legacy modes", () => {
-    expect(
-      buildAnthropicThinkingProviderOptions({
-        type: "adaptive",
-        effort: "high",
-      }),
-    ).toEqual({
+  it("builds Anthropic provider options for an effort", () => {
+    expect(buildAnthropicThinkingProviderOptions("high")).toEqual({
       thinking: { type: "adaptive" },
       effort: "high",
     });
-
-    expect(
-      buildAnthropicThinkingProviderOptions({
-        type: "enabled",
-        budgetTokens: 8_000,
-      }),
-    ).toEqual({
-      thinking: { type: "enabled", budgetTokens: 8_000 },
-    });
-
     expect(buildAnthropicThinkingProviderOptions(undefined)).toEqual({});
   });
 
-  it("encodes thinking into distinct cache-key material", () => {
-    expect(thinkingConfigKey({ type: "adaptive", effort: "high" })).toBe(
-      "adaptive:high",
-    );
-    expect(thinkingConfigKey({ type: "enabled", budgetTokens: 10_000 })).toBe(
-      "enabled:10000",
-    );
-    expect(thinkingConfigKey(undefined)).toBe("");
-
+  it("keys effort and cache policy into the exact-result cache", () => {
     const base = {
       purpose: "seed-grounding" as const,
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5-5",
       prompt: "ground this claim",
-      keyVersion: "grounding-2026-07-17-v1",
+      keyVersion: "2026-07-17-v1",
       promptCachePolicy: "ephemeral:5m",
       cachePolicy: "allow",
     };
-    const adaptiveKey = computeLLMCacheKey({
-      ...base,
-      thinkingConfig: "adaptive:high",
-    });
-    const legacyKey = computeLLMCacheKey({
-      ...base,
-      thinkingConfig: "enabled:10000",
-    });
+    const highKey = computeLLMCacheKey({ ...base, effort: "high" });
+    const lowKey = computeLLMCacheKey({ ...base, effort: "low" });
     const bypassKey = computeLLMCacheKey({
       ...base,
-      thinkingConfig: "adaptive:high",
+      effort: "high",
       cachePolicy: "bypass",
     });
 
-    expect(adaptiveKey).not.toBe(legacyKey);
-    expect(adaptiveKey).not.toBe(bypassKey);
+    expect(highKey).not.toBe(lowKey);
+    expect(highKey).not.toBe(bypassKey);
   });
 
   it("records complete normalized request provenance", () => {
-    const provenance = buildNormalizedLLMCallProvenance({
+    expect(
+      buildNormalizedLLMCallProvenance({
+        purpose: "seed-grounding",
+        model: "claude-sonnet-5-5",
+        promptVersion: "2026-07-17-v1",
+        effort: "high",
+        forceRefresh: false,
+        promptCacheControl: { type: "ephemeral", ttl: "5m" },
+      }),
+    ).toEqual({
       purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5-5",
       promptVersion: "2026-07-17-v1",
-      thinking: { type: "adaptive", effort: "high" },
-      exactCacheKeyVersion: "grounding-2026-07-17-v1",
-      forceRefresh: false,
-      promptCacheControl: { type: "ephemeral", ttl: "5m" },
-    });
-
-    expect(provenance).toEqual({
-      purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
-      promptVersion: "2026-07-17-v1",
-      thinking: { mode: "adaptive", effort: "high" },
-      exactCacheKeyVersion: "grounding-2026-07-17-v1",
+      effort: "high",
       cachePolicy: "allow",
       promptCachePolicy: "ephemeral:5m",
     });
@@ -271,14 +159,14 @@ describe("adaptive vs legacy thinking helpers", () => {
     expect(
       buildNormalizedLLMCallProvenance({
         purpose: "attributed-claim-extraction",
-        model: "claude-haiku-4-5",
+        model: "claude-haiku-5-5",
         promptVersion: "2026-07-17-v2",
-        thinking: { type: "enabled", budgetTokens: 8_000 },
-        exactCacheKeyVersion: "extraction-2026-07-17-v2",
         forceRefresh: true,
       }),
-    ).toMatchObject({
-      thinking: { mode: "enabled", budgetTokens: 8_000 },
+    ).toEqual({
+      purpose: "attributed-claim-extraction",
+      model: "claude-haiku-5-5",
+      promptVersion: "2026-07-17-v2",
       cachePolicy: "bypass",
       promptCachePolicy: "",
     });
@@ -300,66 +188,31 @@ describe("provider options and telemetry through generateObject", () => {
     } as never);
   });
 
-  it("passes adaptive thinking + effort in Anthropic providerOptions", async () => {
+  it("passes the thinking effort in Anthropic providerOptions", async () => {
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-sonnet-4-6",
+      defaultModel: "claude-sonnet-5-5",
     });
 
     const result = await client.generateObject({
       schema: anySchema,
       purpose: "seed-grounding",
       prompt: "short",
-      thinking: { type: "adaptive", effort: "high" },
+      effort: "high",
     });
 
     expect(generateObjectMock).toHaveBeenCalledOnce();
     const call = generateObjectMock.mock.calls[0]![0] as {
       providerOptions?: {
-        anthropic?: {
-          thinking?: { type: string; budgetTokens?: number };
-          effort?: string;
-        };
+        anthropic?: { thinking?: { type: string }; effort?: string };
       };
     };
     expect(call.providerOptions?.anthropic).toEqual({
       thinking: { type: "adaptive" },
       effort: "high",
     });
-    expect(result.record.thinkingEnabled).toBe(true);
-    expect(result.record.thinkingType).toBe("adaptive");
     expect(result.record.thinkingEffort).toBe("high");
-    expect(result.record.thinkingBudgetTokens).toBeUndefined();
     expect(result.record.reasoningTokens).toBe(3);
-  });
-
-  it("passes legacy fixed-budget thinking for older models", async () => {
-    const client = createLLMClient({
-      apiKey: "test-key",
-      defaultModel: "claude-haiku-4-5",
-    });
-
-    const result = await client.generateObject({
-      schema: anySchema,
-      purpose: "attributed-claim-extraction",
-      prompt: "short",
-      thinking: { type: "enabled", budgetTokens: 8_000 },
-    });
-
-    const call = generateObjectMock.mock.calls[0]![0] as {
-      providerOptions?: {
-        anthropic?: {
-          thinking?: { type: string; budgetTokens?: number };
-          effort?: string;
-        };
-      };
-    };
-    expect(call.providerOptions?.anthropic).toEqual({
-      thinking: { type: "enabled", budgetTokens: 8_000 },
-    });
-    expect(result.record.thinkingType).toBe("enabled");
-    expect(result.record.thinkingBudgetTokens).toBe(8_000);
-    expect(result.record.thinkingEffort).toBeUndefined();
   });
 
   it("sums prompt-cache reads and writes into the ledger", async () => {
@@ -367,7 +220,7 @@ describe("provider options and telemetry through generateObject", () => {
     generateObjectMock.mockResolvedValue({
       object: { ok: true },
       finishReason: "stop",
-      response: { modelId: "claude-sonnet-4-6-20260214" },
+      response: { modelId: "claude-sonnet-5-5-20260214" },
       usage: {
         inputTokens: 1_200,
         outputTokens: 40,
@@ -387,7 +240,7 @@ describe("provider options and telemetry through generateObject", () => {
 
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-sonnet-4-6",
+      defaultModel: "claude-sonnet-5-5",
     });
     await client.generateObject({
       schema: anySchema,
@@ -419,13 +272,13 @@ describe("provider options and telemetry through generateObject", () => {
     generateObjectMock.mockResolvedValue({
       object: { ok: true },
       finishReason: "stop",
-      response: { modelId: "claude-opus-4-6-20260214" },
+      response: { modelId: "claude-opus-5-5-20260214" },
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
     } as never);
 
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-opus-4-6",
+      defaultModel: "claude-opus-5-5",
     });
     const result = await client.generateObject({
       schema: anySchema,
@@ -433,8 +286,8 @@ describe("provider options and telemetry through generateObject", () => {
       prompt: "short",
     });
 
-    expect(result.record.model).toBe("claude-opus-4-6");
-    expect(result.record.servedModel).toBe("claude-opus-4-6-20260214");
+    expect(result.record.model).toBe("claude-opus-5-5");
+    expect(result.record.servedModel).toBe("claude-opus-5-5-20260214");
   });
 
   it("passes thinking, a cached prefix, and a token cap through generateObject", async () => {
@@ -443,20 +296,20 @@ describe("provider options and telemetry through generateObject", () => {
     generateObjectMock.mockResolvedValue({
       object: { verdict: "F" },
       finishReason: "stop",
-      response: { modelId: "claude-opus-4-6-20260214" },
+      response: { modelId: "claude-opus-5-5-20260214" },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     } as never);
 
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-opus-4-6",
+      defaultModel: "claude-opus-5-5",
     });
     const result = await client.generateObject({
       purpose: "seed-grounding",
       promptPrefix: "x".repeat(5_000),
       promptSuffix: "which claim?",
       schema: z.object({ verdict: z.string() }),
-      thinking: { type: "adaptive", effort: "medium" },
+      effort: "medium",
     });
 
     const call = generateObjectMock.mock.calls[0]![0] as {
@@ -477,33 +330,33 @@ describe("provider options and telemetry through generateObject", () => {
     });
     expect(result.object).toEqual({ verdict: "F" });
     expect(result.record.thinkingEffort).toBe("medium");
-    expect(result.record.servedModel).toBe("claude-opus-4-6-20260214");
+    expect(result.record.servedModel).toBe("claude-opus-5-5-20260214");
   });
 
-  it("includes thinking mode in exact-cache key material", async () => {
+  it("includes the thinking effort in exact-cache key material", async () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
 
-    const adaptiveKey = computeLLMCacheKey({
+    const highKey = computeLLMCacheKey({
       purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5-5",
       prompt: "ground",
-      thinkingConfig: "adaptive:high",
+      effort: "high",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(anySchema),
       promptCachePolicy: "",
       cachePolicy: "allow",
     });
     storeLLMResult(db, {
-      cacheKey: adaptiveKey,
+      cacheKey: highKey,
       responseText: '{"ok":true}',
       createdAt: "2026-07-17T00:00:00Z",
     });
 
     const client = createLLMClient({
       apiKey: "unused",
-      defaultModel: "claude-sonnet-4-6",
+      defaultModel: "claude-sonnet-5-5",
       database: db,
     });
 
@@ -511,20 +364,20 @@ describe("provider options and telemetry through generateObject", () => {
       schema: anySchema,
       purpose: "seed-grounding",
       prompt: "ground",
-      thinking: { type: "adaptive", effort: "high" },
+      effort: "high",
       exactCache: { keyVersion: "v1" },
     });
     expect(hit.object).toEqual({ ok: true });
     expect(hit.record.exactCacheHit).toBe(true);
-    expect(hit.record.thinkingType).toBe("adaptive");
+    expect(hit.record.thinkingEffort).toBe("high");
     expect(generateObjectMock).not.toHaveBeenCalled();
 
-    // Legacy budget must miss the adaptive entry and call the provider.
+    // Another effort must miss the entry and call the provider.
     await client.generateObject({
       schema: anySchema,
       purpose: "seed-grounding",
       prompt: "ground",
-      thinking: { type: "enabled", budgetTokens: 10_000 },
+      effort: "low",
       exactCache: { keyVersion: "v1" },
     });
     expect(generateObjectMock).toHaveBeenCalledOnce();
@@ -563,9 +416,9 @@ describe("exact-result cache integration via LLM client", () => {
     // Pre-seed a cached JSON result (include schemaFingerprint to match generateObject key)
     const cacheKey = computeLLMCacheKey({
       purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       prompt: "test prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(schema),
     });
@@ -582,7 +435,7 @@ describe("exact-result cache integration via LLM client", () => {
 
     const client = createLLMClient({
       apiKey: "test-key-not-used",
-      defaultModel: "claude-haiku-4-5",
+      defaultModel: "claude-haiku-5-5",
       database: db,
     });
 
@@ -601,9 +454,9 @@ describe("exact-result cache integration via LLM client", () => {
   it("skips cache when forceRefresh is true", async () => {
     const cacheKey = computeLLMCacheKey({
       purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       prompt: "test prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(anySchema),
     });
@@ -620,7 +473,7 @@ describe("exact-result cache integration via LLM client", () => {
 
     const client = createLLMClient({
       apiKey: "test-key-not-used",
-      defaultModel: "claude-haiku-4-5",
+      defaultModel: "claude-haiku-5-5",
       database: db,
       forceRefresh: true,
     });
@@ -639,9 +492,9 @@ describe("exact-result cache integration via LLM client", () => {
   it("skips cache when no exactCache config is provided", async () => {
     const cacheKey = computeLLMCacheKey({
       purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       prompt: "test prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(anySchema),
     });
@@ -657,7 +510,7 @@ describe("exact-result cache integration via LLM client", () => {
 
     const client = createLLMClient({
       apiKey: "test-key-not-used",
-      defaultModel: "claude-haiku-4-5",
+      defaultModel: "claude-haiku-5-5",
       database: db,
     });
 
@@ -673,9 +526,9 @@ describe("exact-result cache integration via LLM client", () => {
   it("tracks exactCacheHits in ledger aggregation", async () => {
     const cacheKey = computeLLMCacheKey({
       purpose: "adjudication",
-      model: "claude-opus-4-6",
+      model: "claude-opus-5-5",
       prompt: "adjudication prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(anySchema),
     });
@@ -687,7 +540,7 @@ describe("exact-result cache integration via LLM client", () => {
 
     const client = createLLMClient({
       apiKey: "test-key-not-used",
-      defaultModel: "claude-opus-4-6",
+      defaultModel: "claude-opus-5-5",
       database: db,
     });
 
@@ -708,9 +561,9 @@ describe("exact-result cache integration via LLM client", () => {
   it("misses cache when key version differs", async () => {
     const cacheKey = computeLLMCacheKey({
       purpose: "evidence-rerank",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       prompt: "test prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
       schemaFingerprint: schemaFingerprint(anySchema),
     });
@@ -726,7 +579,7 @@ describe("exact-result cache integration via LLM client", () => {
 
     const client = createLLMClient({
       apiKey: "test-key-not-used",
-      defaultModel: "claude-haiku-4-5",
+      defaultModel: "claude-haiku-5-5",
       database: db,
     });
 
@@ -901,7 +754,7 @@ describe("malformed requests and malformed replies", () => {
       text: '{"verdict":"maybe"}',
       response: {
         id: "msg_1",
-        modelId: "claude-opus-4-6-20260214",
+        modelId: "claude-opus-5-5-20260214",
         timestamp: new Date(0),
       },
       usage: {
@@ -924,7 +777,7 @@ describe("malformed requests and malformed replies", () => {
     generateObjectMock.mockRejectedValue(malformedReply("stop"));
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-opus-4-6",
+      defaultModel: "claude-opus-5-5",
     });
 
     await expect(
@@ -953,7 +806,7 @@ describe("malformed requests and malformed replies", () => {
     generateObjectMock.mockRejectedValue(malformedReply("length"));
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-opus-4-6",
+      defaultModel: "claude-opus-5-5",
     });
 
     await expect(
@@ -977,9 +830,9 @@ describe("malformed requests and malformed replies", () => {
     storeLLMResult(db, {
       cacheKey: computeLLMCacheKey({
         purpose: "evidence-rerank",
-        model: "claude-haiku-4-5",
+        model: "claude-haiku-5-5",
         prompt: "rank",
-        thinkingConfig: "",
+        effort: "",
         keyVersion: "v1",
         schemaFingerprint: schemaFingerprint(anySchema),
         promptCachePolicy: "",
@@ -996,7 +849,7 @@ describe("malformed requests and malformed replies", () => {
     } as never);
     const client = createLLMClient({
       apiKey: "test-key",
-      defaultModel: "claude-haiku-4-5",
+      defaultModel: "claude-haiku-5-5",
       database: db,
     });
 

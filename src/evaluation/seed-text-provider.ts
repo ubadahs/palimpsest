@@ -63,7 +63,7 @@ export async function adjudicateFromSeedText(input: {
     promptPrefix: prompt.prefix,
     promptSuffix: prompt.suffix,
     schema: seedTextAdjudicateReplySchema,
-    ...(provider.thinking ? { thinking: provider.thinking } : {}),
+    ...(provider.thinking ? { effort: provider.thinking.effort } : {}),
   });
   const call = anthropicCall(result.record, provider, input.requestSequence);
   const judgment = resolveSeedTextJudgment(result.object, seed.blocks);

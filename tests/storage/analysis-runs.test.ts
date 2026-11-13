@@ -45,7 +45,6 @@ describe("analysis runs repository", () => {
 
       const stages = listRunStages(database, run.id);
       expect(run.seedDoi).toBe("10.1234/seed");
-      expect(run.trackedClaim).toBeUndefined();
       expect(run.config.stopAfterStage).toBe("report");
       expect(
         JSON.parse(

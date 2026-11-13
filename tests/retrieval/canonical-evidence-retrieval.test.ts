@@ -92,7 +92,7 @@ describe("scope-span evidence pinning", () => {
     seedId: "seed_a",
     candidateIds: ["cand_a"],
     sourceClaimRecordIds: ["claim_a"],
-    trackedClaim: "supported claim",
+    claim: "supported claim",
     normalizedClaim: "supported claim",
     includedCitationOccurrenceIds: ["occ_a"],
     provenanceArtifacts: [seedTextArtifact],

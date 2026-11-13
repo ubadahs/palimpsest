@@ -29,9 +29,9 @@ describe("llm-result-cache", () => {
   it("produces deterministic cache keys for identical inputs", () => {
     const input = {
       purpose: "adjudication" as const,
-      model: "claude-opus-4-6",
+      model: "claude-opus-5-5",
       prompt: "What is the verdict?",
-      thinkingConfig: "enabled:10000",
+      effort: "high",
       keyVersion: "v1",
     };
     expect(computeLLMCacheKey(input)).toBe(computeLLMCacheKey(input));
@@ -40,19 +40,19 @@ describe("llm-result-cache", () => {
   it("produces different keys when any field changes", () => {
     const base = {
       purpose: "adjudication" as const,
-      model: "claude-opus-4-6",
+      model: "claude-opus-5-5",
       prompt: "prompt",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
     };
 
     const keys = new Set([
       computeLLMCacheKey(base),
       computeLLMCacheKey({ ...base, purpose: "evidence-rerank" }),
-      computeLLMCacheKey({ ...base, model: "claude-haiku-4-5" }),
+      computeLLMCacheKey({ ...base, model: "claude-haiku-5-5" }),
       computeLLMCacheKey({ ...base, prompt: "different" }),
-      computeLLMCacheKey({ ...base, thinkingConfig: "enabled:8000" }),
-      computeLLMCacheKey({ ...base, thinkingConfig: "adaptive:high" }),
+      computeLLMCacheKey({ ...base, effort: "low" }),
+      computeLLMCacheKey({ ...base, effort: "medium" }),
       computeLLMCacheKey({ ...base, keyVersion: "v2" }),
       computeLLMCacheKey({ ...base, promptCachePolicy: "ephemeral:5m" }),
       computeLLMCacheKey({ ...base, cachePolicy: "bypass" }),
@@ -68,9 +68,9 @@ describe("llm-result-cache", () => {
   it("round-trips a cached result through store and get", () => {
     const key = computeLLMCacheKey({
       purpose: "adjudication",
-      model: "claude-opus-4-6",
+      model: "claude-opus-5-5",
       prompt: "prompt text",
-      thinkingConfig: "",
+      effort: "",
       keyVersion: "v1",
     });
 
@@ -119,9 +119,9 @@ describe("llm-result-cache", () => {
   it("misses when key version changes (prompt/schema update)", () => {
     const baseInput = {
       purpose: "seed-grounding" as const,
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5-5",
       prompt: "same prompt",
-      thinkingConfig: "enabled:8000",
+      effort: "low",
     };
 
     const keyV1 = computeLLMCacheKey({ ...baseInput, keyVersion: "v1" });

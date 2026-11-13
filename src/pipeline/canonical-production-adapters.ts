@@ -2,8 +2,7 @@
  * Production adapters for the canonical six-stage executor.
  *
  * Reuses low-level resolution, acquisition, parsing, classification, and LLM
- * helpers. Does not route through shortlist/screen/extract/classify/curate
- * orchestration or artifact shapes.
+ * helpers.
  *
  * Provenance: when upstream APIs do not expose exact wire bodies, adapters
  * persist the normalized request / validated response that actually crosses the
@@ -13,10 +12,7 @@
 import { z } from "zod";
 
 import type { AppConfig } from "../config/app-config.js";
-import {
-  LLM_CACHE_VERSIONS,
-  LLM_PROMPT_VERSIONS,
-} from "../config/llm-versions.js";
+import { PROMPT_VERSIONS } from "../config/prompt-versions.js";
 import type { AnalysisRunConfig } from "../contract/run-types.js";
 import {
   canonicalAdjudicateModelOutputSchema,
@@ -36,11 +32,9 @@ import {
   buildNormalizedLLMCallProvenance,
   classifyProviderError,
   resolveSentPromptCacheControl,
-  resolveThinkingConfig,
+  resolveThinkingEffort,
   type LLMCallRecord,
   type LLMClient,
-  type ThinkingConfig,
-  type ThinkingEffort,
   LLMProviderError,
 } from "../integrations/llm-client.js";
 import { resolvePaperByDoi } from "../integrations/paper-resolver.js";
@@ -76,7 +70,10 @@ import {
   runSeedCodebookProcedure,
   type CodebookStep,
 } from "./seed-codebook.js";
-import type { ModelExecution } from "../contract/model-execution.js";
+import type {
+  ModelExecution,
+  ThinkingEffort,
+} from "../contract/model-execution.js";
 import type { SeedCodebookStore } from "../storage/seed-codebooks.js";
 import {
   contentAddressedExternalExecution,
@@ -111,63 +108,43 @@ import { canonicalSha256 } from "../shared/stable-identity.js";
 
 const CANONICAL_EXTRACTION_PROMPT_ID =
   "canonical-attributed-claim-extraction" as const;
-const CANONICAL_EXTRACTION_PROMPT_VERSION = LLM_PROMPT_VERSIONS.extraction;
+const CANONICAL_EXTRACTION_PROMPT_VERSION = PROMPT_VERSIONS.extraction;
 const CANONICAL_CANONICALIZATION_PROMPT_ID =
   "canonical-claim-canonicalization" as const;
 const CANONICAL_CANONICALIZATION_PROMPT_VERSION =
-  LLM_PROMPT_VERSIONS.canonicalization;
+  PROMPT_VERSIONS.canonicalization;
 const CANONICAL_SCOPE_GROUNDING_PROMPT_ID =
   "canonical-scope-grounding" as const;
-const CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION = LLM_PROMPT_VERSIONS.grounding;
+const CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION = PROMPT_VERSIONS.grounding;
 const CANONICAL_ROLE_CLASSIFICATION_PROMPT_ID =
   "canonical-citation-role-classification" as const;
 const CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION =
-  LLM_PROMPT_VERSIONS.roleClassification;
+  PROMPT_VERSIONS.roleClassification;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_ID =
   "canonical-evidence-relevance-rerank" as const;
-const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v2" as const;
+const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = PROMPT_VERSIONS.rerank;
 const CANONICAL_SEED_CODEBOOK_PROMPT_ID = "canonical-seed-codebook" as const;
-const CANONICAL_SEED_CODEBOOK_PROMPT_VERSION = LLM_PROMPT_VERSIONS.seedCodebook;
+const CANONICAL_SEED_CODEBOOK_PROMPT_VERSION = PROMPT_VERSIONS.seedCodebook;
 const CANONICAL_CODEBOOK_TAGGING_PROMPT_ID =
   "canonical-codebook-tagging" as const;
 const CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION =
-  LLM_PROMPT_VERSIONS.codebookTagging;
+  PROMPT_VERSIONS.codebookTagging;
 
 /**
  * How a call was served, as opposed to what it answered: the snapshot that
  * replied, whether the reply came from the exact-result cache, and the
- * thinking configuration in force. Excluded from result identity.
+ * thinking effort in force. Excluded from result identity.
  */
 function modelExecutionTelemetry(record: LLMCallRecord): {
   servedModel?: string;
   exactCacheHit: boolean;
-  thinking?: ThinkingConfig;
+  effort?: ThinkingEffort;
 } {
-  const thinking: ThinkingConfig | undefined =
-    record.thinkingType === "adaptive" && record.thinkingEffort != null
-      ? { type: "adaptive", effort: record.thinkingEffort }
-      : record.thinkingType === "enabled" && record.thinkingBudgetTokens != null
-        ? { type: "enabled", budgetTokens: record.thinkingBudgetTokens }
-        : undefined;
   return {
     ...(record.servedModel != null ? { servedModel: record.servedModel } : {}),
     exactCacheHit: record.exactCacheHit === true,
-    ...(thinking != null ? { thinking } : {}),
+    ...(record.thinkingEffort != null ? { effort: record.thinkingEffort } : {}),
   };
-}
-
-function mapLlmCallThinking(
-  model: string,
-  enabled: boolean,
-  budgetTokens: number,
-  effort?: ThinkingEffort,
-): ThinkingConfig | undefined {
-  return resolveThinkingConfig({
-    model,
-    enabled,
-    budgetTokens,
-    ...(effort != null ? { effort } : {}),
-  });
 }
 
 function llmRequestProvenanceFields(params: {
@@ -184,8 +161,7 @@ function llmRequestProvenanceFields(params: {
   /** The part of the prompt other requests share, when there is one. */
   sharedPrefix?: string | undefined;
   promptVersion: string;
-  exactCacheKeyVersion: string;
-  thinking?: ThinkingConfig | undefined;
+  effort?: ThinkingEffort | undefined;
   forceRefresh?: boolean | undefined;
   /** Whether the client batches, which lengthens a shared prefix's cache TTL. */
   batching?: boolean | undefined;
@@ -194,8 +170,7 @@ function llmRequestProvenanceFields(params: {
     purpose: params.purpose,
     model: params.model,
     promptVersion: params.promptVersion,
-    ...(params.thinking != null ? { thinking: params.thinking } : {}),
-    exactCacheKeyVersion: params.exactCacheKeyVersion,
+    effort: params.effort,
     ...(params.forceRefresh != null
       ? { forceRefresh: params.forceRefresh }
       : {}),
@@ -968,11 +943,9 @@ export function buildCanonicalDiscoverAdapters(
         mention,
       });
       const model = deps.runConfig.discover.extractionModel;
-      const thinking = mapLlmCallThinking(
-        model,
-        deps.runConfig.discover.extractionThinking,
-        8000,
-      );
+      const effort = resolveThinkingEffort({
+        enabled: deps.runConfig.discover.extractionThinking,
+      });
       const requestBody = {
         mentionId: mention.mentionId,
         promptText: prompt,
@@ -980,8 +953,7 @@ export function buildCanonicalDiscoverAdapters(
           purpose: "attributed-claim-extraction",
           model,
           promptVersion: CANONICAL_EXTRACTION_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.extraction,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -995,8 +967,8 @@ export function buildCanonicalDiscoverAdapters(
           prompt,
           schema: canonicalAttributedClaimExtractionOutputSchema,
           context: { stageKey: "discover" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.extraction },
+          effort,
+          exactCache: { keyVersion: CANONICAL_EXTRACTION_PROMPT_VERSION },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1068,11 +1040,9 @@ export function buildCanonicalDiscoverAdapters(
         claims,
       });
       const model = deps.runConfig.discover.canonicalizationModel;
-      const thinking = mapLlmCallThinking(
-        model,
-        deps.runConfig.discover.canonicalizationThinking,
-        8000,
-      );
+      const effort = resolveThinkingEffort({
+        enabled: deps.runConfig.discover.canonicalizationThinking,
+      });
       const requestBody = {
         seedId: seed.paper.paperId,
         claimRecordIds: claims.map((claim) => claim.claimRecordId),
@@ -1081,8 +1051,7 @@ export function buildCanonicalDiscoverAdapters(
           purpose: "claim-canonicalization",
           model,
           promptVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.canonicalization,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1114,8 +1083,8 @@ export function buildCanonicalDiscoverAdapters(
           prompt,
           schema: claimCanonicalizationOutputSchema,
           context: { stageKey: "discover" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.canonicalization },
+          effort,
+          exactCache: { keyVersion: CANONICAL_CANONICALIZATION_PROMPT_VERSION },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1388,7 +1357,7 @@ export function buildCanonicalScopeAdapters(
 
     groundFamily: async ({ seed, family, seedText }) => {
       const promptParts = buildScopeGroundingPrompt({
-        trackedClaim: family.trackedClaim,
+        claim: family.claim,
         seedTitle:
           seed.resolution.status === "resolved"
             ? seed.resolution.paper.title
@@ -1397,11 +1366,9 @@ export function buildCanonicalScopeAdapters(
       });
       const prompt = `${promptParts.prefix}${promptParts.suffix}`;
       const model = deps.runConfig.scope.groundingModel;
-      const thinking = mapLlmCallThinking(
-        model,
-        deps.runConfig.scope.groundingThinking,
-        10_000,
-      );
+      const effort = resolveThinkingEffort({
+        enabled: deps.runConfig.scope.groundingThinking,
+      });
       const requestBody = {
         familyId: family.familyId,
         promptText: prompt,
@@ -1411,8 +1378,7 @@ export function buildCanonicalScopeAdapters(
           sharedPrefix: promptParts.prefix,
           batching: deps.llmClient.batching,
           promptVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.grounding,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1427,8 +1393,8 @@ export function buildCanonicalScopeAdapters(
           promptSuffix: promptParts.suffix,
           schema: canonicalScopeGroundingOutputSchema,
           context: { stageKey: "scope" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
+          effort,
+          exactCache: { keyVersion: CANONICAL_SCOPE_GROUNDING_PROMPT_VERSION },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1484,7 +1450,7 @@ export function buildCanonicalScopeAdapters(
 
     buildCodebook: async ({ seed, seedText, seedTextHash }) => {
       const model = deps.runConfig.scope.codebookModel;
-      const thinking = mapLlmCallThinking(model, true, 10_000, "medium");
+      const effort: ThinkingEffort = "medium";
       const regenerate = deps.regenerateCodebook === true;
       const key = {
         seedId: seed.seedId,
@@ -1568,8 +1534,7 @@ export function buildCanonicalScopeAdapters(
             sharedPrefix: input.promptPrefix,
             batching: deps.llmClient.batching,
             promptVersion: CANONICAL_SEED_CODEBOOK_PROMPT_VERSION,
-            exactCacheKeyVersion: LLM_CACHE_VERSIONS.seedCodebook,
-            ...(thinking != null ? { thinking } : {}),
+            effort,
             forceRefresh: deps.forceRefresh === true || regenerate,
           }),
         };
@@ -1582,12 +1547,12 @@ export function buildCanonicalScopeAdapters(
             promptSuffix: input.promptSuffix,
             schema: input.schema,
             context: { stageKey: "scope" },
-            ...(thinking != null ? { thinking } : {}),
+            effort,
             maxOutputTokens: 24_000,
             // Regeneration must ask the model again, not replay the cache;
             // its reply then replaces the cached one.
             exactCache: {
-              keyVersion: LLM_CACHE_VERSIONS.seedCodebook,
+              keyVersion: CANONICAL_SEED_CODEBOOK_PROMPT_VERSION,
               ...(regenerate ? { refresh: true } : {}),
             },
           });
@@ -1653,7 +1618,7 @@ export function buildCanonicalScopeAdapters(
 
     tagClaim: async ({ codebook, claimText }) => {
       const model = deps.runConfig.scope.taggingModel;
-      const thinking = mapLlmCallThinking(model, true, 2_000, "low");
+      const effort: ThinkingEffort = "low";
       const promptPrefix = buildCodebookTaggingPrefix(codebook);
       const promptSuffix = buildCodebookTaggingSuffix(claimText);
       const prompt = `${promptPrefix}${promptSuffix}`;
@@ -1667,8 +1632,7 @@ export function buildCanonicalScopeAdapters(
           sharedPrefix: promptPrefix,
           batching: deps.llmClient.batching,
           promptVersion: CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.codebookTagging,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1681,9 +1645,9 @@ export function buildCanonicalScopeAdapters(
           promptSuffix,
           schema: codebookTaggingReplySchema(codebook),
           context: { stageKey: "scope" },
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           maxOutputTokens: 4_000,
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.codebookTagging },
+          exactCache: { keyVersion: CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1772,8 +1736,8 @@ export function buildCanonicalPrepareAdapters(
 ): CanonicalPrepareAdapters {
   const store = deps.provenanceStore;
   const model = deps.runConfig.prepare.roleClassifierModel;
-  // Naming a citation's role is a quick judgment; no call asks for thinking.
-  const thinking = resolveThinkingConfig({ model, enabled: false });
+  // Naming a citation's role is a quick judgment, so the lowest effort.
+  const effort: ThinkingEffort = "low";
 
   return {
     classifyCitation: async (input) => {
@@ -1799,8 +1763,7 @@ export function buildCanonicalPrepareAdapters(
           purpose: "citation-role-classification",
           model,
           promptVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.roleClassification,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1833,8 +1796,10 @@ export function buildCanonicalPrepareAdapters(
           prompt,
           schema: citationRoleResponseSchema,
           context: { stageKey: "prepare" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.roleClassification },
+          effort,
+          exactCache: {
+            keyVersion: CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION,
+          },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1876,8 +1841,8 @@ function buildCanonicalEvidenceAdapters(
   }
   const store = deps.provenanceStore;
   const model = deps.runConfig.evidence.rerankModel;
-  // Ranking passages is a quick judgment; no call asks the reranker to think.
-  const thinking = resolveThinkingConfig({ model, enabled: false });
+  // Ranking passages is a quick judgment, so the lowest effort.
+  const effort: ThinkingEffort = "low";
 
   return {
     rerank: async (input: CanonicalEvidenceRerankerInput) => {
@@ -1892,8 +1857,7 @@ function buildCanonicalEvidenceAdapters(
           purpose: "evidence-rerank",
           model,
           promptVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION,
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.rerank,
-          ...(thinking != null ? { thinking } : {}),
+          effort,
           forceRefresh: deps.forceRefresh === true,
         }),
       };
@@ -1907,8 +1871,8 @@ function buildCanonicalEvidenceAdapters(
           prompt,
           schema: rerankModelResponseSchema,
           context: { stageKey: "evidence" },
-          ...(thinking != null ? { thinking } : {}),
-          exactCache: { keyVersion: LLM_CACHE_VERSIONS.rerank },
+          effort,
+          exactCache: { keyVersion: CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION },
         });
       } catch (error) {
         const mapped = mapLlmFailureCode(error);
@@ -1988,12 +1952,10 @@ export function buildCanonicalAdjudicateAdapters(
     adjudicate: async (input: CanonicalAdjudicateAdapterInput) => {
       const promptText = adjudicatePromptText(input);
       const expectedRequestHash = hashCanonicalAdjudicateRequest(input);
-      const thinking = mapLlmCallThinking(
-        model,
-        deps.runConfig.adjudicate.thinking,
-        12_000,
-        deps.runConfig.adjudicate.effort,
-      );
+      const effort = resolveThinkingEffort({
+        enabled: deps.runConfig.adjudicate.thinking,
+        effort: deps.runConfig.adjudicate.effort,
+      });
       // A whole-seed-text request names the seed text by its hash: it keys
       // the cache write below, and stands in for the text in the stored
       // request, because the Evidence artifact this stage reads already
@@ -2012,8 +1974,7 @@ export function buildCanonicalAdjudicateAdapters(
             }
           : {}),
         promptVersion: input.promptVersion,
-        exactCacheKeyVersion: LLM_CACHE_VERSIONS.adjudication,
-        ...(thinking != null ? { thinking } : {}),
+        effort,
         forceRefresh: deps.forceRefresh === true,
       });
       const requestBody = {
@@ -2051,8 +2012,8 @@ export function buildCanonicalAdjudicateAdapters(
         purpose: "adjudication" as const,
         model,
         context: { stageKey: "adjudicate" as const },
-        ...(thinking != null ? { thinking } : {}),
-        exactCache: { keyVersion: LLM_CACHE_VERSIONS.adjudication },
+        effort,
+        exactCache: { keyVersion: input.promptVersion },
       };
 
       // Only the provider call is guarded: a failure after it is a programmer
@@ -2305,10 +2266,10 @@ const claimCanonicalizationOutputSchema = z
 
 /**
  * The grounding prompt is split so the seed text (identical for every family
- * of a seed) is a cacheable prefix and only the tracked claim varies.
+ * of a seed) is a cacheable prefix and only the family claim varies.
  */
 function buildScopeGroundingPrompt(input: {
-  trackedClaim: string;
+  claim: string;
   seedTitle: string;
   blocks: Array<{
     blockId: string;
@@ -2328,7 +2289,7 @@ function buildScopeGroundingPrompt(input: {
 
   const prefix = `You are assisting a metascience project that audits citation fidelity.
 
-Ground the tracked claim against the immutable seed-text blocks below. Quotes must be exact contiguous substrings of the referenced block.
+Ground the claim below against the immutable seed-text blocks below. Quotes must be exact contiguous substrings of the referenced block.
 
 ## Seed paper
 
@@ -2339,9 +2300,9 @@ Title: ${input.seedTitle}
 ${blockText}
 
 `;
-  const suffix = `## Tracked claim
+  const suffix = `## Claim
 
-"${input.trackedClaim}"
+"${input.claim}"
 
 ## Response format
 

@@ -30,7 +30,6 @@ Critical policy:
 - by default the adjudicator reads the whole seed text and quotes the passages its verdict rests on. Each quote is verified as exact text of the seed block it names; one that is not is dropped and counted. An `F`, `D`, or `U` left with no verified quote is `invalid_output`. An `E` may quote nothing, because the whole paper was read and may say nothing on the point
 - confidence may be recorded but never chooses another model or alters the verdict path
 - `D` verdicts name one to three categorical `mutationKinds` and a `direction`; `F`, `E`, and `U` carry none. These fields record which dimension of the source claim moved and are aggregated by Report as `mutationKindCounts` / `mutationDirectionCounts`; they are descriptive and do not route or reweight the verdict
-- there is no advisor, vector-first, challenger, or confidence-only escalation path
 - blinded human calibration is required before trust claims
 
 ## Canonical Report (Deterministic)
@@ -48,6 +47,4 @@ Reporting rules that follow from this rubric:
 
 ## Non-Goals
 
-- Do not restore advisor/vector routing in canonical Adjudicate until blinded calibration exists
 - Do not treat operational failure as `U`
-- Do not treat support-style labels (`supported`, `partially_supported`, etc.) as product outputs

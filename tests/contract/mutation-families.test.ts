@@ -12,7 +12,7 @@ function record(
 ): ReportInspectorRecordRow {
   return {
     citationOccurrenceId: "mention_1",
-    trackedClaim: "Tracked claim A",
+    familyClaim: "Family claim A",
     evaluatedClaimText: "Evaluated claim",
     seedId: "seed_1",
     seedTitle: "Seed paper title",
@@ -72,7 +72,7 @@ describe("buildReportInspectorFamilies", () => {
       record({
         recordId: "rec_c",
         familyId: "family_b",
-        trackedClaim: "Tracked claim B",
+        familyClaim: "Family claim B",
         seedTitle: "Other seed",
         citingPaperTitle: "Gamma paper",
         citingPaperYear: 2021,
@@ -98,7 +98,7 @@ describe("buildReportInspectorFamilies", () => {
     ]);
 
     const familyA = families[0]!;
-    expect(familyA.trackedClaim).toBe("Tracked claim A");
+    expect(familyA.claim).toBe("Family claim A");
     expect(familyA.seedTitle).toBe("Seed paper title");
     expect(familyA.seedDoi).toBe("10.1000/seed");
     expect(familyA.verifiedSeedGroundingSpans).toHaveLength(1);
@@ -118,19 +118,19 @@ describe("buildReportInspectorFamilies", () => {
     expect(familyB.verdictCounts.not_adjudicated).toBe(1);
   });
 
-  it("uses stable family ordering by tracked claim then familyId", () => {
+  it("uses stable family ordering by claim then familyId", () => {
     const families = buildReportInspectorFamilies([
       record({
         recordId: "r1",
         familyId: "family_z",
-        trackedClaim: "Same claim",
+        familyClaim: "Same claim",
         adjudicationStatus: "adjudicated",
         verdict: "U",
       }),
       record({
         recordId: "r2",
         familyId: "family_a",
-        trackedClaim: "Same claim",
+        familyClaim: "Same claim",
         adjudicationStatus: "adjudicated",
         verdict: "E",
       }),

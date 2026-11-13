@@ -399,7 +399,7 @@ export const canonicalClaimExtractionResultSchema = z.discriminatedUnion(
  * finding rather than one wording. Differences in strength, scope, or
  * certainty stay inside a cluster; they are what Adjudicate measures.
  */
-export const canonicalClaimCanonicalizationResultSchema = z.discriminatedUnion(
+const canonicalClaimCanonicalizationResultSchema = z.discriminatedUnion(
   "status",
   [
     z

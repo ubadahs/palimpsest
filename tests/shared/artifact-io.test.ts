@@ -15,7 +15,7 @@ const sampleSchema = z
     seeds: z.array(
       z.object({
         doi: z.string().min(1),
-        trackedClaim: z.string().min(1),
+        claim: z.string().min(1),
       }),
     ),
   })
@@ -28,7 +28,7 @@ describe("artifact-io", () => {
     writeFileSync(
       path,
       JSON.stringify({
-        seeds: [{ doi: "10.1234/test", trackedClaim: "Claim" }],
+        seeds: [{ doi: "10.1234/test", claim: "Claim" }],
       }),
       "utf8",
     );
@@ -49,7 +49,7 @@ describe("artifact-io", () => {
     );
 
     expect(() => loadJsonArtifact(path, sampleSchema, "sample input")).toThrow(
-      /trackedClaim/,
+      /claim/,
     );
 
     rmSync(dir, { recursive: true, force: true });

@@ -151,7 +151,7 @@ function MutationRecordCard({
  * family can hold hundreds of restatements; rendering them all at once made
  * switching families slow.
  */
-export const FAMILY_RESTATEMENT_PAGE_SIZE = 50;
+const FAMILY_RESTATEMENT_PAGE_SIZE = 50;
 
 export function FamiliesBrowser({
   families,
@@ -278,7 +278,7 @@ export function FamiliesBrowser({
                 type="button"
               >
                 <p className="text-sm font-semibold leading-6 text-[var(--text)]">
-                  {family.trackedClaim}
+                  {family.claim}
                 </p>
                 <p className="mt-1 text-xs text-[var(--text-muted)]">
                   {family.recordCount} records
@@ -303,7 +303,7 @@ export function FamiliesBrowser({
               Seed claim family
             </p>
             <h3 className="font-[var(--font-instrument)] text-2xl tracking-[-0.03em] text-[var(--text)]">
-              {activeFamily.trackedClaim}
+              {activeFamily.claim}
             </h3>
             <div className="space-y-1 text-sm text-[var(--text-muted)]">
               <p>{activeFamily.seedTitle}</p>

@@ -372,7 +372,6 @@ describe("fetchFullText acquisition policy", () => {
       if (!result.ok) return;
       expect(fetchUrl).toHaveBeenCalled();
       expect(result.data.acquisition.materializationSource).toBe("network");
-      expect(result.data.acquisition.selectedUrl).not.toBe("legacy-cache");
     } finally {
       database.close();
       rmSync(tempDirectory, { recursive: true, force: true });

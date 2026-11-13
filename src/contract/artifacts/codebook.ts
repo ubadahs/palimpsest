@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 
+import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import {
   buildStableId,
   canonicalSha256,
@@ -128,11 +129,11 @@ export const seedCodebookContentSchema = z
 export type SeedCodebookContent = z.infer<typeof seedCodebookContentSchema>;
 
 /**
- * Bumped whenever a codebook prompt, schema, or verification rule changes.
- * Part of the store key, so a new procedure regenerates instead of silently
- * reusing a codebook built another way.
+ * Part of the stored-codebook key, so a changed prompt, schema, or
+ * verification rule regenerates instead of reusing a codebook built another
+ * way. It is the codebook prompts' version; bump that for any of these.
  */
-export const SEED_CODEBOOK_PROCEDURE_VERSION = "seed-codebook-v2" as const;
+export const SEED_CODEBOOK_PROCEDURE_VERSION = PROMPT_VERSIONS.seedCodebook;
 
 /** Content hash of the seed text a codebook was built from. */
 export function buildSeedTextHash(

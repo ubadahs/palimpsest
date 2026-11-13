@@ -742,7 +742,7 @@ export async function executeProviderCase(
     model: provider.model,
     prompt,
     schema,
-    ...(provider.thinking ? { thinking: provider.thinking } : {}),
+    ...(provider.thinking ? { effort: provider.thinking.effort } : {}),
   });
   const call = anthropicCall(result.record, provider, requestSequence);
   if (input.task === "role")

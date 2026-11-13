@@ -38,8 +38,8 @@ describe("canonical Report Markdown at census scale", () => {
 
     // D and E examples come before F within a family.
     const first = markdown.slice(
-      markdown.indexOf(`### ${payload.familyMutations[0]!.trackedClaim}`),
-      markdown.indexOf(`### ${payload.familyMutations[1]!.trackedClaim}`),
+      markdown.indexOf(`### ${payload.familyMutations[0]!.claim}`),
+      markdown.indexOf(`### ${payload.familyMutations[1]!.claim}`),
     );
     const verdicts = [...first.matchAll(/· \*\*([DEFU])\*\*/g)].map(
       (match) => match[1],

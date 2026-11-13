@@ -159,7 +159,7 @@ export function writeCanonicalArtifact<K extends StageKey>(
 }
 
 /**
- * Lists only current canonical artifacts. There are no legacy artifact aliases.
+ * Lists a stage's artifacts.
  */
 export function listStageArtifacts(
   stageKey: StageKey,
@@ -716,7 +716,7 @@ export function buildReportInspectorFamilies(
       const view: MutationFamilyView = {
         familyId: family.familyId,
         seedId: family.seedId,
-        trackedClaim: family.trackedClaim,
+        claim: family.claim,
         seedTitle: family.seedTitle ?? head.seedTitle,
         seedDoi: family.seedDoi,
         groundingStatus: family.groundingStatus,
@@ -750,7 +750,7 @@ export function buildReportInspectorFamilies(
     const family: MutationFamilyView = {
       familyId,
       seedId: head.seedId,
-      trackedClaim: head.trackedClaim,
+      claim: head.familyClaim,
       seedTitle: head.seedTitle,
       verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
       recordCount: sorted.length,
@@ -767,7 +767,7 @@ export function buildReportInspectorFamilies(
   });
 
   families.sort((left, right) => {
-    const claimCmp = compareCodeUnits(left.trackedClaim, right.trackedClaim);
+    const claimCmp = compareCodeUnits(left.claim, right.claim);
     if (claimCmp !== 0) {
       return claimCmp;
     }
@@ -808,13 +808,13 @@ function buildReportInspectorRecordRow(input: {
     adjudicateRecord.status === "adjudicated"
       ? adjudicateRecord.evaluatedCitingClaimText
       : (prepareRecord.occurrenceSourceClaimRecords[0]?.extractedClaimText ??
-        prepareRecord.family.trackedClaim);
+        prepareRecord.family.claim);
 
   const row: ReportInspectorRecordRow = {
     recordId: prepareRecord.recordId,
     familyId: prepareRecord.familyId,
     citationOccurrenceId: prepareRecord.citationOccurrenceId,
-    trackedClaim: prepareRecord.family.trackedClaim,
+    familyClaim: prepareRecord.family.claim,
     evaluatedClaimText,
     seedId: seed.seedId,
     seedTitle: seed.seedTitle,

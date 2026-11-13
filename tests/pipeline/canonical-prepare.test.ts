@@ -1405,7 +1405,7 @@ describe("canonical Prepare", () => {
     expect(calls).toEqual([]);
 
     const tamperedScope = structuredClone(scope);
-    tamperedScope.payload.families[0]!.trackedClaim = "Tampered claim";
+    tamperedScope.payload.families[0]!.claim = "Tampered claim";
     await expect(
       runCanonicalPrepare(
         tamperedScope,

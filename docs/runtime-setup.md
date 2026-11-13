@@ -56,7 +56,3 @@ npm run dev -- pipeline --input path/to/dois.json
 `db:gc` deletes aged analysis-run and LLM-cache SQLite rows only, plus batch request rows past the Message Batches API's 29-day results retention. It does not delete on-disk run artifact directories under `data/runs/`.
 
 Canonical Adjudicate is **uncalibrated**. Runtime availability does not establish scientific validity or support trust claims.
-
-## Cutover data
-
-Old local SQLite rows and run directories from the former seven-stage executor are unsupported and may need deletion/recreation. Do not attempt to resume or bridge old shortlist, curation, advisor, or vector-first state into a canonical run.

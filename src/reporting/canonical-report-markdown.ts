@@ -67,7 +67,7 @@ export function renderCanonicalReportMarkdown(
   payload.familyMutations.forEach((family, familyIndex) => {
     const counts = family.verdictCounts;
     const adjudicated = counts.F + counts.D + counts.E + counts.U;
-    lines.push(`### ${family.trackedClaim}`);
+    lines.push(`### ${family.claim}`);
     lines.push("");
     lines.push(
       `Seed: ${family.seedTitle ?? family.seedDoi} (\`${family.seedDoi}\`) · grounding \`${family.groundingStatus}\`${family.equivalenceMethod ? ` · equivalence \`${family.equivalenceMethod}\`` : ""} · ${String(family.records.length)} records, ${String(family.uniqueClaimUnits)} unique claim units · F ${String(counts.F)}, D ${String(counts.D)}, E ${String(counts.E)}, U ${String(counts.U)}, gated ${String(counts.not_adjudicated)}, failed ${String(counts.failed)}`,

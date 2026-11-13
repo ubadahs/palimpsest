@@ -21,42 +21,30 @@ describe("analysis run config", () => {
       discover: { probeBudget: 12 },
       evidence: {
         rerankEnabled: true,
-        rerankModel: "fixture-reranker",
+        rerankModel: "claude-sonnet-5-5",
         rerankTopN: 3,
         bm25CandidateLimit: 8,
         selectionLimit: 3,
       },
-      adjudicate: { model: "fixture-adjudicator", thinking: false },
+      adjudicate: { model: "claude-opus-5-5", thinking: false },
     });
 
     expect(config).toMatchObject({
       stopAfterStage: "evidence",
       discover: { probeBudget: 12 },
       evidence: { rerankEnabled: true, rerankTopN: 3 },
-      adjudicate: { model: "fixture-adjudicator", thinking: false },
+      adjudicate: { model: "claude-opus-5-5", thinking: false },
     });
   });
 
-  it("rejects superseded config fields and stage names", () => {
-    expect(
-      analysisRunConfigSchema.safeParse({
-        adjudicationMode: "vector_first",
-      }).success,
-    ).toBe(false);
-    expect(
-      analysisRunConfigSchema.safeParse({
-        screen: { groundingModel: "obsolete" },
-      }).success,
-    ).toBe(false);
-    expect(
-      analysisRunConfigSchema.safeParse({
-        stopAfterStage: "extract",
-      }).success,
-    ).toBe(false);
-    expect(
-      analysisRunConfigSchema.safeParse({
-        seedPdfPath: "/tmp/legacy-alias.pdf",
-      }).success,
-    ).toBe(false);
+  it("rejects unknown fields, stage names, and models", () => {
+    for (const config of [
+      { unknownField: true },
+      { scope: { unknownModel: "claude-sonnet-5-5" } },
+      { stopAfterStage: "unknown" },
+      { adjudicate: { model: "claude-opus-4-6" } },
+    ]) {
+      expect(analysisRunConfigSchema.safeParse(config).success).toBe(false);
+    }
   });
 });

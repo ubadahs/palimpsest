@@ -610,7 +610,7 @@ function scopeAdapters(
               status,
               detailReason:
                 status === "grounded"
-                  ? "The seed manuscript directly supports the tracked claim."
+                  ? "The seed manuscript directly supports the family claim."
                   : "Several seed passages could plausibly support the claim.",
               supportSpans,
             };
@@ -1069,7 +1069,7 @@ describe("canonical Scope", () => {
       expect(loadCanonicalArtifact("scope", artifactPath)).toEqual(artifact);
 
       const tampered = structuredClone(artifact);
-      tampered.payload.families[0]!.trackedClaim = "Tampered claim";
+      tampered.payload.families[0]!.claim = "Tampered claim";
       writeFileSync(artifactPath, JSON.stringify(tampered), "utf8");
       expect(() => loadCanonicalArtifact("scope", artifactPath)).toThrow(
         /contentHash|artifactId/,

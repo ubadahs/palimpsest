@@ -76,7 +76,7 @@ describe("canonical run creation", () => {
     setRunStatus(database, "run-failed", "failed", "scope");
     writeFileSync(
       getStageLogPath("run-failed", "scope"),
-      `CF_PROGRESS ${JSON.stringify({
+      `PALIMPSEST_PROGRESS ${JSON.stringify({
         stage: "scope",
         step: "materialize_seed_text",
         status: "failed",

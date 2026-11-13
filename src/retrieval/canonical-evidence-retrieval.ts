@@ -138,8 +138,8 @@ export function chunkScopeSeedText(
 export function buildScopedFamilyEvidenceQuery(
   family: ScopedFamily,
 ): EvidenceQuery {
-  const text = normalizeWhitespace(family.trackedClaim);
-  const source = "scope-family-tracked-claim" as const;
+  const text = normalizeWhitespace(family.claim);
+  const source = "scope-family-claim" as const;
   const verificationStatus =
     family.grounding.status === "grounded"
       ? "scope_grounded"

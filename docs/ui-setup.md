@@ -33,6 +33,4 @@ It uses the same environment as the CLI:
 - **GROBID** — required for validated PDF parsing when structured text is unavailable.
 - **`ANTHROPIC_API_KEY`** — required for model-backed canonical operations, including discovery extraction, Scope grounding, optional Evidence reranking, and eligible-record Adjudicate calls.
 
-The UI does not support manual shortlist or tracked-claim starts, sampling/curation, advisor/vector routing, or any other old stage vocabulary. Old local SQLite rows and run directories from the former seven-stage executor may need deletion/recreation.
-
 Canonical Adjudicate is runnable but **uncalibrated**; the UI must not present a completed run as validated fidelity measurement.
