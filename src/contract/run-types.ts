@@ -68,6 +68,8 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
   scope: {
     groundingModel: "claude-sonnet-5-5",
     groundingThinking: true,
+    codebookModel: "claude-sonnet-5-5",
+    taggingModel: "claude-haiku-5-5",
   },
   prepare: {
     classifier: "deterministic" as const,
@@ -193,6 +195,19 @@ export const analysisRunConfigSchema = z
         groundingThinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking),
+        /**
+         * Model that builds a seed codebook. Only used when no codebook is
+         * stored for the seed text: changing it does not regenerate one.
+         */
+        codebookModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel),
+        /** Model that tags each citing claim with codebook entries. */
+        taggingModel: z
+          .string()
+          .min(1)
+          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel),
         /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
         seedPdfPath: z.string().min(1).optional(),
       })

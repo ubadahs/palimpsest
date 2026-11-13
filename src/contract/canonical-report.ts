@@ -915,6 +915,105 @@ export const reportFamilyMutationSchema = z
   .strict();
 export type ReportFamilyMutation = z.infer<typeof reportFamilyMutationSchema>;
 
+const reportCodebookCountsSchema = z
+  .object({
+    /** Distinct citing paper × normalized claim text carrying the tag. */
+    taggedClaimUnits: z.number().int().nonnegative(),
+    /** Adjudicated records whose evaluated claims carry the tag. */
+    adjudicatedRecords: z.number().int().nonnegative(),
+    F: z.number().int().nonnegative(),
+    D: z.number().int().nonnegative(),
+    E: z.number().int().nonnegative(),
+    U: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ReportCodebookCounts = z.infer<typeof reportCodebookCountsSchema>;
+
+const reportCodebookEntryRowSchema = z
+  .object({
+    entryId: z.string().min(1),
+    themeId: z.string().min(1),
+    statement: z.string().min(1),
+    type: z.enum(["result", "background_prior_work", "method_or_resource"]),
+    attributedToOtherWork: z.boolean(),
+    /** A record counts under every entry it is tagged with. */
+    counts: reportCodebookCountsSchema,
+  })
+  .strict();
+
+const reportCodebookThemeRowSchema = z
+  .object({
+    themeId: z.string().min(1),
+    statement: z.string().min(1),
+    isHeadline: z.boolean(),
+    entryIds: z.array(z.string().min(1)),
+    /**
+     * Roll-up: a claim unit or record counts once if it carries the theme
+     * itself or any entry under it.
+     */
+    counts: reportCodebookCountsSchema,
+    /** Claim units tagged with the theme alone. */
+    themeOnlyClaimUnits: z.number().int().nonnegative(),
+    /** Claim units tagged with at least one entry under the theme. */
+    entryClaimUnits: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * The codebook view of one seed: per entry and per theme, how many citing
+ * claim units are about it and how their adjudicated records were judged.
+ * Entries come from the seed paper and stay fixed across runs of the same
+ * seed text; tags say what a claim is about and are never verdicts.
+ */
+export const reportSeedCodebookSchema = z
+  .object({
+    seedId: stableIdentifierSchema,
+    seedDoi: z.string().min(1),
+    seedTitle: z.string().min(1).optional(),
+    codebookStatus: z.enum([
+      "generated",
+      "reused",
+      "failed",
+      "seed_text_unavailable",
+    ]),
+    codebookId: stableIdentifierSchema.optional(),
+    procedureVersion: z.string().min(1).optional(),
+    generatedAt: z.string().min(1).optional(),
+    generatedInRunId: z.string().min(1).optional(),
+    unavailableReason: z.string().min(1).optional(),
+    themes: z.array(reportCodebookThemeRowSchema),
+    entries: z.array(reportCodebookEntryRowSchema),
+    claims: z
+      .object({
+        total: z.number().int().nonnegative(),
+        specific: z.number().int().nonnegative(),
+        themeOnly: z.number().int().nonnegative(),
+        /** Tagged with no entry: no entry covers the topic, not "never said". */
+        none: z.number().int().nonnegative(),
+        taggingFailed: z.number().int().nonnegative(),
+        notTagged: z.number().int().nonnegative(),
+      })
+      .strict(),
+    claimUnits: z
+      .object({
+        total: z.number().int().nonnegative(),
+        /** Units none of whose claims carries a tag. */
+        untagged: z.number().int().nonnegative(),
+      })
+      .strict(),
+    adjudicatedRecords: z
+      .object({
+        total: z.number().int().nonnegative(),
+        /** Adjudicated records none of whose evaluated claims carries a tag. */
+        untagged: z.number().int().nonnegative(),
+      })
+      .strict(),
+    /** Entries no claim is tagged with. */
+    uncitedEntryIds: z.array(z.string().min(1)),
+  })
+  .strict();
+export type ReportSeedCodebook = z.infer<typeof reportSeedCodebookSchema>;
+
 export const reportArtifactPayloadSchema = z
   .object({
     lineage: reportLineageSchema,
@@ -933,6 +1032,12 @@ export const reportArtifactPayloadSchema = z
     decisionSummaries: z.array(reportDecisionSummarySchema),
     /** Per-candidate selection scores, so the portfolio can be second-guessed. */
     selectionAudit: z.array(reportSelectionAuditRowSchema),
+    /**
+     * A second view beside the families: per seed codebook entry and theme,
+     * the claim units tagged with it and their verdicts. An annotation that
+     * changes no family, record, or verdict.
+     */
+    seedCodebooks: z.array(reportSeedCodebookSchema),
   })
   .strict()
   .superRefine(validateReportPayload);

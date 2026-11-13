@@ -16,6 +16,15 @@ import {
 import { modelExecutionSchema } from "../model-execution.js";
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
+  buildSeedTextHash,
+  isUsableCodebook,
+  scopeClaimTagSchema,
+  scopeSeedCodebookSchema,
+  type CodebookQuote,
+  type ScopeClaimTag,
+  type ScopeSeedCodebook,
+} from "./codebook.js";
+import {
   addDuplicateIdentifierIssue,
   addIssue,
   addSortedUniqueIdentifierIssue,
@@ -484,6 +493,13 @@ export const scopeArtifactPayloadSchema = z
     candidateDecisions: z.array(scopeCandidateDecisionSchema),
     seedMaterializations: z.array(scopeSeedMaterializationSchema),
     families: z.array(scopedFamilySchema),
+    /**
+     * One seed codebook outcome per seed materialization: an annotation that
+     * never excludes anything.
+     */
+    codebooks: z.array(scopeSeedCodebookSchema),
+    /** One codebook tag outcome per Discover attributed claim. */
+    claimTags: z.array(scopeClaimTagSchema),
   })
   .strict()
   .superRefine(validateScopePayload);
@@ -652,6 +668,141 @@ function validateScopePayload(
         context,
         ["seedMaterializations"],
         `Seed materialization has no scoped family: ${materialization.seedId}`,
+      );
+    }
+  }
+
+  validateScopeCodebooks(payload, materializationsBySeedId, context);
+}
+
+function validateScopeCodebooks(
+  payload: ScopeArtifactPayload,
+  materializationsBySeedId: Map<string, ScopeSeedMaterialization>,
+  context: z.RefinementCtx,
+): void {
+  addSortedUniqueIdentifierIssue(
+    payload.codebooks.map((codebook) => codebook.seedId),
+    ["codebooks"],
+    context,
+  );
+  addSortedUniqueIdentifierIssue(
+    payload.claimTags.map((tag) => tag.claimRecordId),
+    ["claimTags"],
+    context,
+  );
+  if (payload.codebooks.length !== materializationsBySeedId.size) {
+    addIssue(
+      context,
+      ["codebooks"],
+      "Every seed materialization needs exactly one codebook outcome",
+    );
+  }
+  const codebooksBySeedId = new Map<string, ScopeSeedCodebook>();
+  for (const codebook of payload.codebooks) {
+    codebooksBySeedId.set(codebook.seedId, codebook);
+    const materialization = materializationsBySeedId.get(codebook.seedId);
+    if (!materialization) {
+      addIssue(
+        context,
+        ["codebooks"],
+        `Codebook has no seed materialization: ${codebook.seedId}`,
+      );
+      continue;
+    }
+    if (materialization.status !== "materialized") {
+      if (codebook.status !== "seed_text_unavailable") {
+        addIssue(
+          context,
+          ["codebooks"],
+          `A seed without text cannot have a codebook: ${codebook.seedId}`,
+        );
+      }
+      continue;
+    }
+    if (codebook.status === "seed_text_unavailable") {
+      addIssue(
+        context,
+        ["codebooks"],
+        `Materialized seed text cannot be unavailable to its codebook: ${codebook.seedId}`,
+      );
+      continue;
+    }
+    if (codebook.seedTextHash !== buildSeedTextHash(materialization.blocks)) {
+      addIssue(
+        context,
+        ["codebooks"],
+        `Codebook was built from different seed text: ${codebook.seedId}`,
+      );
+    }
+    if (!isUsableCodebook(codebook)) continue;
+    const blocksById = new Map(
+      materialization.blocks.map((block) => [block.blockId, block]),
+    );
+    const quotes: CodebookQuote[] = [
+      ...codebook.themes.flatMap((theme) => theme.quotes),
+      ...codebook.entries.flatMap((entry) => entry.quotes),
+    ];
+    for (const quote of quotes) {
+      const block = blocksById.get(quote.blockId);
+      const relativeStart = block
+        ? quote.charOffsetStart - block.charOffsetStart
+        : -1;
+      if (
+        !block ||
+        relativeStart < 0 ||
+        block.text.slice(relativeStart, relativeStart + quote.text.length) !==
+          quote.text
+      ) {
+        addIssue(
+          context,
+          ["codebooks"],
+          `Codebook quote is not an exact span of seed-text block ${quote.blockId}`,
+        );
+      }
+    }
+  }
+
+  for (const tag of payload.claimTags) {
+    validateClaimTag(tag, codebooksBySeedId.get(tag.seedId), context);
+  }
+}
+
+function validateClaimTag(
+  tag: ScopeClaimTag,
+  codebook: ScopeSeedCodebook | undefined,
+  context: z.RefinementCtx,
+): void {
+  const usable = codebook != null && isUsableCodebook(codebook);
+  if (tag.status === "not_tagged") {
+    if (usable) {
+      addIssue(
+        context,
+        ["claimTags"],
+        `Claim with a usable codebook was not tagged: ${tag.claimRecordId}`,
+      );
+    }
+    return;
+  }
+  if (!usable) {
+    addIssue(
+      context,
+      ["claimTags"],
+      `Claim was tagged without a usable codebook: ${tag.claimRecordId}`,
+    );
+    return;
+  }
+  if (tag.status !== "tagged") return;
+  const known = new Set<string>(
+    tag.kind === "theme_only"
+      ? codebook.themes.map((theme) => theme.themeId)
+      : codebook.entries.map((entry) => entry.entryId),
+  );
+  for (const id of tag.tags) {
+    if (!known.has(id)) {
+      addIssue(
+        context,
+        ["claimTags"],
+        `Claim tag ${id} is not in its seed codebook: ${tag.claimRecordId}`,
       );
     }
   }

@@ -36,6 +36,7 @@ import {
   runCanonicalReport,
 } from "../../src/pipeline/canonical-report.js";
 import { hashCanonicalAdjudicateRequest } from "../../src/contract/lean-artifacts.js";
+import { stubCodebookAdapters } from "./codebook.fixture.js";
 
 function reference(role: string, key: string): ArtifactReference {
   return {
@@ -306,6 +307,7 @@ export async function buildLargeReportChain(options: LargeChainOptions) {
             ...external("fixture-full-text", seed.seedId),
           },
         }),
+      ...stubCodebookAdapters(),
       groundFamily: ({ family }) =>
         Promise.resolve({
           status: "completed",

@@ -68,6 +68,17 @@ import {
   type CanonicalScopeAdapters,
 } from "./canonical-scope.js";
 import {
+  SEED_CODEBOOK_PROCEDURE_VERSION,
+  buildCodebookTaggingPrefix,
+  buildCodebookTaggingSuffix,
+  codebookTaggingReplySchema,
+  resolveSeedCodebook,
+  runSeedCodebookProcedure,
+  type CodebookStep,
+} from "./seed-codebook.js";
+import type { ModelExecution } from "../contract/model-execution.js";
+import type { SeedCodebookStore } from "../storage/seed-codebooks.js";
+import {
   contentAddressedExternalExecution,
   contentAddressedModelExecution,
   type CanonicalProvenanceStore,
@@ -115,6 +126,12 @@ const CANONICAL_ROLE_CLASSIFICATION_PROMPT_VERSION =
 const CANONICAL_EVIDENCE_RERANK_PROMPT_ID =
   "canonical-evidence-relevance-rerank" as const;
 const CANONICAL_EVIDENCE_RERANK_PROMPT_VERSION = "v2" as const;
+const CANONICAL_SEED_CODEBOOK_PROMPT_ID = "canonical-seed-codebook" as const;
+const CANONICAL_SEED_CODEBOOK_PROMPT_VERSION = LLM_PROMPT_VERSIONS.seedCodebook;
+const CANONICAL_CODEBOOK_TAGGING_PROMPT_ID =
+  "canonical-codebook-tagging" as const;
+const CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION =
+  LLM_PROMPT_VERSIONS.codebookTagging;
 
 /**
  * How a call was served, as opposed to what it answered: the snapshot that
@@ -159,6 +176,8 @@ function llmRequestProvenanceFields(params: {
     | "claim-canonicalization"
     | "citation-role-classification"
     | "seed-grounding"
+    | "seed-codebook"
+    | "codebook-tagging"
     | "evidence-rerank"
     | "adjudication";
   model: string;
@@ -206,6 +225,12 @@ export type CanonicalProductionAdapterDeps = {
   fullTextAdapters?: FullTextFetchAdapters;
   paperCache?: ParsedPaperCacheOptions;
   forceRefresh?: boolean;
+  /** Verified seed codebooks kept between runs; absent, each run generates. */
+  codebookStore?: SeedCodebookStore;
+  /** Generate and store a new codebook even when one is stored for the key. */
+  regenerateCodebook?: boolean;
+  /** Run that a newly generated codebook is attributed to. */
+  runId?: string;
   paperProviders?: {
     resolvePaperByDoi: typeof resolvePaperByDoi;
     getCitingWorks: typeof openalex.getCitingWorks;
@@ -1456,7 +1481,285 @@ export function buildCanonicalScopeAdapters(
         execution,
       };
     },
+
+    buildCodebook: async ({ seed, seedText, seedTextHash }) => {
+      const model = deps.runConfig.scope.codebookModel;
+      const thinking = mapLlmCallThinking(model, true, 10_000, "medium");
+      const regenerate = deps.regenerateCodebook === true;
+      const key = {
+        seedId: seed.seedId,
+        seedTextHash,
+        procedureVersion: SEED_CODEBOOK_PROCEDURE_VERSION,
+      };
+      const executions: ModelExecution[] = [];
+      const failed = (
+        code:
+          | "timeout"
+          | "rate_limited"
+          | "transport"
+          | "invalid_response"
+          | "provider_failure"
+          | "no_verified_entries",
+        reason: string,
+      ) => ({
+        status: "failed" as const,
+        seedId: seed.seedId,
+        procedureVersion: SEED_CODEBOOK_PROCEDURE_VERSION,
+        seedTextHash,
+        failure: { code, reason },
+        executions,
+      });
+      return resolveSeedCodebook({
+        store: deps.codebookStore,
+        key,
+        regenerate,
+        generatedAt: new Date().toISOString(),
+        runId: deps.runId,
+        generate: async () => {
+          try {
+            const result = await runSeedCodebookProcedure({
+              seedTitle:
+                seed.resolution.status === "resolved"
+                  ? seed.resolution.paper.title
+                  : seed.doi,
+              blocks: seedText.blocks,
+              call: async ({ step, promptPrefix, promptSuffix, schema }) =>
+                schema.parse(
+                  await callCodebookStep({
+                    step,
+                    promptPrefix,
+                    promptSuffix,
+                    schema,
+                  }),
+                ),
+            });
+            if (!result.ok) {
+              return failed("no_verified_entries", result.error);
+            }
+            return {
+              status: "generated" as const,
+              output: result.data,
+              model,
+              executions,
+            };
+          } catch (error) {
+            if (error instanceof CodebookStepFailure) {
+              return failed(error.code, error.message);
+            }
+            throw error;
+          }
+        },
+      });
+
+      async function callCodebookStep(input: {
+        step: CodebookStep;
+        promptPrefix: string;
+        promptSuffix: string;
+        schema: z.ZodType;
+      }): Promise<unknown> {
+        const prompt = `${input.promptPrefix}${input.promptSuffix}`;
+        const requestBody = {
+          seedId: seed.seedId,
+          step: input.step,
+          promptText: prompt,
+          llm: llmRequestProvenanceFields({
+            purpose: "seed-codebook",
+            model,
+            sharedPrefix: input.promptPrefix,
+            batching: deps.llmClient.batching,
+            promptVersion: CANONICAL_SEED_CODEBOOK_PROMPT_VERSION,
+            exactCacheKeyVersion: LLM_CACHE_VERSIONS.seedCodebook,
+            ...(thinking != null ? { thinking } : {}),
+            forceRefresh: deps.forceRefresh === true || regenerate,
+          }),
+        };
+        let result;
+        try {
+          result = await deps.llmClient.generateObject({
+            purpose: "seed-codebook",
+            model,
+            promptPrefix: input.promptPrefix,
+            promptSuffix: input.promptSuffix,
+            schema: input.schema,
+            context: { stageKey: "scope" },
+            ...(thinking != null ? { thinking } : {}),
+            maxOutputTokens: 24_000,
+            // Regeneration must ask the model again, not replay the cache;
+            // its reply then replaces the cached one.
+            exactCache: {
+              keyVersion: LLM_CACHE_VERSIONS.seedCodebook,
+              ...(regenerate ? { refresh: true } : {}),
+            },
+          });
+        } catch (error) {
+          const mapped = mapLlmFailureCode(error);
+          executions.push(
+            contentAddressedModelExecution({
+              provider: "anthropic",
+              model,
+              promptId: CANONICAL_SEED_CODEBOOK_PROMPT_ID,
+              promptVersion: CANONICAL_SEED_CODEBOOK_PROMPT_VERSION,
+              promptText: prompt,
+              requestBody,
+              responseBody: {
+                role: "normalized-seed-codebook-failure",
+                error: mapped.reason,
+                ...(mapped.responseText != null
+                  ? { modelText: mapped.responseText }
+                  : {}),
+              },
+              store,
+              requestRole: "normalized-seed-codebook-request",
+              responseRole: "normalized-seed-codebook-failure",
+              canonicalStage: "scope",
+            }),
+          );
+          if (isFatalScopeCode(mapped.reasonCode)) {
+            throw new Error(
+              `Seed codebook provider failure (${mapped.reasonCode}): ${mapped.reason}`,
+              { cause: error },
+            );
+          }
+          throw new CodebookStepFailure(
+            mapped.reasonCode as Exclude<
+              typeof mapped.reasonCode,
+              "authentication" | "authorization" | "billing" | "quota"
+            >,
+            mapped.reason,
+          );
+        }
+        executions.push(
+          contentAddressedModelExecution({
+            provider: "anthropic",
+            model: result.record.model,
+            ...modelExecutionTelemetry(result.record),
+            promptId: CANONICAL_SEED_CODEBOOK_PROMPT_ID,
+            promptVersion: CANONICAL_SEED_CODEBOOK_PROMPT_VERSION,
+            promptText: prompt,
+            requestBody,
+            responseBody: {
+              role: "normalized-seed-codebook-response",
+              object: result.object,
+            },
+            store,
+            requestRole: "normalized-seed-codebook-request",
+            responseRole: "normalized-seed-codebook-response",
+            canonicalStage: "scope",
+          }),
+        );
+        return result.object;
+      }
+    },
+
+    tagClaim: async ({ codebook, claimText }) => {
+      const model = deps.runConfig.scope.taggingModel;
+      const thinking = mapLlmCallThinking(model, true, 2_000, "low");
+      const promptPrefix = buildCodebookTaggingPrefix(codebook);
+      const promptSuffix = buildCodebookTaggingSuffix(claimText);
+      const prompt = `${promptPrefix}${promptSuffix}`;
+      const requestBody = {
+        codebookId: codebook.codebookId,
+        claimText,
+        promptText: prompt,
+        llm: llmRequestProvenanceFields({
+          purpose: "codebook-tagging",
+          model,
+          sharedPrefix: promptPrefix,
+          batching: deps.llmClient.batching,
+          promptVersion: CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION,
+          exactCacheKeyVersion: LLM_CACHE_VERSIONS.codebookTagging,
+          ...(thinking != null ? { thinking } : {}),
+          forceRefresh: deps.forceRefresh === true,
+        }),
+      };
+      let result;
+      try {
+        result = await deps.llmClient.generateObject({
+          purpose: "codebook-tagging",
+          model,
+          promptPrefix,
+          promptSuffix,
+          schema: codebookTaggingReplySchema(codebook),
+          context: { stageKey: "scope" },
+          ...(thinking != null ? { thinking } : {}),
+          maxOutputTokens: 4_000,
+          exactCache: { keyVersion: LLM_CACHE_VERSIONS.codebookTagging },
+        });
+      } catch (error) {
+        const mapped = mapLlmFailureCode(error);
+        return {
+          status: "failed" as const,
+          reasonCode: mapped.reasonCode,
+          reason: mapped.reason,
+          execution: contentAddressedModelExecution({
+            provider: "anthropic",
+            model,
+            promptId: CANONICAL_CODEBOOK_TAGGING_PROMPT_ID,
+            promptVersion: CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION,
+            promptText: prompt,
+            requestBody,
+            responseBody: {
+              role: "normalized-codebook-tagging-failure",
+              error: mapped.reason,
+              ...(mapped.responseText != null
+                ? { modelText: mapped.responseText }
+                : {}),
+            },
+            store,
+            requestRole: "normalized-codebook-tagging-request",
+            responseRole: "normalized-codebook-tagging-failure",
+            canonicalStage: "scope",
+          }),
+        };
+      }
+      return {
+        status: "completed" as const,
+        rawOutput: result.object,
+        execution: contentAddressedModelExecution({
+          provider: "anthropic",
+          model: result.record.model,
+          ...modelExecutionTelemetry(result.record),
+          promptId: CANONICAL_CODEBOOK_TAGGING_PROMPT_ID,
+          promptVersion: CANONICAL_CODEBOOK_TAGGING_PROMPT_VERSION,
+          promptText: prompt,
+          requestBody,
+          responseBody: {
+            role: "normalized-codebook-tagging-response",
+            object: result.object,
+          },
+          store,
+          requestRole: "normalized-codebook-tagging-request",
+          responseRole: "normalized-codebook-tagging-response",
+          canonicalStage: "scope",
+        }),
+      };
+    },
   };
+}
+
+/** A nonfatal provider failure on one codebook step; the seed gets none. */
+class CodebookStepFailure extends Error {
+  override readonly name = "CodebookStepFailure";
+
+  constructor(
+    readonly code:
+      | "timeout"
+      | "rate_limited"
+      | "transport"
+      | "invalid_response",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function isFatalScopeCode(code: string): boolean {
+  return (
+    code === "authentication" ||
+    code === "authorization" ||
+    code === "billing" ||
+    code === "quota"
+  );
 }
 
 /**

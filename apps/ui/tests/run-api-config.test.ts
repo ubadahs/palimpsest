@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { analysisRunConfigSchema } from "palimpsest/contract";
+import {
+  CANONICAL_RUN_CONFIG_DEFAULTS,
+  analysisRunConfigSchema,
+} from "palimpsest/contract";
 
 import { buildCreateRunConfig, createRunSchema } from "@/pages/api/runs";
 import { startRunSchema } from "@/pages/api/runs/[runId]/start";
@@ -21,6 +24,8 @@ describe("run creation API config", () => {
     expect(config.scope).toEqual({
       groundingModel: "custom-grounding-model",
       groundingThinking: false,
+      codebookModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel,
+      taggingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel,
       seedPdfPath: "/tmp/uploaded-seed.pdf",
     });
   });

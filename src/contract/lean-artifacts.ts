@@ -62,6 +62,7 @@ export {
   reportRecordTraceSchema,
   reportWeightedRateSchema,
   reportSelectionAuditRowSchema,
+  reportSeedCodebookSchema,
   type CanonicalReportMethod,
   type ReportArtifactPayload,
   type ReportCount,
@@ -74,12 +75,15 @@ export {
   type ReportRecordTrace,
   type ReportWeightedRate,
   type ReportSelectionAuditRow,
+  type ReportSeedCodebook,
+  type ReportCodebookCounts,
   type ReportInterpretationStatus,
 } from "./canonical-report.js";
 
 export * from "./artifacts/envelope.js";
 export * from "./artifacts/discover.js";
 export * from "./artifacts/scope.js";
+export * from "./artifacts/codebook.js";
 export * from "./artifacts/prepare.js";
 export * from "./artifacts/evidence.js";
 export * from "./artifacts/seed-section-role.js";

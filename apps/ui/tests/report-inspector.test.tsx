@@ -471,6 +471,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
       ],
       records: [] as ReportInspectorRecordRow[],
       families: [] as MutationFamilyView[],
+      seedCodebooks: [],
     },
   };
   const records = [
@@ -556,6 +557,62 @@ describe("report inspector", () => {
     expect(screen.getByRole("tab", { name: "Records (3)" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Review" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Audit trail" })).toBeTruthy();
+  });
+
+  it("shows the seed codebook theme and entry tables on the overview", () => {
+    const payload = buildPayload();
+    const counts = {
+      taggedClaimUnits: 4,
+      adjudicatedRecords: 3,
+      F: 2,
+      D: 1,
+      E: 0,
+      U: 0,
+    };
+    payload.summary.seedCodebooks = [
+      {
+        seedId: `seed_${"a".repeat(64)}`,
+        seedDoi: "10.0000/invented",
+        seedTitle: "Invented seed",
+        codebookStatus: "reused",
+        themes: [
+          {
+            themeId: "T1",
+            statement: "Invented headline theme",
+            isHeadline: true,
+            entryIds: ["E01"],
+            counts,
+            themeOnlyClaimUnits: 1,
+            entryClaimUnits: 3,
+          },
+        ],
+        entries: [
+          {
+            entryId: "E01",
+            themeId: "T1",
+            statement: "Invented entry statement",
+            type: "result",
+            attributedToOtherWork: false,
+            counts,
+          },
+        ],
+        claims: {
+          total: 5,
+          specific: 3,
+          themeOnly: 1,
+          none: 1,
+          taggingFailed: 0,
+          notTagged: 0,
+        },
+        claimUnits: { total: 5, untagged: 1 },
+        adjudicatedRecords: { total: 3, untagged: 0 },
+        uncitedEntryIds: [],
+      },
+    ];
+    render(<ReportInspector payload={payload} runId="run-report-ui" />);
+    expect(screen.getByTestId("seed-codebook-tables")).toBeTruthy();
+    expect(screen.getByText("Invented headline theme")).toBeTruthy();
+    expect(screen.getByText("Invented entry statement")).toBeTruthy();
   });
 
   it("filters records and expands adjudication detail", () => {

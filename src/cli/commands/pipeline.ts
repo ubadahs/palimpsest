@@ -112,6 +112,7 @@ export function parseCanonicalPipelineArgs(
   let rerunFromStage: StageKey | undefined;
   let maxCostUsd: number | undefined;
   let batch: boolean | undefined;
+  let regenerateCodebook: boolean | undefined;
 
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index]!;
@@ -269,6 +270,9 @@ export function parseCanonicalPipelineArgs(
       case "--batch":
         batch = true;
         break;
+      case "--regenerate-codebook":
+        regenerateCodebook = true;
+        break;
       default:
         fail(
           `Unknown pipeline flag: ${flag}. Run "pipeline --help" for canonical options.`,
@@ -348,6 +352,7 @@ export function parseCanonicalPipelineArgs(
     rerunFromStage,
     maxCostUsd,
     batch,
+    regenerateCodebook,
   };
 }
 
@@ -398,7 +403,9 @@ Options:
   --max-cost <usd>                  Stop sending model requests once the run's estimated
                                     spend reaches this; resume with a higher value to go on
   --batch                           Send model requests through the Message Batches API at
-                                    half price; stages wait minutes to hours for results`);
+                                    half price; stages wait minutes to hours for results
+  --regenerate-codebook             Build and store a new seed codebook when Scope runs, even
+                                    if one is stored (--force-refresh never replaces it)`);
 }
 
 export async function runPipelineCommand(argv: string[]): Promise<void> {

@@ -59,6 +59,12 @@ npm run dev -- pipeline --input path/to/dois.json --batch
 npm run dev -- pipeline --input path/to/dois.json --census --max-cost 40
 ```
 
+Scope also builds a codebook of the seed paper's citable statements, stores it so later runs of the same seed reuse it, and tags every citing claim with the entries it is about; the report adds per-entry and per-theme tables beside the claim families. `--force-refresh` keeps the stored codebook; to replace it:
+
+```bash
+npm run dev -- pipeline --run-id <uuid> --rerun-from scope --regenerate-codebook
+```
+
 Run the local UI for orchestration, logs, and artifact inspection:
 
 ```bash
@@ -101,7 +107,7 @@ Model calls default to Claude Haiku 5.5 (claim extraction, citation roles, reran
 | `npm run lint` | Run ESLint over `src/` and `tests/` |
 | `npm run lint:all` | Run root lint plus UI workspace lint |
 | `npm run typecheck:all` | Typecheck root and the UI workspace |
-| `npm run db:gc -- --days 90 [--dry-run]` | Delete aged run-registry rows, stale LLM cache rows, and expired batch request rows |
+| `npm run db:gc -- --days 90 [--dry-run]` | Delete aged run-registry rows, stale LLM cache rows, and expired batch request rows (never stored seed codebooks) |
 | `npm run runs:gc -- [--run-id <uuid>] [--dry-run]` | Delete superseded stage attempts and the provenance only they referenced |
 | `npm run ui:dev` / `ui:build` / `ui:start` | Run the local Next.js UI |
 | `npm --workspace @palimpsest/ui run test` | Run UI workspace tests |

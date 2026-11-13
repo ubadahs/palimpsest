@@ -4,6 +4,7 @@ import { compareCodeUnits } from "../shared/order.js";
 import { createBoundaryParser } from "../shared/boundary.js";
 
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
+import { buildSeedCodebookViews } from "./canonical-report-codebook.js";
 import { summarizeStatuses } from "../contract/canonical-report.js";
 
 import {
@@ -172,6 +173,19 @@ export function runCanonicalReport(
     adjudicateArtifact,
   });
 
+  let seedCodebooks;
+  try {
+    seedCodebooks = buildSeedCodebookViews({
+      discoverArtifact,
+      scopeArtifact,
+      adjudicateArtifact,
+    });
+  } catch (error) {
+    throw new CanonicalReportBoundaryError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
   const payload = reportArtifactPayloadSchema.parse({
     lineage,
     method: canonicalReportMethod,
@@ -186,6 +200,7 @@ export function runCanonicalReport(
     recordTraces,
     decisionSummaries,
     selectionAudit,
+    seedCodebooks,
   });
 
   const decisions = [

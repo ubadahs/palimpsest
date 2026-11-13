@@ -39,6 +39,14 @@ import {
   loadCanonicalArtifact,
   writeCanonicalArtifact,
 } from "../../src/contract/selectors.js";
+import {
+  fixtureModelExecution,
+  stubCodebookAdapters,
+} from "./codebook.fixture.js";
+import {
+  SEED_CODEBOOK_PROCEDURE_VERSION,
+  buildSeedCodebookId,
+} from "../../src/contract/lean-artifacts.js";
 
 type ScopeFixtureOptions = {
   maxFamilies?: number;
@@ -525,6 +533,7 @@ function scopeAdapters(
         execution,
       });
     },
+    ...stubCodebookAdapters(),
     groundFamily: ({ family }) => {
       const execution = scopeModelExecution(family.familyId, options.model);
       if (options.fatalGrounding) {
@@ -1173,5 +1182,238 @@ describe("scope grounding concurrency", () => {
     const parallel = await run(3);
     expect(parallel.payload).toEqual(sequential.payload);
     expect(parallel.provenanceInputs).toEqual(sequential.provenanceInputs);
+  });
+});
+
+describe("scope seed codebook and claim tags", () => {
+  const normalized = (text: string) => text.trim().replace(/\s+/g, " ");
+  /** Spreads the (seed, claim text) units over the five outcomes. */
+  function bucketsFor(
+    discover: DiscoverArtifact,
+  ): (seedId: string, text: string) => number {
+    const units = [
+      ...new Set(
+        discover.payload.attributedClaimRecords.map(
+          (claim) =>
+            `${claim.seedId}\u0000${normalized(claim.extractedClaimText)}`,
+        ),
+      ),
+    ].sort();
+    return (seedId, text) => units.indexOf(`${seedId}\u0000${text}`) % 5;
+  }
+
+  function richCodebookAdapters(
+    tagCalls: string[],
+    bucketOf: (seedId: string, text: string) => number,
+    delay: () => number = () => 0,
+  ): Pick<CanonicalScopeAdapters, "buildCodebook" | "tagClaim"> {
+    const stub = stubCodebookAdapters();
+    return {
+      buildCodebook: async (input) => {
+        const base = (await stub.buildCodebook(input)) as Record<
+          string,
+          unknown
+        > & {
+          themes: Array<Record<string, unknown>>;
+          entries: Array<Record<string, unknown>>;
+        };
+        const content = {
+          themes: [
+            base.themes[0]!,
+            {
+              ...base.themes[0]!,
+              themeId: "T2",
+              isHeadline: false,
+              statement: "Methods.",
+            },
+          ],
+          entries: [
+            base.entries[0]!,
+            {
+              ...base.entries[0]!,
+              entryId: "E02",
+              statement: "A second result.",
+            },
+            {
+              ...base.entries[0]!,
+              entryId: "E03",
+              themeId: "T2",
+              statement: "A method.",
+            },
+          ],
+        };
+        return {
+          ...base,
+          ...content,
+          codebookId: buildSeedCodebookId({
+            seedId: input.seed.seedId,
+            seedTextHash: input.seedTextHash,
+            procedureVersion: SEED_CODEBOOK_PROCEDURE_VERSION,
+            content: content as never,
+          }),
+        };
+      },
+      tagClaim: async ({ seed, claimText }) => {
+        tagCalls.push(`${seed.seedId}\u0000${claimText}`);
+        await tick(delay());
+        const bucket = bucketOf(seed.seedId, claimText);
+        const execution = fixtureModelExecution(`tag:${claimText}`);
+        if (bucket === 3) {
+          return {
+            status: "failed",
+            reasonCode: "timeout",
+            reason: "Fixture timeout.",
+            execution,
+          };
+        }
+        const rawOutput = [
+          {
+            kind: "specific",
+            entries: ["E02", "E01"],
+            theme: null,
+            reason: "Two.",
+          },
+          { kind: "theme_only", entries: [], theme: "T2", reason: "Broad." },
+          { kind: "none", entries: [], theme: null, reason: "Not listed." },
+          undefined,
+          {
+            kind: "specific",
+            entries: ["E99"],
+            theme: null,
+            reason: "Bad id.",
+          },
+        ][bucket];
+        return { status: "completed", rawOutput, execution };
+      },
+    };
+  }
+
+  it("tags every Discover claim, one claim per request, with typed set rules and failures", async () => {
+    const discover = await buildDiscoverArtifact(4);
+    const tagCalls: string[] = [];
+    const result = await runCanonicalScope(
+      discover,
+      {
+        ...scopeAdapters({}, new Map()),
+        ...richCodebookAdapters(tagCalls, bucketsFor(discover)),
+      },
+      { recordedAt: "2026-07-16T12:10:00.000Z", concurrency: 3 },
+    );
+    const claims = discover.payload.attributedClaimRecords;
+    const tags = result.payload.claimTags;
+    expect(tags.map((tag) => tag.claimRecordId).sort()).toEqual(
+      claims.map((claim) => claim.claimRecordId).sort(),
+    );
+    // Each request carries one whitespace-normalized claim text, once per seed.
+    expect(new Set(tagCalls).size).toBe(tagCalls.length);
+    const seedById = new Map(
+      claims.map((claim) => [claim.claimRecordId, claim.seedId]),
+    );
+    const tagged = tags.filter((tag) => tag.status !== "not_tagged");
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(tagCalls.length).toBeLessThanOrEqual(tagged.length);
+
+    const textById = new Map(
+      claims.map((claim) => [
+        claim.claimRecordId,
+        normalized(claim.extractedClaimText),
+      ]),
+    );
+    for (const tag of tagged) {
+      const text = textById.get(tag.claimRecordId)!;
+      expect(tagCalls).toContain(
+        `${seedById.get(tag.claimRecordId)!}\u0000${text}`,
+      );
+      const bucket = bucketsFor(discover)(
+        seedById.get(tag.claimRecordId)!,
+        text,
+      );
+      if (bucket === 0)
+        expect(tag).toMatchObject({
+          status: "tagged",
+          kind: "specific",
+          tags: ["E01", "E02"],
+        });
+      if (bucket === 1)
+        expect(tag).toMatchObject({
+          status: "tagged",
+          kind: "theme_only",
+          tags: ["T2"],
+        });
+      if (bucket === 2)
+        expect(tag).toMatchObject({ status: "tagged", kind: "none", tags: [] });
+      if (bucket === 3)
+        expect(tag).toMatchObject({
+          status: "tagging_failed",
+          failure: { code: "timeout" },
+        });
+      if (bucket === 4)
+        expect(tag).toMatchObject({
+          status: "tagging_failed",
+          failure: { code: "invalid_response" },
+        });
+    }
+    const outcomes = new Set(
+      tagged.map((tag) => (tag.status === "tagged" ? tag.kind : tag.status)),
+    );
+    expect([...outcomes].sort()).toEqual([
+      "none",
+      "specific",
+      "tagging_failed",
+      "theme_only",
+    ]);
+    expect(
+      result.payload.codebooks.every(
+        (codebook) => codebook.status === "reused",
+      ),
+    ).toBe(true);
+    // Families are untouched by the annotation.
+    const plain = await runCanonicalScope(
+      discover,
+      scopeAdapters({}, new Map()),
+      {
+        recordedAt: "2026-07-16T12:10:00.000Z",
+      },
+    );
+    expect(result.payload.families).toEqual(plain.payload.families);
+  });
+
+  it("produces identical tags at any concurrency and completion order", async () => {
+    const discover = await buildDiscoverArtifact(4);
+    const run = (concurrency: number) =>
+      runCanonicalScope(
+        discover,
+        {
+          ...scopeAdapters({}, new Map()),
+          ...richCodebookAdapters([], bucketsFor(discover), () =>
+            Math.floor(Math.random() * 5),
+          ),
+        },
+        { recordedAt: "2026-07-16T12:10:00.000Z", concurrency },
+      );
+    const sequential = await run(1);
+    const parallel = await run(6);
+    expect(parallel.payload.claimTags).toEqual(sequential.payload.claimTags);
+    expect(parallel.payload).toEqual(sequential.payload);
+  });
+
+  it("rejects tags that name ids outside the codebook", async () => {
+    const { result } = await runScopeFixture();
+    const payload = structuredClone(result.payload);
+    const tag = payload.claimTags.find((entry) => entry.status === "tagged");
+    if (!tag || tag.status !== "tagged") throw new Error("fixture needs a tag");
+    tag.tags = ["E42"];
+    expect(scopeArtifactPayloadSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it("rejects a codebook quote that is not exact seed text", async () => {
+    const { result } = await runScopeFixture();
+    const payload = structuredClone(result.payload);
+    const codebook = payload.codebooks[0]!;
+    if (codebook.status !== "reused")
+      throw new Error("fixture needs a codebook");
+    codebook.entries[0]!.quotes[0]!.charOffsetStart += 1;
+    codebook.entries[0]!.quotes[0]!.charOffsetEnd += 1;
+    expect(scopeArtifactPayloadSchema.safeParse(payload).success).toBe(false);
   });
 });

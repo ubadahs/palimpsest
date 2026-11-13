@@ -1,7 +1,10 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { purgeOldRuns } from "../../storage/analysis-runs.js";
-import { openDatabase } from "../../storage/database.js";
+import {
+  openDatabase,
+  type DatabaseConnection,
+} from "../../storage/database.js";
 import {
   BATCH_RESULTS_RETENTION_DAYS,
   countExpiredBatchRequests,
@@ -75,7 +78,7 @@ function printDatabaseGcHelp(): void {
 Delete aged analysis-run registry rows, stale LLM exact-result cache rows, and
 Message Batches request rows past the API's ${String(BATCH_RESULTS_RETENTION_DAYS)}-day results retention
 from the local SQLite database. Does not delete on-disk run artifact directories
-under data/runs/.
+under data/runs/, and never deletes stored seed codebooks.
 
 Options:
   --days <n>   Retention window in days (default 90). Deletes succeeded,
@@ -84,6 +87,22 @@ Options:
                (by last_hit_at, or created_at if never hit). Batch request
                rows always use the ${String(BATCH_RESULTS_RETENTION_DAYS)}-day results retention instead.
   --dry-run    Report how many rows would be deleted without deleting.`);
+}
+
+/**
+ * Deletes aged run registry rows, stale exact-result cache rows, and expired
+ * batch request rows. Stored seed codebooks are not garbage: they keep
+ * codebook entries fixed across runs, so `db:gc` never touches them.
+ */
+export function collectDatabaseGarbage(
+  database: DatabaseConnection,
+  days: number,
+): { deletedRuns: number; evictedCache: number; prunedBatch: number } {
+  return {
+    deletedRuns: purgeOldRuns(database, days),
+    evictedCache: evictStaleLLMCache(database, days),
+    prunedBatch: pruneExpiredBatchRequests(database),
+  };
 }
 
 export function runDatabaseGcCommand(argv: string[]): void {
@@ -125,9 +144,10 @@ export function runDatabaseGcCommand(argv: string[]): void {
       return;
     }
 
-    const deletedRuns = purgeOldRuns(database, options.days);
-    const evictedCache = evictStaleLLMCache(database, options.days);
-    const prunedBatch = pruneExpiredBatchRequests(database);
+    const { deletedRuns, evictedCache, prunedBatch } = collectDatabaseGarbage(
+      database,
+      options.days,
+    );
     console.info(
       `db:gc (${options.days} days): deleted ${deletedRuns} analysis run(s), ${evictedCache} LLM cache row(s), and ${prunedBatch} expired batch request row(s) from ${config.databasePath}. Artifact directories under data/runs/ were not touched.`,
     );

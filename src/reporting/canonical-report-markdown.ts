@@ -3,6 +3,7 @@ import {
   reportArtifactSchema,
   type ReportArtifact,
   type ReportArtifactPayload,
+  type ReportCodebookCounts,
   type ReportCount,
   type ReportRate,
   type ReportRecordTrace,
@@ -114,6 +115,8 @@ export function renderCanonicalReportMarkdown(
     }
     lines.push("");
   });
+
+  appendSeedCodebooks(lines, payload.seedCodebooks);
 
   lines.push("## Run and funnel coverage");
   lines.push("");
@@ -510,6 +513,92 @@ export function renderCanonicalReportMarkdown(
   lines.push("");
 
   return `${lines.join("\n")}`;
+}
+
+function appendSeedCodebooks(
+  lines: string[],
+  codebooks: ReportArtifactPayload["seedCodebooks"],
+): void {
+  lines.push("## Seed codebook view");
+  lines.push("");
+  lines.push(
+    "A second view beside the families. Codebook entries come from the seed paper itself, not from the citers, and stay the same across runs of the same seed text, so these rows can be compared between runs. Each citing claim is tagged with the entries it is about; a tag says what a claim is about, never whether it is right, and it is not a verdict. A claim tagged none is about nothing the codebook lists; that does not mean the seed never said it. A record counts under every entry it is tagged with; under a theme it counts once if it carries the theme itself or any entry under it. Verdicts are uncalibrated.",
+  );
+  lines.push("");
+  if (codebooks.length === 0) {
+    lines.push("- No seed text was materialized, so no codebook was built.");
+    lines.push("");
+    return;
+  }
+  const countCells = (counts: ReportCodebookCounts): string =>
+    [
+      counts.taggedClaimUnits,
+      counts.adjudicatedRecords,
+      counts.F,
+      counts.D,
+      counts.E,
+      counts.U,
+    ]
+      .map(String)
+      .join(" | ");
+  for (const codebook of codebooks) {
+    lines.push(`### ${codebook.seedTitle ?? codebook.seedDoi}`);
+    lines.push("");
+    if (
+      codebook.codebookStatus === "failed" ||
+      codebook.codebookStatus === "seed_text_unavailable"
+    ) {
+      lines.push(
+        `No codebook (\`${codebook.codebookStatus}\`${codebook.unavailableReason ? `: ${codebook.unavailableReason}` : ""}); its ${String(codebook.claims.total)} claims are untagged.`,
+      );
+      lines.push("");
+      continue;
+    }
+    lines.push(
+      `Codebook \`${codebook.codebookId ?? "unknown"}\` (${codebook.codebookStatus}${codebook.codebookStatus === "reused" ? `, generated ${codebook.generatedAt ?? "earlier"}` : ""}; procedure \`${codebook.procedureVersion ?? "unknown"}\`): ${String(codebook.themes.length)} themes, ${String(codebook.entries.length)} entries.`,
+    );
+    lines.push("");
+    const claims = codebook.claims;
+    lines.push(
+      `Claims: ${String(claims.total)} — specific entries ${String(claims.specific)}, theme only ${String(claims.themeOnly)}, none ${String(claims.none)}, tagging failed ${String(claims.taggingFailed)}, not tagged ${String(claims.notTagged)}. Claim units: ${String(codebook.claimUnits.total)}, ${String(codebook.claimUnits.untagged)} untagged. Adjudicated records: ${String(codebook.adjudicatedRecords.total)}, ${String(codebook.adjudicatedRecords.untagged)} untagged.`,
+    );
+    lines.push("");
+    lines.push("#### By theme");
+    lines.push("");
+    lines.push(
+      "| Theme | Statement | Entries | Claim units | Theme only | Via entries | Adjudicated | F | D | E | U |",
+    );
+    lines.push("|---|---|---|---|---|---|---|---|---|---|---|");
+    for (const theme of codebook.themes) {
+      const counts = theme.counts;
+      lines.push(
+        `| ${theme.themeId}${theme.isHeadline ? " (headline)" : ""} | ${escapeCell(theme.statement)} | ${String(theme.entryIds.length)} | ${String(counts.taggedClaimUnits)} | ${String(theme.themeOnlyClaimUnits)} | ${String(theme.entryClaimUnits)} | ${String(counts.adjudicatedRecords)} | ${String(counts.F)} | ${String(counts.D)} | ${String(counts.E)} | ${String(counts.U)} |`,
+      );
+    }
+    lines.push("");
+    lines.push("#### By entry");
+    lines.push("");
+    lines.push(
+      "| Entry | Theme | Type | Statement | Claim units | Adjudicated | F | D | E | U |",
+    );
+    lines.push("|---|---|---|---|---|---|---|---|---|---|");
+    for (const entry of codebook.entries) {
+      lines.push(
+        `| ${entry.entryId} | ${entry.themeId} | ${entry.type}${entry.attributedToOtherWork ? " (relayed)" : ""} | ${escapeCell(entry.statement)} | ${countCells(entry.counts)} |`,
+      );
+    }
+    lines.push("");
+    lines.push(
+      codebook.uncitedEntryIds.length > 0
+        ? `Entries no claim cites: ${codebook.uncitedEntryIds.join(", ")}.`
+        : "Every entry is cited by at least one claim.",
+    );
+    lines.push("");
+  }
+}
+
+function escapeCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 }
 
 function appendRestatement(
