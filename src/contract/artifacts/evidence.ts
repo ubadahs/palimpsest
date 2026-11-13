@@ -1,5 +1,5 @@
 /**
- * Canonical Evidence artifact payload: chunked seed text, BM25 and rerank
+ * Evidence artifact payload: chunked seed text, BM25 and rerank
  * versions, final selections, and one outcome per Prepare record.
  */
 import { z } from "zod";
@@ -13,12 +13,12 @@ import {
 import {
   evidenceRerankStatusSchema,
   evidenceRetrievalStatusSchema,
-} from "../canonical-evidence-statuses.js";
+} from "./evidence-statuses.js";
 import {
   artifactReferenceSchema,
   sha256DigestSchema,
   stableIdentifierSchema,
-} from "../lean-artifact-primitives.js";
+} from "./primitives.js";
 import {
   modelExecutionSchema,
   type ModelExecution,
@@ -39,15 +39,15 @@ import { scopeGroundingStatusSchema } from "./scope.js";
 
 const evidencePrepareArtifactReferenceSchema = artifactReferenceSchema
   .extend({
-    role: z.literal("canonical-prepare-input"),
-    canonicalStage: z.literal("prepare"),
+    role: z.literal("prepare-input"),
+    stage: z.literal("prepare"),
   })
   .strict();
 
 const evidenceScopeArtifactReferenceSchema = artifactReferenceSchema
   .extend({
-    role: z.literal("canonical-scope-input"),
-    canonicalStage: z.literal("scope"),
+    role: z.literal("scope-input"),
+    stage: z.literal("scope"),
   })
   .strict();
 
@@ -62,7 +62,7 @@ export type EvidenceLineage = z.infer<typeof evidenceLineageSchema>;
 
 export const evidenceChunkConfigurationSchema = z
   .object({
-    version: z.literal("canonical-evidence-chunking-v1"),
+    version: z.literal("evidence-chunking-v1"),
     strategy: z.literal("scope-block-character-windows"),
     boundaryRule: z.literal("fixed-character"),
     maxCharacters: z.number().int().positive(),
@@ -432,7 +432,7 @@ export type EvidenceQuery = z.infer<typeof evidenceQuerySchema>;
 
 export const evidenceBm25ConfigurationSchema = z
   .object({
-    version: z.literal("canonical-bm25-v1"),
+    version: z.literal("bm25-v1"),
     k1: z.number().positive(),
     b: z.number().min(0).max(1),
     tokenizer: z
@@ -464,7 +464,7 @@ export function buildEvidenceBm25RunId(
   input: EvidenceBm25RunIdentityInputs,
 ): string {
   return buildStableId("bm25-run", {
-    identityKind: "canonical-evidence-bm25-run-v2",
+    identityKind: "evidence-bm25-run-v2",
     queryContentHash: canonicalSha256(normalizeWhitespace(input.queryText)),
     corpusId: input.corpusId,
     corpusChunkIds: input.corpusChunkIds,
@@ -640,7 +640,7 @@ export function buildEvidenceRerankRunId(
   input: EvidenceRerankRunIdentityInputs,
 ): string {
   return buildStableId("rerank-run", {
-    identityKind: "canonical-evidence-relevance-rerank-v1",
+    identityKind: "evidence-relevance-rerank-v1",
     bm25RunId: input.bm25RunId,
     candidateChunkIds: input.candidateChunkIds,
     topN: input.topN,
@@ -804,7 +804,7 @@ export function buildEvidenceSelectionId(
   input: EvidenceSelectionIdentityInputs,
 ): string {
   return buildStableId("evidence-selection", {
-    identityKind: "canonical-evidence-final-selection-v1",
+    identityKind: "evidence-final-selection-v1",
     bm25RunId: input.bm25RunId,
     rerankRunId: input.rerankRunId,
     rankingSource: input.rankingSource,

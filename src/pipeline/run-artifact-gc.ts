@@ -9,10 +9,7 @@ import { resolve } from "node:path";
 
 import type Database from "better-sqlite3";
 
-import {
-  stageDefinitions,
-  type StageDefinition,
-} from "../contract/lean-stages.js";
+import { stageDefinitions, type StageDefinition } from "../contract/stages.js";
 import { listAnalysisRuns, listRunStages } from "../storage/analysis-runs.js";
 import { artifactStemFromPrimaryPath } from "../contract/selectors.js";
 

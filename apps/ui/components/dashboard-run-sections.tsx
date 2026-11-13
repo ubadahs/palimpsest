@@ -104,7 +104,7 @@ function RunRowCard({
             {run.seedDoi}
           </h3>
           <p className="max-w-3xl text-sm text-[var(--text-muted)]">
-            Canonical DOI-first pipeline
+            DOI-first pipeline
           </p>
           {showVerdictRow && verdictSummary ? (
             <div className="space-y-1.5 pt-1">

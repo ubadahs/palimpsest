@@ -7,7 +7,7 @@ import {
   buildStageInspectorPayload,
   buildStageWorkflowSnapshot,
   computeAggregateStageStatus,
-  deriveCanonicalStageSummaryFromPath,
+  deriveStageSummaryFromPath,
   extractStageFailureDetailFromLog,
   getEnvironmentHealthSummary,
   getStageDefinition,
@@ -307,7 +307,7 @@ function attachStageSummaries(
         (primaryArtifactPath
           ? (() => {
               try {
-                return deriveCanonicalStageSummaryFromPath(
+                return deriveStageSummaryFromPath(
                   stage.stageKey,
                   primaryArtifactPath,
                 );
@@ -550,7 +550,7 @@ function buildRunStageDetail<K extends StageKey>(
   } as RunStageDetail<K>;
 }
 
-/** Canonical runs store one row per stage (`family_index = 0`). */
+/** Runs store one row per stage (`family_index = 0`). */
 function getStageDetailOrThrow<K extends StageKey>(
   runId: string,
   stageKey: K,

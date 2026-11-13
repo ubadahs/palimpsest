@@ -22,7 +22,7 @@ describe("Run detail smoke", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the canonical six-stage rail", () => {
+  it("renders the six-stage rail", () => {
     const run: RunDetail = {
       id: "run-smoke",
       seedDoi: "10.1234/seed",
@@ -147,7 +147,7 @@ describe("Run detail smoke", () => {
     expect(screen.queryByText("All 6 stages complete")).toBeNull();
   });
 
-  it("polls a running canonical run and renders live workflow updates", async () => {
+  it("polls a running run and renders live workflow updates", async () => {
     vi.useFakeTimers();
     const running: RunDetail = {
       id: "run-live",
@@ -230,7 +230,7 @@ describe("Run detail smoke", () => {
               url.endsWith("/cost")
                 ? { totalEstimatedCostUsd: 0, source: "cost_file" }
                 : url.includes("/log")
-                  ? { content: "PALIMPSEST_PROGRESS live canonical output" }
+                  ? { content: "PALIMPSEST_PROGRESS live output" }
                   : completed,
             ),
             { status: 200, headers: { "content-type": "application/json" } },
@@ -244,9 +244,7 @@ describe("Run detail smoke", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(
-      screen.getByText("PALIMPSEST_PROGRESS live canonical output"),
-    ).toBeTruthy();
+    expect(screen.getByText("PALIMPSEST_PROGRESS live output")).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });

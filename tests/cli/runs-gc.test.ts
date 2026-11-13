@@ -50,11 +50,11 @@ describe("runs:gc command", () => {
       mkdirSync(discoverDir, { recursive: true });
       const superseded = join(
         discoverDir,
-        "20260902T100000Z_first_canonical-discover.json",
+        "20260902T100000Z_first_discover.json",
       );
       const current = join(
         discoverDir,
-        "20260902T110000Z_second_canonical-discover.json",
+        "20260902T110000Z_second_discover.json",
       );
       writeFileSync(superseded, "{}", "utf8");
       writeFileSync(current, "{}", "utf8");

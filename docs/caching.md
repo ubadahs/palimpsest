@@ -1,6 +1,6 @@
 # Caching
 
-Caching supports the DOI-first canonical pipeline:
+Caching supports the DOI-first pipeline:
 
 ```text
 discover → scope → prepare → evidence → adjudicate → report
@@ -32,11 +32,11 @@ Codebook tagging uses the exact-result cache like any other call (`PROMPT_VERSIO
 
 ## Paper materialization cache
 
-The acquisition layer reuses raw and parsed paper materialization when valid. `--force-refresh` requests new materialization. Canonical Evidence still retrieves only over the immutable Scope seed-text blocks referenced by its input artifact; a cache does not permit substituted text.
+The acquisition layer reuses raw and parsed paper materialization when valid. `--force-refresh` requests new materialization. Evidence still retrieves only over the immutable Scope seed-text blocks referenced by its input artifact; a cache does not permit substituted text.
 
 ## Provider prompt caching
 
-Provider prompt caching is prefix-based and charges a write premium, so it is enabled only where a large prefix is genuinely shared, and only for a request that names that prefix. Scope grounding sends the seed text as a cached prefix and the family claim as the suffix, so the seed paper is read from cache for every family after the first. The three seed-codebook calls share one seed-text prefix and run in order, so the second and third read the cache the first wrote; codebook tagging sends the seed's codebook as the prefix and one claim as the suffix, its first request per seed alone. Whole-paper adjudication does the same with the per-record citing side as the suffix, and holds a seed's other records back until its first request has written the cache. Extraction, canonicalization, reranking, role classification, and chunk-based adjudication prompts are unique per record and are not cached. This is distinct from the persistent exact-result cache and is subject to provider behavior.
+Provider prompt caching is prefix-based and charges a write premium, so it is enabled only where a large prefix is genuinely shared, and only for a request that names that prefix. Scope grounding sends the seed text as a cached prefix and the family claim as the suffix, so the seed paper is read from cache for every family after the first. The three seed-codebook calls share one seed-text prefix and run in order, so the second and third read the cache the first wrote; codebook tagging sends the seed's codebook as the prefix and one claim as the suffix, its first request per seed alone. Whole-paper adjudication does the same with the per-record citing side as the suffix, and holds a seed's other records back until its first request has written the cache. Extraction, clustering, reranking, role classification, and chunk-based adjudication prompts are unique per record and are not cached. This is distinct from the persistent exact-result cache and is subject to provider behavior.
 
 Under `pipeline --batch` shared prefixes carry the 1-hour TTL instead of 5 minutes, since a batch can start well after the seed's first request wrote the cache; the write costs twice the input price instead of 1.25 times and is paid once per seed. Cache tokens are billed at the batch discount, but batch items run in no fixed order and often at once, so cache hits within a batch are best-effort. Batch savings on whole-paper adjudication depend on them: a missed cache makes each record pay full input for the seed text and can leave a batched record costing about 2.4 times a direct one. `cacheReadTokens` in `cost-summary.json` shows whether the hits happened. The TTL is a transport detail like `transport` itself: artifact provenance keeps the purpose's configured policy (`ephemeral:5m`). The cache-writing first request per seed is still answered before the seed's other requests are queued. The `llm_batch_requests` table is not a cache: it keeps only results already paid for and not yet handed to a caller, and deletes each row once delivered, so it never replays an answer the exact-result cache would not.
 

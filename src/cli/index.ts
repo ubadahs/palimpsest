@@ -13,7 +13,7 @@ Available commands:
   db:migrate    Apply pending SQLite migrations
   db:gc         Delete aged analysis-run and LLM-cache rows (not artifact dirs)
   runs:gc       Delete superseded run artifacts and unreferenced provenance blobs
-  pipeline      Run canonical six stages: discover → scope → prepare → evidence → adjudicate → report
+  pipeline      Run the six stages: discover → scope → prepare → evidence → adjudicate → report
   eval          Build datasets, validate, run/resume experiments, and report results
 `);
 }

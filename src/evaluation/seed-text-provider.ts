@@ -1,10 +1,10 @@
 /** Evaluation arm that adjudicates from the whole seed paper. */
-import { canonicalAdjudicatePacketSchema } from "../adjudication/canonical-adjudicate-packet.js";
+import { adjudicatePacketSchema } from "../stages/adjudicate/packet.js";
 import {
   buildSeedTextAdjudicatePrompt,
   resolveSeedTextJudgment,
   seedTextAdjudicateReplySchema,
-} from "../adjudication/seed-text-adjudicate.js";
+} from "../stages/adjudicate/seed-text.js";
 import type { LLMClient } from "../integrations/llm-client.js";
 import type { ProviderConfig } from "./config.js";
 import {
@@ -46,7 +46,7 @@ export async function adjudicateFromSeedText(input: {
       "provider_failure",
     );
   const prompt = buildSeedTextAdjudicatePrompt({
-    packet: canonicalAdjudicatePacketSchema.parse(item.packet),
+    packet: adjudicatePacketSchema.parse(item.packet),
     seed,
   });
   if (

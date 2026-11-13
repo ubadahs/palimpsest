@@ -7,7 +7,7 @@ export const PROMPT_VERSIONS = {
   /** Attributed claim extraction from a citing-paper mention (Discover). */
   extraction: "2026-09-02-v4",
   /** Paraphrased claims clustered across citers, per seed (Discover). */
-  canonicalization: "2026-09-02-v2",
+  clustering: "2026-09-02-v2",
   /** A family claim grounded in the seed text (Scope). */
   grounding: "2026-11-12-v3",
   /**

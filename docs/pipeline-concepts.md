@@ -9,7 +9,7 @@ DOI input
   → Prepared family × occurrence records
   → Evidence outcomes
   → Adjudication outcomes
-  → Canonical report
+  → Report
 ```
 
 ## Main objects
@@ -21,7 +21,7 @@ DOI input
 | Prepared record | `prepare` | One stable family × citation-occurrence evaluation record with complete and occurrence-local claim context plus classification. |
 | Evidence outcome | `evidence` | One retrieval outcome per Prepared record over immutable seed text, with BM25 and optional separate reranking provenance. |
 | Adjudication outcome | `adjudicate` | One `F`/`D`/`E`/`U` result or typed operational non-verdict per Evidence record. |
-| Canonical report | `report` | Deterministic funnel, rate, trace, and interpretation accounting for the full artifact chain. |
+| Report | `report` | Deterministic funnel, rate, trace, and interpretation accounting for the full artifact chain. |
 
 ## Important boundaries
 
@@ -29,4 +29,4 @@ DOI input
 - The public stage vocabulary is only `discover`, `scope`, `prepare`, `evidence`, `adjudicate`, and `report`.
 - Every scoped family × occurrence record remains accounted for downstream.
 - `U` is a scientific uncertainty verdict with evidence; it is not a substitute for retrieval, provider, or classification failure.
-- Canonical Adjudicate is runnable but uncalibrated. Blinded human calibration is required before trust claims.
+- Adjudicate is runnable but uncalibrated. Blinded human calibration is required before trust claims.

@@ -7,7 +7,7 @@ import { CurrentWorkPanel } from "../components/current-work-panel";
 const workflow: StageWorkflowSnapshot = {
   stageKey: "evidence",
   title: "Current work",
-  summary: "Canonical evidence retrieval is underway.",
+  summary: "Evidence retrieval is underway.",
   source: "telemetry",
   counts: {
     current: 2,
@@ -49,9 +49,7 @@ describe("CurrentWorkPanel", () => {
   it("renders workflow steps and live source details", () => {
     render(<CurrentWorkPanel workflow={workflow} />);
 
-    expect(
-      screen.getByText("Canonical evidence retrieval is underway."),
-    ).toBeTruthy();
+    expect(screen.getByText("Evidence retrieval is underway.")).toBeTruthy();
     expect(screen.getByText("2/6 records")).toBeTruthy();
     expect(screen.getByText("Run BM25")).toBeTruthy();
     expect(screen.getByText("Ranking record 2 of 6")).toBeTruthy();

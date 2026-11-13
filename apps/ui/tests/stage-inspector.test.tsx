@@ -8,7 +8,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("typed canonical stage inspector", () => {
+describe("typed stage inspector", () => {
   it("renders Evidence summaries from its typed payload", () => {
     const detail = {
       runId: "run-inspector",
@@ -38,7 +38,7 @@ describe("typed canonical stage inspector", () => {
     } as unknown as RunStageDetail<"evidence">;
 
     render(<StageInspector detail={detail} runId="run-inspector" />);
-    expect(screen.getByText("Canonical Evidence inspector")).toBeTruthy();
+    expect(screen.getByText("Evidence inspector")).toBeTruthy();
     expect(screen.getByText("BM25 runs")).toBeTruthy();
     expect(screen.getAllByText("4").length).toBeGreaterThan(0);
   });

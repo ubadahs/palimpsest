@@ -20,7 +20,7 @@ import {
   getStageDefinition,
   stageDefinitions,
   type StageKey,
-} from "../contract/lean-stages.js";
+} from "../contract/stages.js";
 
 type RunRow = {
   id: string;
@@ -53,9 +53,8 @@ type StageRow = {
 export type CreateAnalysisRunInput = {
   id: string;
   seedDoi: string;
-  /** Exact DOI input order persisted for canonical Discover and resume. */
+  /** Exact DOI input order persisted for Discover and resume. */
   seedDois: [string, ...string[]];
-  /** Manual claim ingestion is not supported by canonical DOI-first runs. */
   targetStage: StageKey;
   runRoot: string;
   config: AnalysisRunConfig;
@@ -173,7 +172,7 @@ export function createAnalysisRun(
 }
 
 /**
- * Persist canonical resume overrides before execution so later resumes and the
+ * Persist resume overrides before execution so later resumes and the
  * local UI observe the same target and configuration.
  */
 export function updateAnalysisRunConfig(
@@ -186,9 +185,7 @@ export function updateAnalysisRunConfig(
 ): AnalysisRun {
   const config = analysisRunConfigSchema.parse(input.config);
   if (config.stopAfterStage !== input.targetStage) {
-    throw new Error(
-      "Canonical run targetStage must equal config.stopAfterStage.",
-    );
+    throw new Error("Run targetStage must equal config.stopAfterStage.");
   }
 
   database.transaction(() => {
@@ -333,7 +330,7 @@ export function updateStageStatus(
 }
 
 /**
- * Invalidate `stageKey` and every later canonical stage for an explicit rerun.
+ * Invalidate `stageKey` and every later stage for an explicit rerun.
  * Succeeded rows become stale; others reset to not_started. Artifact files on
  * disk are preserved (append-only); DB pointers are cleared.
  */

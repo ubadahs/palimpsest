@@ -21,7 +21,7 @@ npm run ui:start
 
 ## Runtime behavior
 
-The UI creates DOI-first canonical runs and starts the six-stage CLI pipeline:
+The UI creates DOI-first runs and starts the six-stage CLI pipeline:
 
 ```text
 discover → scope → prepare → evidence → adjudicate → report
@@ -31,6 +31,6 @@ It uses the same environment as the CLI:
 
 - **Database** — required for local run state.
 - **GROBID** — required for validated PDF parsing when structured text is unavailable.
-- **`ANTHROPIC_API_KEY`** — required for model-backed canonical operations, including discovery extraction, Scope grounding, optional Evidence reranking, and eligible-record Adjudicate calls.
+- **`ANTHROPIC_API_KEY`** — required for model-backed operations, including discovery extraction, Scope grounding, optional Evidence reranking, and eligible-record Adjudicate calls.
 
-Canonical Adjudicate is runnable but **uncalibrated**; the UI must not present a completed run as validated fidelity measurement.
+Adjudicate is runnable but **uncalibrated**; the UI must not present a completed run as validated fidelity measurement.

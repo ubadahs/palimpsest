@@ -59,10 +59,10 @@ export function appendReviewEventForRun(
   request: AppendHumanReviewRequest,
 ): { event: HumanReviewEvent; state: HumanReviewState } {
   const context = getReportReviewContext(runId);
-  const canonicalRecord = context.records.find(
+  const reportRecord = context.records.find(
     (record) => record.recordId === request.recordId,
   );
-  if (!canonicalRecord) {
+  if (!reportRecord) {
     throw new HumanReviewConflictError(
       "record_identity_mismatch",
       "Review record does not exist in the current report",
@@ -78,11 +78,11 @@ export function appendReviewEventForRun(
       artifactId: context.reportArtifactId,
       contentHash: context.reportContentHash,
     },
-    canonicalRecord: {
-      recordId: canonicalRecord.recordId,
-      familyId: canonicalRecord.familyId,
-      citationContext: canonicalRecord.citationContext,
-      knownCitedChunkIds: canonicalRecord.evidencePassages.map(
+    reportRecord: {
+      recordId: reportRecord.recordId,
+      familyId: reportRecord.familyId,
+      citationContext: reportRecord.citationContext,
+      knownCitedChunkIds: reportRecord.evidencePassages.map(
         (passage) => passage.chunkId,
       ),
     },

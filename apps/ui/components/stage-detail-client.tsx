@@ -26,8 +26,7 @@ const stageDescriptions: Record<StageKey, string> = {
   prepare: "Builds complete occurrence-local records for scoped families.",
   evidence:
     "Retrieves deterministic seed-text evidence for every prepared record.",
-  adjudicate:
-    "Runs one canonical categorical F/D/E/U adjudication per eligible record.",
+  adjudicate: "Runs one categorical F/D/E/U adjudication per eligible record.",
   report: "Produces the deterministic canonical JSON and Markdown report.",
 };
 
@@ -43,7 +42,7 @@ export function StageDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Canonical runs keep exactly one row per stage.
+  // Runs keep exactly one row per stage.
   const detail = group.members[0];
 
   const anyRunning =
@@ -133,7 +132,7 @@ export function StageDetailClient({
             group.aggregateStatus === "running" ||
             group.aggregateStatus === "blocked" ? (
               <p className="text-sm text-[var(--text-muted)]">
-                Awaiting result for this canonical stage.
+                Awaiting result for this stage.
               </p>
             ) : null}
           </div>

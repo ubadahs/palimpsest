@@ -3,7 +3,7 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
-  CANONICAL_RUN_CONFIG_DEFAULTS,
+  RUN_CONFIG_DEFAULTS,
   stageDefinitions,
   type CandidateSelectionMode,
   type RunDetail,
@@ -18,7 +18,7 @@ import { fetchJson } from "@/lib/utils";
 import { ModelSelect, ModelWithThinking } from "@/components/model-select";
 
 type FormState = {
-  /** One DOI per line; order is preserved for canonical Discover. */
+  /** One DOI per line; order is preserved for Discover. */
   seedDoisText: string;
   targetStage: StageKey;
   discover: {
@@ -34,8 +34,8 @@ type FormState = {
     toYear: string;
     extractionModel: string;
     extractionThinking: boolean;
-    canonicalizationModel: string;
-    canonicalizationThinking: boolean;
+    clusteringModel: string;
+    clusteringThinking: boolean;
   };
   scope: {
     groundingModel: string;
@@ -84,55 +84,46 @@ async function encodeFileAsBase64(file: File): Promise<string> {
 
 const defaultState: FormState = {
   seedDoisText: "",
-  targetStage: CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
+  targetStage: RUN_CONFIG_DEFAULTS.stopAfterStage,
   discover: {
-    neighborhoodLimit: CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
-    probeBudget: CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget,
+    neighborhoodLimit: RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit,
+    probeBudget: RUN_CONFIG_DEFAULTS.discover.probeBudget,
     probeAll: false,
-    selectionMode:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.mode,
-    minFamilies:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies,
-    maxFamilies:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies,
+    selectionMode: RUN_CONFIG_DEFAULTS.discover.candidateSelection.mode,
+    minFamilies: RUN_CONFIG_DEFAULTS.discover.candidateSelection.minFamilies,
+    maxFamilies: RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxFamilies,
     maxPreparedRecords:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection
-        .maxPreparedRecords,
+      RUN_CONFIG_DEFAULTS.discover.candidateSelection.maxPreparedRecords,
     fromYear: "",
     toYear: "",
-    extractionModel: CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
-    extractionThinking:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking,
-    canonicalizationModel:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
-    canonicalizationThinking:
-      CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationThinking,
+    extractionModel: RUN_CONFIG_DEFAULTS.discover.extractionModel,
+    extractionThinking: RUN_CONFIG_DEFAULTS.discover.extractionThinking,
+    clusteringModel: RUN_CONFIG_DEFAULTS.discover.clusteringModel,
+    clusteringThinking: RUN_CONFIG_DEFAULTS.discover.clusteringThinking,
   },
   scope: {
-    groundingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
-    groundingThinking: CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking,
+    groundingModel: RUN_CONFIG_DEFAULTS.scope.groundingModel,
+    groundingThinking: RUN_CONFIG_DEFAULTS.scope.groundingThinking,
   },
   prepare: {
-    roleClassifierModel:
-      CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
+    roleClassifierModel: RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
   },
   evidence: {
-    rerankEnabled: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled,
-    rerankModel: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel,
-    rerankTopN: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankTopN,
-    bm25CandidateLimit:
-      CANONICAL_RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit,
-    selectionLimit: CANONICAL_RUN_CONFIG_DEFAULTS.evidence.selectionLimit,
+    rerankEnabled: RUN_CONFIG_DEFAULTS.evidence.rerankEnabled,
+    rerankModel: RUN_CONFIG_DEFAULTS.evidence.rerankModel,
+    rerankTopN: RUN_CONFIG_DEFAULTS.evidence.rerankTopN,
+    bm25CandidateLimit: RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit,
+    selectionLimit: RUN_CONFIG_DEFAULTS.evidence.selectionLimit,
   },
   adjudicate: {
-    model: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
-    thinking: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking,
-    effort: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
-    evidence: CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.evidence,
+    model: RUN_CONFIG_DEFAULTS.adjudicate.model,
+    thinking: RUN_CONFIG_DEFAULTS.adjudicate.thinking,
+    effort: RUN_CONFIG_DEFAULTS.adjudicate.effort,
+    evidence: RUN_CONFIG_DEFAULTS.adjudicate.evidence,
   },
-  forceRefresh: CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh,
-  modelConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency,
-  fetchConcurrency: CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency,
+  forceRefresh: RUN_CONFIG_DEFAULTS.forceRefresh,
+  modelConcurrency: RUN_CONFIG_DEFAULTS.modelConcurrency,
+  fetchConcurrency: RUN_CONFIG_DEFAULTS.discover.fetchConcurrency,
 };
 
 function flattenConfig(s: FormState) {
@@ -157,8 +148,8 @@ function flattenConfig(s: FormState) {
             },
       extractionModel: s.discover.extractionModel,
       extractionThinking: s.discover.extractionThinking,
-      canonicalizationModel: s.discover.canonicalizationModel,
-      canonicalizationThinking: s.discover.canonicalizationThinking,
+      clusteringModel: s.discover.clusteringModel,
+      clusteringThinking: s.discover.clusteringThinking,
       ...(s.discover.fromYear ? { fromYear: Number(s.discover.fromYear) } : {}),
       ...(s.discover.toYear ? { toYear: Number(s.discover.toYear) } : {}),
     },
@@ -270,8 +261,8 @@ export function NewRunForm() {
           Start an analysis
         </h2>
         <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)]">
-          Enter one or more seed DOIs (one per line) to run the canonical
-          pipeline: discover, scope, prepare, evidence, adjudicate, and report.
+          Enter one or more seed DOIs (one per line) to run the pipeline:
+          discover, scope, prepare, evidence, adjudicate, and report.
         </p>
       </CardHeader>
       <CardContent>
@@ -358,15 +349,15 @@ export function NewRunForm() {
                   modelClassName="md:col-span-2"
                 />
                 <ModelWithThinking
-                  label="Canonicalization model"
+                  label="Clustering model"
                   description="Model that clusters paraphrased claims across citing papers into one family per seed finding (one call per seed)."
-                  model={state.discover.canonicalizationModel}
+                  model={state.discover.clusteringModel}
                   onModelChange={(v) =>
-                    updateStage("discover", "canonicalizationModel", v)
+                    updateStage("discover", "clusteringModel", v)
                   }
-                  thinking={state.discover.canonicalizationThinking}
+                  thinking={state.discover.clusteringThinking}
                   onThinkingChange={(v) =>
-                    updateStage("discover", "canonicalizationThinking", v)
+                    updateStage("discover", "clusteringThinking", v)
                   }
                   thinkingDescription="Enable thinking for claim clustering."
                   modelClassName="md:col-span-2"
@@ -822,7 +813,7 @@ export function NewRunForm() {
                     Stop after stage
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    Pipeline halts after this canonical stage.
+                    Pipeline halts after this stage.
                   </span>
                   <select
                     className="h-11 rounded-2xl border border-[var(--border)] bg-white/70 px-4 text-sm"

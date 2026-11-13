@@ -71,7 +71,7 @@ const BM25_STOP_WORDS = [
 ] as const;
 
 export type Bm25ScoringConfiguration = {
-  version: "canonical-bm25-v1";
+  version: "bm25-v1";
   k1: number;
   b: number;
   tokenizer: {
@@ -84,7 +84,7 @@ export type Bm25ScoringConfiguration = {
 };
 
 export const BM25_DEFAULT_SCORING_CONFIGURATION: Bm25ScoringConfiguration = {
-  version: "canonical-bm25-v1",
+  version: "bm25-v1",
   k1: 1.2,
   b: 0.75,
   tokenizer: {

@@ -11,10 +11,10 @@
  */
 import { z } from "zod";
 import {
-  buildCanonicalAdjudicatePrompt,
-  canonicalAdjudicatePacketSchema,
-  type CanonicalAdjudicatePacket,
-} from "../adjudication/canonical-adjudicate-packet.js";
+  buildAdjudicatePrompt,
+  adjudicatePacketSchema,
+  type AdjudicatePacket,
+} from "../stages/adjudicate/packet.js";
 import { buildStableId } from "../shared/stable-identity.js";
 import {
   controlExpectation,
@@ -64,9 +64,9 @@ function withoutMarkers(markedContext: string): string {
 }
 
 function mutatePacket(
-  packet: CanonicalAdjudicatePacket,
+  packet: AdjudicatePacket,
   mutation: Mutation,
-): CanonicalAdjudicatePacket {
+): AdjudicatePacket {
   for (const edit of mutation.contextEdits) {
     const count = occurrences(packet.markedCitingContext, edit.find);
     if (count !== 1)
@@ -153,10 +153,7 @@ function buildConstructedCase(
     mutation,
   });
   const packet = {
-    ...mutatePacket(
-      canonicalAdjudicatePacketSchema.parse(source.packet),
-      mutation,
-    ),
+    ...mutatePacket(adjudicatePacketSchema.parse(source.packet), mutation),
     recordId,
   };
   const constructed: ConstructedLabel = {
@@ -176,7 +173,7 @@ function buildConstructedCase(
       mutation,
     }),
     packet,
-    anthropicPrompt: buildCanonicalAdjudicatePrompt(packet),
+    anthropicPrompt: buildAdjudicatePrompt(packet),
     constructed,
   };
 }

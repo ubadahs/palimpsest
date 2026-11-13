@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-export const fidelityTopLabelValues = ["F", "D", "E", "U"] as const;
+const fidelityVerdictValues = ["F", "D", "E", "U"] as const;
 
-export const fidelityTopLabelSchema = z.enum(fidelityTopLabelValues);
-export type FidelityTopLabel = z.infer<typeof fidelityTopLabelSchema>;
+export const fidelityVerdictSchema = z.enum(fidelityVerdictValues);
+export type FidelityVerdict = z.infer<typeof fidelityVerdictSchema>;
 
 /**
  * Named dimensions along which a citing restatement can move away from the

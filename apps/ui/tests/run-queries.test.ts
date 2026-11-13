@@ -18,7 +18,7 @@ type UiGlobals = typeof globalThis & {
   __citationFidelityUiDatabase?: DatabaseConnection;
 };
 
-describe("canonical run creation", () => {
+describe("run creation", () => {
   let tempRoot = "";
   let previousRoot: string | undefined;
 
@@ -40,7 +40,7 @@ describe("canonical run creation", () => {
 
   it("creates a DOI-first six-stage report run", () => {
     const run = createRun({
-      id: "run-canonical",
+      id: "run-fixture",
       seedDoi: "10.1234/seed",
       seedDois: ["10.1234/seed"],
       targetStage: "report",
@@ -59,7 +59,7 @@ describe("canonical run creation", () => {
     expect(getDatabase()).toBeTruthy();
   });
 
-  it("uses canonical progress logs for failure detail", () => {
+  it("uses progress logs for failure detail", () => {
     createRun({
       id: "run-failed",
       seedDoi: "10.1234/seed",

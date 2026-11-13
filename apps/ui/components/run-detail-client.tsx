@@ -182,9 +182,9 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
               />
             </h2>
             <p className="max-w-4xl text-sm leading-7 text-[var(--text-muted)]">
-              Canonical DOI-first audit: discover citing-side attributions,
-              scope families, prepare records, retrieve evidence, adjudicate,
-              and report.
+              DOI-first audit: discover citing-side attributions, scope
+              families, prepare records, retrieve evidence, adjudicate, and
+              report.
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">

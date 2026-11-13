@@ -81,7 +81,7 @@ describe("runMigrations", () => {
     }
   });
 
-  it("purges unsupported pre-canonical analysis runs while keeping caches", () => {
+  it("purges analysis runs with unsupported stage names while keeping caches", () => {
     const databasePath = join(tempDirectory, "purge.sqlite");
     const database = openDatabase(databasePath);
     try {

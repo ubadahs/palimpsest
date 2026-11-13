@@ -1,6 +1,6 @@
 # Runtime Setup
 
-This guide covers dependencies for the runnable canonical pipeline:
+This guide covers dependencies for the runnable pipeline:
 
 ```text
 discover → scope → prepare → evidence → adjudicate → report
@@ -55,4 +55,4 @@ npm run dev -- pipeline --input path/to/dois.json
 
 `db:gc` deletes aged analysis-run and LLM-cache SQLite rows only, plus batch request rows past the Message Batches API's 29-day results retention. It does not delete on-disk run artifact directories under `data/runs/`.
 
-Canonical Adjudicate is **uncalibrated**. Runtime availability does not establish scientific validity or support trust claims.
+Adjudicate is **uncalibrated**. Runtime availability does not establish scientific validity or support trust claims.

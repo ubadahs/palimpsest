@@ -6,12 +6,12 @@ import {
   setRunStatus,
   updateStageStatus,
 } from "../storage/analysis-runs.js";
-import { stageKeyValues, type StageKey } from "../contract/lean-stages.js";
+import { stageKeyValues, type StageKey } from "../contract/stages.js";
 
 /**
- * Tracks canonical pipeline stage lifecycle in the database.
+ * Tracks pipeline stage lifecycle in the database.
  *
- * Canonical runs use exactly one row per stage. This tracker never closes the
+ * Runs use exactly one row per stage. This tracker never closes the
  * injected database — signal/process ownership stays with the caller.
  */
 export class RunTracker {

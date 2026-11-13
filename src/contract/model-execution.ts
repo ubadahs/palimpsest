@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   artifactReferenceSchema,
   sha256DigestSchema,
-} from "./lean-artifact-primitives.js";
+} from "./artifacts/primitives.js";
 
 /** How hard a model thinks: every supported model thinks adaptively. */
 export const thinkingEffortSchema = z.enum(["low", "medium", "high", "max"]);

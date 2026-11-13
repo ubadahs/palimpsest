@@ -8,16 +8,16 @@ import {
 import {
   candidateSelectionPolicySchema,
   defaultAdaptivePortfolioPolicy,
-} from "./adaptive-portfolio-policy.js";
+} from "./selection-policy.js";
 
 export {
   candidateSelectionModeValues,
   defaultAllCandidatesPolicy,
   type CandidateSelectionMode,
   type CandidateSelectionPolicy,
-} from "./adaptive-portfolio-policy.js";
+} from "./selection-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
-import { stageKeySchema, type StageKey } from "./lean-stages.js";
+import { stageKeySchema, type StageKey } from "./stages.js";
 import { thinkingEffortSchema } from "./model-execution.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
 
@@ -52,11 +52,11 @@ export type AnalysisRunStageStatus = z.infer<
 const claudeModelSchema = z.enum(claudeModelValues);
 
 /**
- * Single source of truth for canonical run-config defaults.
+ * Single source of truth for run-config defaults.
  * Schema field defaults, UI form defaults, and CLI empty-config parse all
  * consume this object (directly or via analysisRunConfigSchema.parse({})).
  */
-export const CANONICAL_RUN_CONFIG_DEFAULTS = {
+export const RUN_CONFIG_DEFAULTS = {
   stopAfterStage: "report" as const satisfies StageKey,
   forceRefresh: false,
   modelConcurrency: 6,
@@ -69,8 +69,8 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
     candidateSelection: defaultAdaptivePortfolioPolicy,
     extractionModel: "claude-haiku-5-5" as ClaudeModel,
     extractionThinking: false,
-    canonicalizationModel: "claude-sonnet-5-5" as ClaudeModel,
-    canonicalizationThinking: false,
+    clusteringModel: "claude-sonnet-5-5" as ClaudeModel,
+    clusteringThinking: false,
   },
   scope: {
     groundingModel: "claude-sonnet-5-5" as ClaudeModel,
@@ -112,12 +112,8 @@ export type AdjudicationEvidence = z.infer<typeof adjudicationEvidenceSchema>;
  */
 export const analysisRunConfigSchema = z
   .object({
-    stopAfterStage: stageKeySchema.default(
-      CANONICAL_RUN_CONFIG_DEFAULTS.stopAfterStage,
-    ),
-    forceRefresh: z
-      .boolean()
-      .default(CANONICAL_RUN_CONFIG_DEFAULTS.forceRefresh),
+    stopAfterStage: stageKeySchema.default(RUN_CONFIG_DEFAULTS.stopAfterStage),
+    forceRefresh: z.boolean().default(RUN_CONFIG_DEFAULTS.forceRefresh),
     /**
      * Model requests in flight at once within a stage. Changes wall time
      * only: results are appended in input order, so artifacts hash the same
@@ -128,23 +124,23 @@ export const analysisRunConfigSchema = z
       .int()
       .min(1)
       .max(32)
-      .default(CANONICAL_RUN_CONFIG_DEFAULTS.modelConcurrency),
+      .default(RUN_CONFIG_DEFAULTS.modelConcurrency),
 
     discover: z
       .object({
         neighborhoodProvider: z
           .string()
           .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodProvider),
+          .default(RUN_CONFIG_DEFAULTS.discover.neighborhoodProvider),
         neighborhoodQuery: z
           .string()
           .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodQuery),
+          .default(RUN_CONFIG_DEFAULTS.discover.neighborhoodQuery),
         neighborhoodLimit: z
           .number()
           .int()
           .positive()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit),
+          .default(RUN_CONFIG_DEFAULTS.discover.neighborhoodLimit),
         /**
          * Citing works probed. `"all"` probes every enumerated work (up to
          * `neighborhoodLimit`, which stays the one cap on the neighborhood),
@@ -152,7 +148,7 @@ export const analysisRunConfigSchema = z
          */
         probeBudget: z
           .union([z.number().int().nonnegative(), z.literal("all")])
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.probeBudget),
+          .default(RUN_CONFIG_DEFAULTS.discover.probeBudget),
         /**
          * Citing papers fetched, parsed, and harvested at once. Changes wall
          * time only: harvests are appended in neighborhood order, so the
@@ -163,113 +159,107 @@ export const analysisRunConfigSchema = z
           .int()
           .min(1)
           .max(32)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.fetchConcurrency),
+          .default(RUN_CONFIG_DEFAULTS.discover.fetchConcurrency),
         candidateSelection: candidateSelectionPolicySchema.default(
-          () => CANONICAL_RUN_CONFIG_DEFAULTS.discover.candidateSelection,
+          () => RUN_CONFIG_DEFAULTS.discover.candidateSelection,
         ),
         fromYear: z.number().int().positive().optional(),
         toYear: z.number().int().positive().optional(),
         extractionModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
+          RUN_CONFIG_DEFAULTS.discover.extractionModel,
         ),
         extractionThinking: z
           .boolean()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking),
+          .default(RUN_CONFIG_DEFAULTS.discover.extractionThinking),
         /** Model that clusters paraphrased claims across citers, once per seed. */
-        canonicalizationModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
+        clusteringModel: claudeModelSchema.default(
+          RUN_CONFIG_DEFAULTS.discover.clusteringModel,
         ),
-        canonicalizationThinking: z
+        clusteringThinking: z
           .boolean()
-          .default(
-            CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationThinking,
-          ),
+          .default(RUN_CONFIG_DEFAULTS.discover.clusteringThinking),
       })
       .strict()
-      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.discover })),
+      .default(() => ({ ...RUN_CONFIG_DEFAULTS.discover })),
 
     scope: z
       .object({
         groundingModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
+          RUN_CONFIG_DEFAULTS.scope.groundingModel,
         ),
         groundingThinking: z
           .boolean()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking),
+          .default(RUN_CONFIG_DEFAULTS.scope.groundingThinking),
         /**
          * Model that builds a seed codebook. Only used when no codebook is
          * stored for the seed text: changing it does not regenerate one.
          */
         codebookModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel,
+          RUN_CONFIG_DEFAULTS.scope.codebookModel,
         ),
         /** Model that tags each citing claim with codebook entries. */
         taggingModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel,
+          RUN_CONFIG_DEFAULTS.scope.taggingModel,
         ),
         /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
         seedPdfPath: z.string().min(1).optional(),
       })
       .strict()
-      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.scope })),
+      .default(() => ({ ...RUN_CONFIG_DEFAULTS.scope })),
 
     prepare: z
       .object({
         /** Deterministic regex pass; its `unclear` verdict falls back to a model. */
         classifier: z
           .literal("deterministic")
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.classifier),
+          .default(RUN_CONFIG_DEFAULTS.prepare.classifier),
         /** Model asked to settle a citation role the regex pass left unclear. */
         roleClassifierModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
+          RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
         ),
       })
       .strict()
-      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare })),
+      .default(() => ({ ...RUN_CONFIG_DEFAULTS.prepare })),
 
     evidence: z
       .object({
         /** Relevance-only LLM rerank of BM25 candidates; on by default. */
         rerankEnabled: z
           .boolean()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled),
+          .default(RUN_CONFIG_DEFAULTS.evidence.rerankEnabled),
         rerankModel: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel,
+          RUN_CONFIG_DEFAULTS.evidence.rerankModel,
         ),
         rerankTopN: z
           .number()
           .int()
           .positive()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankTopN),
+          .default(RUN_CONFIG_DEFAULTS.evidence.rerankTopN),
         bm25CandidateLimit: z
           .number()
           .int()
           .positive()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit),
+          .default(RUN_CONFIG_DEFAULTS.evidence.bm25CandidateLimit),
         selectionLimit: z
           .number()
           .int()
           .positive()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.selectionLimit),
+          .default(RUN_CONFIG_DEFAULTS.evidence.selectionLimit),
       })
       .strict()
-      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.evidence })),
+      .default(() => ({ ...RUN_CONFIG_DEFAULTS.evidence })),
 
     adjudicate: z
       .object({
-        model: claudeModelSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
-        ),
-        thinking: z
-          .boolean()
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking),
+        model: claudeModelSchema.default(RUN_CONFIG_DEFAULTS.adjudicate.model),
+        thinking: z.boolean().default(RUN_CONFIG_DEFAULTS.adjudicate.thinking),
         /**
          * Thinking effort when `thinking` is on. Exposed so the
          * cheap experiment — does `medium` agree with `high`? — can be run
          * without editing source.
          */
         effort: thinkingEffortSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
+          RUN_CONFIG_DEFAULTS.adjudicate.effort,
         ),
         /**
          * The whole seed text is the default: the seed is a prompt prefix the
@@ -278,11 +268,11 @@ export const analysisRunConfigSchema = z
          * to the selected chunks.
          */
         evidence: adjudicationEvidenceSchema.default(
-          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.evidence,
+          RUN_CONFIG_DEFAULTS.adjudicate.evidence,
         ),
       })
       .strict()
-      .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate })),
+      .default(() => ({ ...RUN_CONFIG_DEFAULTS.adjudicate })),
   })
   .strict()
   .superRefine((config, context) => {
@@ -364,7 +354,6 @@ export const analysisRunSchema = z
   .object({
     id: z.string().min(1),
     seedDoi: z.string().min(1),
-    /** Always absent for canonical DOI-first runs; column may be null in SQLite. */
     targetStage: stageKeySchema,
     status: analysisRunStatusSchema,
     currentStage: undefinedable(stageKeySchema),
@@ -376,7 +365,7 @@ export const analysisRunSchema = z
   .passthrough();
 export type AnalysisRun = z.infer<typeof analysisRunSchema>;
 
-/** Canonical F/D/E/U verdict counts (adjudicated records only). */
+/** F/D/E/U verdict counts (adjudicated records only). */
 export const runVerdictSummarySchema = z.object({
   F: z.number().int().nonnegative(),
   D: z.number().int().nonnegative(),

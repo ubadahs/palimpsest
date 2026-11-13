@@ -14,7 +14,7 @@ import {
   resolvePreparedRecords,
   scopeArtifactSchema,
   type ResolvedPreparedCitationInstance,
-} from "./lean-artifacts.js";
+} from "./artifacts/index.js";
 import {
   loadJsonArtifact,
   manifestPathForArtifact,
@@ -32,7 +32,7 @@ import type {
   StageArtifactMap,
   StageInspectorPayload,
 } from "./inspector-payloads.js";
-import { getStageDefinition, type StageKey } from "./lean-stages.js";
+import { getStageDefinition, type StageKey } from "./stages.js";
 import type {
   AnalysisStageSummary,
   StageArtifactPointer,
@@ -68,7 +68,7 @@ function countBy<T>(
 }
 
 /**
- * One entry per canonical stage: its artifact schema, the label used in load
+ * One entry per stage: its artifact schema, the label used in load
  * errors, the run-registry summary, and the UI inspector payload. Every
  * per-stage dispatch in this module reads from this table, so adding a stage
  * or changing a shape is a single edit rather than five parallel switches.
@@ -90,37 +90,37 @@ const STAGE_ADAPTERS: {
   };
 } = {
   discover: {
-    label: "canonical Discover",
+    label: "Discover",
     schema: discoverArtifactSchema,
     summarize: summarizeDiscover,
     inspect: buildDiscoverInspectorPayload,
   },
   scope: {
-    label: "canonical Scope",
+    label: "Scope",
     schema: scopeArtifactSchema,
     summarize: summarizeScope,
     inspect: buildScopeInspectorPayload,
   },
   prepare: {
-    label: "canonical Prepare",
+    label: "Prepare",
     schema: prepareArtifactSchema,
     summarize: summarizePrepare,
     inspect: buildPrepareInspectorPayload,
   },
   evidence: {
-    label: "canonical Evidence",
+    label: "Evidence",
     schema: evidenceArtifactSchema,
     summarize: summarizeEvidence,
     inspect: buildEvidenceInspectorPayload,
   },
   adjudicate: {
-    label: "canonical Adjudicate",
+    label: "Adjudicate",
     schema: adjudicateArtifactSchema,
     summarize: summarizeAdjudicate,
     inspect: buildAdjudicateInspectorPayload,
   },
   report: {
-    label: "canonical Report",
+    label: "Report",
     schema: reportArtifactSchema,
     summarize: summarizeReport,
     requireOptions: (options) => {
@@ -138,7 +138,7 @@ const STAGE_ADAPTERS: {
   },
 };
 
-export function loadCanonicalArtifact<K extends StageKey>(
+export function loadArtifact<K extends StageKey>(
   stageKey: K,
   artifactPath: string,
 ): StageArtifactMap[K] {
@@ -147,7 +147,7 @@ export function loadCanonicalArtifact<K extends StageKey>(
 }
 
 /** Validates before writing, so a malformed artifact never reaches disk. */
-export function writeCanonicalArtifact<K extends StageKey>(
+export function writeArtifact<K extends StageKey>(
   stageKey: K,
   artifactPath: string,
   artifact: StageArtifactMap[K],
@@ -194,7 +194,7 @@ export function listStageArtifacts(
   return artifactSet;
 }
 
-/** Resolve a canonical artifact set for an explicit attempt stem. */
+/** Resolve the artifact set for an explicit attempt stem. */
 export function listStageArtifactsForStem(
   stageKey: StageKey,
   stageDirectory: string,
@@ -234,21 +234,18 @@ export function artifactStemFromPrimaryPath(
     : base.replace(/\.[^.]+$/, "");
 }
 
-export function deriveCanonicalStageSummary<K extends StageKey>(
+export function deriveStageSummary<K extends StageKey>(
   stageKey: K,
   artifact: StageArtifactMap[K],
 ): AnalysisStageSummary {
   return STAGE_ADAPTERS[stageKey].summarize(artifact);
 }
 
-export function deriveCanonicalStageSummaryFromPath(
+export function deriveStageSummaryFromPath(
   stageKey: StageKey,
   artifactPath: string,
 ): AnalysisStageSummary {
-  return deriveCanonicalStageSummary(
-    stageKey,
-    loadCanonicalArtifact(stageKey, artifactPath),
-  );
+  return deriveStageSummary(stageKey, loadArtifact(stageKey, artifactPath));
 }
 
 function summarizeDiscover(
@@ -355,7 +352,7 @@ function summarizeAdjudicate(
     (record) => record.verdict,
   );
   return {
-    headline: "Canonical categorical adjudication",
+    headline: "Categorical adjudication",
     metrics: [
       metric("Records", payload.records.length),
       metric("Adjudicated", outcomes.get("adjudicated") ?? 0),
@@ -376,7 +373,7 @@ function summarizeReport(
 ): AnalysisStageSummary {
   const { funnel } = artifact.payload;
   return {
-    headline: "Canonical audit report",
+    headline: "Audit report",
     metrics: [
       metric("Seeds", funnel.discover.seeds.count),
       metric("Candidates", funnel.discover.candidateClaims.count),
@@ -698,7 +695,7 @@ export function buildReportInspectorFamilies(
   records: readonly ReportInspectorRecordRow[],
   familyMutations?: StageArtifactMap["report"]["payload"]["familyMutations"],
 ): MutationFamilyView[] {
-  // When the canonical Report carries family mutations, they are the source
+  // When the Report carries family mutations, they are the source
   // of membership and order; the UI is a reader, not a second producer.
   if (familyMutations) {
     const rowsById = new Map(records.map((row) => [row.recordId, row]));
@@ -984,9 +981,9 @@ function buildReportInspectorPayload(
     );
   }
 
-  const prepare = loadCanonicalArtifact("prepare", preparePath);
-  const evidence = loadCanonicalArtifact("evidence", evidencePath);
-  const adjudicate = loadCanonicalArtifact("adjudicate", adjudicatePath);
+  const prepare = loadArtifact("prepare", preparePath);
+  const evidence = loadArtifact("evidence", evidencePath);
+  const adjudicate = loadArtifact("adjudicate", adjudicatePath);
   const records = buildReportInspectorRecords({
     report: artifact,
     prepare,
@@ -1025,5 +1022,5 @@ export function buildStageInspectorPayload<K extends StageKey>(
 ): StageInspectorPayload<K> {
   const adapter = STAGE_ADAPTERS[stageKey];
   adapter.requireOptions?.(options);
-  return adapter.inspect(loadCanonicalArtifact(stageKey, primaryPath), options);
+  return adapter.inspect(loadArtifact(stageKey, primaryPath), options);
 }

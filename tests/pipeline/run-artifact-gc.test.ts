@@ -81,22 +81,19 @@ describe("run artifact garbage collection", () => {
         [currentStem, keptProvenance],
       ] as const) {
         writeFileSync(
-          join(discoverDir, `${stem}_canonical-discover.json`),
+          join(discoverDir, `${stem}_discover.json`),
           JSON.stringify({ provenance: referenced }),
           "utf8",
         );
         writeFileSync(
-          join(discoverDir, `${stem}_canonical-discover_manifest.json`),
+          join(discoverDir, `${stem}_discover_manifest.json`),
           "{}",
           "utf8",
         );
       }
       // The run registry points only at the second attempt.
       updateStageStatus(database, "run-1", "discover", "succeeded", {
-        primaryArtifactPath: join(
-          discoverDir,
-          `${currentStem}_canonical-discover.json`,
-        ),
+        primaryArtifactPath: join(discoverDir, `${currentStem}_discover.json`),
       });
 
       const result = findOrphanedRunArtifacts(database);
@@ -110,12 +107,10 @@ describe("run artifact garbage collection", () => {
       deleteOrphanedRunArtifacts(result);
 
       expect(
-        existsSync(join(discoverDir, `${currentStem}_canonical-discover.json`)),
+        existsSync(join(discoverDir, `${currentStem}_discover.json`)),
       ).toBe(true);
       expect(
-        existsSync(
-          join(discoverDir, `${supersededStem}_canonical-discover.json`),
-        ),
+        existsSync(join(discoverDir, `${supersededStem}_discover.json`)),
       ).toBe(false);
       expect(existsSync(join(provenanceDir, `${keptProvenance}.json`))).toBe(
         true,
@@ -189,26 +184,19 @@ describe("run artifact garbage collection", () => {
       const unreviewedStem = `20260902T103000Z_${"b".repeat(8)}`;
       const currentStem = "20260902T110000Z_current";
       for (const stem of [reviewedStem, unreviewedStem, currentStem]) {
-        writeFileSync(
-          join(reportDir, `${stem}_canonical-report.json`),
-          "{}",
-          "utf8",
-        );
+        writeFileSync(join(reportDir, `${stem}_report.json`), "{}", "utf8");
       }
       // The review sidecar is keyed by the report artifact it judged.
       mkdirSync(join(runRoot, "review", reviewedArtifactId), {
         recursive: true,
       });
       updateStageStatus(database, "run-review", "report", "succeeded", {
-        primaryArtifactPath: join(
-          reportDir,
-          `${currentStem}_canonical-report.json`,
-        ),
+        primaryArtifactPath: join(reportDir, `${currentStem}_report.json`),
       });
 
       const result = findOrphanedRunArtifacts(database);
       expect(result.runs[0]!.stageFiles).toEqual([
-        join(reportDir, `${unreviewedStem}_canonical-report.json`),
+        join(reportDir, `${unreviewedStem}_report.json`),
       ]);
     } finally {
       database.close();
@@ -265,16 +253,9 @@ describe("run artifact garbage collection", () => {
       const discoverDir = join(runRoot, "00-discover");
       mkdirSync(discoverDir, { recursive: true });
       const stem = "20260902T100000Z_only";
-      writeFileSync(
-        join(discoverDir, `${stem}_canonical-discover.json`),
-        "{}",
-        "utf8",
-      );
+      writeFileSync(join(discoverDir, `${stem}_discover.json`), "{}", "utf8");
       updateStageStatus(database, "run-2", "discover", "succeeded", {
-        primaryArtifactPath: join(
-          discoverDir,
-          `${stem}_canonical-discover.json`,
-        ),
+        primaryArtifactPath: join(discoverDir, `${stem}_discover.json`),
       });
 
       expect(findOrphanedRunArtifacts(database).fileCount).toBe(0);

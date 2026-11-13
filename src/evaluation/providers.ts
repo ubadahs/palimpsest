@@ -4,12 +4,6 @@ import {
   type LLMCallRecord,
   type LLMClient,
 } from "../integrations/llm-client.js";
-import {
-  adjudicateModelResponseSchema,
-  buildRelevanceRerankPrompt,
-  citationRoleResponseSchema,
-  rerankModelResponseSchema,
-} from "../pipeline/canonical-production-adapters.js";
 import { pythonSpanToJs, resolveExactQuote } from "./span.js";
 import {
   evaluationRoleSchema,
@@ -17,6 +11,12 @@ import {
   type EvaluationCase,
 } from "./types.js";
 import type { ProviderConfig } from "./config.js";
+import { adjudicateModelResponseSchema } from "../stages/adjudicate/adapters.js";
+import {
+  buildRelevanceRerankPrompt,
+  rerankModelResponseSchema,
+} from "../stages/evidence/prompts.js";
+import { citationRoleResponseSchema } from "../stages/prepare/prompts.js";
 
 const choiceAnswerSchema = z.object({
   type: z.literal("choice"),

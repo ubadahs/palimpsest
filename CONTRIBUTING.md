@@ -13,7 +13,7 @@ npm run test                  # run tests
 ### Required Services
 
 - **GROBID** (PDF parsing): `docker run -d -p 8070:8070 lfoppiano/grobid:0.8.1`
-- **ANTHROPIC_API_KEY**: Required for LLM-backed canonical stages (discover extraction, scope grounding, optional evidence rerank, adjudicate)
+- **ANTHROPIC_API_KEY**: Required for LLM-backed stages (discover extraction, scope grounding, optional evidence rerank, adjudicate)
 
 ### Optional Services
 
@@ -24,17 +24,17 @@ npm run test                  # run tests
 
 ```
 src/
-  adjudication/ Canonical adjudicate packet builders; seed-text (whole-paper) adjudication prompt, used by evaluation only
-  classification/ Deterministic citation-function and evaluation-mode helpers
+  stages/       One folder per stage: run.ts, adapters.ts (production calls), prompts.ts, and stage-only helpers
+  pipeline/     Orchestration: executor, provenance store, stage paths, cost summary
   cli/          Command entrypoints (index.ts dispatches to commands/)
-  config/       Env loading (Zod-validated) and AppConfig construction
-  contract/     Shared stage/run types (consumed by both CLI and UI)
+  config/       Env loading (Zod-validated), AppConfig construction, prompt versions
+  contract/     Shared stage/run types and artifact schemas (consumed by both CLI and UI)
   domain/       Core taxonomy types and decision logic (pure, no I/O)
   health/       Health checks shared by CLI (doctor) and UI
   integrations/ External provider adapters + centralized LLM client
-  pipeline/     Canonical six-stage orchestration and production adapters
-  retrieval/    Full-text acquisition, parsing, BM25, canonical evidence retrieval
-  reporting/    Canonical Report Markdown rendering
+  retrieval/    Full-text acquisition, parsing, BM25
+  review/       Append-only human review store
+  evaluation/   Frozen-report comparisons and blind annotation
   storage/      SQLite schema, migrations, repositories
   shared/       Cross-cutting primitives
 apps/ui/        Local-only Next.js dashboard
@@ -50,7 +50,7 @@ npm run lint           # eslint src tests
 npm run format         # prettier --write
 npm run test           # vitest run
 npm run dev -- doctor  # check config and taxonomy
-npm run dev -- pipeline --input dois.json  # canonical e2e pipeline
+npm run dev -- pipeline --input dois.json  # e2e pipeline
 npm run ui:dev         # local Next.js UI
 ```
 
@@ -62,7 +62,7 @@ npm run ui:dev         # local Next.js UI
 
 **Add a migration**: Create `src/storage/migrations/NNNN_description.sql`. Never modify existing migration files.
 
-**Run or resume the pipeline**: `npm run dev -- pipeline --input path/to/dois.json` or `npm run dev -- pipeline --run-id <uuid>`. Use `--stop-after <canonical-stage>` to halt early.
+**Run or resume the pipeline**: `npm run dev -- pipeline --input path/to/dois.json` or `npm run dev -- pipeline --run-id <uuid>`. Use `--stop-after <stage>` to halt early.
 
 ## Code Conventions
 

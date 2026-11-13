@@ -1,5 +1,5 @@
 /**
- * The artifact envelope every canonical stage shares: append-only decisions,
+ * The artifact envelope every stage shares: append-only decisions,
  * provenance, execution metadata, and the two integrity checks that earn their
  * place — the identity hash, and the exact inputs the stage was built from.
  */
@@ -14,28 +14,28 @@ import {
 import {
   adjudicateArtifactPayloadSchema,
   validateAdjudicateArtifactLineage,
-} from "../canonical-adjudicate.js";
+} from "./adjudicate.js";
 import {
   reportArtifactPayloadSchema,
   validateReportArtifactLineage,
-} from "../canonical-report.js";
+} from "./report.js";
 import type { Result } from "../../domain/common.js";
-import type { StageKey } from "../lean-stages.js";
+import type { StageKey } from "../stages.js";
 import {
   artifactReferenceSchema,
-  leanArtifactIdSchema,
+  artifactIdSchema,
   sha256DigestSchema,
   stableIdentifierSchema,
   type ArtifactReference,
-} from "../lean-artifact-primitives.js";
+} from "./primitives.js";
 import { findDuplicate, sameArtifactReference } from "./checks.js";
 import { discoverArtifactPayloadSchema } from "./discover.js";
 import { scopeArtifactPayloadSchema } from "./scope.js";
 import { prepareArtifactPayloadSchema } from "./prepare.js";
 import { evidenceArtifactPayloadSchema } from "./evidence.js";
 
-export const leanArtifactSchemaVersion = 1 as const;
-export const leanArtifactVersion = 1 as const;
+export const currentArtifactSchemaVersion = 1 as const;
+export const currentArtifactVersion = 1 as const;
 
 export const decisionActorSchema = z
   .object({
@@ -140,7 +140,7 @@ const modelProvenanceSchema = z
   })
   .strict();
 
-export const leanArtifactProvenanceSchema = z
+export const artifactProvenanceSchema = z
   .object({
     configuration: configurationProvenanceSchema.optional(),
     code: codeProvenanceSchema.optional(),
@@ -148,9 +148,7 @@ export const leanArtifactProvenanceSchema = z
     models: z.array(modelProvenanceSchema),
   })
   .strict();
-export type LeanArtifactProvenance = z.infer<
-  typeof leanArtifactProvenanceSchema
->;
+export type ArtifactProvenance = z.infer<typeof artifactProvenanceSchema>;
 
 const deterministicExecutionSchema = z
   .object({
@@ -173,45 +171,45 @@ function externalExecutionSchema<
     .strict();
 }
 
-export const leanExecutionMetadataSchema = z.union([
+export const executionMetadataSchema = z.union([
   deterministicExecutionSchema,
   externalExecutionSchema("model"),
   externalExecutionSchema("external"),
   externalExecutionSchema("hybrid"),
 ]);
-export type LeanExecutionMetadata = z.infer<typeof leanExecutionMetadataSchema>;
+export type ExecutionMetadata = z.infer<typeof executionMetadataSchema>;
 
-const commonLeanArtifactEnvelopeSchema = z
+const artifactEnvelopeSchema = z
   .object({
-    schemaVersion: z.literal(leanArtifactSchemaVersion),
-    artifactVersion: z.literal(leanArtifactVersion),
-    artifactId: leanArtifactIdSchema,
+    schemaVersion: z.literal(currentArtifactSchemaVersion),
+    artifactVersion: z.literal(currentArtifactVersion),
+    artifactId: artifactIdSchema,
     contentHash: sha256DigestSchema,
     runId: z.string().min(1),
     createdAt: z.string().datetime({ offset: true }),
     inputArtifacts: z.array(artifactReferenceSchema),
-    provenance: leanArtifactProvenanceSchema,
-    execution: leanExecutionMetadataSchema,
+    provenance: artifactProvenanceSchema,
+    execution: executionMetadataSchema,
     decisions: z.array(appendOnlyDecisionSchema),
   })
   .strict();
 
-export const discoverArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const discoverArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("discover"),
+    stage: z.literal("discover"),
     payload: discoverArtifactPayloadSchema,
   })
   .strict()
-  .superRefine(validateLeanArtifactIdentity);
+  .superRefine(validateArtifactIdentity);
 export type DiscoverArtifact = z.infer<typeof discoverArtifactSchema>;
-export const scopeArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const scopeArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("scope"),
+    stage: z.literal("scope"),
     payload: scopeArtifactPayloadSchema,
   })
   .strict()
   .superRefine((artifact, context) => {
-    validateLeanArtifactIdentity(artifact, context);
+    validateArtifactIdentity(artifact, context);
     validateStageInputLineage(
       artifact,
       {
@@ -222,14 +220,14 @@ export const scopeArtifactSchema = commonLeanArtifactEnvelopeSchema
     );
   });
 export type ScopeArtifact = z.infer<typeof scopeArtifactSchema>;
-export const prepareArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const prepareArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("prepare"),
+    stage: z.literal("prepare"),
     payload: prepareArtifactPayloadSchema,
   })
   .strict()
   .superRefine((artifact, context) => {
-    validateLeanArtifactIdentity(artifact, context);
+    validateArtifactIdentity(artifact, context);
     validateStageInputLineage(
       artifact,
       {
@@ -244,14 +242,14 @@ export const prepareArtifactSchema = commonLeanArtifactEnvelopeSchema
     );
   });
 export type PrepareArtifact = z.infer<typeof prepareArtifactSchema>;
-export const evidenceArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const evidenceArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("evidence"),
+    stage: z.literal("evidence"),
     payload: evidenceArtifactPayloadSchema,
   })
   .strict()
   .superRefine((artifact, context) => {
-    validateLeanArtifactIdentity(artifact, context);
+    validateArtifactIdentity(artifact, context);
     validateStageInputLineage(
       artifact,
       {
@@ -266,14 +264,14 @@ export const evidenceArtifactSchema = commonLeanArtifactEnvelopeSchema
     );
   });
 export type EvidenceArtifact = z.infer<typeof evidenceArtifactSchema>;
-export const adjudicateArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const adjudicateArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("adjudicate"),
+    stage: z.literal("adjudicate"),
     payload: adjudicateArtifactPayloadSchema,
   })
   .strict()
   .superRefine((artifact, context) => {
-    validateLeanArtifactIdentity(artifact, context);
+    validateArtifactIdentity(artifact, context);
     validateStageInputLineage(
       artifact,
       {
@@ -289,14 +287,14 @@ export const adjudicateArtifactSchema = commonLeanArtifactEnvelopeSchema
     validateAdjudicateArtifactLineage(artifact, context);
   });
 export type AdjudicateArtifact = z.infer<typeof adjudicateArtifactSchema>;
-export const reportArtifactSchema = commonLeanArtifactEnvelopeSchema
+export const reportArtifactSchema = artifactEnvelopeSchema
   .extend({
-    canonicalStage: z.literal("report"),
+    stage: z.literal("report"),
     payload: reportArtifactPayloadSchema,
   })
   .strict()
   .superRefine((artifact, context) => {
-    validateLeanArtifactIdentity(artifact, context);
+    validateArtifactIdentity(artifact, context);
     validateStageInputLineage(
       artifact,
       {
@@ -316,7 +314,7 @@ export const reportArtifactSchema = commonLeanArtifactEnvelopeSchema
   });
 export type ReportArtifact = z.infer<typeof reportArtifactSchema>;
 
-export const leanStageArtifactSchema = z.discriminatedUnion("canonicalStage", [
+export const stageArtifactSchema = z.discriminatedUnion("stage", [
   discoverArtifactSchema,
   scopeArtifactSchema,
   prepareArtifactSchema,
@@ -324,14 +322,14 @@ export const leanStageArtifactSchema = z.discriminatedUnion("canonicalStage", [
   adjudicateArtifactSchema,
   reportArtifactSchema,
 ]);
-export type LeanStageArtifact = z.infer<typeof leanStageArtifactSchema>;
+export type StageArtifact = z.infer<typeof stageArtifactSchema>;
 
-type LeanArtifactIdentityInput = Pick<
-  LeanStageArtifact,
+type ArtifactIdentityInput = Pick<
+  StageArtifact,
   | "schemaVersion"
   | "artifactVersion"
   | "runId"
-  | "canonicalStage"
+  | "stage"
   | "contentHash"
   | "inputArtifacts"
   | "provenance"
@@ -343,7 +341,7 @@ type LeanArtifactIdentityInput = Pick<
  * creation time and decision recording times are observational and
  * deliberately excluded; their stable IDs still bind every substantive field.
  */
-export function computeLeanArtifactContentHash(input: {
+export function computeArtifactContentHash(input: {
   payload: unknown;
   decisions: readonly AppendOnlyDecision[];
 }): string {
@@ -358,14 +356,12 @@ export function computeLeanArtifactContentHash(input: {
  * Artifact identity includes run/stage lineage, semantic content, immutable
  * inputs, and execution provenance. `createdAt` is deliberately excluded.
  */
-export function computeLeanArtifactId(
-  input: LeanArtifactIdentityInput,
-): string {
+export function computeArtifactId(input: ArtifactIdentityInput): string {
   return buildStableId("artifact", {
     schemaVersion: input.schemaVersion,
     artifactVersion: input.artifactVersion,
     runId: input.runId,
-    canonicalStage: input.canonicalStage,
+    stage: input.stage,
     contentHash: input.contentHash,
     inputArtifacts: sortedArtifactReferences(input.inputArtifacts),
     provenance: normalizeProvenanceForIdentity(input.provenance),
@@ -373,7 +369,7 @@ export function computeLeanArtifactId(
   });
 }
 
-type LeanStageArtifactBuildInput =
+type StageArtifactBuildInput =
   | Omit<z.input<typeof discoverArtifactSchema>, "artifactId" | "contentHash">
   | Omit<z.input<typeof scopeArtifactSchema>, "artifactId" | "contentHash">
   | Omit<z.input<typeof prepareArtifactSchema>, "artifactId" | "contentHash">
@@ -381,31 +377,29 @@ type LeanStageArtifactBuildInput =
   | Omit<z.input<typeof adjudicateArtifactSchema>, "artifactId" | "contentHash">
   | Omit<z.input<typeof reportArtifactSchema>, "artifactId" | "contentHash">;
 
-export function createLeanStageArtifact(
-  input: LeanStageArtifactBuildInput,
-): LeanStageArtifact {
-  const contentHash = computeLeanArtifactContentHash(input);
-  const artifactId = computeLeanArtifactId({
+export function createStageArtifact(
+  input: StageArtifactBuildInput,
+): StageArtifact {
+  const contentHash = computeArtifactContentHash(input);
+  const artifactId = computeArtifactId({
     schemaVersion: input.schemaVersion,
     artifactVersion: input.artifactVersion,
     runId: input.runId,
-    canonicalStage: input.canonicalStage,
+    stage: input.stage,
     contentHash,
     inputArtifacts: input.inputArtifacts,
     provenance: input.provenance,
     execution: input.execution,
   });
-  return leanStageArtifactSchema.parse({
+  return stageArtifactSchema.parse({
     ...input,
     artifactId,
     contentHash,
   });
 }
 
-export function parseLeanStageArtifact(
-  value: unknown,
-): Result<LeanStageArtifact> {
-  const parsed = leanStageArtifactSchema.safeParse(value);
+export function parseStageArtifact(value: unknown): Result<StageArtifact> {
+  const parsed = stageArtifactSchema.safeParse(value);
   if (parsed.success) {
     return { ok: true, data: parsed.data };
   }
@@ -413,13 +407,13 @@ export function parseLeanStageArtifact(
   const path = issue?.path.join(".") || "<root>";
   return {
     ok: false,
-    error: `Invalid lean stage artifact at ${path}: ${issue?.message ?? parsed.error.message}`,
+    error: `Invalid stage artifact at ${path}: ${issue?.message ?? parsed.error.message}`,
   };
 }
 
-function validateLeanArtifactIdentity(
-  artifact: z.infer<typeof commonLeanArtifactEnvelopeSchema> & {
-    canonicalStage: StageKey;
+function validateArtifactIdentity(
+  artifact: z.infer<typeof artifactEnvelopeSchema> & {
+    stage: StageKey;
     payload: unknown;
   },
   context: z.RefinementCtx,
@@ -435,7 +429,7 @@ function validateLeanArtifactIdentity(
     });
   }
 
-  const expectedContentHash = computeLeanArtifactContentHash(artifact);
+  const expectedContentHash = computeArtifactContentHash(artifact);
   if (artifact.contentHash !== expectedContentHash) {
     context.addIssue({
       code: "custom",
@@ -444,7 +438,7 @@ function validateLeanArtifactIdentity(
     });
   }
 
-  const expectedArtifactId = computeLeanArtifactId(artifact);
+  const expectedArtifactId = computeArtifactId(artifact);
   if (artifact.artifactId !== expectedArtifactId) {
     context.addIssue({
       code: "custom",
@@ -456,7 +450,7 @@ function validateLeanArtifactIdentity(
 
 /**
  * The other integrity check every stage keeps: the artifact belongs to its
- * run, and it names the exact inputs it was built from, in the fixed canonical
+ * run, and it names the exact inputs it was built from, in the fixed stage
  * order. Combined with the identity hash, that is enough to prove a chain.
  *
  * Nothing here re-derives the payload. The per-stage validators that used to
@@ -493,7 +487,7 @@ function validateStageInputLineage(
     context.addIssue({
       code: "custom",
       path: ["inputArtifacts"],
-      message: `${expected.stageLabel} must reference its exact canonical inputs in canonical order`,
+      message: `${expected.stageLabel} must reference its exact inputs in stage order`,
     });
   }
 }
@@ -507,8 +501,8 @@ function sortedArtifactReferences(
 }
 
 function normalizeProvenanceForIdentity(
-  provenance: LeanArtifactProvenance,
-): LeanArtifactProvenance {
+  provenance: ArtifactProvenance,
+): ArtifactProvenance {
   return {
     ...(provenance.configuration
       ? { configuration: provenance.configuration }
@@ -524,8 +518,8 @@ function normalizeProvenanceForIdentity(
 }
 
 function normalizeExecutionForIdentity(
-  execution: LeanExecutionMetadata,
-): LeanExecutionMetadata {
+  execution: ExecutionMetadata,
+): ExecutionMetadata {
   return execution.kind === "deterministic"
     ? execution
     : {
