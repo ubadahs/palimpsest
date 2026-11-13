@@ -1,7 +1,7 @@
 import type { ProviderConfig } from "./config.js";
 import type { JevAttempt } from "./optimization-contract.js";
 
-export type JevTransportResponse = {
+type JevTransportResponse = {
   httpStatus: number;
   providerRequestId?: string;
   retryAfterMs?: number;

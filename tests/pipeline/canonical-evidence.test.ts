@@ -742,9 +742,9 @@ describe("canonical Evidence", () => {
     ).toHaveLength(2);
     expect(
       result.payload.queries.find(
-        (query) => query.source === "scope-family-tracked-claim",
+        (query) => query.source === "scope-family-claim",
       )!.text,
-    ).toBe(prepare.payload.scopedFamilies[0]!.trackedClaim);
+    ).toBe(prepare.payload.scopedFamilies[0]!.claim);
     expect(result.payload.bm25Runs).toHaveLength(3);
     expect(
       result.payload.bm25Runs.some(

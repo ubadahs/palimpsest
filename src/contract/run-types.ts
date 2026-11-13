@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { undefinedable } from "../domain/common.js";
 import {
+  claudeModelValues,
+  type ClaudeModel,
+} from "../shared/anthropic-token-cost.js";
+import {
   candidateSelectionPolicySchema,
   defaultAdaptivePortfolioPolicy,
 } from "./adaptive-portfolio-policy.js";
@@ -14,6 +18,7 @@ export {
 } from "./adaptive-portfolio-policy.js";
 import type { StageInspectorPayload } from "./inspector-payloads.js";
 import { stageKeySchema, type StageKey } from "./lean-stages.js";
+import { thinkingEffortSchema } from "./model-execution.js";
 import { stageWorkflowSnapshotSchema } from "./workflow.js";
 
 export const analysisRunStatusValues = [
@@ -44,6 +49,8 @@ export type AnalysisRunStageStatus = z.infer<
   typeof analysisRunStageStatusSchema
 >;
 
+const claudeModelSchema = z.enum(claudeModelValues);
+
 /**
  * Single source of truth for canonical run-config defaults.
  * Schema field defaults, UI form defaults, and CLI empty-config parse all
@@ -60,30 +67,30 @@ export const CANONICAL_RUN_CONFIG_DEFAULTS = {
     probeBudget: 100,
     fetchConcurrency: 6,
     candidateSelection: defaultAdaptivePortfolioPolicy,
-    extractionModel: "claude-haiku-5-5",
+    extractionModel: "claude-haiku-5-5" as ClaudeModel,
     extractionThinking: false,
-    canonicalizationModel: "claude-sonnet-5-5",
+    canonicalizationModel: "claude-sonnet-5-5" as ClaudeModel,
     canonicalizationThinking: false,
   },
   scope: {
-    groundingModel: "claude-sonnet-5-5",
+    groundingModel: "claude-sonnet-5-5" as ClaudeModel,
     groundingThinking: true,
-    codebookModel: "claude-sonnet-5-5",
-    taggingModel: "claude-haiku-5-5",
+    codebookModel: "claude-sonnet-5-5" as ClaudeModel,
+    taggingModel: "claude-haiku-5-5" as ClaudeModel,
   },
   prepare: {
     classifier: "deterministic" as const,
-    roleClassifierModel: "claude-haiku-5-5",
+    roleClassifierModel: "claude-haiku-5-5" as ClaudeModel,
   },
   evidence: {
     rerankEnabled: true,
-    rerankModel: "claude-haiku-5-5",
+    rerankModel: "claude-haiku-5-5" as ClaudeModel,
     rerankTopN: 5,
     bm25CandidateLimit: 20,
     selectionLimit: 5,
   },
   adjudicate: {
-    model: "claude-sonnet-5-5",
+    model: "claude-sonnet-5-5" as ClaudeModel,
     thinking: true,
     effort: "high" as const,
     evidence: "seed_text" as const,
@@ -101,8 +108,7 @@ export const adjudicationEvidenceSchema = z.enum([
 export type AdjudicationEvidence = z.infer<typeof adjudicationEvidenceSchema>;
 
 /**
- * Minimal canonical run config. Grouped by stage where practical.
- * Unknown fields are rejected by .strict() (no legacy aliases).
+ * Run config, grouped by stage. Unknown fields are rejected.
  */
 export const analysisRunConfigSchema = z
   .object({
@@ -163,20 +169,16 @@ export const analysisRunConfigSchema = z
         ),
         fromYear: z.number().int().positive().optional(),
         toYear: z.number().int().positive().optional(),
-        extractionModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel),
+        extractionModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionModel,
+        ),
         extractionThinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.discover.extractionThinking),
         /** Model that clusters paraphrased claims across citers, once per seed. */
-        canonicalizationModel: z
-          .string()
-          .min(1)
-          .default(
-            CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
-          ),
+        canonicalizationModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.discover.canonicalizationModel,
+        ),
         canonicalizationThinking: z
           .boolean()
           .default(
@@ -188,10 +190,9 @@ export const analysisRunConfigSchema = z
 
     scope: z
       .object({
-        groundingModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel),
+        groundingModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingModel,
+        ),
         groundingThinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.groundingThinking),
@@ -199,15 +200,13 @@ export const analysisRunConfigSchema = z
          * Model that builds a seed codebook. Only used when no codebook is
          * stored for the seed text: changing it does not regenerate one.
          */
-        codebookModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel),
+        codebookModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel,
+        ),
         /** Model that tags each citing claim with codebook entries. */
-        taggingModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel),
+        taggingModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel,
+        ),
         /** Absolute path to a local PDF for the seed paper (bypasses OA lookup). */
         seedPdfPath: z.string().min(1).optional(),
       })
@@ -221,10 +220,9 @@ export const analysisRunConfigSchema = z
           .literal("deterministic")
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.classifier),
         /** Model asked to settle a citation role the regex pass left unclear. */
-        roleClassifierModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel),
+        roleClassifierModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.prepare.roleClassifierModel,
+        ),
       })
       .strict()
       .default(() => ({ ...CANONICAL_RUN_CONFIG_DEFAULTS.prepare })),
@@ -235,10 +233,9 @@ export const analysisRunConfigSchema = z
         rerankEnabled: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankEnabled),
-        rerankModel: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel),
+        rerankModel: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.evidence.rerankModel,
+        ),
         rerankTopN: z
           .number()
           .int()
@@ -260,21 +257,20 @@ export const analysisRunConfigSchema = z
 
     adjudicate: z
       .object({
-        model: z
-          .string()
-          .min(1)
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model),
+        model: claudeModelSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.model,
+        ),
         thinking: z
           .boolean()
           .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.thinking),
         /**
-         * Adaptive thinking effort for models that support it. Exposed so the
+         * Thinking effort when `thinking` is on. Exposed so the
          * cheap experiment — does `medium` agree with `high`? — can be run
          * without editing source.
          */
-        effort: z
-          .enum(["low", "medium", "high", "max"])
-          .default(CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort),
+        effort: thinkingEffortSchema.default(
+          CANONICAL_RUN_CONFIG_DEFAULTS.adjudicate.effort,
+        ),
         /**
          * The whole seed text is the default: the seed is a prompt prefix the
          * provider caches across a seed's records, and the verdict rests on

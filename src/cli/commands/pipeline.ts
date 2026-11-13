@@ -397,7 +397,7 @@ Options:
   --adjudicate-model <model>        Adjudication model
   --adjudicate-thinking             Enable adjudication thinking
   --no-adjudicate-thinking          Disable adjudication thinking
-  --adjudicate-effort <level>       Adaptive thinking effort: low|medium|high|max
+  --adjudicate-effort <level>       Thinking effort when on: low|medium|high|max
   --adjudicate-evidence <basis>     What the adjudicator reads: seed_text|selected_chunks
   --rerun-from <stage>              Rerun a canonical stage and downstream stages
   --max-cost <usd>                  Stop sending model requests once the run's estimated

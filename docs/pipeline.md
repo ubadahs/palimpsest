@@ -6,7 +6,7 @@ The runnable operational workflow is the canonical six-stage pipeline:
 discover → scope → prepare → evidence → adjudicate → report
 ```
 
-These six keys are the entire public CLI and UI vocabulary. The pipeline is DOI-first only; manual shortlist/tracked-claim starts are removed. There is no `curate` stage and no sampling.
+These six keys are the entire public CLI and UI vocabulary. Every run starts from seed DOIs.
 
 ## Start and resume
 
@@ -45,7 +45,7 @@ Estimated spend is in `cost-summary.json` at the run root, rewritten after every
 - **Prompt caching.** Batch savings on whole-paper adjudication and seed grounding depend on cache hits inside the batch. Batched shared prefixes are written with the 1-hour cache TTL rather than 5 minutes, because a batch can wait longer than five minutes after the seed's first request wrote the cache. A 1-hour write costs twice the input price instead of 1.25 times; it is paid once per seed. If the cache is missed, each record pays full input for the seed text (about 22k tokens, about $0.022 per record at Sonnet batch price), which makes a batched record cost about 2.4 times a direct one. `cacheReadTokens` in `cost-summary.json` shows whether the hits happened.
 - **Resume and crashes.** A submitted batch is billed even if the process dies before reading it. Every submitted request's `custom_id` (a SHA-256 of its exact body, `anthropic-version`, and `anthropic-beta`) is recorded with its batch id in the `llm_batch_requests` table. When a later run or resume sends the identical request, it waits on that batch, or takes a result already stored, instead of paying again. Rows are deleted once their result reaches a caller, and rows older than 29 days (the API's results retention) are resubmitted. A resume whose settings changed sends different requests, which are new. The one gap is a crash between the API accepting a batch and the database recording it.
 
-Unknown flags and stage names are ordinary invalid input (no legacy aliases). A resumed run loads and validates the saved canonical artifact chain before continuing.
+Unknown flags and stage names are invalid input. A resumed run loads and validates the saved canonical artifact chain before continuing.
 
 ## Stages
 
@@ -90,5 +90,3 @@ Report consumes and tamper-verifies the full five-artifact chain. It writes auth
 Within a stage, model calls run side by side: `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, clustering, role-classification, codebook, grounding, tagging, rerank, or adjudication requests are in flight (a seed's three codebook calls always run one after another; seeds run side by side). Results are appended in input order, so an artifact is byte-identical at any concurrency and the setting never enters identity. Scope sends the seed text as a cached prompt prefix, so its first grounding call per seed runs alone and the rest fan out once the cache is written; identical rerank requests issued at the same time share one call. Discover's citing-paper fetching and GROBID parsing have their own bound, `discover.fetchConcurrency` (default 6), one global limit across providers: the full-text fetcher has no per-provider spacing, the HTTP client backs off on 429s, and PDFs reach GROBID at most `GROBID_CONCURRENCY` at a time (default 2, an environment setting, not run config), because a local container timed out parsing with six fetched side by side. A PDF waiting for a GROBID slot has not started its 30-second request timeout. A fatal provider error stops new dispatch, so it costs at most `modelConcurrency` calls (or `fetchConcurrency` fetches).
 
 Fresh and resumed runs create or use `data/runs/<runId>/`. Every succeeded stage is reloaded through its current-version schema and checked for content-hash and lineage consistency before a later stage runs. A failed stage blocks downstream stages.
-
-Old SQLite rows and run directories from the former seven-stage executor are unsupported and may need deletion/recreation. Do not attempt to convert old shortlist, screening, extraction, classification, curation, or support-style adjudication artifacts into this pipeline. Legacy orchestration modules have been deleted from the source tree.

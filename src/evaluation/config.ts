@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { thinkingEffortSchema } from "../contract/model-execution.js";
 import { evaluationTaskSchema } from "./types.js";
 import { jevVariantSchema } from "./optimization-contract.js";
 
@@ -22,17 +23,12 @@ export const providerConfigSchema = z.object({
   inferenceSettings: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
+  /** Saved experiments record thinking in this shape, so it stays. */
   thinking: z
-    .discriminatedUnion("type", [
-      z.object({
-        type: z.literal("adaptive"),
-        effort: z.enum(["low", "medium", "high", "max"]),
-      }),
-      z.object({
-        type: z.literal("enabled"),
-        budgetTokens: z.number().int().positive(),
-      }),
-    ])
+    .object({
+      type: z.literal("adaptive"),
+      effort: thinkingEffortSchema,
+    })
     .optional(),
   /**
    * What an Anthropic adjudicator reads from the seed paper: the chunks the

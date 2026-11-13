@@ -10,8 +10,6 @@ discover → scope → prepare → evidence → adjudicate → report
 
 It does not implement scientific pipeline logic. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, stores run/stage state in SQLite, streams logs, and renders typed canonical inspector payloads. It is not a hosted product.
 
-Old seven-stage UI/run state is unsupported. Existing local database rows or run directories may need deletion/recreation; the UI does not bridge shortlist, screen, extract, classify, curate, advisor, or vector-first artifacts into canonical runs.
-
 ## Routes
 
 - `/` — dashboard and local health

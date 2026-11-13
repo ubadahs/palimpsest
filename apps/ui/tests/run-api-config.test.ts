@@ -12,7 +12,7 @@ describe("run creation API config", () => {
   it("deep-merges an uploaded PDF into custom Scope config", () => {
     const requestedConfig = analysisRunConfigSchema.parse({
       scope: {
-        groundingModel: "custom-grounding-model",
+        groundingModel: "claude-opus-5-5",
         groundingThinking: false,
       },
     });
@@ -22,7 +22,7 @@ describe("run creation API config", () => {
       seedPdfPath: "/tmp/uploaded-seed.pdf",
     });
     expect(config.scope).toEqual({
-      groundingModel: "custom-grounding-model",
+      groundingModel: "claude-opus-5-5",
       groundingThinking: false,
       codebookModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.codebookModel,
       taggingModel: CANONICAL_RUN_CONFIG_DEFAULTS.scope.taggingModel,
@@ -60,11 +60,11 @@ describe("run creation API config", () => {
     ).toThrow(/single-DOI/i);
   });
 
-  it("accepts only canonical target extensions in start requests", () => {
+  it("accepts only pipeline stages as start targets", () => {
     expect(startRunSchema.parse({ targetStage: "scope" })).toEqual({
       targetStage: "scope",
     });
     expect(startRunSchema.parse({})).toEqual({});
-    expect(() => startRunSchema.parse({ targetStage: "screen" })).toThrow();
+    expect(() => startRunSchema.parse({ targetStage: "unknown" })).toThrow();
   });
 });

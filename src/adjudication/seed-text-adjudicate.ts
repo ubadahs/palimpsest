@@ -15,7 +15,7 @@ import {
   adjudicateJudgmentFields,
 } from "../contract/canonical-adjudicate.js";
 import type { EvidenceChunk } from "../contract/lean-artifacts.js";
-import { LLM_PROMPT_VERSIONS } from "../config/llm-versions.js";
+import { PROMPT_VERSIONS } from "../config/prompt-versions.js";
 import type { Result } from "../domain/common.js";
 import { FIDELITY_BOUNDARY_GUIDANCE } from "../shared/scientific-rubrics.js";
 import {
@@ -27,7 +27,7 @@ import {
 export const SEED_TEXT_ADJUDICATE_PROMPT_ID =
   "canonical-seed-text-adjudicate" as const;
 export const SEED_TEXT_ADJUDICATE_PROMPT_VERSION =
-  LLM_PROMPT_VERSIONS.seedTextAdjudication;
+  PROMPT_VERSIONS.seedTextAdjudication;
 
 /**
  * Seed texts longer than this are adjudicated from selected chunks instead.
@@ -129,7 +129,7 @@ function renderSeedText(blocks: readonly SeedTextBlock[]): string {
  * The prefix depends only on the seed, so every record of one seed shares it.
  * Everything about the citing paper is in the suffix.
  *
- * When this text changes, bump `LLM_PROMPT_VERSIONS.seedTextAdjudication`,
+ * When this text changes, bump `PROMPT_VERSIONS.seedTextAdjudication`,
  * and `promptRevision` in `evaluation/config.ts`, under which saved
  * evaluation trials are reused.
  */

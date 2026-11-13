@@ -297,7 +297,7 @@ describe.sequential("evaluation harness", () => {
         {
           id: "haiku",
           kind: "anthropic",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-5-5",
           pricePerMillionInputTokensUsd: 1,
           pricePerMillionOutputTokensUsd: 5,
         },
@@ -654,7 +654,7 @@ describe.sequential("evaluation harness", () => {
         {
           id: "opus",
           kind: "anthropic",
-          model: "claude-opus-4-6",
+          model: "claude-opus-5-5",
           tasks: ["adjudication"],
         },
       ],
@@ -693,7 +693,7 @@ describe.sequential("evaluation harness", () => {
         {
           id: "opus",
           kind: "anthropic",
-          model: "claude-opus-4-6",
+          model: "claude-opus-5-5",
           tasks: ["adjudication"],
         },
         {

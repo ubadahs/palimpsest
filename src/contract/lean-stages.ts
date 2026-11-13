@@ -1,9 +1,7 @@
 import { z } from "zod";
 
 /**
- * Canonical vocabulary, order, and on-disk layout for the six-stage pipeline.
- * This is the only stage vocabulary: there are no legacy stage keys and no
- * alias layer over these names.
+ * Vocabulary, order, and on-disk layout for the six-stage pipeline.
  */
 export const stageKeyValues = [
   "discover",
@@ -55,7 +53,7 @@ const stageOutlines = [
     directoryName: "02-prepare",
     title: "Prepare",
     responsibility:
-      "Materialize one stable record per citation instance and attach its classification; sampling is excluded.",
+      "Materialize one stable record per citation instance and attach its classification.",
   },
   {
     key: "evidence",

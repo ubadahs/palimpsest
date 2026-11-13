@@ -16,7 +16,7 @@ import {
 import { listAnalysisRuns, listRunStages } from "../storage/analysis-runs.js";
 import { artifactStemFromPrimaryPath } from "../contract/selectors.js";
 
-export type OrphanedRunArtifacts = {
+type OrphanedRunArtifacts = {
   runId: string;
   runRoot: string;
   /** Stage files from superseded attempts, keyed by the stage they belong to. */

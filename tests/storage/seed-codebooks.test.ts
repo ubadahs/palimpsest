@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectDatabaseGarbage } from "../../src/cli/commands/db-gc.js";
 import type { AppConfig } from "../../src/config/app-config.js";
-import { LLM_CACHE_VERSIONS } from "../../src/config/llm-versions.js";
+import { PROMPT_VERSIONS } from "../../src/config/prompt-versions.js";
 import {
   SEED_CODEBOOK_PROCEDURE_VERSION,
   buildSeedTextHash,
@@ -258,7 +258,6 @@ describe("production codebook adapter", () => {
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,
@@ -323,7 +322,7 @@ describe("production codebook adapter", () => {
     expect(new Set(calls.map((call) => call.promptPrefix)).size).toBe(1);
     expect(calls.every((call) => call.purpose === "seed-codebook")).toBe(true);
     expect(calls[0]!.exactCache).toEqual({
-      keyVersion: LLM_CACHE_VERSIONS.seedCodebook,
+      keyVersion: PROMPT_VERSIONS.seedCodebook,
     });
     expect(scopeSeedCodebookSchema.safeParse(generated).success).toBe(true);
 
@@ -366,7 +365,6 @@ describe("production codebook adapter", () => {
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,
@@ -401,7 +399,7 @@ describe("production codebook adapter", () => {
     expect(first!.promptSuffix).toBe('Citing claim: "Moths see moonlight."');
     expect(second!.promptSuffix).toBe('Citing claim: "Moths migrate."');
     expect(first!.exactCache).toEqual({
-      keyVersion: LLM_CACHE_VERSIONS.codebookTagging,
+      keyVersion: PROMPT_VERSIONS.codebookTagging,
     });
     database.close();
   });

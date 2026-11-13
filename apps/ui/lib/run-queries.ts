@@ -14,6 +14,7 @@ import {
   isGenericStageErrorMessage,
   listStageArtifacts,
   listStageArtifactsForStem,
+  progressLogPrefix,
   type AnalysisRunStage,
   type LogicalStageGroup,
   type DashboardStats,
@@ -606,10 +607,10 @@ export function getLogTail(runId: string, stageKey: StageKey): string {
     /* per-stage log not available */
   }
 
-  // Filter out CF_PROGRESS JSON lines — the log panel shows human-readable output only
+  // The log panel shows human-readable output only, not progress events.
   const lines = raw
     .split("\n")
-    .filter((line) => !line.startsWith("CF_PROGRESS "));
+    .filter((line) => !line.startsWith(progressLogPrefix));
   return lines.slice(-400).join("\n");
 }
 

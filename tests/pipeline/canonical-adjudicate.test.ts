@@ -1074,11 +1074,7 @@ describe("canonical Adjudicate", () => {
           record.verdict === "F",
       ),
     ).toBe(true);
-    expect(result.payload.method.routing).toBe("none");
     expect(result.payload.method.calibrationStatus).toBe("uncalibrated");
-    expect(JSON.stringify(result)).not.toMatch(
-      /advisor|vector_first|escalat|challenger/i,
-    );
   });
 
   it("builds a neutral packet/prompt without leading or score leakage", async () => {
@@ -1356,7 +1352,7 @@ describe("canonical Adjudicate", () => {
         ...failedRecord,
         execution: {
           ...failedRecord.execution,
-          servedModel: "claude-opus-4-6-20260101",
+          servedModel: "claude-opus-5-5-20260101",
           exactCacheHit: true,
         },
       }),

@@ -206,7 +206,6 @@ function mockedLlmClient(): LLMClient {
           successful: true,
           failed: false,
           billable: false,
-          thinkingEnabled: false,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,

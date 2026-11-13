@@ -25,9 +25,8 @@ DOI input
 
 ## Important boundaries
 
-- Fresh execution is DOI-first; manual shortlists and tracked-claim starts are removed.
+- Every run starts from seed DOIs.
 - The public stage vocabulary is only `discover`, `scope`, `prepare`, `evidence`, `adjudicate`, and `report`.
-- There is no `curate` or sampling stage. Every scoped family × occurrence record remains accounted for downstream.
+- Every scoped family × occurrence record remains accounted for downstream.
 - `U` is a scientific uncertainty verdict with evidence; it is not a substitute for retrieval, provider, or classification failure.
 - Canonical Adjudicate is runnable but uncalibrated. Blinded human calibration is required before trust claims.
-- Old seven-stage executor run rows and directories are unsupported and may be deleted/recreated rather than migrated.

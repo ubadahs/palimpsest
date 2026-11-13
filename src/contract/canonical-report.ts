@@ -885,13 +885,13 @@ const reportFamilyGroundingSpanSchema = z
  * A seed finding and every citing restatement of it, chronologically. The
  * canonical, hashable form of what the UI Families tab displays.
  */
-export const reportFamilyMutationSchema = z
+const reportFamilyMutationSchema = z
   .object({
     familyId: stableIdentifierSchema,
     seedId: stableIdentifierSchema,
     seedDoi: z.string().min(1),
     seedTitle: z.string().min(1).optional(),
-    trackedClaim: z.string().min(1),
+    claim: z.string().min(1),
     /** How the family's member claims were judged equivalent in Discover. */
     equivalenceMethod: z
       .enum(["model", "blocked_model", "exact_normalized_text"])
@@ -1047,30 +1047,6 @@ function validateReportPayload(
   payload: z.infer<typeof reportArtifactPayloadSchema>,
   context: z.RefinementCtx,
 ): void {
-  if (payload.method.methodId !== canonicalReportMethodId) {
-    context.addIssue({
-      code: "custom",
-      path: ["method", "methodId"],
-      message:
-        "Canonical Report method ID is not the current audit report method",
-    });
-  }
-  if (payload.method.calibrationStatus !== "uncalibrated") {
-    context.addIssue({
-      code: "custom",
-      path: ["method", "calibrationStatus"],
-      message:
-        "Canonical Report remains uncalibrated until blinded human labels exist",
-    });
-  }
-  if (payload.interpretationStatus !== "uncalibrated_research_output") {
-    context.addIssue({
-      code: "custom",
-      path: ["interpretationStatus"],
-      message: "Canonical Report must declare uncalibrated_research_output",
-    });
-  }
-
   const forbiddenRateIds = new Set([
     "accuracy",
     "agreement",

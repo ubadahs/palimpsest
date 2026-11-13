@@ -1036,7 +1036,7 @@ describe("canonical Report", () => {
     );
     expect(new Set(covered).size).toBe(result.payload.recordTraces.length);
     for (const family of families) {
-      expect(family.trackedClaim.length).toBeGreaterThan(0);
+      expect(family.claim.length).toBeGreaterThan(0);
       expect(family.uniqueClaimUnits).toBeGreaterThan(0);
       const years = family.records.map(
         (record) => record.citingPaperYear ?? Number.POSITIVE_INFINITY,

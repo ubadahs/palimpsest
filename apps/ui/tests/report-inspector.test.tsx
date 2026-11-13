@@ -70,7 +70,7 @@ function record(
     familyId: "family_1",
     citationOccurrenceId: "mention_1",
     citingPaperId: "paper_1",
-    trackedClaim: "Tracked claim about dorsal contact",
+    familyClaim: "Family claim about dorsal contact",
     evaluatedClaimText: "Several Calmic types receive dorsal contact",
     seedId: "seed_1",
     seedTitle: "Seed paper on dorsal contact",
@@ -513,7 +513,7 @@ function buildPayload(): StageInspectorPayload<"report"> {
   const family: MutationFamilyView = {
     familyId: head.familyId,
     seedId: head.seedId,
-    trackedClaim: head.trackedClaim,
+    claim: head.familyClaim,
     seedTitle: head.seedTitle,
     verifiedSeedGroundingSpans: head.verifiedSeedGroundingSpans,
     recordCount: records.length,
@@ -682,7 +682,7 @@ describe("report inspector", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Tracked claim about dorsal contact.*3 records/i,
+        name: /Family claim about dorsal contact.*3 records/i,
       }),
     );
     expect(window.location.search).toContain("family=family_1");

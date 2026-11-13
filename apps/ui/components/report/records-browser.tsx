@@ -27,7 +27,7 @@ export function RecordsBrowser({
       if (!needle) return true;
       const haystack = [
         record.evaluatedClaimText,
-        record.trackedClaim,
+        record.familyClaim,
         record.citingPaperTitle,
         record.citingPaperDoi ?? "",
         record.seedRefLabel ?? "",

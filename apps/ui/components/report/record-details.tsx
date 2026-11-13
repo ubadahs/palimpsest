@@ -129,7 +129,7 @@ function RecordDetails({
           Tracked family claim
         </h4>
         <p className="text-sm leading-6 text-[var(--text)]">
-          {record.trackedClaim}
+          {record.familyClaim}
         </p>
         {record.groundingStatus ? (
           <p className="text-xs text-[var(--text-muted)]">

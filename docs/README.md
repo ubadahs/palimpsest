@@ -9,8 +9,6 @@ If design documents disagree on scope, follow this order:
 3. [adjudication-rubric.md](./adjudication-rubric.md) — F/D/E/U and Report denominator rules
 4. [evaluation-protocol.md](./evaluation-protocol.md) — how uncalibrated outputs should be judged scientifically
 
-Historical POC conception docs (shortlist/pre-screen era) live under [`archive/pre-canonical/`](./archive/pre-canonical/) and are **not** authoritative.
-
 ## Start Here
 
 - [../README.md](../README.md) — repo landing page, quick start, high-level workflow
@@ -32,11 +30,6 @@ Historical POC conception docs (shortlist/pre-screen era) live under [`archive/p
 
 - [concept-memo.md](./concept-memo.md) — why this project is worth testing
 - [evaluation-protocol.md](./evaluation-protocol.md) — how uncalibrated outputs should be reviewed
-- [conception/README.md](./conception/README.md) — pointer to demoted historical conception docs
-
-## Archived / Historical
-
-- [`archive/README.md`](./archive/README.md) — superseded pipeline notes, pre-canonical conception docs, and archived April 2026 audit snapshots
 
 ## Focused Reference Docs
 
@@ -47,7 +40,7 @@ Historical POC conception docs (shortlist/pre-screen era) live under [`archive/p
 
 - Root package: `npm run lint` covers `src/` and `tests/`; `npm run test` runs Vitest for `tests/**/*.ts`
 - UI workspace: `npm --workspace @palimpsest/ui run lint` and `npm --workspace @palimpsest/ui run test` (Vitest + `happy-dom`; `@vitejs/plugin-react` aligns with Vite 6 alongside root Vitest 3.x)
-- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so legacy modules stay visible
+- Optional dead-code/unlisted-deps: `npx knip --reporter compact` uses root [`knip.json`](../knip.json); keep suppressions narrow so dead code stays visible
 
 ## Large-Change Checklist
 

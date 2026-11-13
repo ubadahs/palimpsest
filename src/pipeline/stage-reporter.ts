@@ -23,7 +23,7 @@ export type StageReporter = {
 };
 
 /**
- * Creates a stage-aware reporter that emits structured CF_PROGRESS events
+ * Creates a stage-aware reporter that emits structured progress events
  * (for the workflow panel) and human-readable log lines to both stdout and a
  * per-stage log file.
  */

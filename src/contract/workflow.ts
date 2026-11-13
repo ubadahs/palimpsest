@@ -77,7 +77,7 @@ export const stageProgressEventSchema = z
     { message: "current and total must be provided together" },
   );
 export type StageProgressEvent = z.infer<typeof stageProgressEventSchema>;
-export const progressLogPrefix = "CF_PROGRESS ";
+export const progressLogPrefix = "PALIMPSEST_PROGRESS ";
 
 type WorkflowStepDefinition = {
   id: string;

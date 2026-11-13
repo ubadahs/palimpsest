@@ -434,7 +434,7 @@ export const scopedFamilySchema = z
     seedId: stableIdentifierSchema,
     candidateIds: z.array(stableIdentifierSchema).min(1),
     sourceClaimRecordIds: z.array(stableIdentifierSchema).min(1),
-    trackedClaim: z.string().min(1),
+    claim: z.string().min(1),
     normalizedClaim: z.string().min(1),
     grounding: scopeGroundingSchema,
     /**

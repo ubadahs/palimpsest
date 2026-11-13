@@ -1,20 +1,34 @@
-/** USD per 1M tokens (approximate list pricing; treat as estimates only). */
-const PRICING_USD_PER_MILLION: Record<
-  string,
-  { input: number; output: number; cacheRead?: number }
-> = {
-  // From the 5.5 models on, cache reads cost less than a tenth of input.
+/** The models a run can name. Each supports adaptive thinking with an effort. */
+export const claudeModelValues = [
+  "claude-fable-5-2",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+] as const;
+export type ClaudeModel = (typeof claudeModelValues)[number];
+
+type ModelPrice = { input: number; output: number; cacheRead?: number };
+
+/**
+ * USD per 1M tokens (approximate list pricing; treat as estimates only). From
+ * the 5.5 models on, cache reads cost less than a tenth of input.
+ */
+const PRICING_USD_PER_MILLION: Record<ClaudeModel, ModelPrice> = {
   "claude-fable-5-2": { input: 8, output: 40, cacheRead: 0.2 },
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1 },
   // Haiku 5.5 rates for prompts up to 100K tokens.
   "claude-haiku-5-5": { input: 0.1, output: 0.5 },
-  "claude-opus-4-6": { input: 5, output: 25 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-opus-4-20250514": { input: 15, output: 75 },
-  "claude-sonnet-4-20250514": { input: 3, output: 15 },
-  "claude-haiku-4-5": { input: 1, output: 5 },
 };
+
+/** A served model id the table does not name (a dated snapshot) is priced as Sonnet. */
+function priceFor(model: string): ModelPrice {
+  return (
+    (PRICING_USD_PER_MILLION as Record<string, ModelPrice | undefined>)[
+      model
+    ] ?? PRICING_USD_PER_MILLION["claude-sonnet-5-5"]
+  );
+}
 
 const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_5M_MULTIPLIER = 1.25;
@@ -49,8 +63,7 @@ export type AnthropicTokenCostUsage = {
 };
 
 /**
- * Rough USD cost from Anthropic token usage (unknown models default to
- * Sonnet-like rates). Accepts cache and reasoning breakdown fields. With
+ * Rough USD cost from Anthropic token usage. Accepts cache and reasoning breakdown fields. With
  * `batch`, the call was answered through the Message Batches API.
  */
 export function estimateAnthropicUsd(
@@ -58,7 +71,7 @@ export function estimateAnthropicUsd(
   usage: AnthropicTokenCostUsage,
   options?: { batch?: boolean },
 ): number {
-  const price = PRICING_USD_PER_MILLION[model] ?? { input: 3, output: 15 };
+  const price = priceFor(model);
 
   const reasoningTokens = usage.reasoningTokens ?? 0;
   const cacheReadTokens = usage.cacheReadTokens ?? 0;

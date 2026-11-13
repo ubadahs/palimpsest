@@ -14,18 +14,17 @@ export const jevVariantSchema = z.object({
 });
 export type JevVariant = z.infer<typeof jevVariantSchema>;
 
-export const jevRequestSpecSchema = z.object({
-  requestId: z.string().min(1),
-  requestHash: z.string().min(1),
-  variantId: z.string().min(1),
-  caseId: z.string().min(1),
-  batchIndex: z.number().int().nonnegative(),
-  body: z.unknown(),
+export type JevRequestSpec = {
+  requestId: string;
+  requestHash: string;
+  variantId: string;
+  caseId: string;
+  batchIndex: number;
+  body: unknown;
   /** Exact answer key -> frozen candidate ID. Role requests use decision -> role. */
-  answerMap: z.record(z.string(), z.string()),
-  candidateIds: z.array(z.string()),
-});
-export type JevRequestSpec = z.infer<typeof jevRequestSpecSchema>;
+  answerMap: Record<string, string>;
+  candidateIds: string[];
+};
 
 export const jevAttemptSchema = z.object({
   schemaVersion: z.literal("evaluation-jev-attempt-v1"),

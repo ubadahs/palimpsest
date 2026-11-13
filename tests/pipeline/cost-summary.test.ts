@@ -16,12 +16,11 @@ type Call = LLMRunLedger["calls"][number];
 function call(overrides: Partial<Call>): Call {
   return {
     purpose: "seed-grounding",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5-5",
     attempted: true,
     successful: true,
     failed: false,
     billable: true,
-    thinkingEnabled: false,
     inputTokens: 100,
     outputTokens: 10,
     totalTokens: 110,

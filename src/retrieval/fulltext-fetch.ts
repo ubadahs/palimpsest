@@ -1462,7 +1462,7 @@ async function defaultProcessPdfWithGrobid(
 }
 
 /** Concurrent GROBID parses when the caller names no bound. */
-export const DEFAULT_GROBID_CONCURRENCY = 2;
+const DEFAULT_GROBID_CONCURRENCY = 2;
 
 export type CreateAdaptersOptions = {
   grobidBaseUrl: string;

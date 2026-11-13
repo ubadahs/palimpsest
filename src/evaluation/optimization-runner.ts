@@ -82,7 +82,7 @@ function middleSix(
   );
 }
 
-export function selectedOptimizationCases(
+function selectedOptimizationCases(
   cases: EvaluationCase[],
   variant: JevVariant,
   provider: ProviderConfig,

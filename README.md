@@ -71,7 +71,7 @@ Run the local UI for orchestration, logs, and artifact inspection:
 npm run ui:dev
 ```
 
-Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs. Old local database rows and run directories from the superseded seven-stage executor are unsupported; delete/recreate them rather than attempting to resume or bridge them.
+Pipeline and UI artifacts are written locally under `data/runs/` when using managed runs.
 
 `eval` freezes a finished report into local cases under `data/evaluations/` and compares providers on them. It can add constructed cases, whose right verdict is known because they edit a restatement a reviewer called faithful, and it can compare adjudicating from retrieved chunks with adjudicating from the whole cited paper. A reviewer grades cases blind in the local UI, one at a time, and `eval request` queues the few cases a comparison turns on. Those datasets and trials are gitignored. See [docs/evaluation.md](docs/evaluation.md).
 
@@ -81,7 +81,7 @@ The final `report` stage writes authoritative JSON funnel/rate/trace accounting 
 
 ## Pipeline
 
-The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. It is DOI-first only: manual shortlist and tracked-claim starts are removed. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims and skips reranking when verified grounding pins already fill the packet. There is no sampling or `curate` stage. The source tree is canonical-only after the six-stage cutover cleanup.
+The runnable production pipeline is `discover → scope → prepare → evidence → adjudicate → report`. These are the only public CLI stage keys. Every run starts from seed DOIs. Discover selects an adaptive claim portfolio (default 15–25 families) under a prepared-record budget; Evidence retrieves from occurrence-local claims and skips reranking when verified grounding pins already fill the packet.
 
 Model calls default to Claude Haiku 5.5 (claim extraction, citation roles, reranking) and Sonnet 5.5 (claim clustering, seed grounding, adjudication). Each can be changed in the run config. The adjudicator reads the whole cited paper and must quote the passages its verdict rests on; each quote is checked against the paper's text.
 

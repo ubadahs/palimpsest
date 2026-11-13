@@ -73,7 +73,7 @@ export type ReportInspectorRecordRow = {
   recordId: string;
   familyId: string;
   citationOccurrenceId: string;
-  trackedClaim: string;
+  familyClaim: string;
   evaluatedClaimText: string;
   seedId: string;
   seedTitle: string;
@@ -136,7 +136,7 @@ export type MutationFamilyVerdictCounts = {
 export type MutationFamilyView = {
   familyId: string;
   seedId: string;
-  trackedClaim: string;
+  claim: string;
   seedTitle: string;
   seedDoi?: string;
   groundingStatus?: string;

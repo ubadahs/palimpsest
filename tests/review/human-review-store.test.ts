@@ -305,7 +305,7 @@ describe("human review store", () => {
           citingPaperId: "citing_paper_1",
           claimTexts: ["Evaluated claim"],
           snapshot: {
-            trackedClaim: "Tracked claim",
+            familyClaim: "Family claim",
             evaluatedClaimText: "Evaluated claim",
             citingPaperId: "citing_paper_1",
             citingPaperTitle: "Citing paper",
@@ -331,11 +331,11 @@ describe("human review store", () => {
 
     const csv = renderHumanReviewCsv(bundle.units);
     expect(csv.split("\n")[0]).toBe(
-      "familyId,citingPaperId,citingPaperTitle,trackedClaim,recordIds,recordCount,reviewedRecordCount,machineVerdicts,humanVerdicts,machineMutationKinds,humanMutationKinds,labelAgreement,evidenceSufficiency,endToEndValid,blinded,reviewers,reviewStatuses,notes",
+      "familyId,citingPaperId,citingPaperTitle,familyClaim,recordIds,recordCount,reviewedRecordCount,machineVerdicts,humanVerdicts,machineMutationKinds,humanMutationKinds,labelAgreement,evidenceSufficiency,endToEndValid,blinded,reviewers,reviewStatuses,notes",
     );
     expect(csv).toContain("family_1");
     expect(csv).toContain("record_1");
-    expect(csv).toContain("Tracked claim");
+    expect(csv).toContain("Family claim");
     expect(csv).toContain("F");
     expect(csv).toContain("E");
     expect(csv).toContain("true");
@@ -439,7 +439,7 @@ function machineRecord(
     citingPaperId: "citing_paper_1",
     claimTexts: ["Evaluated claim"],
     snapshot: {
-      trackedClaim: "Tracked claim",
+      familyClaim: "Family claim",
       evaluatedClaimText: "Evaluated claim",
       citingPaperId: "citing_paper_1",
       citingPaperTitle: "Citing paper",

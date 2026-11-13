@@ -38,7 +38,6 @@ export const canonicalAdjudicateMethodSchema = z
     methodId: z.literal(canonicalAdjudicateMethodId),
     strategy: z.literal("single_categorical"),
     calibrationStatus: z.literal("uncalibrated"),
-    routing: z.literal("none"),
   })
   .strict();
 export type CanonicalAdjudicateMethod = z.infer<
@@ -49,7 +48,6 @@ export const canonicalAdjudicateMethod: CanonicalAdjudicateMethod = {
   methodId: canonicalAdjudicateMethodId,
   strategy: "single_categorical",
   calibrationStatus: "uncalibrated",
-  routing: "none",
 };
 
 const adjudicateEvidenceArtifactReferenceSchema = artifactReferenceSchema
@@ -369,7 +367,7 @@ function addEvidenceBasisIssues(
 
 /**
  * Result identity binds prepared record ID, versioned method, and immutable
- * scientific outcome. Timestamps, confidence routing, artifact URIs, and
+ * scientific outcome. Timestamps, artifact URIs, and
  * storage locations are excluded.
  */
 export function buildAdjudicationResultId(
@@ -468,30 +466,6 @@ function validateAdjudicatePayload(
   payload: z.infer<typeof adjudicateArtifactPayloadSchema>,
   context: z.RefinementCtx,
 ): void {
-  if (payload.method.methodId !== canonicalAdjudicateMethodId) {
-    context.addIssue({
-      code: "custom",
-      path: ["method", "methodId"],
-      message:
-        "Canonical Adjudicate method ID is not the current categorical method",
-    });
-  }
-  if (payload.method.routing !== "none") {
-    context.addIssue({
-      code: "custom",
-      path: ["method", "routing"],
-      message: "Canonical Adjudicate forbids advisor/vector/confidence routing",
-    });
-  }
-  if (payload.method.calibrationStatus !== "uncalibrated") {
-    context.addIssue({
-      code: "custom",
-      path: ["method", "calibrationStatus"],
-      message:
-        "Canonical Adjudicate remains uncalibrated until blinded human labels exist",
-    });
-  }
-
   const recordIds = payload.records.map((record) => record.recordId);
   addDuplicateIdentifierIssue(recordIds, ["records"], context);
 

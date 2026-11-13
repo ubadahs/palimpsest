@@ -26,6 +26,7 @@ import {
   type FetchFunction,
 } from "./batch-transport.js";
 import type { StageKey } from "../contract/lean-stages.js";
+import type { ThinkingEffort } from "../contract/model-execution.js";
 import type { DatabaseConnection } from "../storage/database.js";
 import { createSqliteBatchRequestStore } from "../storage/llm-batch-requests.js";
 import {
@@ -69,20 +70,7 @@ type LLMCallContext = {
 // Per-call telemetry returned from every invocation.
 // ---------------------------------------------------------------------------
 
-export type ThinkingEffort = "low" | "medium" | "high" | "max";
-
-/**
- * Extended thinking configuration.
- *
- * - `adaptive` + `effort`: Sonnet/Opus 4.6+ and every model from 5 on.
- * - `enabled` + `budgetTokens`: legacy fixed-budget mode for older models
- *   that do not support adaptive thinking (e.g. Haiku 4.5, Sonnet 4.5).
- */
-export type ThinkingConfig =
-  | { type: "adaptive"; effort: ThinkingEffort }
-  | { type: "enabled"; budgetTokens: number };
-
-export type LLMTransport = "direct" | "batch";
+type LLMTransport = "direct" | "batch";
 
 export type LLMCallRecord = {
   purpose: LLMPurpose;
@@ -95,10 +83,7 @@ export type LLMCallRecord = {
   successful: boolean;
   failed: boolean;
   billable: boolean;
-  thinkingEnabled: boolean;
-  thinkingType?: ThinkingConfig["type"];
   thinkingEffort?: ThinkingEffort;
-  thinkingBudgetTokens?: number;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens?: number;
@@ -201,8 +186,8 @@ export type PromptCachingOptions = {
 };
 
 /**
- * Opt-in exact-result cache config.  Call sites declare a `keyVersion` that
- * must be bumped when the prompt template or output schema changes.
+ * Opt-in exact-result cache config. Call sites pass their prompt version as
+ * `keyVersion`, so a changed prompt or output schema misses the cache.
  */
 type ExactCacheConfig = {
   keyVersion: string;
@@ -228,7 +213,8 @@ export type GenerateObjectParams<T extends z.ZodType = z.ZodType> = (
   purpose: LLMPurpose;
   model?: string;
   schema: T;
-  thinking?: ThinkingConfig;
+  /** Thinking effort; absent, the model's default. */
+  effort?: ThinkingEffort;
   context?: LLMCallContext;
   /** Opt in to persistent exact-result caching. */
   exactCache?: ExactCacheConfig;
@@ -557,88 +543,18 @@ export function resolvePromptCacheControl(params: {
   return policy.cacheControl;
 }
 
-/** Family and version in a Claude model id such as `claude-sonnet-5-5`. */
-function claudeModelVersion(
-  modelId: string,
-): { family: string; major: number; minor: number } | undefined {
-  const match = /claude-([a-z]+)-(\d+)(?:[.-](\d{1,2})(?!\d))?/i.exec(modelId);
-  return match
-    ? {
-        family: match[1]!.toLowerCase(),
-        major: Number(match[2]),
-        minor: Number(match[3] ?? "0"),
-      }
-    : undefined;
-}
-
 /**
- * True when the model takes adaptive thinking: Sonnet and Opus from 4.6, and
- * every family from 5 on, where a fixed thinking budget is rejected.
+ * Effort for a call site's thinking switch. Every supported model thinks by
+ * default, and Opus 5.5 and Sonnet 5.5 cannot be told to stop, so "off" is
+ * the lowest effort, which keeps thinking short and skips it on simple
+ * requests.
  */
-export function modelSupportsAdaptiveThinking(modelId: string): boolean {
-  const version = claudeModelVersion(modelId);
-  if (!version) {
-    return false;
-  }
-  const { family, major, minor } = version;
-  return (
-    major >= 5 ||
-    (major === 4 && minor >= 6 && (family === "sonnet" || family === "opus"))
-  );
-}
-
-/**
- * True for models that think unless told otherwise: every family from 5 on.
- * Earlier models think only when a request asks them to.
- */
-export function modelThinksByDefault(modelId: string): boolean {
-  return (claudeModelVersion(modelId)?.major ?? 0) >= 5;
-}
-
-/**
- * Thinking for a call site. On: adaptive with an effort level where the model
- * takes it, a fixed budget on older models. Off: nothing is sent to a model
- * that thinks only when asked. A model that thinks by default cannot always
- * be told to stop (Opus 5.5 and Sonnet 5.5 reject it), so there "off" is the
- * lowest effort, which keeps thinking short and skips it on simple requests.
- */
-export function resolveThinkingConfig(params: {
-  model: string;
+export function resolveThinkingEffort(params: {
   enabled: boolean;
   /** Effort when thinking is on. Defaults to `high`. */
-  effort?: ThinkingEffort;
-  /** Budget for models without adaptive thinking; required to turn it on there. */
-  budgetTokens?: number;
-}): ThinkingConfig | undefined {
-  if (!params.enabled) {
-    return modelThinksByDefault(params.model)
-      ? { type: "adaptive", effort: "low" }
-      : undefined;
-  }
-  if (modelSupportsAdaptiveThinking(params.model)) {
-    return {
-      type: "adaptive",
-      effort: params.effort ?? "high",
-    };
-  }
-  if (params.budgetTokens == null) {
-    throw new Error(`${params.model} needs a thinking budget to think`);
-  }
-  return {
-    type: "enabled",
-    budgetTokens: params.budgetTokens,
-  };
-}
-
-/** Stable cache-key / provenance encoding of thinking settings. */
-export function thinkingConfigKey(thinking?: ThinkingConfig): string {
-  if (!thinking) {
-    return "";
-  }
-  if (thinking.type === "adaptive") {
-    return `adaptive:${thinking.effort}`;
-  }
-  return `enabled:${String(thinking.budgetTokens)}`;
+  effort?: ThinkingEffort | undefined;
+}): ThinkingEffort {
+  return params.enabled ? (params.effort ?? "high") : "low";
 }
 
 function promptCachePolicyKey(cacheControl?: PromptCacheControl): string {
@@ -652,47 +568,20 @@ function promptCachePolicyKey(cacheControl?: PromptCacheControl): string {
 
 type ExactCacheAccessPolicy = "allow" | "bypass";
 
-/**
- * Anthropic providerOptions fragment for thinking (+ effort when adaptive).
- * Effort is a sibling of `thinking` per AI SDK / Anthropic Messages API.
- */
+/** Anthropic providerOptions for a thinking effort. */
 export function buildAnthropicThinkingProviderOptions(
-  thinking?: ThinkingConfig,
+  effort?: ThinkingEffort,
 ):
-  | {
-      thinking: { type: "adaptive" };
-      effort: ThinkingEffort;
-    }
-  | {
-      thinking: { type: "enabled"; budgetTokens: number };
-    }
+  | { thinking: { type: "adaptive" }; effort: ThinkingEffort }
   | Record<string, never> {
-  if (!thinking) {
-    return {};
-  }
-  if (thinking.type === "adaptive") {
-    return {
-      thinking: { type: "adaptive" },
-      effort: thinking.effort,
-    };
-  }
-  return {
-    thinking: {
-      type: "enabled",
-      budgetTokens: thinking.budgetTokens,
-    },
-  };
+  return effort ? { thinking: { type: "adaptive" }, effort } : {};
 }
 
 export type NormalizedLLMCallProvenance = {
   purpose: LLMPurpose;
   model: string;
   promptVersion: string;
-  thinking:
-    | { mode: "adaptive"; effort: ThinkingEffort }
-    | { mode: "enabled"; budgetTokens: number }
-    | { mode: "disabled" };
-  exactCacheKeyVersion: string;
+  effort?: ThinkingEffort;
   cachePolicy: ExactCacheAccessPolicy;
   promptCachePolicy: string;
 };
@@ -702,51 +591,17 @@ export function buildNormalizedLLMCallProvenance(params: {
   purpose: LLMPurpose;
   model: string;
   promptVersion: string;
-  thinking?: ThinkingConfig | undefined;
-  exactCacheKeyVersion: string;
+  effort?: ThinkingEffort | undefined;
   forceRefresh?: boolean | undefined;
   promptCacheControl?: PromptCacheControl | undefined;
 }): NormalizedLLMCallProvenance {
-  const thinking: NormalizedLLMCallProvenance["thinking"] = !params.thinking
-    ? { mode: "disabled" }
-    : params.thinking.type === "adaptive"
-      ? { mode: "adaptive", effort: params.thinking.effort }
-      : {
-          mode: "enabled",
-          budgetTokens: params.thinking.budgetTokens,
-        };
-
   return {
     purpose: params.purpose,
     model: params.model,
     promptVersion: params.promptVersion,
-    thinking,
-    exactCacheKeyVersion: params.exactCacheKeyVersion,
+    ...(params.effort != null ? { effort: params.effort } : {}),
     cachePolicy: params.forceRefresh === true ? "bypass" : "allow",
     promptCachePolicy: promptCachePolicyKey(params.promptCacheControl),
-  };
-}
-
-function thinkingTelemetryFields(thinking?: ThinkingConfig): {
-  thinkingEnabled: boolean;
-  thinkingType?: ThinkingConfig["type"];
-  thinkingEffort?: ThinkingEffort;
-  thinkingBudgetTokens?: number;
-} {
-  if (!thinking) {
-    return { thinkingEnabled: false };
-  }
-  if (thinking.type === "adaptive") {
-    return {
-      thinkingEnabled: true,
-      thinkingType: "adaptive",
-      thinkingEffort: thinking.effort,
-    };
-  }
-  return {
-    thinkingEnabled: true,
-    thinkingType: "enabled",
-    thinkingBudgetTokens: thinking.budgetTokens,
   };
 }
 
@@ -1136,9 +991,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     purpose: LLMPurpose,
     modelId: string,
     context: LLMCallContext,
-    thinking?: ThinkingConfig,
+    effort?: ThinkingEffort,
   ): LLMCallRecord {
-    const thinkingFields = thinkingTelemetryFields(thinking);
     const record: LLMCallRecord = {
       purpose,
       model: modelId,
@@ -1147,7 +1001,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: true,
       failed: false,
       billable: false,
-      ...thinkingFields,
+      ...(effort != null ? { thinkingEffort: effort } : {}),
       exactCacheHit: true,
       inputTokens: 0,
       outputTokens: 0,
@@ -1233,7 +1087,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     latencyMs: number,
     finishReason: string,
     transport: LLMTransport,
-    thinking?: ThinkingConfig,
+    effort?: ThinkingEffort,
   ): LLMCallRecord {
     const record: LLMCallRecord = {
       purpose,
@@ -1243,7 +1097,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       attempted: true,
       successful: true,
       failed: false,
-      ...thinkingTelemetryFields(thinking),
+      ...(effort != null ? { thinkingEffort: effort } : {}),
       ...usageFields(modelId, usage, transport),
       transport,
       latencyMs,
@@ -1266,7 +1120,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     modelId: string;
     context: LLMCallContext;
     latencyMs: number;
-    thinking?: ThinkingConfig;
+    effort?: ThinkingEffort;
     error: unknown;
   }): LLMCallRecord {
     const provider = classifyProviderError(params.error);
@@ -1291,7 +1145,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       attempted: true,
       successful: false,
       failed: true,
-      ...thinkingTelemetryFields(params.thinking),
+      ...(params.effort != null ? { thinkingEffort: params.effort } : {}),
       ...usageFields(params.modelId, generated?.usage, transport ?? "direct"),
       ...(transport != null ? { transport } : {}),
       latencyMs: params.latencyMs,
@@ -1325,7 +1179,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         purpose: params.purpose,
         model: modelId,
         prompt: resolveFullPrompt(params),
-        thinkingConfig: thinkingConfigKey(params.thinking),
+        effort: params.effort ?? "",
         keyVersion: params.exactCache?.keyVersion ?? "",
         schemaFingerprint: sf,
         cachePolicy: cacheAccessPolicy,
@@ -1352,7 +1206,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             params.purpose,
             modelId,
             context,
-            params.thinking,
+            params.effort,
           );
           return { object: parsed.data as z.infer<T>, record };
         }
@@ -1417,7 +1271,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
 
       const startMs = Date.now();
       const anthropicProviderOptions = buildAnthropicThinkingProviderOptions(
-        params.thinking,
+        params.effort,
       );
       const providerOptions =
         Object.keys(anthropicProviderOptions).length > 0
@@ -1460,7 +1314,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           Date.now() - startMs,
           result.finishReason,
           transportFromHeaders(result.response?.headers),
-          params.thinking,
+          params.effort,
         );
 
         if (record.truncated) {
@@ -1485,7 +1339,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
           modelId,
           context,
           latencyMs: Date.now() - startMs,
-          ...(params.thinking != null ? { thinking: params.thinking } : {}),
+          ...(params.effort != null ? { effort: params.effort } : {}),
           error,
         });
         const provider = classifyProviderError(error);

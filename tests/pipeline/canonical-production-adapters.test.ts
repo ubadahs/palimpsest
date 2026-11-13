@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AppConfig } from "../../src/config/app-config.js";
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
-import { LLM_CACHE_VERSIONS } from "../../src/config/llm-versions.js";
+import { PROMPT_VERSIONS } from "../../src/config/prompt-versions.js";
 import type {
   GenerateObjectParams,
   LLMClient,
@@ -64,7 +64,6 @@ const FIXTURE_RECORD = {
   successful: true,
   failed: false,
   billable: false,
-  thinkingEnabled: false,
   inputTokens: 1,
   outputTokens: 1,
   totalTokens: 2,
@@ -191,12 +190,11 @@ function roleClassifierReply(object: unknown) {
     object,
     record: {
       purpose: "citation-role-classification" as const,
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-5-5",
       attempted: true as const,
       successful: true,
       failed: false,
       billable: true,
-      thinkingEnabled: false,
       inputTokens: 1,
       outputTokens: 1,
       totalTokens: 2,
@@ -701,28 +699,24 @@ describe("canonical production adapter seams", () => {
     );
   });
 
-  it("asks a model that thinks by default to keep it short, and an older one nothing", async () => {
-    const reply = () =>
+  it("asks the role classifier for the lowest thinking effort", async () => {
+    const generateObject = vi.fn((_params: GenerateObjectParams) =>
       Promise.resolve(
         roleClassifierReply({
           citationRole: "background_context",
           rationale: "The sentence frames the topic.",
         }),
-      );
-    const current = vi.fn((_params: GenerateObjectParams) => reply());
-    const legacy = vi.fn((_params: GenerateObjectParams) => reply());
+      ),
+    );
 
-    await prepareAdapterFor(current).classifyCitation(unclearRoleInput());
-    await prepareAdapterFor(legacy, {
-      prepare: { roleClassifierModel: "claude-haiku-4-5" },
-    }).classifyCitation(unclearRoleInput());
+    await prepareAdapterFor(generateObject).classifyCitation(
+      unclearRoleInput(),
+    );
 
-    expect(current.mock.calls[0]![0]).toMatchObject({
+    expect(generateObject.mock.calls[0]![0]).toMatchObject({
       model: "claude-haiku-5-5",
-      thinking: { type: "adaptive", effort: "low" },
+      effort: "low",
     });
-    expect(legacy.mock.calls[0]![0].model).toBe("claude-haiku-4-5");
-    expect(legacy.mock.calls[0]![0]).not.toHaveProperty("thinking");
   });
 
   it("keeps a record gated when the model is also unclear", async () => {
@@ -803,7 +797,7 @@ describe("canonical production adapter seams", () => {
     });
   });
 
-  it("records adaptive thinking and cache provenance for Scope grounding", async () => {
+  it("records thinking effort and cache provenance for Scope grounding", async () => {
     const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
         object: {
@@ -813,13 +807,11 @@ describe("canonical production adapter seams", () => {
         },
         record: {
           purpose: "seed-grounding" as const,
-          model: params.model ?? "claude-sonnet-4-6",
+          model: params.model ?? "claude-sonnet-5-5",
           attempted: true as const,
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
-          thinkingType: "adaptive" as const,
           thinkingEffort: "high" as const,
           inputTokens: 1,
           outputTokens: 1,
@@ -836,7 +828,7 @@ describe("canonical production adapter seams", () => {
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({
         scope: {
-          groundingModel: "claude-sonnet-4-6",
+          groundingModel: "claude-sonnet-5-5",
           groundingThinking: true,
         },
       }),
@@ -865,8 +857,8 @@ describe("canonical production adapter seams", () => {
         seedId: "seed_1",
         candidateIds: ["cand_1"],
         sourceClaimRecordIds: ["claim_1"],
-        trackedClaim: "Tracked claim text",
-        normalizedClaim: "tracked claim text",
+        claim: "Family claim text",
+        normalizedClaim: "family claim text",
         includedCitationOccurrenceIds: ["occ_1"],
       },
       seedText: {
@@ -895,15 +887,15 @@ describe("canonical production adapter seams", () => {
     expect(generateObject).toHaveBeenCalledOnce();
     expect(generateObject.mock.calls[0]![0]).toMatchObject({
       purpose: "seed-grounding",
-      model: "claude-sonnet-4-6",
-      thinking: { type: "adaptive", effort: "high" },
-      exactCache: { keyVersion: LLM_CACHE_VERSIONS.grounding },
+      model: "claude-sonnet-5-5",
+      effort: "high",
+      exactCache: { keyVersion: PROMPT_VERSIONS.grounding },
     });
     // The seed text is the shared, cacheable prefix; only the claim varies.
     const groundingCall = generateObject.mock.calls[0]![0];
     expect(groundingCall.promptPrefix).toMatch(/## Seed-text blocks/);
-    expect(groundingCall.promptPrefix).not.toMatch(/## Tracked claim/);
-    expect(groundingCall.promptSuffix).toMatch(/## Tracked claim/);
+    expect(groundingCall.promptPrefix).not.toMatch(/## Claim/);
+    expect(groundingCall.promptSuffix).toMatch(/## Claim/);
     expect(result.status).toBe("completed");
     expect(result.execution).toBeDefined();
     const request = store.load(result.execution!.requestArtifact);
@@ -912,29 +904,26 @@ describe("canonical production adapter seams", () => {
         familyId: "family_1",
         llm: {
           purpose: "seed-grounding",
-          model: "claude-sonnet-4-6",
-          thinking: { mode: "adaptive", effort: "high" },
-          exactCacheKeyVersion: LLM_CACHE_VERSIONS.grounding,
+          model: "claude-sonnet-5-5",
+          promptVersion: PROMPT_VERSIONS.grounding,
+          effort: "high",
           cachePolicy: "bypass",
         },
       },
     });
   });
 
-  it("uses legacy budget thinking for Haiku extraction when enabled", async () => {
+  it("sends the default effort for extraction when thinking is on", async () => {
     const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
         object: { claims: [], reason: "None." },
         record: {
           purpose: "attributed-claim-extraction" as const,
-          model: params.model ?? "claude-haiku-4-5",
+          model: params.model ?? "claude-haiku-5-5",
           attempted: true as const,
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
-          thinkingType: "enabled" as const,
-          thinkingBudgetTokens: 8_000,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,
@@ -949,7 +938,7 @@ describe("canonical production adapter seams", () => {
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({
         discover: {
-          extractionModel: "claude-haiku-4-5",
+          extractionModel: "claude-haiku-5-5",
           extractionThinking: true,
         },
       }),
@@ -967,11 +956,11 @@ describe("canonical production adapter seams", () => {
 
     await adapter.extractAttributedClaims({ seed, citingPaper, mention });
     expect(generateObject.mock.calls[0]![0]).toMatchObject({
-      thinking: { type: "enabled", budgetTokens: 8_000 },
+      effort: "high",
     });
   });
 
-  it("uses adaptive thinking for Opus adjudication when enabled", async () => {
+  it("sends the adjudication effort when thinking is on", async () => {
     const generateObject = vi.fn((params: GenerateObjectParams) =>
       Promise.resolve({
         object: {
@@ -986,13 +975,11 @@ describe("canonical production adapter seams", () => {
         },
         record: {
           purpose: "adjudication" as const,
-          model: params.model ?? "claude-opus-4-6",
+          model: params.model ?? "claude-opus-5-5",
           attempted: true as const,
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
-          thinkingType: "adaptive" as const,
           thinkingEffort: "high" as const,
           inputTokens: 1,
           outputTokens: 1,
@@ -1007,7 +994,7 @@ describe("canonical production adapter seams", () => {
     const adapter = buildCanonicalAdjudicateAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({
-        adjudicate: { model: "claude-opus-4-6", thinking: true },
+        adjudicate: { model: "claude-opus-5-5", thinking: true },
       }),
       llmClient: {
         generateObject,
@@ -1047,7 +1034,7 @@ describe("canonical production adapter seams", () => {
     } as unknown as Parameters<NonNullable<typeof adapter.adjudicate>>[0]);
 
     expect(generateObject.mock.calls[0]![0]).toMatchObject({
-      thinking: { type: "adaptive", effort: "high" },
+      effort: "high",
     });
   });
 
@@ -1078,7 +1065,6 @@ describe("canonical production adapter seams", () => {
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: true,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,

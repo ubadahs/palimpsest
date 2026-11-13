@@ -53,7 +53,7 @@ describe("canonical selectors", () => {
   }
 
   it("accepts only validated canonical artifacts for summaries and inspection", () => {
-    const artifactPath = writeArtifact("invalid.json", { legacy: true });
+    const artifactPath = writeArtifact("invalid.json", { unknown: true });
 
     expect(() => buildStageInspectorPayload("discover", artifactPath)).toThrow(
       /Invalid canonical Discover/i,
@@ -67,7 +67,7 @@ describe("canonical selectors", () => {
   });
 
   it("requires upstream artifact paths for report inspector joins", () => {
-    const artifactPath = writeArtifact("report.json", { legacy: true });
+    const artifactPath = writeArtifact("report.json", { unknown: true });
     expect(() => buildStageInspectorPayload("report", artifactPath)).toThrow(
       /preparePath, evidencePath, and adjudicatePath/i,
     );

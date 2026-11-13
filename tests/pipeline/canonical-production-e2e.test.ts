@@ -353,7 +353,6 @@ function roleClassifierLlmClient(): LLMClient {
           successful: true,
           failed: false,
           billable: true,
-          thinkingEnabled: false,
           inputTokens: 1,
           outputTokens: 1,
           totalTokens: 2,

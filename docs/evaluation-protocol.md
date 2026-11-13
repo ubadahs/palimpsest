@@ -14,8 +14,6 @@ Authoritative current docs:
 - [status.md](./status.md) — what is implemented
 - [adjudication-rubric.md](./adjudication-rubric.md) — F/D/E/U and Report denominator rules
 
-Historical POC conception docs (shortlist/pre-screen era) are archived under [archive/pre-canonical/](./archive/pre-canonical/) and are not operational authority.
-
 ## Evaluation Question
 
 Can the system correctly determine when a citation record is eligible for adjudication and, when it is, produce span-grounded F/D/E/U judgments that are accurate enough to surface real mutation patterns in a small claim-family cluster?

@@ -322,7 +322,7 @@ export type HumanReviewExportRecord = {
  * The three protocol measures, scored separately so a retrieval failure is
  * never counted as a classification error.
  */
-export type HumanReviewCalibration = {
+type HumanReviewCalibration = {
   /** Human and model top-label match; `not_applicable` when there is no pair. */
   labelAgreement: HumanYesNoNa;
   /** The reviewer judged the packet's evidence able to support a judgment. */
@@ -343,7 +343,7 @@ export type HumanReviewExportUnit = {
   familyId: string;
   citingPaperId: string;
   citingPaperTitle: string;
-  trackedClaim: string;
+  familyClaim: string;
   recordIds: string[];
   reviewedRecordCount: number;
   /** Distinct machine outcomes over the unit's records, in order. */
@@ -523,7 +523,7 @@ function collapseToClaimUnits(
         citingPaperId: machineString(exemplar.machine, "citingPaperId") ?? "",
         citingPaperTitle:
           machineString(exemplar.machine, "citingPaperTitle") ?? "",
-        trackedClaim: machineString(exemplar.machine, "trackedClaim") ?? "",
+        familyClaim: machineString(exemplar.machine, "familyClaim") ?? "",
         recordIds: group.map((record) => record.recordId).sort(compareText),
         reviewedRecordCount: reviewed.length,
         machineVerdicts: distinct(
@@ -588,7 +588,7 @@ const CLAIM_UNIT_CSV_FIELDS: {
   { header: "familyId", value: (unit) => unit.familyId },
   { header: "citingPaperId", value: (unit) => unit.citingPaperId },
   { header: "citingPaperTitle", value: (unit) => unit.citingPaperTitle },
-  { header: "trackedClaim", value: (unit) => unit.trackedClaim },
+  { header: "familyClaim", value: (unit) => unit.familyClaim },
   { header: "recordIds", value: (unit) => unit.recordIds.join("|") },
   {
     header: "recordCount",
