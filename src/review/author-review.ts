@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { buildClaimUnitKey } from "../contract/claim-unit.js";
+import { normalizeDiscoverClaimText } from "../contract/claim-unit.js";
 import type { ReportInspectorRecordRow } from "../contract/inspector-payloads.js";
 import { compareCodeUnits } from "../shared/order.js";
 import { sha256Text } from "../shared/stable-identity.js";
@@ -25,12 +25,26 @@ export const AUTHOR_ANSWER_VERDICT: Record<
 
 const verdictSchema = z.enum(["F", "D", "E", "U"]);
 
+const citingPaperSchema = z
+  .object({ title: z.string(), year: z.number().int().optional() })
+  .strict();
+
 const authorReviewItemSchema = z
   .object({
+    /** A hash of the sentence, so the same sentence keeps its id across runs. */
     itemId: z.string().min(1),
-    recordIds: z.array(z.string().min(1)).min(1),
+    /** Every record the sentence produced, each with the tool's verdict. */
+    records: z
+      .array(
+        z
+          .object({ recordId: z.string().min(1), verdict: verdictSchema })
+          .strict(),
+      )
+      .min(1),
     citingPaperTitle: z.string(),
     citingPaperYear: z.number().int().optional(),
+    /** Other papers that print the same sentence word for word. */
+    alsoIn: z.array(citingPaperSchema).optional(),
     /** Exact quotes from the author's paper the adjudicator relied on. */
     seedQuotes: z.array(z.string().min(1)),
     /** The adjudicator's summary, shown only when it quoted nothing. */
@@ -66,7 +80,7 @@ const authorReviewDataSchema = z
       .strict(),
     seedTitle: z.string(),
     readerName: z.string().optional(),
-    /** Distinct restatements in the report, of which `items` is a sample. */
+    /** Distinct citing sentences in the report, of which `items` is a sample. */
     restatementCount: z.number().int().nonnegative(),
     /** Items left out by hand, recorded so the file says what was dropped. */
     excludedItemIds: z.array(z.string().min(1)).optional(),
@@ -93,19 +107,21 @@ const authorAnswersSchema = z.record(
 export type AuthorAnswers = z.infer<typeof authorAnswersSchema>;
 
 const FLAGGED = new Set(["D", "E", "U"]);
-/** Most to least severe, so a unit shows its most serious machine outcome. */
+/** Most to least severe, so an item shows its most serious machine outcome. */
 const SEVERITY = ["E", "D", "U", "F"] as const;
 
 /**
- * Pick the restatements to show: every flagged one (D, E, U) plus
- * `faithfulSample` of those judged faithful, so the set does not look
- * pre-sorted. A citing paper's restatement is one item however many records it
- * spans (the claim-unit rule Report counts with), and a citing sentence shown
- * once is not shown again for another of the seed's findings. The sample and
- * the order are fixed by `sampleKey`, so rebuilding gives the same file.
- * `excludeItemIds` drops items found broken on inspection before sampling, so
- * a dropped faithful item is replaced by the next one; `unknownExclusions`
- * names any that matched nothing.
+ * Pick what to show: one item per distinct citing sentence, since that is what
+ * the reader judges. An item carries every record its sentence produced,
+ * whether one paper restates several findings in it or a second paper reprints
+ * it word for word, so one answer covers them all and nothing is dropped.
+ *
+ * Every flagged sentence (D, E, U) is shown, plus `faithfulSample` of those
+ * judged faithful, so the set does not look pre-sorted. The sample and the
+ * order are fixed by `sampleKey`, so rebuilding gives the same file.
+ * `excludeItemIds` leaves out items a person found broken, before sampling, so
+ * a dropped faithful item is replaced by the next one; the file records them,
+ * and `unknownExclusions` names any that matched nothing.
  */
 export function selectAuthorReviewItems(input: {
   rows: readonly ReportInspectorRecordRow[];
@@ -117,80 +133,98 @@ export function selectAuthorReviewItems(input: {
   restatementCount: number;
   unknownExclusions: string[];
 } {
-  const units = new Map<string, ReportInspectorRecordRow[]>();
+  const bySentence = new Map<string, ReportInspectorRecordRow[]>();
   for (const row of input.rows) {
-    if (row.adjudicationStatus !== "adjudicated" || !row.verdict) continue;
-    const unitKey = buildClaimUnitKey({
-      familyId: row.familyId,
-      citingPaperId: row.citingPaperId,
-      claimTexts: row.occurrenceClaims.map((claim) => claim.extractedClaimText),
-    });
-    units.set(unitKey, [...(units.get(unitKey) ?? []), row]);
+    // Adjudication requires a verified support span, so every verdict has one.
+    const span = row.occurrenceClaims.find(
+      (claim) => claim.supportSpan,
+    )?.supportSpan;
+    if (row.adjudicationStatus !== "adjudicated" || !row.verdict || !span)
+      continue;
+    const key = normalizeDiscoverClaimText(span.text);
+    bySentence.set(key, [...(bySentence.get(key) ?? []), row]);
   }
 
   const rank = (key: string, salt: string) =>
     sha256Text(`${salt}:${input.sampleKey}:${key}`);
-  const candidates = [...units.entries()]
-    .map(([unitKey, rows]) => {
-      const exemplar = [...rows].sort(
-        (left, right) =>
-          SEVERITY.indexOf(left.verdict!) - SEVERITY.indexOf(right.verdict!) ||
-          compareCodeUnits(left.recordId, right.recordId),
-      )[0]!;
-      return { unitKey, rows, exemplar, item: toItem(unitKey, rows, exemplar) };
-    })
-    .filter((candidate) => candidate.item != null)
-    // Flagged first, so a sentence shared with a faithful unit keeps the flag.
-    .sort(
+  const candidates = [...bySentence.entries()].map(([sentenceKey, rows]) => {
+    const ordered = [...rows].sort(
       (left, right) =>
-        SEVERITY.indexOf(left.exemplar.verdict!) -
-          SEVERITY.indexOf(right.exemplar.verdict!) ||
-        compareCodeUnits(
-          rank(left.unitKey, "pick"),
-          rank(right.unitKey, "pick"),
-        ),
+        SEVERITY.indexOf(left.verdict!) - SEVERITY.indexOf(right.verdict!) ||
+        compareCodeUnits(left.recordId, right.recordId),
     );
+    return {
+      sentenceKey,
+      exemplar: ordered[0]!,
+      item: toItem(sentenceKey, ordered),
+    };
+  });
 
   const excluded = new Set(input.excludeItemIds ?? []);
-  const seenSentences = new Set<string>();
-  const distinct = candidates.filter(({ exemplar, item }) => {
-    const key = `${exemplar.citingPaperId}\u0000${item!.citingSentence}`;
-    if (seenSentences.has(key)) return false;
-    seenSentences.add(key);
-    return true;
-  });
-  const eligible = distinct.filter(({ item }) => !excluded.has(item!.itemId));
+  const eligible = candidates
+    .filter(({ item }) => !excluded.has(item.itemId))
+    .sort((left, right) =>
+      compareCodeUnits(
+        rank(left.sentenceKey, "pick"),
+        rank(right.sentenceKey, "pick"),
+      ),
+    );
   const flagged = eligible.filter(({ exemplar }) =>
     FLAGGED.has(exemplar.verdict!),
   );
-  const faithful = eligible
-    .filter(({ exemplar }) => !FLAGGED.has(exemplar.verdict!))
-    .slice(0, input.faithfulSample);
-  const known = new Set(distinct.map(({ item }) => item!.itemId));
+  const faithful = spreadAcrossPapers(
+    eligible.filter(({ exemplar }) => !FLAGGED.has(exemplar.verdict!)),
+    new Set(flagged.map(({ exemplar }) => exemplar.citingPaperId)),
+  ).slice(0, input.faithfulSample);
+  const known = new Set(candidates.map(({ item }) => item.itemId));
 
   return {
     items: [...flagged, ...faithful]
       .sort((left, right) =>
         compareCodeUnits(
-          rank(left.unitKey, "order"),
-          rank(right.unitKey, "order"),
+          rank(left.sentenceKey, "order"),
+          rank(right.sentenceKey, "order"),
         ),
       )
-      .map(({ item }) => item!),
-    restatementCount: distinct.length,
+      .map(({ item }) => item),
+    restatementCount: candidates.length,
     unknownExclusions: [...excluded].filter((itemId) => !known.has(itemId)),
   };
 }
 
+/**
+ * Candidates in their sampled order, but one per citing paper first, starting
+ * with papers no flagged item already shows; repeats follow only if the sample
+ * needs them. Two faithful restatements from one paper teach the reader
+ * nothing the first did not.
+ */
+function spreadAcrossPapers<T extends { exemplar: ReportInspectorRecordRow }>(
+  candidates: readonly T[],
+  shownPapers: ReadonlySet<string>,
+): T[] {
+  const used = new Set(shownPapers);
+  const first: T[] = [];
+  const repeats: T[] = [];
+  for (const candidate of candidates) {
+    const paper = candidate.exemplar.citingPaperId;
+    (used.has(paper) ? repeats : first).push(candidate);
+    used.add(paper);
+  }
+  return [...first, ...repeats];
+}
+
+/**
+ * `rows` share one citing sentence, most severe verdict first; that record's
+ * paper, paragraph, quotes, and explanation are what the reader sees.
+ */
 function toItem(
-  unitKey: string,
+  sentenceKey: string,
   rows: readonly ReportInspectorRecordRow[],
-  exemplar: ReportInspectorRecordRow,
-): AuthorReviewItem | undefined {
+): AuthorReviewItem {
+  const exemplar = rows[0]!;
   const span = exemplar.occurrenceClaims.find(
     (claim) => claim.supportSpan,
-  )?.supportSpan;
-  if (!span) return undefined;
+  )!.supportSpan!;
   const paragraph = exemplar.citationContext;
   const verified =
     paragraph.slice(span.charOffsetStart, span.charOffsetEnd) === span.text;
@@ -198,13 +232,31 @@ function toItem(
   const seedQuotes = (exemplar.seedQuotes ?? [])
     .map((quote) => quote.quote)
     .slice(0, 2);
+  const alsoIn = [
+    ...new Map(
+      rows
+        .filter((row) => row.citingPaperId !== exemplar.citingPaperId)
+        .map((row) => [
+          row.citingPaperId,
+          {
+            title: row.citingPaperTitle,
+            ...(row.citingPaperYear != null
+              ? { year: row.citingPaperYear }
+              : {}),
+          },
+        ]),
+    ).values(),
+  ];
   return {
-    itemId: sha256Text(unitKey).slice(0, 16),
-    recordIds: rows.map((row) => row.recordId).sort(compareCodeUnits),
+    itemId: sha256Text(sentenceKey).slice(0, 16),
+    records: rows
+      .map((row) => ({ recordId: row.recordId, verdict: row.verdict! }))
+      .sort((left, right) => compareCodeUnits(left.recordId, right.recordId)),
     citingPaperTitle: exemplar.citingPaperTitle,
     ...(exemplar.citingPaperYear != null
       ? { citingPaperYear: exemplar.citingPaperYear }
       : {}),
+    ...(alsoIn.length > 0 ? { alsoIn } : {}),
     seedQuotes,
     ...(seedQuotes.length === 0 && exemplar.sourceStatement
       ? { seedSummary: inAuthorTerms(exemplar.sourceStatement) }
@@ -230,20 +282,15 @@ function toItem(
 }
 
 /**
- * The adjudicator writes for the pipeline: the author's paper is "the seed",
- * and the part of a claim it does support is the "kernel". Say both the way
- * the author would.
+ * The adjudication prompts call the author's paper "the cited paper" (the
+ * rubric's plain-wording rule), and the rationales echo it; the author reads
+ * "your paper".
  */
 export function inAuthorTerms(text: string): string {
-  return text
-    .replace(
-      /\b([Tt])he seed(?: paper)?('s)?\b/g,
-      (_match, t: string, possessive: string | undefined) =>
-        `${t === "T" ? "Your" : "your"} paper${possessive ?? ""}`,
-    )
-    .replace(/\bkernels?\b/g, (word) =>
-      word.endsWith("s") ? "core points" : "core point",
-    );
+  return text.replace(
+    /\b([Tt])he cited paper\b/g,
+    (_match, t: string) => `${t === "T" ? "Your" : "your"} paper`,
+  );
 }
 
 const DATA_ELEMENT_ID = "author-review-data";

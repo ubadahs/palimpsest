@@ -79,6 +79,7 @@ import {
   resolvePrimaryArtifactPath,
   resolveReportMarkdownPath,
   resolveRunConfigPath,
+  resolveRunRoot,
   resolveStageDirectory,
   writeStageManifest,
 } from "./stage-paths.js";
@@ -958,7 +959,7 @@ export async function runPipeline(
       : "report";
     runConfig = buildConfigFromCli({ ...args, stopAfterStage: stopAfter });
     const runId = randomUUID();
-    const runRoot = resolve(process.cwd(), "data", "runs", runId);
+    const runRoot = resolveRunRoot(runId);
     mkdirSync(runRoot, { recursive: true });
     mkdirSync(resolve(runRoot, "logs"), { recursive: true });
     for (const stage of stageDefinitions) {

@@ -7,6 +7,11 @@ import type { StageKey } from "../contract/stages.js";
 import type { StageArtifact } from "../contract/artifacts/index.js";
 import { manifestPathForArtifact } from "../shared/artifact-io.js";
 
+/** A run's artifact directory; it outlives the run's registry row. */
+export function resolveRunRoot(runId: string): string {
+  return resolve(process.cwd(), "data", "runs", runId);
+}
+
 export function resolveStageDirectory(
   runRoot: string,
   stageKey: StageKey,

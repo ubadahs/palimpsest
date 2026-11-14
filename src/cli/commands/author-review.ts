@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
 import { buildReportInspectorRecords } from "../../contract/selectors.js";
 import { loadReportChain } from "../../pipeline/report-chain.js";
+import { resolveRunRoot } from "../../pipeline/stage-paths.js";
 import {
   AUTHOR_ANSWER_VERDICT,
   readAuthorReviewFile,
@@ -120,7 +121,10 @@ export function runAuthorReviewImportCommand(argv: readonly string[]): void {
   if (!read.ok) fail(`Not a readable author review file: ${read.error}`);
   const { data, answers } = read;
 
-  const runRoot = dirname(dirname(currentReportPath(data.lineage.runId)));
+  // The run's registry row may be gone (db:gc); its directory is enough.
+  const runRoot = resolveRunRoot(data.lineage.runId);
+  if (!existsSync(runRoot))
+    fail(`Run directory ${runRoot} for this file no longer exists`);
   const reviewDir = dirname(
     resolveHumanReviewEventsPath({
       runRoot,
@@ -135,8 +139,8 @@ export function runAuthorReviewImportCommand(argv: readonly string[]): void {
     importedAt,
     items: data.items.map((item) => ({
       itemId: item.itemId,
-      recordIds: item.recordIds,
-      machineVerdict: item.ours.verdict,
+      records: item.records,
+      shownVerdict: item.ours.verdict,
       answer: answers[item.itemId] ?? null,
     })),
   };
@@ -160,11 +164,14 @@ export function runAuthorReviewImportCommand(argv: readonly string[]): void {
       if (AUTHOR_ANSWER_VERDICT[answer.first] === item.ours.verdict)
         agreed += 1;
     }
+    // The tool's verdicts on every copy of the sentence; more than one means
+    // it judged the same words differently.
+    const ours = [...new Set(item.records.map((record) => record.verdict))];
     console.info(
-      `${item.ours.verdict} vs ${theirs.padEnd(4)} ${item.citingPaperTitle.slice(0, 70)}${answer?.note ? `\n           note: ${answer.note}` : ""}`,
+      `${ours.join("/").padEnd(5)} vs ${theirs.padEnd(4)} ${item.citingPaperTitle.slice(0, 70)}${answer?.note ? `\n           note: ${answer.note}` : ""}`,
     );
   }
   console.info(
-    `\nAgreed on ${String(agreed)} of ${String(answered)} answered (blind first answers). Stored at ${out}`,
+    `\nAgreed with the verdict shown on ${String(agreed)} of ${String(answered)} answered (blind first answers). Stored at ${out}`,
   );
 }

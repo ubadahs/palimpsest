@@ -218,6 +218,7 @@ const SCRIPT = `
       el("h2", { text: "A citing paper describes it as" }),
       citingSentence(item),
       el("p", { class: "source", text: cited + (markerInSentence(item) ? " \u00B7 your paper is the reference in bold" : "") }),
+      item.alsoIn ? el("p", { class: "source", text: "Also printed word for word in " + item.alsoIn.map(function (paper) { return paper.title + (paper.year ? " (" + paper.year + ")" : ""); }).join("; ") }) : null,
       item.sentenceOffset != null ? el("button", { class: "link", text: showParagraph ? "Show just the sentence" : "Show the full paragraph", onclick: function () { showParagraph = !showParagraph; render(); } }) : null,
       el("h2", { text: "Is this an accurate description of your work?" }),
       choices,

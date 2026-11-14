@@ -48,7 +48,7 @@ function row(
     evidencePassages: [],
     seedQuotes: [{ quote: "What the seed found.", blockKind: "paragraph" }],
     adjudicationStatus: "adjudicated",
-    rationale: "The seed supports the kernel of it.",
+    rationale: "The cited paper supports the core of it.",
     ...overrides,
   } as ReportInspectorRecordRow;
 }
@@ -86,7 +86,46 @@ describe("selectAuthorReviewItems", () => {
     ).toEqual(items);
   });
 
-  it("shows a citing sentence once, as its most serious verdict", () => {
+  it("keeps a sentence whatever parser debris it carries", () => {
+    // Filtering on how text looks would skew the sample toward papers whose
+    // PDFs parse cleanly; debris stays visible instead.
+    const { items } = selectAuthorReviewItems({
+      rows: [
+        row({
+          recordId: "debris",
+          verdict: "F",
+          sentence: "as well * someone@example.edu as properties of DM [16].",
+        }),
+      ],
+      faithfulSample: 5,
+      sampleKey: "k",
+    });
+    expect(items).toHaveLength(1);
+  });
+
+  it("asks once about a sentence two papers print word for word, keeping both", () => {
+    const reprinted = "Constraints will be driven entirely by lensing [82].";
+    const { items } = selectAuthorReviewItems({
+      rows: [
+        row({ recordId: "notes", verdict: "F", sentence: reprinted }),
+        row({ recordId: "article", verdict: "D", sentence: reprinted }),
+      ],
+      faithfulSample: 0,
+      sampleKey: "k",
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      citingPaperTitle: "Citer article",
+      alsoIn: [{ title: "Citer notes", year: 2022 }],
+      records: [
+        { recordId: "article", verdict: "D" },
+        { recordId: "notes", verdict: "F" },
+      ],
+      ours: { verdict: "D" },
+    });
+  });
+
+  it("asks once about a sentence restating two findings, keeping both records", () => {
     const shared = "The same sentence restates two findings.";
     const { items } = selectAuthorReviewItems({
       rows: [
@@ -108,6 +147,11 @@ describe("selectAuthorReviewItems", () => {
       sampleKey: "k",
     });
     expect(items).toHaveLength(1);
+    expect(items[0]?.records.map((record) => record.recordId)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(items[0]?.alsoIn).toBeUndefined();
     expect(items[0]?.ours.verdict).toBe("D");
   });
 });
@@ -138,6 +182,37 @@ describe("selectAuthorReviewItems exclusions and markers", () => {
     expect(after.unknownExclusions).toEqual(["no-such-item"]);
   });
 
+  it("draws faithful items from different citing papers first", () => {
+    const { items } = selectAuthorReviewItems({
+      rows: [
+        row({
+          recordId: "f1",
+          verdict: "F",
+          citingPaperId: "same",
+          citingPaperTitle: "same",
+        }),
+        row({
+          recordId: "f2",
+          verdict: "F",
+          citingPaperId: "same",
+          citingPaperTitle: "same",
+        }),
+        row({
+          recordId: "f3",
+          verdict: "F",
+          citingPaperId: "other",
+          citingPaperTitle: "other",
+        }),
+      ],
+      faithfulSample: 2,
+      sampleKey: "k",
+    });
+    expect(items.map((item) => item.citingPaperTitle).sort()).toEqual([
+      "other",
+      "same",
+    ]);
+  });
+
   it("carries where the author's citation marker sits", () => {
     const marked = row({
       recordId: "m",
@@ -163,13 +238,13 @@ describe("selectAuthorReviewItems exclusions and markers", () => {
 });
 
 describe("inAuthorTerms", () => {
-  it("says 'your paper' for the seed and 'core point' for the kernel", () => {
+  it("says 'your paper' where the rationale says 'the cited paper'", () => {
     expect(
       inAuthorTerms(
-        "The seed's abstract supports the kernel; the seed paper says less than the seed implies.",
+        "The cited paper's abstract supports the core of the claim; the cited paper says less.",
       ),
     ).toBe(
-      "Your paper's abstract supports the core point; your paper says less than your paper implies.",
+      "Your paper's abstract supports the core of the claim; your paper says less.",
     );
   });
 });
