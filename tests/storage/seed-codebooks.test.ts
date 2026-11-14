@@ -9,6 +9,7 @@ import type { AppConfig } from "../../src/config/app-config.js";
 import { PROMPT_VERSIONS } from "../../src/config/prompt-versions.js";
 import {
   SEED_CODEBOOK_PROCEDURE_VERSION,
+  buildSeedCodebookId,
   buildSeedTextHash,
   scopeSeedCodebookSchema,
   type ScopeSeedCodebook,
@@ -169,6 +170,41 @@ describe("seed codebook store", () => {
     });
     collectDatabaseGarbage(database, 1);
     expect(store.get(key())).toBeDefined();
+    database.close();
+  });
+
+  it("neither writes nor reads a codebook without a headline theme", async () => {
+    const database = migratedDatabase();
+    const store = createSqliteSeedCodebookStore(database);
+    await resolveSeedCodebook({
+      store,
+      key: key(),
+      regenerate: false,
+      generatedAt: "2026-11-01T00:00:00.000Z",
+      generate: generator("headline"),
+    });
+    const stored = store.get(key())!;
+    const themes = stored.themes.map((theme) => ({
+      ...theme,
+      isHeadline: false,
+    }));
+    const headless = {
+      ...stored,
+      themes,
+      codebookId: buildSeedCodebookId({
+        seedId: stored.seedId,
+        seedTextHash: stored.seedTextHash,
+        procedureVersion: stored.procedureVersion,
+        content: { themes, entries: stored.entries },
+      }),
+    };
+    const violation = "Expected exactly one headline theme, found 0";
+
+    expect(() => store.put(headless)).toThrow(violation);
+    database
+      .prepare("UPDATE seed_codebooks SET codebook_json = ?")
+      .run(JSON.stringify(headless));
+    expect(() => store.get(key())).toThrow(violation);
     database.close();
   });
 });

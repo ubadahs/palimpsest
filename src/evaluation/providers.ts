@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import {
   CITATION_ROLE_DEFINITIONS,
@@ -18,6 +19,13 @@ import {
   type EvaluationCase,
 } from "./types.js";
 import type { ProviderConfig } from "./config.js";
+import { priceCall } from "./cost.js";
+import {
+  fetchJev,
+  jevAccessError,
+  jevBackoffMs,
+  type JevTransport,
+} from "./jev-transport.js";
 import { adjudicateModelResponseSchema } from "../stages/adjudicate/adapters.js";
 import {
   buildRelevanceRerankPrompt,
@@ -45,7 +53,7 @@ const spanAnswerSchema = z.object({
   end: z.number().int().nullable().optional(),
   confidence: z.number().optional(),
 });
-const systemOneSchema = z.object({
+const jevResponseSchema = z.object({
   model: z.string().min(1),
   answers: z.record(z.string(), z.unknown()),
   usage: z
@@ -100,56 +108,25 @@ export type RequestBudget = {
   }>;
 };
 
-function waitForDispatch(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.reject(new Error("Experiment cancelled"));
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", cancel);
-      resolve();
-    }, ms);
-    function cancel() {
-      clearTimeout(timer);
-      reject(new Error("Experiment cancelled"));
-    }
-    signal.addEventListener("abort", cancel, { once: true });
-  });
+function httpCategory(status: number): ProviderRequestError["category"] {
+  if (status === 401 || status === 403) return "authentication";
+  if (status === 402 || status === 429) return "quota";
+  if (status === 413) return "context_limit";
+  return "provider_failure";
 }
 
-function retryDelayMs(response: Response, retry: number): number {
-  const header = response.headers.get("retry-after");
-  const seconds = header == null ? NaN : Number(header);
-  const hinted = Number.isFinite(seconds)
-    ? seconds * 1000
-    : header == null
-      ? NaN
-      : Date.parse(header) - Date.now();
-  return Math.min(
-    30_000,
-    Math.max(0, Number.isFinite(hinted) ? hinted : 2000 * 2 ** retry),
-  );
-}
-
+/**
+ * Sends a provider's Jev requests at most one per
+ * `minimumRequestIntervalMs`, retrying a gateway failure (502 to 504) up to
+ * `maxTransientRetries` times. Every attempt counts against the experiment.
+ */
 export function createRequestBudget(
   provider: ProviderConfig,
   countRequest: () => number,
+  transport: JevTransport = fetchJev,
 ): RequestBudget {
-  const endpoint =
-    provider.endpoint ??
-    (provider.endpointEnv ? process.env[provider.endpointEnv] : undefined) ??
-    (provider.kind === "jev"
-      ? "https://api.typesafe.ai/v1/systemone"
-      : undefined);
-  if (!endpoint) throw new Error(`${provider.id} requires an endpoint`);
-  const key =
-    process.env[
-      provider.apiKeyEnv ??
-        (provider.kind === "jev" ? "TYPESAFE_API_KEY" : "DJEV_API_KEY")
-    ];
-  if (provider.kind === "jev" && !key)
-    throw new Error(
-      `${provider.id} requires ${provider.apiKeyEnv ?? "TYPESAFE_API_KEY"}`,
-    );
+  const accessError = jevAccessError(provider);
+  if (accessError) throw new Error(accessError);
   let nextDispatchAt = 0;
   return {
     async call(body, signal) {
@@ -157,70 +134,61 @@ export function createRequestBudget(
       for (let retry = 0; ; retry++) {
         const dispatchAt = Math.max(Date.now(), nextDispatchAt);
         nextDispatchAt = dispatchAt + (provider.minimumRequestIntervalMs ?? 0);
-        await waitForDispatch(dispatchAt - Date.now(), signal);
+        await sleep(dispatchAt - Date.now(), undefined, { signal });
         const sequence = countRequest();
         const started = performance.now();
-        let response: Response;
+        const attempt = (): ProviderCall => ({
+          servedModel: "unknown",
+          latencyMs: performance.now() - started,
+          sequence,
+        });
+        let response: Awaited<ReturnType<JevTransport>>;
         try {
-          response = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              ...(key ? { authorization: `Bearer ${key}` } : {}),
-            },
-            body: JSON.stringify(body),
-            signal,
-          });
+          response = await transport(provider, body, signal);
         } catch (error) {
           throw new ProviderRequestError(
             String(error),
             "provider_failure",
-            [
-              ...attempts,
-              {
-                servedModel: "unknown",
-                latencyMs: performance.now() - started,
-                sequence,
-              },
-            ],
+            [...attempts, attempt()],
             { request: body, retry },
           );
         }
-        const call: ProviderCall = {
-          servedModel: "unknown",
-          latencyMs: performance.now() - started,
-          sequence,
-        };
-        if (!response.ok) {
+        const call = attempt();
+        const status = response.httpStatus;
+        if (status < 200 || status >= 300) {
           attempts.push(call);
           if (
-            [502, 503, 504].includes(response.status) &&
+            [502, 503, 504].includes(status) &&
             retry < (provider.maxTransientRetries ?? 0)
           ) {
-            await waitForDispatch(retryDelayMs(response, retry), signal);
+            await sleep(
+              response.retryAfterMs ?? jevBackoffMs(2000, retry),
+              undefined,
+              { signal },
+            );
             continue;
           }
           throw new ProviderRequestError(
-            `HTTP ${response.status}`,
-            response.status === 401 || response.status === 403
-              ? "authentication"
-              : response.status === 402 || response.status === 429
-                ? "quota"
-                : response.status === 413
-                  ? "context_limit"
-                  : "provider_failure",
+            `HTTP ${status}`,
+            httpCategory(status),
             attempts,
-            { request: body, status: response.status, retries: retry },
+            {
+              request: body,
+              status,
+              retries: retry,
+              ...(response.diagnostics
+                ? { response: response.diagnostics }
+                : {}),
+            },
           );
         }
-        const raw: unknown = await response.json();
-        const parsed = systemOneSchema.safeParse(raw);
+        const parsed = jevResponseSchema.safeParse(response.body);
         if (!parsed.success)
           throw new ProviderRequestError(
-            `Invalid System One response: ${parsed.error.message}`,
+            `Invalid Jev response: ${parsed.error.message}`,
             "invalid_response",
             [...attempts, call],
-            { request: body, response: raw, retries: retry },
+            { request: body, response: response.body, retries: retry },
           );
         const usage = parsed.data.usage;
         return {
@@ -243,10 +211,10 @@ export function createRequestBudget(
 }
 
 /**
- * The question a jev or djev provider answers, worded from the production
+ * The question a Jev provider answers, worded from the production
  * rubric. Changing it needs a new evaluation prompt revision.
  */
-function systemQuestion(caseInput: EvaluationCase): {
+function jevQuestion(caseInput: EvaluationCase): {
   state: unknown;
   questions: Record<string, unknown>;
 } {
@@ -291,44 +259,6 @@ function systemQuestion(caseInput: EvaluationCase): {
   throw new Error("Rerank uses passage pair questions");
 }
 
-const callUsageSchema = z.object({
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  promptCacheReadTokens: z.number().optional(),
-  promptCacheWriteTokens: z.number().optional(),
-});
-
-/**
- * Cost of one call at the provider's stated prices, or null when the prices
- * or the call's token usage are unknown. Cache writes cost 1.25 times the
- * input price on every model. Cache reads cost a tenth of it unless the
- * provider states its own rate, which the newer models need.
- */
-export function callCostUsd(
-  call: unknown,
-  provider: ProviderConfig,
-): number | null {
-  const usage = callUsageSchema.safeParse(call);
-  const input = provider.pricePerMillionInputTokensUsd;
-  const output = provider.pricePerMillionOutputTokensUsd;
-  if (!usage.success || input == null || output == null) return null;
-  const read = usage.data.promptCacheReadTokens ?? 0;
-  const write = usage.data.promptCacheWriteTokens ?? 0;
-  const uncached = Math.max(0, usage.data.inputTokens - read - write);
-  return (
-    (uncached * input +
-      read * (provider.pricePerMillionCacheReadTokensUsd ?? input * 0.1) +
-      write * input * 1.25 +
-      usage.data.outputTokens * output) /
-    1_000_000
-  );
-}
-
-function priceCall(call: ProviderCall, provider: ProviderConfig): ProviderCall {
-  const costUsd = callCostUsd(call, provider);
-  return costUsd == null ? call : { ...call, costUsd };
-}
-
 function validDistribution(
   values: Record<string, number>,
   expected: readonly string[],
@@ -342,7 +272,12 @@ function validDistribution(
   return Math.abs(sum - 1) <= 0.05;
 }
 
-async function executeSystemOne(
+/** A Jev request body: the model, the question, and any inference settings. */
+function jevBody(provider: ProviderConfig, content: object): object {
+  return { model: provider.model, ...content, ...provider.inferenceSettings };
+}
+
+async function executeJev(
   input: EvaluationCase,
   provider: ProviderConfig,
   budget: RequestBudget,
@@ -370,8 +305,7 @@ async function executeSystemOne(
       const batch = batches.shift()!;
       const body =
         batch.length === 1
-          ? {
-              model: provider.model,
+          ? jevBody(provider, {
               state: {
                 query: input.query,
                 passage: batch[0]!.text,
@@ -387,12 +321,8 @@ async function executeSystemOne(
                   criteria: ["irrelevant", "contextual", "directly relevant"],
                 },
               },
-              ...(provider.kind === "djev" && provider.inferenceSettings
-                ? provider.inferenceSettings
-                : {}),
-            }
-          : {
-              model: provider.model,
+            })
+          : jevBody(provider, {
               state: {
                 query: input.query,
                 passages: batch.map((candidate) => ({
@@ -412,10 +342,7 @@ async function executeSystemOne(
                   },
                 ]),
               ),
-              ...(provider.kind === "djev" && provider.inferenceSettings
-                ? provider.inferenceSettings
-                : {}),
-            };
+            });
       try {
         if (
           provider.maxContextCharacters != null &&
@@ -426,7 +353,7 @@ async function executeSystemOne(
             "context_limit",
           );
         const result = await budget.call(body, signal);
-        const response = systemOneSchema.parse(result.body);
+        const response = jevResponseSchema.parse(result.body);
         calls.push(
           ...(result.retryCalls ?? []),
           priceCall(result.call, provider),
@@ -491,14 +418,7 @@ async function executeSystemOne(
       diagnostics: { exchanges },
     };
   }
-  const question = systemQuestion(input);
-  const body = {
-    model: provider.model,
-    ...question,
-    ...(provider.kind === "djev" && provider.inferenceSettings
-      ? provider.inferenceSettings
-      : {}),
-  };
+  const body = jevBody(provider, jevQuestion(input));
   if (
     provider.maxContextCharacters != null &&
     JSON.stringify(body).length > provider.maxContextCharacters
@@ -508,7 +428,7 @@ async function executeSystemOne(
       "context_limit",
     );
   const result = await budget.call(body, signal);
-  const response = systemOneSchema.parse(result.body);
+  const response = jevResponseSchema.parse(result.body);
   const successfulCalls = [
     ...(result.retryCalls ?? []),
     priceCall(result.call, provider),
@@ -677,14 +597,9 @@ export async function executeProviderCase(
       );
     return { prediction: { role: input.deterministicRole }, calls: [] };
   }
-  if (provider.kind === "jev" && input.task === "span")
-    throw new ProviderRequestError(
-      "Jev has no native span capability",
-      "provider_failure",
-    );
-  if (provider.kind !== "anthropic") {
-    if (!budget) throw new Error("Missing System One request budget");
-    return executeSystemOne(input, provider, budget, signal);
+  if (provider.kind === "jev") {
+    if (!budget) throw new Error("Missing Jev request budget");
+    return executeJev(input, provider, budget, signal);
   }
   if (!llm) throw new Error("Missing Anthropic client");
   const shuffled =

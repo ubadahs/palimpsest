@@ -188,7 +188,8 @@ Families are drawn by a clustering call over all claims, so the partition shifts
 - Each entry has an id (`E01`…), a statement, a type (`result`, `background_prior_work`, `method_or_resource`), `attributedToOtherWork`, a parent theme (`T1`…, one marked `isHeadline`), and at least one quote.
 - Every quote is exact-verified against a single seed-text block, as grounding spans are.
 - Dropped and counted: an entry whose quotes all fail, and an entry whose theme is missing. A theme with neither a verified quote nor an entry is dropped. Ids are renumbered densely afterwards.
-- A codebook with no verified entry, or a nonfatal provider failure, leaves the seed `failed` and its claims `not_tagged`.
+- After the drops, exactly one theme must be the headline and keep an entry. The prompt asks for this; verification enforces it, and the SQLite store refuses a codebook that breaks it.
+- A codebook with no verified entry (`no_verified_entries`), one that breaks the headline rule (`no_headline_theme`), or a nonfatal provider failure leaves the seed `failed` and its claims `not_tagged`.
 
 **Frozen once per seed.**
 

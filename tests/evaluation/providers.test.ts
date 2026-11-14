@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { providerConfigSchema } from "../../src/evaluation/config.js";
 import {
-  callCostUsd,
   executeProviderCase,
   ProviderRequestError,
   type RequestBudget,
@@ -125,16 +124,21 @@ describe("decision provider requests", () => {
     const output = await executeProviderCase(
       item,
       providerConfigSchema.parse({
-        id: "djev",
-        kind: "djev",
+        id: "dgemma",
+        kind: "jev",
         model: "dgemma",
         endpoint: "https://example.test/v1/systemone",
+        inferenceSettings: { steps: 1 },
       }),
       budget,
       undefined,
       new AbortController().signal,
     );
     expect(requests).toHaveLength(2);
+    expect(requests).toEqual([
+      expect.objectContaining({ model: "dgemma", steps: 1 }),
+      expect.objectContaining({ model: "dgemma", steps: 1 }),
+    ]);
     expect(output.calls).toHaveLength(2);
     expect(output.prediction).toEqual({
       rankedChunkIds: ["b", "a"],
@@ -271,8 +275,8 @@ describe("decision provider requests", () => {
       context: "😀 signal",
     };
     const provider = providerConfigSchema.parse({
-      id: "djev",
-      kind: "djev",
+      id: "dgemma",
+      kind: "jev",
       model: "dgemma",
       endpoint: "https://example.test/v1/systemone",
     });
@@ -338,44 +342,5 @@ describe("decision provider requests", () => {
         )
       ).prediction,
     ).toEqual({ span: null });
-  });
-});
-
-describe("call pricing", () => {
-  const usage = {
-    inputTokens: 1_200_000,
-    promptCacheReadTokens: 1_000_000,
-    promptCacheWriteTokens: 100_000,
-    outputTokens: 100_000,
-  };
-  const prices = {
-    id: "p",
-    kind: "anthropic",
-    model: "m",
-    pricePerMillionInputTokensUsd: 4,
-    pricePerMillionOutputTokensUsd: 20,
-  };
-
-  it("charges cache reads at the provider's own rate when it states one", () => {
-    const stated = providerConfigSchema.parse({
-      ...prices,
-      pricePerMillionCacheReadTokensUsd: 0.2,
-    });
-    expect(callCostUsd(usage, stated)).toBeCloseTo(0.4 + 0.2 + 0.5 + 2);
-    expect(callCostUsd(usage, providerConfigSchema.parse(prices))).toBeCloseTo(
-      0.4 + 0.4 + 0.5 + 2,
-    );
-  });
-
-  it("gives no cost when prices or usage are unknown", () => {
-    expect(
-      callCostUsd(
-        usage,
-        providerConfigSchema.parse({ id: "p", kind: "anthropic", model: "m" }),
-      ),
-    ).toBeNull();
-    expect(
-      callCostUsd({ latencyMs: 5 }, providerConfigSchema.parse(prices)),
-    ).toBeNull();
   });
 });

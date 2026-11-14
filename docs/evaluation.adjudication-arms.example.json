@@ -13,9 +13,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 0.1,
-      "pricePerMillionOutputTokensUsd": 0.5
+      "concurrency": 6
     },
     {
       "id": "haiku-5-5-medium-seed-text",
@@ -26,9 +24,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 0.1,
-      "pricePerMillionOutputTokensUsd": 0.5
+      "concurrency": 6
     },
     {
       "id": "sonnet-5-5-high",
@@ -38,10 +34,7 @@
         "type": "adaptive",
         "effort": "high"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 2,
-      "pricePerMillionOutputTokensUsd": 10,
-      "pricePerMillionCacheReadTokensUsd": 0.1
+      "concurrency": 6
     },
     {
       "id": "sonnet-5-5-high-seed-text",
@@ -52,10 +45,7 @@
         "type": "adaptive",
         "effort": "high"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 2,
-      "pricePerMillionOutputTokensUsd": 10,
-      "pricePerMillionCacheReadTokensUsd": 0.1
+      "concurrency": 6
     },
     {
       "id": "opus-5-5-medium",
@@ -65,10 +55,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 4,
-      "pricePerMillionOutputTokensUsd": 20,
-      "pricePerMillionCacheReadTokensUsd": 0.2
+      "concurrency": 6
     },
     {
       "id": "opus-5-5-medium-seed-text",
@@ -79,10 +66,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 4,
-      "pricePerMillionOutputTokensUsd": 20,
-      "pricePerMillionCacheReadTokensUsd": 0.2
+      "concurrency": 6
     }
   ]
 }

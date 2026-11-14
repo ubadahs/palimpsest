@@ -7,7 +7,8 @@ export const claudeModelValues = [
 ] as const;
 export type ClaudeModel = (typeof claudeModelValues)[number];
 
-type ModelPrice = { input: number; output: number; cacheRead?: number };
+/** USD per 1M tokens; cache reads default to a tenth of input. */
+export type ModelPrice = { input: number; output: number; cacheRead?: number };
 
 /**
  * USD per 1M tokens (approximate list pricing; treat as estimates only). From
@@ -21,13 +22,11 @@ const PRICING_USD_PER_MILLION: Record<ClaudeModel, ModelPrice> = {
   "claude-haiku-5-5": { input: 0.1, output: 0.5 },
 };
 
-/** A served model id the table does not name (a dated snapshot) is priced as Sonnet. */
-function priceFor(model: string): ModelPrice {
-  return (
-    (PRICING_USD_PER_MILLION as Record<string, ModelPrice | undefined>)[
-      model
-    ] ?? PRICING_USD_PER_MILLION["claude-sonnet-5-5"]
-  );
+/** The table's price for a model, if the table names it. */
+export function listedClaudePrice(model: string): ModelPrice | undefined {
+  return (PRICING_USD_PER_MILLION as Record<string, ModelPrice | undefined>)[
+    model
+  ];
 }
 
 const CACHE_READ_MULTIPLIER = 0.1;
@@ -64,15 +63,27 @@ export type AnthropicTokenCostUsage = {
 
 /**
  * Rough USD cost from Anthropic token usage. Accepts cache and reasoning breakdown fields. With
- * `batch`, the call was answered through the Message Batches API.
+ * `batch`, the call was answered through the Message Batches API. A served model id the table
+ * does not name (a dated snapshot) is priced as Sonnet.
  */
 export function estimateAnthropicUsd(
   model: string,
   usage: AnthropicTokenCostUsage,
   options?: { batch?: boolean },
 ): number {
-  const price = priceFor(model);
+  return costAtPriceUsd(
+    listedClaudePrice(model) ?? PRICING_USD_PER_MILLION["claude-sonnet-5-5"],
+    usage,
+    options,
+  );
+}
 
+/** USD cost of token usage at the given price, cache and batch rules included. */
+export function costAtPriceUsd(
+  price: ModelPrice,
+  usage: AnthropicTokenCostUsage,
+  options?: { batch?: boolean },
+): number {
   const reasoningTokens = usage.reasoningTokens ?? 0;
   const cacheReadTokens = usage.cacheReadTokens ?? 0;
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0;

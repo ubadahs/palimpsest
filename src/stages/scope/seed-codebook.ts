@@ -18,7 +18,9 @@ import {
   SEED_CODEBOOK_PROCEDURE_VERSION,
   buildSeedCodebookId,
   codebookEntryTypeSchema,
+  headlineThemeViolation,
   type ClaimTagKind,
+  type CodebookFailureCode,
   type CodebookEntry,
   type CodebookQuote,
   type CodebookTheme,
@@ -27,7 +29,6 @@ import {
   type SeedCodebookContent,
   type StoredSeedCodebook,
 } from "../../contract/artifacts/codebook.js";
-import type { Result } from "../../domain/common.js";
 import type {
   SeedCodebookKey,
   SeedCodebookStore,
@@ -169,22 +170,34 @@ export type CodebookModelCall = (input: {
   schema: typeof codebookStepReplySchema;
 }) => Promise<CodebookStepReply>;
 
-export type CodebookProcedureOutput = {
+type CodebookProcedureOutput = {
   content: SeedCodebookContent;
   verification: CodebookVerification;
 };
 
+/** A reply that verification leaves without a usable codebook. */
+export type CodebookProcedureResult =
+  | { ok: true; data: CodebookProcedureOutput }
+  | {
+      ok: false;
+      code: Extract<
+        CodebookFailureCode,
+        "no_verified_entries" | "no_headline_theme"
+      >;
+      error: string;
+    };
+
 /**
  * Runs the three calls in order (each waits for the one before, so the
  * second and third read the cache the first wrote) and verifies the result.
- * A provider failure propagates; a codebook with no verified entry is a
- * typed failure.
+ * A provider failure propagates; a codebook with no verified entry, or
+ * without exactly one headline theme that keeps an entry, is a typed failure.
  */
 export async function runSeedCodebookProcedure(input: {
   seedTitle: string;
   blocks: readonly CodebookSeedBlock[];
   call: CodebookModelCall;
-}): Promise<Result<CodebookProcedureOutput>> {
+}): Promise<CodebookProcedureResult> {
   const promptPrefix = buildCodebookPromptPrefix(input);
   const drafted = await input.call({
     step: "draft_results",
@@ -216,12 +229,13 @@ export async function runSeedCodebookProcedure(input: {
  * Exact-verifies every quote against a single seed-text block, drops entries
  * with no verified quote, drops themes left with neither a quote nor an
  * entry, and renumbers what is left (themes in reply order, entries grouped
- * by theme) so ids are dense and stable for a given reply.
+ * by theme) so ids are dense and stable for a given reply. The headline rule
+ * is checked after the drops, since they can empty the headline theme.
  */
 export function verifyCodebookReply(
   reply: CodebookOrganiseReply,
   blocks: readonly CodebookSeedBlock[],
-): Result<CodebookProcedureOutput> {
+): CodebookProcedureResult {
   let quotesProposed = 0;
   let quotesVerified = 0;
   const verify = (quotes: readonly string[]): CodebookQuote[] => {
@@ -312,14 +326,24 @@ export function verifyCodebookReply(
   if (finalEntries.length === 0 || finalThemes.length === 0) {
     return {
       ok: false,
+      code: "no_verified_entries",
       error: `No codebook entry kept a verified quote (${String(quotesVerified)} of ${String(quotesProposed)} quotes verified).`,
+    };
+  }
+  const content = { themes: finalThemes, entries: finalEntries };
+  const violation = headlineThemeViolation(content);
+  if (violation) {
+    return {
+      ok: false,
+      code: "no_headline_theme",
+      error: `${violation} after quote verification.`,
     };
   }
 
   return {
     ok: true,
     data: {
-      content: { themes: finalThemes, entries: finalEntries },
+      content,
       verification: {
         proposedThemes: reply.themes.length,
         proposedEntries: reply.entries.length,

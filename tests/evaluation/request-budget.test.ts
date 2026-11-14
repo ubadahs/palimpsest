@@ -21,7 +21,7 @@ const provider = providerConfigSchema.parse({
   maxTransientRetries: 1,
 });
 
-describe("System One request budget", () => {
+describe("Jev request budget", () => {
   it("spaces requests and records a bounded transient retry", async () => {
     process.env.EVAL_TEST_KEY = "invented-test-key";
     const dispatches: number[] = [];

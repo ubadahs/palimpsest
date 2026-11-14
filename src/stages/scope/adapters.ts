@@ -1,6 +1,7 @@
 /** Scope's production adapter: seed text, grounding, the seed codebook, and codebook tagging. */
 
 import type { z } from "zod";
+import type { CodebookFailureCode } from "../../contract/artifacts/index.js";
 import type {
   ModelExecution,
   ThinkingEffort,
@@ -378,16 +379,7 @@ export function buildScopeAdapters(deps: ProductionAdapterDeps): ScopeAdapters {
         procedureVersion: SEED_CODEBOOK_PROCEDURE_VERSION,
       };
       const executions: ModelExecution[] = [];
-      const failed = (
-        code:
-          | "timeout"
-          | "rate_limited"
-          | "transport"
-          | "invalid_response"
-          | "provider_failure"
-          | "no_verified_entries",
-        reason: string,
-      ) => ({
+      const failed = (code: CodebookFailureCode, reason: string) => ({
         status: "failed" as const,
         seedId: seed.seedId,
         procedureVersion: SEED_CODEBOOK_PROCEDURE_VERSION,
@@ -420,7 +412,7 @@ export function buildScopeAdapters(deps: ProductionAdapterDeps): ScopeAdapters {
                 ),
             });
             if (!result.ok) {
-              return failed("no_verified_entries", result.error);
+              return failed(result.code, result.error);
             }
             return {
               status: "generated" as const,

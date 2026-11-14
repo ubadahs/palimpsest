@@ -1,5 +1,26 @@
+/**
+ * The HTTP side of every Jev provider, whichever model it serves: where
+ * requests go, the key they carry, one request, how long to back off, and
+ * the lock that keeps two processes off one quota.
+ */
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import { buildStableId } from "../shared/stable-identity.js";
 import type { ProviderConfig } from "./config.js";
 import type { JevAttempt } from "./optimization-contract.js";
+import { evaluationRoot } from "./storage.js";
+
+/** Typesafe's hosted Jev, used when a provider names no endpoint. */
+const TYPESAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
+const DEFAULT_KEY_ENV = "TYPESAFE_API_KEY";
+const MAX_BACKOFF_MS = 30_000;
 
 type JevTransportResponse = {
   httpStatus: number;
@@ -13,15 +34,33 @@ export type JevTransport = (
   provider: ProviderConfig,
   body: unknown,
   signal: AbortSignal,
-  timeoutMs: number,
+  timeoutMs?: number,
 ) => Promise<JevTransportResponse>;
+
+function keyEnv(provider: ProviderConfig): string {
+  return provider.apiKeyEnv ?? DEFAULT_KEY_ENV;
+}
+
+/** Why a provider cannot send requests yet, if it cannot. */
+export function jevAccessError(provider: ProviderConfig): string | undefined {
+  if (
+    provider.endpoint == null &&
+    provider.endpointEnv != null &&
+    !process.env[provider.endpointEnv]
+  )
+    return `${provider.id}: missing ${provider.endpointEnv}`;
+  return process.env[keyEnv(provider)]
+    ? undefined
+    : `${provider.id}: missing ${keyEnv(provider)}`;
+}
 
 export function jevEndpoint(provider: ProviderConfig): string {
   const endpoint =
     provider.endpoint ??
-    (provider.endpointEnv ? process.env[provider.endpointEnv] : undefined) ??
-    "https://api.typesafe.ai/v1/systemone";
-  if (!URL.canParse(endpoint))
+    (provider.endpointEnv
+      ? process.env[provider.endpointEnv]
+      : TYPESAFE_ENDPOINT);
+  if (endpoint == null || !URL.canParse(endpoint))
     throw new Error(`Invalid endpoint for ${provider.id}`);
   return endpoint;
 }
@@ -31,15 +70,17 @@ export function jevQuotaGroup(provider: ProviderConfig): string {
   return `${endpoint.origin}${endpoint.pathname}|${provider.model}`;
 }
 
-export function retryAfterMs(
-  value: string | null,
-  now = Date.now(),
-): number | undefined {
+/** Exponential backoff from `baseMs` for the given zero-based retry, capped. */
+export function jevBackoffMs(baseMs: number, retry: number): number {
+  return Math.min(MAX_BACKOFF_MS, baseMs * 2 ** retry);
+}
+
+function retryAfterMs(value: string | null): number | undefined {
   if (value == null) return undefined;
   const seconds = Number(value);
   const milliseconds = Number.isFinite(seconds)
     ? seconds * 1000
-    : Date.parse(value) - now;
+    : Date.parse(value) - Date.now();
   return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : undefined;
 }
 
@@ -76,16 +117,15 @@ function failureDiagnostics(response: Response, text: string, key: string) {
   };
 }
 
+/** One request. HTTP errors come back as a status; only the network throws. */
 export const fetchJev: JevTransport = async (
   provider,
   body,
   signal,
   timeoutMs,
 ) => {
-  const keyEnv = provider.apiKeyEnv ?? "TYPESAFE_API_KEY";
-  const key = process.env[keyEnv];
-  if (!key) throw new Error(`Missing ${keyEnv}`);
-  const timeout = AbortSignal.timeout(timeoutMs);
+  const key = process.env[keyEnv(provider)];
+  if (!key) throw new Error(`Missing ${keyEnv(provider)}`);
   const response = await fetch(jevEndpoint(provider), {
     method: "POST",
     headers: {
@@ -93,7 +133,10 @@ export const fetchJev: JevTransport = async (
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.any([signal, timeout]),
+    signal:
+      timeoutMs == null
+        ? signal
+        : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
   });
   const responseText = await response.text();
   let parsed: unknown;
@@ -102,22 +145,77 @@ export const fetchJev: JevTransport = async (
   } catch {
     parsed = undefined;
   }
+  const requestId =
+    response.headers.get("x-request-id") ?? response.headers.get("x-vercel-id");
+  const retryAfter = retryAfterMs(response.headers.get("retry-after"));
   return {
     httpStatus: response.status,
-    ...(response.headers.get("x-request-id") ||
-    response.headers.get("x-vercel-id")
-      ? {
-          providerRequestId:
-            response.headers.get("x-request-id") ??
-            response.headers.get("x-vercel-id")!,
-        }
-      : {}),
-    ...(retryAfterMs(response.headers.get("retry-after")) != null
-      ? { retryAfterMs: retryAfterMs(response.headers.get("retry-after"))! }
-      : {}),
+    ...(requestId ? { providerRequestId: requestId } : {}),
+    ...(retryAfter != null ? { retryAfterMs: retryAfter } : {}),
     ...(parsed !== undefined ? { body: parsed } : {}),
     ...(!response.ok || parsed === undefined
       ? { diagnostics: failureDiagnostics(response, responseText, key) }
       : {}),
   };
 };
+
+function withQuotaLock<T>(
+  provider: ProviderConfig,
+  run: () => Promise<T>,
+): Promise<T> {
+  const lockDir = join(evaluationRoot(), "locks");
+  mkdirSync(lockDir, { recursive: true });
+  const lockPath = join(
+    lockDir,
+    `${buildStableId("jev-quota", jevQuotaGroup(provider))}.lock`,
+  );
+  try {
+    const current = Number(readFileSync(lockPath, "utf8"));
+    if (!Number.isInteger(current) || current <= 0)
+      throw new Error("Jev quota lock is in use or unreadable");
+    try {
+      process.kill(current, 0);
+      throw new Error(`Jev quota group is in use by process ${current}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+    unlinkSync(lockPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const fd = openSync(lockPath, "wx");
+  writeFileSync(fd, String(process.pid));
+  closeSync(fd);
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* stale lock removal is harmless */
+      }
+    });
+}
+
+/**
+ * Runs holding one lock per quota group (endpoint and model), so two
+ * processes never spend one quota at once. A group a live process already
+ * holds fails at once rather than waiting.
+ */
+export function withJevQuotaLocks<T>(
+  providers: readonly ProviderConfig[],
+  run: () => Promise<T>,
+): Promise<T> {
+  return [
+    ...new Map(
+      providers.map((provider) => [jevQuotaGroup(provider), provider]),
+    ),
+  ]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .reduceRight<() => Promise<T>>(
+      (next, [, provider]) =>
+        () =>
+          withQuotaLock(provider, next),
+      run,
+    )();
+}

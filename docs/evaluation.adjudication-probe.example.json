@@ -13,9 +13,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 0.1,
-      "pricePerMillionOutputTokensUsd": 0.5
+      "concurrency": 6
     },
     {
       "id": "haiku-5-5-medium-seed-text",
@@ -26,9 +24,7 @@
         "type": "adaptive",
         "effort": "medium"
       },
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 0.1,
-      "pricePerMillionOutputTokensUsd": 0.5
+      "concurrency": 6
     }
   ]
 }

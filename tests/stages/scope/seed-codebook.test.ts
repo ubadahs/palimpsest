@@ -233,7 +233,40 @@ describe("seed codebook procedure", () => {
       }),
       BLOCKS,
     );
-    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ ok: false, code: "no_verified_entries" });
+  });
+
+  it("is a typed failure without exactly one headline theme that keeps an entry", () => {
+    const themes = organiseReply().themes;
+    const cases: Array<[string, Partial<CodebookOrganiseReply>, string]> = [
+      [
+        "no headline",
+        { themes: themes.map((theme) => ({ ...theme, isHeadline: false })) },
+        "found 0",
+      ],
+      [
+        "two headlines",
+        { themes: themes.map((theme) => ({ ...theme, isHeadline: true })) },
+        "found 2",
+      ],
+      [
+        "headline emptied by verification",
+        {
+          entries: organiseReply().entries.filter(
+            (entry) => entry.parent !== "T1",
+          ),
+        },
+        "Headline theme T1 has no entries",
+      ],
+    ];
+    for (const [label, overrides, message] of cases) {
+      const result = verifyCodebookReply(organiseReply(overrides), BLOCKS);
+      expect(result, label).toMatchObject({
+        ok: false,
+        code: "no_headline_theme",
+      });
+      expect(!result.ok && result.error, label).toContain(message);
+    }
   });
 });
 

@@ -95,33 +95,36 @@ describe.skipIf(!enabled)(
       },
     );
 
-    it.skipIf(!process.env.DJEV_ENDPOINT)("djev native span", async () => {
-      const provider = providerConfigSchema.parse({
-        id: "djev",
-        kind: "djev",
-        model: "dgemma",
-        endpoint: process.env.DJEV_ENDPOINT,
-        apiKeyEnv: "DJEV_API_KEY",
-      });
-      const budget = createRequestBudget(provider, () => 1);
-      const item: EvaluationCase = {
-        ...roleCase,
-        task: "span",
-        claimRecordId: "invented-claim",
-        claim: "enzyme Q activity rose by 20%",
-        context:
-          "The imaginary assay found that enzyme Q activity rose by 20% in a toy sample.",
-      };
-      const result = await executeProviderCase(
-        item,
-        provider,
-        budget,
-        undefined,
-        new AbortController().signal,
-      );
-      expect(
-        z.object({ span: z.unknown() }).safeParse(result.prediction).success,
-      ).toBe(true);
-    });
+    it.skipIf(!process.env.DJEV_ENDPOINT || !process.env.DJEV_API_KEY)(
+      "DiffusionGemma-Jev native span",
+      async () => {
+        const provider = providerConfigSchema.parse({
+          id: "dgemma",
+          kind: "jev",
+          model: "dgemma",
+          endpoint: process.env.DJEV_ENDPOINT,
+          apiKeyEnv: "DJEV_API_KEY",
+        });
+        const budget = createRequestBudget(provider, () => 1);
+        const item: EvaluationCase = {
+          ...roleCase,
+          task: "span",
+          claimRecordId: "invented-claim",
+          claim: "enzyme Q activity rose by 20%",
+          context:
+            "The imaginary assay found that enzyme Q activity rose by 20% in a toy sample.",
+        };
+        const result = await executeProviderCase(
+          item,
+          provider,
+          budget,
+          undefined,
+          new AbortController().signal,
+        );
+        expect(
+          z.object({ span: z.unknown() }).safeParse(result.prediction).success,
+        ).toBe(true);
+      },
+    );
   },
 );

@@ -5,7 +5,7 @@ import { jevVariantSchema } from "./optimization-contract.js";
 
 export const providerConfigSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-  kind: z.enum(["anthropic", "jev", "djev", "bm25", "rules"]),
+  kind: z.enum(["anthropic", "jev", "bm25", "rules"]),
   model: z.string().min(1),
   tasks: z.array(evaluationTaskSchema).min(1).optional(),
   endpoint: z.string().url().optional(),
@@ -56,7 +56,7 @@ export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v3";
 
 /**
  * The prompts a provider was shown for a task under a revision. v3 reworded
- * only the role and adjudication questions jev and djev providers answer, to
+ * only the role and adjudication questions Jev providers answer, to
  * the production rubric, so every other v2 trial remains reusable under v3.
  */
 export function promptsSeen(
@@ -65,8 +65,7 @@ export function promptsSeen(
   task: EvaluationTask,
 ): PromptRevision {
   const reworded =
-    (kind === "jev" || kind === "djev") &&
-    (task === "role" || task === "adjudication");
+    kind === "jev" && (task === "role" || task === "adjudication");
   return revision === "evaluation-prompts-v3" && !reworded
     ? "evaluation-prompts-v2"
     : revision;

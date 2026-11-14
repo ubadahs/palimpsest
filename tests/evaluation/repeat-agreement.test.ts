@@ -4,7 +4,7 @@ import {
   repeatAgreement,
   repeatAgreementMarkdown,
 } from "../../src/evaluation/repeat-agreement.js";
-import type { Trial } from "../../src/evaluation/runner.js";
+import type { Trial } from "../../src/evaluation/experiment.js";
 
 function trial(
   providerId: string,

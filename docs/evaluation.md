@@ -25,7 +25,7 @@ The production pipeline adjudicates from the whole seed text by default (see [pi
 
 `docs/evaluation.adjudication-arms.example.json` compares Haiku 5.5, Sonnet 5.5 and Opus 5.5, each reading chunks and reading the whole paper, on the same cases, twice. `docs/evaluation.adjudication-probe.example.json` holds only the two Haiku arms and costs a few cents: run it first as a live check of the request path and of how hard the constructed cases are. Its trials are reused when the full comparison runs.
 
-Cost is computed from each provider's stated prices. Cache writes cost 1.25 times the input price. Cache reads default to a tenth of it; set `pricePerMillionCacheReadTokensUsd` for models that charge less, which matters for whole-paper arms because most of their input is read from the cache.
+An Anthropic provider is priced from the table production uses (`src/shared/anthropic-token-cost.ts`), so its config needs no prices. Prices a config does state win, which keeps a saved experiment at the prices it ran at. Cache writes cost 1.25 times the input price and cache reads a tenth of it, unless the price sets its own cache-read rate (`pricePerMillionCacheReadTokensUsd`), as the 5.5 models do. That matters for whole-paper arms, because most of their input is read from the cache.
 
 ## Constructed cases
 
@@ -69,9 +69,19 @@ A model asked the same case twice does not always answer the same way. Set `"rep
 
 Credentials come from environment variables named in the config (`ANTHROPIC_API_KEY`, `AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `DJEV_ENDPOINT`, `DJEV_API_KEY`) and are not written into experiment files. A missing key leaves those trials pending.
 
-Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, the prompts the provider was shown, and repetition match. Changed scientific inputs invalidate reuse. Concurrency and spacing do not.
+## Jev providers
 
-New trials run only under the current prompt revision, `evaluation-prompts-v3`; an experiment created under an older one stays readable but cannot run more trials. A revision records which providers and tasks it changed, so everything else keeps its saved trials: v3 reworded only the role and adjudication questions jev and djev providers answer, to the production rubric in `src/domain/rubric.ts`, so every other v2 trial is reused. Saved jev optimization experiments whose planned role questions predate v3 refuse to resume, since their remaining requests would be asked differently from their completed ones; start a fresh experiment for that work.
+Jev is a class of judge models that answer a question against listed criteria instead of following a prompt. `"kind": "jev"` covers every model in the class, named by `model`: Typesafe's Jev (`typesafe-ai/jev`, here through the AI Gateway) and DiffusionGemma-Jev (`dgemma`, at an endpoint you name). Every Jev provider is handled the same way:
+
+- **Endpoint and key.** A provider names its endpoint (`endpoint`, or `endpointEnv` for one read from the environment) and its key (`apiKeyEnv`). With no endpoint, requests go to Typesafe's hosted Jev; with no key named, `TYPESAFE_API_KEY` is used. The key must be set.
+- **Tasks.** List the tasks the model answers in `tasks`. Typesafe's Jev has no span task; DiffusionGemma-Jev has one.
+- **Settings.** `inferenceSettings` are sent with every request when set.
+- **Quota.** While an experiment runs, it holds a lock per endpoint and model, so a second process cannot spend the same quota.
+- **Cost.** State the provider's token prices, or `instanceHourlyUsd` and `billingWindowSeconds` for a model served from a rented instance. Without either, its cost is reported as unknown.
+
+Measured runs bypass exact-result caching. Resume reuses completed trials when the dataset, provider settings, the prompts the provider was shown, and repetition match. Changed scientific inputs invalidate reuse. Concurrency, spacing, retries and prices do not.
+
+New trials run only under the current prompt revision, `evaluation-prompts-v3`; an experiment created under an older one stays readable but cannot run more trials. A revision records which providers and tasks it changed, so everything else keeps its saved trials: v3 reworded only the role and adjudication questions Jev providers answer, to the production rubric in `src/domain/rubric.ts`, so every other v2 trial is reused. Saved Jev optimization experiments whose planned role questions predate v3 refuse to resume, since their remaining requests would be asked differently from their completed ones; start a fresh experiment for that work.
 
 ## Grading in the local UI
 

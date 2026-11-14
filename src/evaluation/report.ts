@@ -23,8 +23,8 @@ import {
   loadAnnotationLog,
   loadDataset,
 } from "./storage.js";
-import { callCostUsd } from "./providers.js";
-import { loadExperiment, loadTrials, type Trial } from "./runner.js";
+import { callCostUsd } from "./cost.js";
+import { loadExperiment, loadTrials, type Trial } from "./experiment.js";
 import {
   buildOptimizationAnalysis,
   historicalAttemptAccounting,
@@ -474,20 +474,24 @@ export function generateEvaluationReport(experimentId: string): {
       const completedCount = rows.filter(
         (row) => row.status === "success",
       ).length;
-      const costUsd =
-        provider.kind === "djev" &&
+      // A model served from a rented instance costs its billing window, not
+      // its tokens, and that window cannot be split between old and new calls.
+      const instanceCostUsd =
         provider.instanceHourlyUsd != null &&
         provider.billingWindowSeconds != null
           ? (provider.instanceHourlyUsd * provider.billingWindowSeconds) / 3600
-          : provider.kind === "bm25" || provider.kind === "rules"
-            ? 0
-            : costs.length && costs.every((cost) => cost != null)
-              ? costs.reduce((sum, cost) => sum + (cost ?? 0), 0)
-              : null;
+          : undefined;
+      const costUsd =
+        instanceCostUsd ??
+        (provider.kind === "bm25" || provider.kind === "rules"
+          ? 0
+          : costs.length && costs.every((cost) => cost != null)
+            ? costs.reduce((sum, cost) => sum + (cost ?? 0), 0)
+            : null);
       const newSpendUsd =
         provider.kind === "bm25" || provider.kind === "rules"
           ? 0
-          : provider.kind === "djev"
+          : instanceCostUsd != null
             ? null
             : newCosts.length && newCosts.every((cost) => cost != null)
               ? newCosts.reduce((sum, cost) => sum + (cost ?? 0), 0)

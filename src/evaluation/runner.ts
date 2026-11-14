@@ -7,8 +7,23 @@ import {
   CURRENT_PROMPT_REVISION,
   experimentConfigSchema,
   promptsSeen,
+  type ProviderConfig,
 } from "./config.js";
 import { validateEvaluationDataset } from "./dataset.js";
+import {
+  loadExperiment,
+  loadTrials,
+  trialPath,
+  type Experiment,
+  type Trial,
+} from "./experiment.js";
+import { jevAccessError, withJevQuotaLocks } from "./jev-transport.js";
+import {
+  optimizationRequestPlan,
+  plannedOptimizationTrials,
+  planJevOptimization,
+  runJevOptimization,
+} from "./optimization-runner.js";
 import {
   classifyProviderError,
   createRequestBudget,
@@ -22,80 +37,26 @@ import {
   experimentDir,
   loadDataset,
 } from "./storage.js";
-import { evaluationTaskSchema, type EvaluationCase } from "./types.js";
-import {
-  optimizationRequestPlan,
-  plannedOptimizationTrials,
-  planJevOptimization,
-  runJevOptimization,
-  withQuotaLock,
-} from "./optimization-runner.js";
+import type { EvaluationCase } from "./types.js";
 
-export const trialSchema = z.object({
-  trialId: z.string(),
-  experimentId: z.string(),
-  caseId: z.string(),
-  task: evaluationTaskSchema,
-  providerId: z.string(),
-  requestedModel: z.string(),
-  repetition: z.number().int().positive(),
-  caseHash: z.string(),
-  providerHash: z.string(),
-  status: z.enum([
-    "pending",
-    "success",
-    "unsupported",
-    "oversized_context",
-    "invalid_response",
-    "provider_failure",
-    "cancelled",
-  ]),
-  prediction: z.unknown().optional(),
-  calls: z.array(z.unknown()),
-  diagnostics: z.unknown().optional(),
-  error: z.string().optional(),
-  durationMs: z.number().nonnegative().optional(),
-  completedAt: z.string().optional(),
-  reusedFrom: z
-    .object({ experimentId: z.string(), trialId: z.string() })
-    .optional(),
-  variantId: z.string().optional(),
-  requestIds: z.array(z.string()).optional(),
-});
-export type Trial = z.infer<typeof trialSchema>;
-export const experimentSchema = z.object({
-  schemaVersion: z.literal("evaluation-experiment-v1"),
-  experimentId: z.string(),
-  datasetId: z.string(),
-  datasetHash: z.string(),
-  config: experimentConfigSchema,
-  createdAt: z.string(),
-});
-export type Experiment = z.infer<typeof experimentSchema>;
-
-export function loadExperiment(id: string): Experiment {
-  return experimentSchema.parse(
-    JSON.parse(
-      readFileSync(join(experimentDir(id), "experiment.json"), "utf8"),
-    ) as unknown,
-  );
-}
-
-function trialPath(experimentId: string, trialId: string): string {
-  return join(experimentDir(experimentId), "trials", `${trialId}.json`);
-}
-
-export function loadTrials(experimentId: string): Trial[] {
-  const dir = join(experimentDir(experimentId), "trials");
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".json"))
-    .map((name) =>
-      trialSchema.parse(
-        JSON.parse(readFileSync(join(dir, name), "utf8")) as unknown,
-      ),
-    );
-}
+/**
+ * Provider settings that change how requests are sent or what they cost,
+ * never what a model is asked, so a saved trial stays reusable across them.
+ * Rerank batch size is the exception for rerank trials: it decides how many
+ * passages share one request.
+ */
+const DELIVERY_SETTINGS = [
+  "concurrency",
+  "minimumRequestIntervalMs",
+  "maxTransientRetries",
+  "rerankBatchSize",
+  "rerankMinFallbackBatchSize",
+  "pricePerMillionInputTokensUsd",
+  "pricePerMillionOutputTokensUsd",
+  "pricePerMillionCacheReadTokensUsd",
+  "instanceHourlyUsd",
+  "billingWindowSeconds",
+] as const satisfies readonly (keyof ProviderConfig)[];
 
 function plannedTrials(
   experiment: Experiment,
@@ -149,29 +110,19 @@ function compatibleSavedTrials(
   if (!existsSync(root)) return candidates;
   const requestSettings = (
     revision: Experiment["config"]["promptRevision"],
-    provider: Experiment["config"]["providers"][number],
+    provider: ProviderConfig,
     task: Trial["task"],
-  ) => {
-    const {
-      concurrency,
-      minimumRequestIntervalMs,
-      maxTransientRetries,
-      rerankBatchSize,
-      rerankMinFallbackBatchSize,
-      ...settings
-    } = provider;
-    void concurrency;
-    void minimumRequestIntervalMs;
-    void maxTransientRetries;
-    void rerankMinFallbackBatchSize;
-    return buildStableId("provider-request-settings", {
+  ) =>
+    buildStableId("provider-request-settings", {
       prompts: promptsSeen(revision, provider.kind, task),
-      ...settings,
-      ...(task === "rerank" && rerankBatchSize != null
-        ? { rerankBatchSize }
-        : {}),
+      ...Object.fromEntries(
+        Object.entries(provider).filter(
+          ([key]) =>
+            !(DELIVERY_SETTINGS as readonly string[]).includes(key) ||
+            (key === "rerankBatchSize" && task === "rerank"),
+        ),
+      ),
     });
-  };
   const keyOf = (trial: Trial, requestHash: string) =>
     [
       trial.caseId,
@@ -348,15 +299,22 @@ export async function runExperiment(id: string): Promise<{
       throw new Error("Experiment dataset changed");
     return runJevOptimization(id, experiment.datasetId, experiment.config);
   }
-  const jev = experiment.config.providers.find(
-    (provider) => provider.kind === "jev",
+  return withJevQuotaLocks(
+    experiment.config.providers.filter((provider) => provider.kind === "jev"),
+    () => runComparison(experiment),
   );
-  return jev
-    ? withQuotaLock(jev, () => runLegacyExperiment(experiment))
-    : runLegacyExperiment(experiment);
 }
 
-async function runLegacyExperiment(experiment: Experiment): Promise<{
+/** Why a provider cannot send requests yet, if it cannot. */
+function providerAccessError(provider: ProviderConfig): string | undefined {
+  if (provider.kind === "jev") return jevAccessError(provider);
+  if (provider.kind !== "anthropic") return undefined;
+  const keyEnv = provider.apiKeyEnv ?? "ANTHROPIC_API_KEY";
+  return process.env[keyEnv] ? undefined : `${provider.id}: missing ${keyEnv}`;
+}
+
+/** Runs every pending trial of a provider comparison, provider by provider. */
+async function runComparison(experiment: Experiment): Promise<{
   experimentId: string;
   completed: number;
   pending: number;
@@ -418,36 +376,9 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
           trial.providerId === provider.id &&
           !isTerminal(saved.get(trial.trialId)!.status),
       );
-      if (provider.kind === "jev" || provider.kind === "djev") {
-        const keyName =
-          provider.apiKeyEnv ??
-          (provider.kind === "jev" ? "TYPESAFE_API_KEY" : "DJEV_API_KEY");
-        if (provider.kind === "jev" && !process.env[keyName]) {
-          accessErrors.push(`${provider.id}: missing ${keyName}`);
-          continue;
-        }
-        if (
-          provider.kind === "djev" &&
-          !(
-            provider.endpoint ??
-            (provider.endpointEnv
-              ? process.env[provider.endpointEnv]
-              : undefined)
-          )
-        ) {
-          accessErrors.push(
-            `${provider.id}: missing endpoint or ${provider.endpointEnv ?? "endpointEnv"}`,
-          );
-          continue;
-        }
-      }
-      if (
-        provider.kind === "anthropic" &&
-        !process.env[provider.apiKeyEnv ?? "ANTHROPIC_API_KEY"]
-      ) {
-        accessErrors.push(
-          `${provider.id}: missing ${provider.apiKeyEnv ?? "ANTHROPIC_API_KEY"}`,
-        );
+      const accessError = providerAccessError(provider);
+      if (accessError) {
+        accessErrors.push(accessError);
         continue;
       }
       let providerStopped = false;
@@ -479,7 +410,7 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
         return providerRequestCount;
       };
       const budget =
-        provider.kind === "jev" || provider.kind === "djev"
+        provider.kind === "jev"
           ? createRequestBudget(provider, countRequest)
           : undefined;
       const llm =
@@ -496,7 +427,6 @@ async function runLegacyExperiment(experiment: Experiment): Promise<{
         const start = performance.now();
         let outcome: Trial;
         if (
-          (provider.kind === "jev" && item.task === "span") ||
           (provider.kind === "bm25" && item.task !== "rerank") ||
           (provider.kind === "rules" && item.task !== "role")
         ) {

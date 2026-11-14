@@ -69,17 +69,15 @@ describe("evaluation prompt revisions", () => {
         "evaluation-prompts-v2",
       );
     }
-    for (const kind of ["jev", "djev"] as const) {
-      expect(promptsSeen("evaluation-prompts-v3", kind, "role")).toBe(
-        "evaluation-prompts-v3",
-      );
-      expect(promptsSeen("evaluation-prompts-v3", kind, "adjudication")).toBe(
-        "evaluation-prompts-v3",
-      );
-      expect(promptsSeen("evaluation-prompts-v3", kind, "rerank")).toBe(
-        "evaluation-prompts-v2",
-      );
-    }
+    expect(promptsSeen("evaluation-prompts-v3", "jev", "role")).toBe(
+      "evaluation-prompts-v3",
+    );
+    expect(promptsSeen("evaluation-prompts-v3", "jev", "adjudication")).toBe(
+      "evaluation-prompts-v3",
+    );
+    expect(promptsSeen("evaluation-prompts-v3", "jev", "rerank")).toBe(
+      "evaluation-prompts-v2",
+    );
     expect(promptsSeen("evaluation-prompts-v1", "anthropic", "role")).toBe(
       "evaluation-prompts-v1",
     );

@@ -1,15 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  readdirSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { buildStableId } from "../shared/stable-identity.js";
 import type { ExperimentConfig, ProviderConfig } from "./config.js";
 import {
@@ -26,21 +18,18 @@ import {
   parseJevResult,
   validateJevFixtureResult,
 } from "./jev-tasks.js";
-import {
-  atomicJson,
-  evaluationRoot,
-  experimentDir,
-  loadDataset,
-  readJson,
-} from "./storage.js";
-import type { EvaluationCase } from "./types.js";
+import { trialPath, type Trial } from "./experiment.js";
 import {
   fetchJev,
+  jevAccessError,
+  jevBackoffMs,
   jevEndpoint,
   jevQuotaGroup,
+  withJevQuotaLocks,
   type JevTransport,
 } from "./jev-transport.js";
-import type { Trial } from "./runner.js";
+import { atomicJson, experimentDir, loadDataset, readJson } from "./storage.js";
+import type { EvaluationCase } from "./types.js";
 
 type OptimizationConfig = NonNullable<ExperimentConfig["optimization"]>;
 type Phase = JevVariant["phase"];
@@ -364,61 +353,6 @@ function loadResult(id: string, requestId: string): JevResult | undefined {
   return existsSync(path) ? readJson(path, jevResultSchema) : undefined;
 }
 
-export function withQuotaLock<T>(
-  provider: ProviderConfig,
-  run: () => Promise<T>,
-): Promise<T> {
-  const lockDir = join(evaluationRoot(), "locks");
-  mkdirSync(lockDir, { recursive: true });
-  const lockPath = join(
-    lockDir,
-    `${buildStableId("jev-quota", jevQuotaGroup(provider))}.lock`,
-  );
-  try {
-    const current = Number(readFileSync(lockPath, "utf8"));
-    if (!Number.isInteger(current) || current <= 0)
-      throw new Error("Jev quota lock is in use or unreadable");
-    try {
-      process.kill(current, 0);
-      throw new Error(`Jev quota group is in use by process ${current}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-    unlinkSync(lockPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const fd = openSync(lockPath, "wx");
-  writeFileSync(fd, String(process.pid));
-  closeSync(fd);
-  return Promise.resolve()
-    .then(run)
-    .finally(() => {
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        /* stale lock removal is harmless */
-      }
-    });
-}
-
-function withQuotaLocks<T>(
-  providers: ProviderConfig[],
-  run: () => Promise<T>,
-): Promise<T> {
-  const unique = [
-    ...new Map(
-      providers.map((provider) => [jevQuotaGroup(provider), provider]),
-    ).entries(),
-  ]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, provider]) => provider);
-  return unique.reduceRight<() => Promise<T>>(
-    (next, provider) => () => withQuotaLock(provider, next),
-    run,
-  )();
-}
-
 function fairQueue(jobs: Job[]): Job[] {
   const byCase = new Map<string, Job[]>();
   for (const job of jobs) {
@@ -434,22 +368,6 @@ function fairQueue(jobs: Job[]): Job[] {
       if (job) result.push(job);
     }
   return result;
-}
-
-function wait(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.reject(new Error("Cancelled"));
-  if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, ms);
-    function abort() {
-      clearTimeout(timer);
-      reject(new Error("Cancelled"));
-    }
-    signal.addEventListener("abort", abort, { once: true });
-  });
 }
 
 function transient(status?: number): boolean {
@@ -542,7 +460,7 @@ export async function runJevOptimization(
   const optimization = validateConfig(config);
   const jobs = jobsFor(datasetId, config);
   if (!config.providers.length) throw new Error("No Jev provider configured");
-  return withQuotaLocks(config.providers, async () => {
+  return withJevQuotaLocks(config.providers, async () => {
     const frozenPlanPath = join(experimentDir(id), "optimization-plan.json");
     if (!existsSync(frozenPlanPath))
       throw new Error("Missing frozen optimization request plan");
@@ -556,24 +474,18 @@ export async function runJevOptimization(
       throw new Error(
         "Optimization request plan changed since this experiment was planned, so its remaining requests would ask different questions than its completed ones; refusing to dispatch. Create a fresh experiment for the remaining work.",
       );
-    const missingKeys =
+    const accessErrors =
       transport === fetchJev
-        ? config.providers.filter(
-            (provider) =>
-              !process.env[provider.apiKeyEnv ?? "TYPESAFE_API_KEY"],
-          )
+        ? config.providers.flatMap((provider) => jevAccessError(provider) ?? [])
         : [];
-    if (missingKeys.length)
+    if (accessErrors.length)
       return {
         experimentId: id,
         completed: jobs.filter((job) => loadResult(id, job.spec.requestId))
           .length,
         pending: jobs.filter((job) => !loadResult(id, job.spec.requestId))
           .length,
-        accessErrors: missingKeys.map(
-          (provider) =>
-            `${provider.id}: missing ${provider.apiKeyEnv ?? "TYPESAFE_API_KEY"}`,
-        ),
+        accessErrors,
       };
     mkdirSync(attemptDir(id), { recursive: true });
     mkdirSync(resultDir(id), { recursive: true });
@@ -583,7 +495,7 @@ export async function runJevOptimization(
       plannedTrials.map((trial) => [trial.trialId, trial]),
     );
     for (const trial of plannedTrials) {
-      const path = join(experimentDir(id), "trials", `${trial.trialId}.json`);
+      const path = trialPath(id, trial.trialId);
       if (!existsSync(path))
         throw new Error(`Missing planned trial ${trial.trialId}`);
       const saved = JSON.parse(readFileSync(path, "utf8")) as Partial<Trial>;
@@ -639,7 +551,6 @@ export async function runJevOptimization(
     const nextStart = new Map<string, number>();
     const cooldownUntil = new Map<string, number>();
     let stopped = false;
-    const accessErrors: string[] = [];
     let consecutiveServiceFailures = 0;
     const serviceFailure = () => {
       consecutiveServiceFailures++;
@@ -718,7 +629,7 @@ export async function runJevOptimization(
                 relevance: scores,
               }
             : undefined;
-      atomicJson(join(experimentDir(id), "trials", `${trialId}.json`), {
+      atomicJson(trialPath(id, trialId), {
         ...base,
         status: allDone ? "success" : failure ? "provider_failure" : "pending",
         calls,
@@ -762,7 +673,7 @@ export async function runJevOptimization(
         }
         if (cooldown > Date.now())
           rateLimitWaitMs += Math.min(remaining, cooldown - Date.now());
-        await wait(remaining, controller.signal);
+        await sleep(remaining, undefined, { signal: controller.signal });
       }
     };
     const runJob = async (job: Job) => {
@@ -868,6 +779,10 @@ export async function runJevOptimization(
           Math.max(peakByVariant.get(job.variant.id) ?? 0, variantActive),
         );
         const started = performance.now();
+        const backoff = jevBackoffMs(
+          optimization.retryBaseDelayMs,
+          attemptNumber - 1,
+        );
         try {
           const response = await transport(
             job.provider,
@@ -992,22 +907,11 @@ export async function runJevOptimization(
               group,
               Math.max(
                 cooldownUntil.get(group) ?? 0,
-                Date.now() +
-                  (response.retryAfterMs ??
-                    Math.min(
-                      30_000,
-                      optimization.retryBaseDelayMs * 2 ** (attemptNumber - 1),
-                    )),
+                Date.now() + (response.retryAfterMs ?? backoff),
               ),
             );
           }
-          retryWaitMs = Math.max(
-            response.retryAfterMs ?? 0,
-            Math.min(
-              30_000,
-              optimization.retryBaseDelayMs * 2 ** (attemptNumber - 1),
-            ),
-          );
+          retryWaitMs = Math.max(response.retryAfterMs ?? 0, backoff);
         } catch (error) {
           const interrupted = controller.signal.aborted;
           atomicJson(attemptPath(id, attemptId), {
@@ -1022,10 +926,7 @@ export async function runJevOptimization(
           if (interrupted) return;
           serviceFailure();
           if (stopped) return;
-          retryWaitMs = Math.min(
-            30_000,
-            optimization.retryBaseDelayMs * 2 ** (attemptNumber - 1),
-          );
+          retryWaitMs = backoff;
         } finally {
           activeRequests--;
           activeByVariant.set(
@@ -1036,7 +937,7 @@ export async function runJevOptimization(
         if (attemptNumber < 3)
           try {
             const retryStarted = Date.now();
-            await wait(retryWaitMs, controller.signal);
+            await sleep(retryWaitMs, undefined, { signal: controller.signal });
             retryWaitMs = Date.now() - retryStarted;
             queuedAt = Date.now();
           } catch {

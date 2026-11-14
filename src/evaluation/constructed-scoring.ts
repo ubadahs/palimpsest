@@ -3,7 +3,7 @@
  * because the case was made by editing a faithful restatement.
  */
 import { z } from "zod";
-import type { Trial } from "./runner.js";
+import type { Trial } from "./experiment.js";
 import type { ConstructedLabel, EvaluationCase } from "./types.js";
 
 type ConstructedCase = Extract<EvaluationCase, { task: "adjudication" }> & {

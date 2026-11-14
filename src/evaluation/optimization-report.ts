@@ -7,12 +7,13 @@ import {
   type JevResult,
 } from "./optimization-contract.js";
 import { canonicalSha256 } from "../shared/stable-identity.js";
+import { callCostUsd } from "./cost.js";
 import {
   loadExperiment,
   loadTrials,
   type Experiment,
   type Trial,
-} from "./runner.js";
+} from "./experiment.js";
 import { planJevOptimization } from "./optimization-runner.js";
 import { evaluationRoot, experimentDir, loadDataset } from "./storage.js";
 import type { EvaluationCase } from "./types.js";
@@ -48,36 +49,6 @@ function average(values: number[]): number | null {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
     : null;
-}
-
-function callCost(
-  call: Record<string, unknown>,
-  inputPrice: number | undefined,
-  outputPrice: number | undefined,
-): number | null {
-  if (
-    inputPrice == null ||
-    outputPrice == null ||
-    typeof call.inputTokens !== "number" ||
-    typeof call.outputTokens !== "number"
-  )
-    return null;
-  const read =
-    typeof call.promptCacheReadTokens === "number"
-      ? call.promptCacheReadTokens
-      : 0;
-  const write =
-    typeof call.promptCacheWriteTokens === "number"
-      ? call.promptCacheWriteTokens
-      : 0;
-  return (
-    ((Math.max(0, call.inputTokens - read - write) +
-      read * 0.1 +
-      write * 1.25) *
-      inputPrice +
-      call.outputTokens * outputPrice) /
-    1_000_000
-  );
 }
 
 function readArtifactDirectory<T>(
@@ -416,18 +387,10 @@ export function buildOptimizationAnalysis(
     );
     const campaign = historicalCampaignTrials(source, reference.providerId);
     const referenceCosts = uniqueHistoricalCalls(sourceTrials).map((call) =>
-      callCost(
-        call,
-        provider.pricePerMillionInputTokensUsd,
-        provider.pricePerMillionOutputTokensUsd,
-      ),
+      callCostUsd(call, provider),
     );
     const sourceCosts = uniqueHistoricalCalls(campaign.trials).map((call) =>
-      callCost(
-        call,
-        provider.pricePerMillionInputTokensUsd,
-        provider.pricePerMillionOutputTokensUsd,
-      ),
+      callCostUsd(call, provider),
     );
     return {
       experimentId: reference.experimentId,
@@ -567,13 +530,7 @@ export function buildOptimizationAnalysis(
       (item) => item.kind === "jev",
     );
     const costed = variantAttempts.map((item) =>
-      item.usage &&
-      provider?.pricePerMillionInputTokensUsd != null &&
-      provider.pricePerMillionOutputTokensUsd != null
-        ? (item.usage.inputTokens * provider.pricePerMillionInputTokensUsd +
-            item.usage.outputTokens * provider.pricePerMillionOutputTokensUsd) /
-          1_000_000
-        : null,
+      item.usage && provider ? callCostUsd(item.usage, provider) : null,
     );
     const labeled = variantTrials.flatMap<HumanScore>((trial) => {
       const label = labels.get(trial.caseId);

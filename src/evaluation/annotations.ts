@@ -19,7 +19,7 @@ import {
   loadDataset,
 } from "./storage.js";
 import { listGradingRequests } from "./grading-requests.js";
-import { loadExperiment, loadTrials } from "./runner.js";
+import { loadExperiment, loadTrials } from "./experiment.js";
 import { loadOptimizationResults } from "./optimization-report.js";
 import { validateJsSpan } from "./span.js";
 import {

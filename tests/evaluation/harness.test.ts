@@ -15,11 +15,10 @@ import {
   historicalAttemptAccounting,
   uniqueHistoricalCalls,
 } from "../../src/evaluation/optimization-report.js";
+import { loadTrials, trialSchema } from "../../src/evaluation/experiment.js";
 import {
   createExperiment,
-  loadTrials,
   runExperiment,
-  trialSchema,
 } from "../../src/evaluation/runner.js";
 import {
   pythonSpanToJs,

@@ -10,19 +10,14 @@
       "kind": "anthropic",
       "model": "claude-haiku-5-5",
       "tasks": ["role", "rerank", "span"],
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 0.1,
-      "pricePerMillionOutputTokensUsd": 0.5
+      "concurrency": 6
     },
     {
       "id": "opus",
       "kind": "anthropic",
       "model": "claude-opus-5-5",
       "tasks": ["adjudication"],
-      "concurrency": 6,
-      "pricePerMillionInputTokensUsd": 4,
-      "pricePerMillionOutputTokensUsd": 20,
-      "pricePerMillionCacheReadTokensUsd": 0.2
+      "concurrency": 6
     },
     {
       "id": "jev",
@@ -36,8 +31,8 @@
       "pricePerMillionOutputTokensUsd": 0
     },
     {
-      "id": "djev",
-      "kind": "djev",
+      "id": "dgemma",
+      "kind": "jev",
       "model": "dgemma",
       "tasks": ["role", "rerank", "span", "adjudication"],
       "endpointEnv": "DJEV_ENDPOINT",

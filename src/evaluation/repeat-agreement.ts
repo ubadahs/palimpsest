@@ -3,7 +3,7 @@
  * the same answer, and a difference between two providers that is smaller
  * than that disagreement tells us nothing.
  */
-import type { Trial } from "./runner.js";
+import type { Trial } from "./experiment.js";
 
 export type RepeatAgreement = {
   providerId: string;

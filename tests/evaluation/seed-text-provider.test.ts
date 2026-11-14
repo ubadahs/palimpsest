@@ -13,9 +13,9 @@ import {
   type Mutation,
 } from "../../src/evaluation/constructed-cases.js";
 import { generateEvaluationReport } from "../../src/evaluation/report.js";
+import { loadTrials } from "../../src/evaluation/experiment.js";
 import {
   createExperiment,
-  loadTrials,
   runExperiment,
 } from "../../src/evaluation/runner.js";
 import { atomicJson, datasetDir } from "../../src/evaluation/storage.js";

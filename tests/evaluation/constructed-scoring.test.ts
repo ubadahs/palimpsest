@@ -5,7 +5,7 @@ import {
   constructedScoreMarkdown,
   scoreConstructedCases,
 } from "../../src/evaluation/constructed-scoring.js";
-import type { Trial } from "../../src/evaluation/runner.js";
+import type { Trial } from "../../src/evaluation/experiment.js";
 import type {
   ConstructedLabel,
   EvaluationCase,

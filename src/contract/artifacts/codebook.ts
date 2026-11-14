@@ -88,6 +88,24 @@ export type SeedCodebookContent = {
 };
 
 /**
+ * A codebook has exactly one headline theme, and entries under it: the steps
+ * of the seed's main claim. Returns how a codebook breaks the rule, if it
+ * does.
+ */
+export function headlineThemeViolation(
+  content: SeedCodebookContent,
+): string | undefined {
+  const headlines = content.themes.filter((theme) => theme.isHeadline);
+  if (headlines.length !== 1) {
+    return `Expected exactly one headline theme, found ${String(headlines.length)}`;
+  }
+  const { themeId } = headlines[0]!;
+  return content.entries.some((entry) => entry.themeId === themeId)
+    ? undefined
+    : `Headline theme ${themeId} has no entries`;
+}
+
+/**
  * Part of the stored-codebook key, so a changed prompt, schema, or
  * verification rule regenerates instead of reusing a codebook built another
  * way. It is the codebook prompts' version; bump that for any of these.
@@ -140,6 +158,8 @@ export const storedSeedCodebookSchema = z
   .strict()
   .superRefine((codebook, context) => {
     validateCodebookIdentity(codebook, context);
+    const violation = headlineThemeViolation(codebook);
+    if (violation) addIssue(context, ["themes"], violation);
   });
 export type StoredSeedCodebook = z.infer<typeof storedSeedCodebookSchema>;
 
@@ -150,7 +170,9 @@ const codebookFailureCodeSchema = z.enum([
   "invalid_response",
   "provider_failure",
   "no_verified_entries",
+  "no_headline_theme",
 ]);
+export type CodebookFailureCode = z.infer<typeof codebookFailureCodeSchema>;
 
 /**
  * One per Scope seed materialization. `generated` carries the procedure's
