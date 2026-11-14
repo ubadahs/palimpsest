@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CITATION_ROLE_DEFINITIONS,
   citationRoleRubric,
+  FIDELITY_BOUNDARY_GUIDANCE,
   rubricCriteria,
   VERDICT_DEFINITIONS,
   verdictDefinitionsOnly,
@@ -23,10 +24,19 @@ describe("rubric", () => {
     const criteria = rubricCriteria(verdictDefinitionsOnly());
     expect(Object.keys(criteria)).toEqual(["F", "D", "E", "U"]);
     expect(criteria.D).toBe(
-      "A real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered.",
+      "The cited paper supports the core of the claim, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered.",
     );
     expect(rubricCriteria(CITATION_ROLE_DEFINITIONS).unclear).toBe(
       "The context genuinely does not say which of the above it is.",
     );
+  });
+
+  it("speaks of the cited paper in plain words, which rationales echo", () => {
+    const text = [
+      citationRoleRubric(),
+      verdictRubric(),
+      FIDELITY_BOUNDARY_GUIDANCE,
+    ].join("\n");
+    expect(text).not.toMatch(/\bseed\b|kernel/i);
   });
 });

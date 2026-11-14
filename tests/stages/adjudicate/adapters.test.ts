@@ -90,7 +90,7 @@ describe("Adjudicate production adapter", () => {
   });
 
   it("sends a whole seed text as a shared prefix, and lets the first request write the cache alone", async () => {
-    const seedText = `## Cited/seed paper, full text\n${"The seed reports three marker classes. ".repeat(200)}`;
+    const seedText = `## Cited paper, full text\n${"The seed reports three marker classes. ".repeat(200)}`;
     let inFlight = 0;
     const inFlightAtStart: number[] = [];
     const generateObject = vi.fn(async (params: GenerateObjectParams) => {

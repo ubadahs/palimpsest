@@ -18,14 +18,14 @@ function basePacket(
     isBundled: false,
     bundleSize: 1,
     citingPaperTitle: "Citing paper",
-    citedPaperTitle: "Seed paper",
+    citedPaperTitle: "Marker classes in the mouse Norel",
     familyTrackedClaim: "Seed reported three marker classes.",
     markedCitingContext:
       "Background. ▶ Marlowe et al. (2021) reported three marker classes in mouse Norel. ◀ Later text.",
     occurrenceClaims: [
       {
         claimRecordId: "claim_1",
-        claimText: "The seed reported three marker classes.",
+        claimText: "Marlowe et al. reported three marker classes.",
         supportSpanText: "reported three marker classes",
         supportSpanCharOffsetStart: 10,
         supportSpanCharOffsetEnd: 47,
@@ -55,7 +55,7 @@ describe("adjudicate packet quality", () => {
         occurrenceClaims: [
           {
             claimRecordId: "claim_1",
-            claimText: "The seed reported three marker classes.",
+            claimText: "Marlowe et al. reported three marker classes.",
           },
         ],
       }),
@@ -83,7 +83,7 @@ describe("adjudicate packet quality", () => {
     expect(result.gateReason).toMatch(/citation target/i);
   });
 
-  it("pins quantifier, proxy-endpoint, and bundle kernel guidance in the prompt", () => {
+  it("pins quantifier, proxy-endpoint, and bundle guidance in the prompt", () => {
     const prompt = buildAdjudicatePrompt(
       basePacket({ isBundled: true, bundleSize: 3 }),
     );
@@ -92,6 +92,8 @@ describe("adjudicate packet quality", () => {
     expect(prompt).toMatch(/Proxy endpoints/i);
     expect(prompt).toMatch(/supportSpan:/);
     expect(prompt).toMatch(/figure-only support/i);
+    // Rationales echo the prompt's words; people outside the pipeline read them.
+    expect(prompt).not.toMatch(/\bthe seed\b|kernel/i);
   });
 });
 

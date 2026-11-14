@@ -12,7 +12,7 @@ import {
 import type { EvidenceChunk } from "../../../src/contract/artifacts/index.js";
 
 const seed: SeedText = {
-  title: "Seed paper",
+  title: "Marker classes in the mouse Norel",
   blocks: [
     {
       blockId: "abstract-0",
@@ -42,13 +42,13 @@ function packet(recordId: string, claim: string): AdjudicatePacket {
     isBundled: false,
     bundleSize: 1,
     citingPaperTitle: "Citing paper",
-    citedPaperTitle: "Seed paper",
+    citedPaperTitle: "Marker classes in the mouse Norel",
     familyTrackedClaim: "Seed reported three marker classes.",
     markedCitingContext: `▶ Marlowe et al. (2021) ${claim}. ◀`,
     occurrenceClaims: [
       {
         claimRecordId: "claim_1",
-        claimText: `The seed ${claim}.`,
+        claimText: `Marlowe et al. ${claim}.`,
         supportSpanText: claim,
       },
     ],
@@ -86,6 +86,10 @@ describe("seed-text adjudication prompt", () => {
     expect(first.prefix).not.toContain("rec_1");
     expect(first.suffix).toContain("rec_1");
     expect(second.suffix).toContain("reported five marker classes");
+    // Rationales echo the prompt's words; people outside the pipeline read them.
+    expect(`${first.prefix}${first.suffix}`).not.toMatch(
+      /\bthe seed\b|\bseed paper\b|kernel/i,
+    );
   });
 
   it("numbers every seed block and labels its role and outside citations", () => {

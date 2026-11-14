@@ -15,7 +15,7 @@ export const PROMPT_VERSIONS = {
   /** Relevance reranking of BM25 candidates (Evidence). */
   rerank: "2026-09-02-v2",
   /** Adjudication from Evidence's selected chunks. */
-  adjudication: "2026-09-23-v11",
+  adjudication: "2026-11-14-v12",
   /** Adjudication from the whole seed text. */
-  seedTextAdjudication: "2026-11-11-v1",
+  seedTextAdjudication: "2026-11-14-v2",
 } as const;

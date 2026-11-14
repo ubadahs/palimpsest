@@ -48,27 +48,53 @@ const promptRevisionValues = [
   "evaluation-prompts-v1",
   "evaluation-prompts-v2",
   "evaluation-prompts-v3",
+  "evaluation-prompts-v4",
 ] as const;
 type PromptRevision = (typeof promptRevisionValues)[number];
 
 /** The only revision new trials run under; older experiments stay readable. */
-export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v3";
+export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v4";
+
+type PromptReader = Pick<ProviderConfig, "kind" | "adjudicationEvidence">;
 
 /**
- * The prompts a provider was shown for a task under a revision. v3 reworded
- * only the role and adjudication questions Jev providers answer, to
- * the production rubric, so every other v2 trial remains reusable under v3.
+ * What each revision after v2 reworded; v1 and v2 changed every prompt.
+ * v3 reworded the role and adjudication questions Jev providers answer to the
+ * production rubric. v4 put the verdict definitions and the whole-paper
+ * adjudication prompt in plain words ("the cited paper", no "kernel"); the
+ * selected-chunks prompt Anthropic providers read is frozen in each dataset,
+ * so only Jev and whole-paper adjudication saw it change.
+ */
+const REWORDED: Partial<
+  Record<
+    PromptRevision,
+    (provider: PromptReader, task: EvaluationTask) => boolean
+  >
+> = {
+  "evaluation-prompts-v3": ({ kind }, task) =>
+    kind === "jev" && (task === "role" || task === "adjudication"),
+  "evaluation-prompts-v4": ({ kind, adjudicationEvidence }, task) =>
+    task === "adjudication" &&
+    (kind === "jev" ||
+      (kind === "anthropic" && adjudicationEvidence === "seed_text")),
+};
+
+/**
+ * The revision whose prompts a provider was actually shown for a task under
+ * `revision`: the latest one up to it that reworded them. A trial saved under
+ * that revision is reusable under this one.
  */
 export function promptsSeen(
   revision: PromptRevision,
-  kind: ProviderConfig["kind"],
+  provider: PromptReader,
   task: EvaluationTask,
 ): PromptRevision {
-  const reworded =
-    kind === "jev" && (task === "role" || task === "adjudication");
-  return revision === "evaluation-prompts-v3" && !reworded
-    ? "evaluation-prompts-v2"
-    : revision;
+  for (let index = promptRevisionValues.indexOf(revision); index > 0; index--) {
+    const candidate = promptRevisionValues[index]!;
+    const reworded = REWORDED[candidate];
+    if (!reworded || reworded(provider, task)) return candidate;
+  }
+  return promptRevisionValues[0];
 }
 
 export const experimentConfigSchema = z.object({

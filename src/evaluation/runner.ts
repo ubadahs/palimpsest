@@ -114,7 +114,7 @@ function compatibleSavedTrials(
     task: Trial["task"],
   ) =>
     buildStableId("provider-request-settings", {
-      prompts: promptsSeen(revision, provider.kind, task),
+      prompts: promptsSeen(revision, provider, task),
       ...Object.fromEntries(
         Object.entries(provider).filter(
           ([key]) =>

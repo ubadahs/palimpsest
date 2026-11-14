@@ -136,11 +136,11 @@ export function buildSeedTextAdjudicatePrompt(input: {
   packet: AdjudicatePacket;
   seed: SeedText;
 }): { prefix: string; suffix: string } {
-  const prefix = `## Cited/seed paper, full text
+  const prefix = `## Cited paper, full text
 
 Title: "${input.seed.title}"
 
-The whole text of the seed paper follows as numbered blocks in reading order. Each block names its section role; only role=results, figure, table, or abstract can establish what the seed itself found, and a block that cites other work may be the seed summarizing prior literature. Figures appear only as their captions.
+The whole text of the cited paper follows as numbered blocks in reading order. Each block names its section role; only role=results, figure, table, or abstract can establish what the cited paper itself found, and a block that cites other work may be the cited paper summarizing prior literature. Figures appear only as their captions.
 
 ${renderSeedText(input.seed.blocks)}
 
@@ -149,15 +149,15 @@ ${renderSeedText(input.seed.blocks)}
 
 ## Task
 
-Compare the citing paper's attribution to the seed text above. You have the whole paper, so an attribution it supports nowhere is E.
+Compare the citing paper's attribution to the cited paper's text above. You have the whole paper, so an attribution it supports nowhere is E.
 
 Return JSON with:
-- citingAssertion: one concise sentence stating what the citing paper attributes to the seed
-- sourceStatement: one concise sentence stating what the seed paper actually says on this point
+- citingAssertion: one concise sentence stating what the citing paper attributes to the cited paper
+- sourceStatement: one concise sentence stating what the cited paper actually says on this point
 ${judgmentFieldInstructions()}
-- seedQuotes: the seed passages you relied on, each as { "block": <block number>, "quote": <text copied exactly and contiguously from that block> }. Give at least one for F, D, and U. For E, quote the nearest related passage, or return an empty list when the paper says nothing on the point.
+- seedQuotes: the passages of the cited paper you relied on, each as { "block": <block number>, "quote": <text copied exactly and contiguously from that block> }. Give at least one for F, D, and U. For E, quote the nearest related passage, or return an empty list when the paper says nothing on the point.
 
-Judge only from the seed text. Do not invent evidence it does not contain; figure-only support that the captions do not state is an evidence limitation, not grounds to invent content. ${FIDELITY_BOUNDARY_GUIDANCE} If a passage is the seed paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the seed's finding.`;
+Judge only from the cited paper's text. Do not invent evidence it does not contain; figure-only support that the captions do not state is an evidence limitation, not grounds to invent content. ${FIDELITY_BOUNDARY_GUIDANCE} If a passage is the cited paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the cited paper's finding.`;
   return { prefix, suffix };
 }
 

@@ -63,22 +63,38 @@ describe("evaluation prompt revisions", () => {
     ).toBe(CURRENT_PROMPT_REVISION);
   });
 
-  it("keeps v2 trials reusable under v3 except where v3 changed the question", () => {
+  it("keeps trials reusable until a later revision changed what their provider saw", () => {
+    const anthropic = { kind: "anthropic" } as const;
+    const wholePaper = {
+      kind: "anthropic",
+      adjudicationEvidence: "seed_text",
+    } as const;
+    const jev = { kind: "jev" } as const;
     for (const kind of ["anthropic", "bm25", "rules"] as const) {
-      expect(promptsSeen("evaluation-prompts-v3", kind, "role")).toBe(
+      expect(promptsSeen("evaluation-prompts-v4", { kind }, "role")).toBe(
         "evaluation-prompts-v2",
       );
     }
-    expect(promptsSeen("evaluation-prompts-v3", "jev", "role")).toBe(
+    expect(promptsSeen("evaluation-prompts-v4", jev, "role")).toBe(
       "evaluation-prompts-v3",
     );
-    expect(promptsSeen("evaluation-prompts-v3", "jev", "adjudication")).toBe(
+    expect(promptsSeen("evaluation-prompts-v4", jev, "adjudication")).toBe(
+      "evaluation-prompts-v4",
+    );
+    expect(
+      promptsSeen("evaluation-prompts-v4", wholePaper, "adjudication"),
+    ).toBe("evaluation-prompts-v4");
+    // The selected-chunks prompt is frozen in the dataset.
+    expect(
+      promptsSeen("evaluation-prompts-v4", anthropic, "adjudication"),
+    ).toBe("evaluation-prompts-v2");
+    expect(promptsSeen("evaluation-prompts-v3", jev, "adjudication")).toBe(
       "evaluation-prompts-v3",
     );
-    expect(promptsSeen("evaluation-prompts-v3", "jev", "rerank")).toBe(
+    expect(promptsSeen("evaluation-prompts-v4", jev, "rerank")).toBe(
       "evaluation-prompts-v2",
     );
-    expect(promptsSeen("evaluation-prompts-v1", "anthropic", "role")).toBe(
+    expect(promptsSeen("evaluation-prompts-v1", anthropic, "role")).toBe(
       "evaluation-prompts-v1",
     );
   });

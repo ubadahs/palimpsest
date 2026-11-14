@@ -6,6 +6,10 @@
  * Changing any text here changes production prompts: bump the prompt versions
  * that render it (`roleClassification`, `adjudication`, `seedTextAdjudication`)
  * and the evaluation prompt revision.
+ *
+ * The wording is plain on purpose: models echo it in their rationales, which
+ * people outside the pipeline read. Say "the cited paper", never "the seed",
+ * and name what a claim rests on rather than calling it a "kernel".
  */
 import type { CitationRole } from "./classification.js";
 import type { FidelityVerdict } from "./taxonomy.js";
@@ -34,17 +38,17 @@ export const VERDICT_DEFINITIONS: Readonly<
   F: {
     name: "faithful",
     definition:
-      "the attribution preserves the cited source's substantive meaning; reasonable compression is allowed, including bundled citations when the seed supports a meaningful claim kernel",
+      "the attribution preserves the cited paper's substantive meaning; reasonable compression is allowed, including bundled citations when the cited paper supports the core of the claim",
   },
   D: {
     name: "distortion",
     definition:
-      "a real source kernel exists, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered",
+      "the cited paper supports the core of the claim, but scope, strength, certainty, causality, population, conditions, measurement endpoint, or generality is materially altered",
   },
   E: {
     name: "error",
     definition:
-      "the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise lacks the claimed source kernel",
+      "the central attribution is unsupported, contradicted, about the wrong entity/result, or otherwise has no basis in the cited paper",
   },
   U: {
     name: "uncertain",
@@ -59,7 +63,7 @@ export const VERDICT_DEFINITIONS: Readonly<
  * than human reviewers, not closer to them, so change this text only against
  * labelled cases.
  */
-export const FIDELITY_BOUNDARY_GUIDANCE = `Quantifier compression that preserves the kernel (for example "four types" vs "only four types") remains F when the source supports that kernel. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when the source kernel differs.`;
+export const FIDELITY_BOUNDARY_GUIDANCE = `Quantifier compression that preserves the core of the claim (for example "four types" vs "only four types") remains F when the cited paper supports that core. Proxy endpoints that change what was measured (for example prevalence/density vs staining intensity) are D when what the cited paper measured differs.`;
 
 /** The role rubric as a prompt section. */
 export function citationRoleRubric(): string {

@@ -237,10 +237,10 @@ export function packetEvidenceLimitation(
  */
 export function renderCitingSide(packet: AdjudicatePacket): string {
   const bundleWarning = packet.isBundled
-    ? `\nBundled-reference warning: this citation marker is shared with ${String(packet.bundleSize)} references. Evaluate only the claim attributed to the seed paper under review; ignore attributions to other bundled works.`
+    ? `\nBundled-reference warning: this citation marker is shared with ${String(packet.bundleSize)} references. Evaluate only the claim attributed to the cited paper under review; ignore attributions to other bundled works.`
     : "";
   const seedLabel = packet.seedRefLabel
-    ? `\nSeed reference label: ${packet.seedRefLabel}`
+    ? `\nCited paper's reference label: ${packet.seedRefLabel}`
     : "";
 
   // Offsets are omitted: they index the full paragraph, not the window shown.
@@ -260,11 +260,11 @@ Record ID: ${packet.recordId}
 Citation role: ${packet.citationRole} (${describeCitationRole(packet.citationRole)})
 Evaluation mode: ${packet.evaluationMode} (${describeEvaluationMode(packet.evaluationMode)})
 Citing paper: "${packet.citingPaperTitle}"
-Cited/seed paper: "${packet.citedPaperTitle}"${seedLabel}${bundleWarning}
+Cited paper: "${packet.citedPaperTitle}"${seedLabel}${bundleWarning}
 
 ## Citing context
 
-Sentences attributed to the seed are marked with ▶ ... ◀ when disambiguation is needed. Evaluate only the claim attributed to the seed, not other claims in the paragraph or bundle.
+Sentences attributed to the cited paper are marked with ▶ ... ◀ when disambiguation is needed. Evaluate only the claim attributed to the cited paper, not other claims in the paragraph or bundle.
 
 ${packet.markedCitingContext}
 
@@ -294,7 +294,7 @@ function renderSelectedChunks(packet: AdjudicatePacket): string {
         ? `, role=${chunk.sourceSectionRole}`
         : "";
       const cites = chunk.sourceCitesOtherWork
-        ? ", cites other work: may summarize prior findings rather than report the seed's own"
+        ? ", cites other work: may summarize prior findings rather than report the cited paper's own"
         : "";
       return `#${String(index + 1)} (${chunk.sourceBlockKind}${role}${section}${cites}, offsets ${String(chunk.charOffsetStart)}-${String(chunk.charOffsetEnd)})\n"${chunk.text}"`;
     })
@@ -306,7 +306,7 @@ export function buildAdjudicatePrompt(packet: AdjudicatePacket): string {
 
 ## Selected cited-paper chunks
 
-Chunk order is presentation order only. It is not a judgment of support or truth. Each chunk names its section role; only role=results, figure, table, or abstract can establish what the seed itself found, and a chunk that cites other work may be the seed summarizing prior literature. Refer to chunks by their numbers in citedChunks. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
+Chunk order is presentation order only. It is not a judgment of support or truth. Each chunk names its section role; only role=results, figure, table, or abstract can establish what the cited paper itself found, and a chunk that cites other work may be the cited paper summarizing prior literature. Refer to chunks by their numbers in citedChunks. Judge only from this text evidence; figure-only support not present in the chunks is an evidence limitation, not grounds to invent content:
 
 ${renderSelectedChunks(packet)}
 
@@ -315,24 +315,24 @@ ${renderSelectedChunks(packet)}
 Compare the citing paper's attribution to the selected cited-paper chunks.
 
 Return JSON with:
-- citingAssertion: one concise sentence stating what the citing paper attributes to the seed
+- citingAssertion: one concise sentence stating what the citing paper attributes to the cited paper
 - sourceStatement: one concise sentence stating what the selected cited chunks actually say
 ${judgmentFieldInstructions()}
 - citedChunks: one or more chunk numbers from the list above that you relied on; no unknowns or duplicates
 
-Judge only from the packet. Do not invent evidence outside the selected chunks. ${FIDELITY_BOUNDARY_GUIDANCE} If a chunk is the seed paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the seed's finding.`;
+Judge only from the packet. Do not invent evidence outside the selected chunks. ${FIDELITY_BOUNDARY_GUIDANCE} If a chunk is the cited paper summarizing prior work rather than reporting its own result, say so in sourceStatement and do not treat it as the cited paper's finding.`;
 }
 
 function describeCitationRole(role: string): string {
   switch (role) {
     case "substantive_attribution":
-      return "the citing text attributes a specific finding to the seed";
+      return "the citing text attributes a specific finding to the cited paper";
     case "background_context":
-      return "the seed is cited as general background for a framing statement";
+      return "the cited paper is used as general background for a framing statement";
     case "methods_materials":
-      return "the seed is cited for a method, reagent, or protocol";
+      return "the cited paper is used for a method, reagent, or protocol";
     case "acknowledgment_or_low_information":
-      return "the seed is acknowledged without a substantive claim";
+      return "the cited paper is acknowledged without a substantive claim";
     default:
       return "role as classified by the deterministic citation-role rules";
   }
@@ -343,11 +343,11 @@ function describeEvaluationMode(mode: string): string {
     case "fidelity_specific_claim":
       return "judge the specific attributed claim strictly";
     case "fidelity_background_framing":
-      return "judge whether the framing is a fair generalization of the seed";
+      return "judge whether the framing is a fair generalization of the cited paper";
     case "fidelity_methods_use":
       return "judge whether the method or material is attributed correctly";
     case "fidelity_bundled_use":
-      return "judge only the kernel the seed contributes to a shared citation";
+      return "judge only what the cited paper contributes to a shared citation";
     case "review_transmission":
       return "the citing paper is a review; note that its restatement may itself be transmitted onward";
     default:
