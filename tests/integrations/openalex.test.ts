@@ -56,15 +56,21 @@ describe("resolveWorkByDoi", () => {
     );
     expect(result.data.authors).toEqual(["Alice Smith", "Bob Jones"]);
     expect(result.data.source).toBe("openalex");
-    expect(result.data.fullTextHints).toMatchObject({
+    expect(result.data.fullTextHints).toEqual({
       providerAvailability: "available",
-      providerSourceHint: "biorxiv_xml",
+      locations: [
+        {
+          url: "https://www.biorxiv.org/content/10.1101/2024.01.01.000001v1.full.pdf",
+          kind: "pdf",
+          host: "repository",
+        },
+        {
+          url: "https://doi.org/10.1101/2024.01.01.000001",
+          kind: "landing_page",
+          host: "repository",
+        },
+      ],
     });
-    expect(result.data.fullTextHints.pdfUrl).toContain(".pdf");
-    expect(result.data.fullTextHints.landingPageUrl).toBe(
-      "https://doi.org/10.1101/2024.01.01.000001",
-    );
-    expect(result.data.fullTextHints.repositoryUrl).toContain("biorxiv.org");
     expect(result.data.resolutionProvenance).toEqual({
       method: "doi",
       confidence: "exact",
@@ -110,15 +116,88 @@ describe("resolveWorkByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.fullTextHints.pdfUrl).toBe(
-      "https://example.com/paper.pdf",
+    expect(result.data.fullTextHints.locations).toEqual([
+      { url: "https://example.com/paper.pdf", kind: "pdf", host: "publisher" },
+      {
+        url: "https://example.com/landing",
+        kind: "landing_page",
+        host: "publisher",
+      },
+    ]);
+
+    vi.restoreAllMocks();
+  });
+
+  it("lists the work's other open-access locations after the primary one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            id: "https://openalex.org/W997",
+            doi: "https://doi.org/10.1088/1475-7516/2021/02/019",
+            display_name: "Journal Article With Preprint",
+            authorships: [],
+            open_access: {
+              is_oa: true,
+              oa_url: "https://iopscience.iop.org/article/10.1088/x",
+            },
+            primary_location: {
+              is_oa: true,
+              landing_page_url: "https://iopscience.iop.org/article/10.1088/x",
+              pdf_url: null,
+              source: { display_name: "JCAP", type: "journal" },
+            },
+            locations: [
+              {
+                is_oa: true,
+                landing_page_url:
+                  "https://iopscience.iop.org/article/10.1088/x",
+                pdf_url: null,
+              },
+              {
+                is_oa: true,
+                landing_page_url: "https://arxiv.org/abs/2010.04074",
+                pdf_url: "https://arxiv.org/pdf/2010.04074v2",
+                source: { display_name: "arXiv", type: "repository" },
+              },
+              {
+                is_oa: false,
+                landing_page_url: "https://closed.example.com/x",
+                pdf_url: "https://closed.example.com/x.pdf",
+              },
+              null,
+            ],
+          }),
+      }),
     );
-    expect(result.data.fullTextHints.landingPageUrl).toBe(
-      "https://example.com/landing",
+
+    const result = await resolveWorkByDoi(
+      "10.1088/1475-7516/2021/02/019",
+      "https://api.openalex.org",
     );
-    expect(result.data.fullTextHints.repositoryUrl).toBe(
-      "https://example.com/landing",
-    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.fullTextHints.locations).toEqual([
+      {
+        url: "https://iopscience.iop.org/article/10.1088/x",
+        kind: "landing_page",
+        host: "publisher",
+      },
+      {
+        url: "https://arxiv.org/pdf/2010.04074v2",
+        kind: "pdf",
+        host: "repository",
+      },
+      {
+        url: "https://arxiv.org/abs/2010.04074",
+        kind: "landing_page",
+        host: "repository",
+      },
+    ]);
+    expect(result.data.arxivId).toBe("2010.04074");
 
     vi.restoreAllMocks();
   });
@@ -158,16 +237,15 @@ describe("resolveWorkByDoi", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.data.fullTextHints.pdfUrl).toBeUndefined();
-    expect(result.data.fullTextHints.landingPageUrl).toBe(
-      "https://example.com/landing",
-    );
-    expect(result.data.fullTextHints.repositoryUrl).toBe(
-      "https://example.com/landing",
-    );
-    expect(result.data.fullTextHints).toMatchObject({
+    expect(result.data.fullTextHints).toEqual({
       providerAvailability: "available",
-      providerSourceHint: "oa_link",
+      locations: [
+        {
+          url: "https://example.com/landing",
+          kind: "landing_page",
+          host: "publisher",
+        },
+      ],
     });
 
     vi.restoreAllMocks();
@@ -207,7 +285,6 @@ describe("getCitingWorks", () => {
     const biorxivPaper = result.data.papers[0];
     expect(biorxivPaper?.fullTextHints).toMatchObject({
       providerAvailability: "available",
-      providerSourceHint: "biorxiv_xml",
     });
 
     const closedPaper = result.data.papers[1];
@@ -218,7 +295,6 @@ describe("getCitingWorks", () => {
     const pmcPaper = result.data.papers[2];
     expect(pmcPaper?.fullTextHints).toMatchObject({
       providerAvailability: "available",
-      providerSourceHint: "pmc_xml",
     });
 
     vi.restoreAllMocks();

@@ -80,7 +80,13 @@ describe("typed full-text acquisition failures", () => {
       makePaper({
         fullTextHints: {
           providerAvailability: "available",
-          pdfUrl: "http://www.cell.com/article/example/pdf",
+          locations: [
+            {
+              url: "http://www.cell.com/article/example/pdf",
+              kind: "pdf",
+              host: "publisher",
+            },
+          ],
         },
       }),
       "https://api.biorxiv.org",
@@ -167,10 +173,18 @@ describe("fetchFullText acquisition policy", () => {
       pmcid: undefined,
       fullTextHints: {
         providerAvailability: "available",
-        providerSourceHint: "pmc_xml",
-        pdfUrl: "https://example.com/paper.pdf",
-        repositoryUrl:
-          "https://pmc.ncbi.nlm.nih.gov/articles/PMC10092647/pdf/mbc-34-ar24.pdf",
+        locations: [
+          {
+            url: "https://example.com/paper.pdf",
+            kind: "pdf",
+            host: "publisher",
+          },
+          {
+            url: "https://pmc.ncbi.nlm.nih.gov/articles/PMC10092647/pdf/mbc-34-ar24.pdf",
+            kind: "pdf",
+            host: "repository",
+          },
+        ],
       },
     });
 
@@ -268,8 +282,18 @@ describe("fetchFullText acquisition policy", () => {
       doi: "10.0000/nature00000",
       fullTextHints: {
         providerAvailability: "available",
-        pdfUrl: "https://www.nature.com/articles/nature00000.pdf",
-        landingPageUrl: "https://www.nature.com/articles/nature00000",
+        locations: [
+          {
+            url: "https://www.nature.com/articles/nature00000.pdf",
+            kind: "pdf",
+            host: "publisher",
+          },
+          {
+            url: "https://www.nature.com/articles/nature00000",
+            kind: "landing_page",
+            host: "publisher",
+          },
+        ],
       },
     });
 
@@ -287,6 +311,114 @@ describe("fetchFullText acquisition policy", () => {
     expect(grobid).toHaveBeenCalledWith(PDF_MAGIC);
   });
 
+  it("falls back to a repository copy after the publisher's version", async () => {
+    const PDF_MAGIC = Buffer.from("%PDF-1.4 preprint");
+    const publisherPage = "https://iopscience.iop.org/article/10.1088/x";
+    const preprintUrl = "https://arxiv.org/pdf/2010.04074";
+    const grobid = vi.fn(async () =>
+      Promise.resolve({ ok: true as const, data: "<tei>preprint</tei>" }),
+    );
+    const fetchUrl = vi.fn(async (url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data:
+          url === preprintUrl
+            ? {
+                finalUrl: url,
+                status: 200,
+                contentType: "application/pdf",
+                body: PDF_MAGIC,
+              }
+            : {
+                finalUrl: url,
+                status: 200,
+                contentType: "text/html",
+                body: Buffer.from("<html>challenge</html>"),
+              },
+      }),
+    );
+    const paper = makePaper({
+      doi: undefined,
+      fullTextHints: {
+        providerAvailability: "available",
+        // Provider order lists the preprint first; the version of record
+        // is still tried before it.
+        locations: [
+          { url: preprintUrl, kind: "pdf", host: "repository" },
+          { url: publisherPage, kind: "landing_page", host: "publisher" },
+        ],
+      },
+    });
+
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: grobid,
+      email: undefined,
+      institutionalProxyUrl: undefined,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.acquisition.selectedUrl).toBe(preprintUrl);
+    expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+      publisherPage,
+      preprintUrl,
+    ]);
+  });
+
+  it("reports a PDF that failed to parse over a later challenge page", async () => {
+    const fetchUrl = vi.fn(async (url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data: url.endsWith(".pdf")
+          ? {
+              finalUrl: url,
+              status: 200,
+              contentType: "application/pdf",
+              body: Buffer.from("%PDF-1.4 slow"),
+            }
+          : {
+              finalUrl: url,
+              status: 200,
+              contentType: "text/html",
+              body: Buffer.from("<html>challenge</html>"),
+            },
+      }),
+    );
+    const paper = makePaper({
+      doi: undefined,
+      fullTextHints: {
+        providerAvailability: "available",
+        locations: [
+          {
+            url: "https://example.org/paper.pdf",
+            kind: "pdf",
+            host: "publisher",
+          },
+          { url: "https://example.org/pdf/x", kind: "pdf", host: "publisher" },
+        ],
+      },
+    });
+
+    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+      fetchUrl,
+      processPdfWithGrobid: () =>
+        Promise.resolve({
+          ok: false as const,
+          error: "GROBID parse error: timeout",
+        }),
+      email: undefined,
+      institutionalProxyUrl: undefined,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.acquisition?.attempts.at(-1)?.probeClassification).toBe(
+      "html_instead_of_pdf",
+    );
+    expect(result.error).toContain("GROBID parse error");
+  });
+
   it("tags open-access acquisitions with accessChannel open_access", async () => {
     const grobid = vi.fn(async () =>
       Promise.resolve({ ok: true as const, data: "<tei />" }),
@@ -298,7 +430,7 @@ describe("fetchFullText acquisition policy", () => {
       pmcid: "PMC1234567",
       fullTextHints: {
         providerAvailability: "available",
-        providerSourceHint: "pmc_xml",
+        locations: [],
       },
     });
 
@@ -323,7 +455,7 @@ describe("fetchFullText acquisition policy", () => {
         pmcid: "PMC1234567",
         fullTextHints: {
           providerAvailability: "available",
-          providerSourceHint: "pmc_xml",
+          locations: [],
         },
       });
       upsertRawPaper(database, {

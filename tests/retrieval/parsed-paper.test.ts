@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  findReferenceByMetadata,
-  inferFirstAuthorSurname,
+  inferSurname,
   matchReferenceByMetadata,
   parseParsedPaperDocument,
 } from "../../src/retrieval/parsed-paper.js";
@@ -159,6 +158,7 @@ describe("parseParsedPaperDocument", () => {
       matchReferenceByMetadata(parsed.data.references, {
         doi: "10.1234/seed",
         title: "Wrong title",
+        authors: [],
       }),
     ).toMatchObject({ reference: { refId: "b1" }, method: "doi" });
 
@@ -166,7 +166,7 @@ describe("parseParsedPaperDocument", () => {
       matchReferenceByMetadata(parsed.data.references, {
         title: "Seed Paper Title",
         publicationYear: 2021,
-        firstAuthorSurname: "Harlow",
+        authors: ["Mara Harlow"],
       }),
     ).toMatchObject({
       reference: { refId: "b1" },
@@ -174,18 +174,10 @@ describe("parseParsedPaperDocument", () => {
     });
 
     expect(
-      findReferenceByMetadata(parsed.data.references, {
-        title: "Seed Paper Title",
-        publicationYear: 2021,
-        firstAuthorSurname: "Harlow",
-      })?.refId,
-    ).toBe("b1");
-
-    expect(
       matchReferenceByMetadata(parsed.data.references, {
         title: "Seed Paper Title",
         publicationYear: 1999,
-        firstAuthorSurname: "SomeoneElse",
+        authors: ["Someone Else"],
       }),
     ).toBeUndefined();
   });
@@ -205,14 +197,13 @@ describe("parseParsedPaperDocument", () => {
         year: 2009,
       },
     ];
+    const seed = {
+      title: "Sample efficiency under shifting light",
+      publicationYear: 2009,
+      authors: ["Kamal Adeyemi"],
+    };
 
-    expect(
-      matchReferenceByMetadata(references, {
-        title: "Sample efficiency under shifting light",
-        publicationYear: 2009,
-        firstAuthorSurname: "Adeyemi",
-      }),
-    ).toMatchObject({
+    expect(matchReferenceByMetadata(references, seed)).toMatchObject({
       reference: { refId: "r1" },
       method: "author_year_title_overlap",
     });
@@ -221,45 +212,113 @@ describe("parseParsedPaperDocument", () => {
     // still require compatible author and year.
     expect(
       matchReferenceByMetadata(references, {
+        ...seed,
         title: "Sample efficiency under shifting light — a study!",
-        publicationYear: 2009,
-        firstAuthorSurname: "Adeyemi",
       })?.method,
     ).toBe("author_year_exact_title");
 
     // Unrelated title rejected.
     expect(
       matchReferenceByMetadata(references, {
+        ...seed,
         title: "Completely different topic about whales",
-        publicationYear: 2009,
-        firstAuthorSurname: "Adeyemi",
       }),
     ).toBeUndefined();
 
     // Duplicate conservative candidates rejected as ambiguous.
     expect(
       matchReferenceByMetadata(
-        [
-          references[0]!,
-          {
-            ...references[0]!,
-            refId: "r1-dup",
-          },
-        ],
-        {
-          title: "Sample efficiency under shifting light",
-          publicationYear: 2009,
-          firstAuthorSurname: "Adeyemi",
-        },
+        [references[0]!, { ...references[0]!, refId: "r1-dup" }],
+        seed,
       ),
     ).toBeUndefined();
   });
 
+  describe("references that give no title", () => {
+    const seed = {
+      title: "Forecasting dark sector scattering with lensing",
+      publicationYear: 2018,
+      authors: ["Rin Halvorsen", "Teo Marchetti", "Ada Quist"],
+      arxivId: "1801.00001",
+      volume: "97",
+    };
+
+    it("matches an arXiv identifier", () => {
+      expect(
+        matchReferenceByMetadata(
+          [
+            {
+              refId: "r1",
+              authorSurnames: ["Halvorsen"],
+              year: 2018,
+              arxivId: "1801.00001",
+            },
+          ],
+          seed,
+        ),
+      ).toMatchObject({ reference: { refId: "r1" }, method: "arxiv_id" });
+    });
+
+    it("matches first author, year, volume, and shared co-authors", () => {
+      const reference = {
+        refId: "r1",
+        authorSurnames: ["Halvorsen", "Marchetti", "Quist"],
+        year: 2018,
+        volume: "97",
+      };
+      expect(matchReferenceByMetadata([reference], seed)).toMatchObject({
+        reference: { refId: "r1" },
+        method: "author_year_volume",
+      });
+      // Another volume, a lone shared author, or two candidates: no match.
+      expect(
+        matchReferenceByMetadata([{ ...reference, volume: "98" }], seed),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata(
+          [{ ...reference, authorSurnames: ["Halvorsen", "Okafor"] }],
+          seed,
+        ),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata(
+          [reference, { ...reference, refId: "r2" }],
+          seed,
+        ),
+      ).toBeUndefined();
+    });
+
+    it("parses them from GROBID without taking the journal name as a title", () => {
+      const tei = `<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><div><p>Text.</p></div></body>
+<back><div type="references"><listBibl>
+<biblStruct xml:id="b1"><monogr><title/>
+  <author><persName><surname>Halvorsen</surname></persName></author>
+  <idno type="arXiv">arXiv:1801.00001v2</idno>
+  <imprint><date type="published" when="2018">2018</date></imprint></monogr>
+  <note>ArXiv e-prints</note></biblStruct>
+<biblStruct xml:id="b2"><analytic><title/>
+  <author><persName><surname>Halvorsen</surname></persName></author>
+  <author><persName><surname>Marchetti</surname></persName></author></analytic>
+  <monogr><title level="j">Phys. Rev. D</title>
+  <imprint><biblScope unit="volume">97</biblScope>
+  <date type="published" when="2018">2018</date></imprint></monogr></biblStruct>
+</listBibl></div></back></text></TEI>`;
+      const parsed = parseParsedPaperDocument(tei, "grobid_tei_xml");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.data.references).toMatchObject([
+        { refId: "b1", arxivId: "1801.00001", title: undefined },
+        { refId: "b2", volume: "97", title: undefined },
+      ]);
+    });
+  });
+
   it("infers common provider author-name forms conservatively", () => {
-    expect(inferFirstAuthorSurname("Kamal Adeyemi")).toBe("Adeyemi");
-    expect(inferFirstAuthorSurname("Adeyemi, Kamal")).toBe("Adeyemi");
-    expect(inferFirstAuthorSurname("Kamal Adeyemi Jr.")).toBe("Adeyemi");
-    expect(inferFirstAuthorSurname(undefined)).toBeUndefined();
+    expect(inferSurname("Kamal Adeyemi")).toBe("Adeyemi");
+    expect(inferSurname("Adeyemi, Kamal")).toBe("Adeyemi");
+    expect(inferSurname("Kamal Adeyemi Jr.")).toBe("Adeyemi");
+    expect(inferSurname(undefined)).toBeUndefined();
   });
 
   it("preserves the JATS structured happy path", () => {
@@ -371,5 +430,15 @@ describe("parseParsedPaperDocument", () => {
     );
     expect(result.data.mentions[1]?.citationGroupOrdinal).toBe(1);
     expect(result.data.mentions[2]?.citationGroupOrdinal).toBe(2);
+    // Each repeated marker carries its own position in its paragraph.
+    for (const mention of result.data.mentions) {
+      const span = mention.markerSpan!;
+      expect(
+        mention.rawContext.slice(span.charOffsetStart, span.charOffsetEnd),
+      ).toBe(mention.citationMarker);
+    }
+    expect(result.data.mentions[1]?.markerSpan?.charOffsetStart).toBeLessThan(
+      result.data.mentions[2]!.markerSpan!.charOffsetStart,
+    );
   });
 });

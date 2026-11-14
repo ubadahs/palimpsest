@@ -5,106 +5,148 @@ import {
   assessCitationScopeAnnotation,
 } from "../../src/shared/citation-context-window.js";
 
-describe("annotateCitingContext", () => {
-  it("wraps the sentence containing the marker", () => {
-    const ctx =
-      "Yeast foldin is required for compaction. " +
-      "In worms, span widening was observed (Adeyemi and Okonkwo, 2009). " +
-      "Fictophila subunit-Q affects lattice release (Marr et al., 2009).";
-    const result = annotateCitingContext(ctx, "Adeyemi and Okonkwo, 2009");
-    expect(result).toContain("▶");
-    expect(result).toContain("◀");
-    // The Adeyemi sentence should be wrapped.
-    expect(result).toMatch(/▶.*Adeyemi and Okonkwo.*◀/);
-    // The Marr sentence should NOT be wrapped.
-    expect(result).not.toMatch(/▶.*Marr.*◀/);
-  });
+/** The occurrence whose marker is the `nth` appearance of `marker` in `rawContext`. */
+function occurrenceAt(
+  rawContext: string,
+  marker: string,
+  nth = 0,
+  seedRefLabel?: string,
+) {
+  let start = -1;
+  for (let seen = 0; seen <= nth; seen++) {
+    start = rawContext.indexOf(marker, start + 1);
+  }
+  return {
+    rawContext,
+    citationMarker: marker,
+    ...(seedRefLabel ? { seedRefLabel } : {}),
+    markerSpan: {
+      charOffsetStart: start,
+      charOffsetEnd: start + marker.length,
+    },
+  };
+}
 
-  it("does not split sentences on et al. abbreviations", () => {
+function spanOf(rawContext: string, text: string) {
+  const start = rawContext.indexOf(text);
+  return { text, charOffsetStart: start, charOffsetEnd: start + text.length };
+}
+
+describe("annotateCitingContext", () => {
+  it("marks the support span's sentence when it holds this occurrence's marker", () => {
     const ctx =
       "Background framing is unrelated. " +
       "Marlowe et al. (2021) reported three marker classes in mouse Norel. " +
       "Later work used a different assay.";
-    const result = annotateCitingContext(ctx, "2021", "Marlowe et al., 2021");
+    const result = annotateCitingContext(occurrenceAt(ctx, "(2021)"), [
+      spanOf(ctx, "Marlowe et al. (2021) reported three marker classes"),
+    ]);
+    // "et al." does not end the sentence.
     expect(result).toMatch(
       /▶\s*Marlowe et al\. \(2021\) reported three marker classes in mouse Norel\.\s*◀/,
     );
     expect(assessCitationScopeAnnotation(result).ok).toBe(true);
   });
 
-  it("returns unchanged text for a single sentence", () => {
-    const ctx = "This is one sentence with a marker (Smith, 2020).";
-    expect(annotateCitingContext(ctx, "Smith, 2020")).toBe(ctx);
-  });
+  it("tells repeated numeric markers apart by position", () => {
+    const first =
+      "Lensing dominates the projected constraint while other spectra contribute equally [286].";
+    const third =
+      "Finally, Ref. [286] has also shown the effect is distinguishable from neutrino mass.";
+    const ctx = `${first} Ref. [136] has shown sky coverage matters little. ${third}`;
 
-  it("returns unchanged text when marker is not found", () => {
-    const ctx = "First sentence. Second sentence. Third sentence.";
-    expect(annotateCitingContext(ctx, "nonexistent")).toBe(ctx);
-  });
-
-  it("handles numbered markers like [59]", () => {
-    const ctx =
-      "track length correlates with mark sites [57,58] and not with total mark number [59,60,61]. " +
-      "We find the mean length is shorter in qel1.";
-    const result = annotateCitingContext(ctx, "59");
-    expect(result).toContain("▶");
-    expect(result).toMatch(/▶.*\[59.*◀/);
-  });
-
-  it("disambiguates using seedRefLabel (ground truth from reference resolution)", () => {
-    const ctx =
-      "In Fictophila, mutation of subunit-Q led to miscount (Marr et al., 2009). " +
-      "In C. fictus, foldin disruption expands spans (Adeyemi and Okonkwo, 2009). " +
-      "Foldin II localizes at mid-stage (Ibarra et al., 2004; Adeyemi and Okonkwo, 2009).";
-    const result = annotateCitingContext(
-      ctx,
-      "2009",
-      "Adeyemi and Okonkwo, 2009",
+    const atFirst = occurrenceAt(ctx, "[286]", 0);
+    expect(annotateCitingContext(atFirst, [spanOf(ctx, first)])).toMatch(
+      /^▶ Lensing dominates.*\[286\]\. ◀/,
     );
-    expect(result).toContain("▶");
-    // Adeyemi sentences should be wrapped, Marr should NOT.
-    expect(result).toMatch(/▶.*Adeyemi and Okonkwo.*◀/);
-    expect(result).not.toMatch(/▶.*Marr.*◀/);
-  });
-
-  it("falls back to raw marker when no seedRefLabel provided", () => {
-    const ctx =
-      "Result A was shown (2009). " + "Result B was also shown (2009).";
-    const result = annotateCitingContext(ctx, "2009");
-    // All sentences contain "2009": the whole window is attributed and wrapped,
-    // so the packet gate sees claim-bearing text inside the markers.
-    expect(result).toMatch(/^▶ .*◀$/s);
-    expect(result).toContain("Result A was shown (2009).");
-    expect(result).toContain("Result B was also shown (2009).");
-  });
-
-  it("uses a verified support span and reference identity instead of an ambiguous year", () => {
-    const span =
-      "cells were assigned identity based on a single gene (Pell et al. 2021)";
-    const ctx =
-      `Earlier work classified neurons differently. The cited work found ${span}. ` +
-      "A broader approach was proposed (Quill et al. 2021).";
-    const start = ctx.indexOf(span);
-    const result = annotateCitingContext(ctx, "2021", "Pell et al., 2021", [
-      {
-        text: span,
-        charOffsetStart: start,
-        charOffsetEnd: start + span.length,
-      },
-    ]);
-    expect(result).toMatch(/▶ The cited work found .*Pell.* ◀/);
-    expect(result).not.toMatch(/▶[^◀]*Quill/);
-  });
-
-  it("leaves an unverifiable citation target unmarked", () => {
-    const ctx =
-      "One result cited another paper (Quill et al. 2021). Another result followed.";
-    const span = "One result cited another paper";
+    // A span resting on the other [286] belongs to that occurrence.
+    expect(annotateCitingContext(atFirst, [spanOf(ctx, third)])).toBe(ctx);
     expect(
-      annotateCitingContext(ctx, "2021", "Pell et al., 2021", [
-        { text: span, charOffsetStart: 0, charOffsetEnd: span.length },
+      annotateCitingContext(occurrenceAt(ctx, "[286]", 1), [
+        spanOf(ctx, third),
+      ]),
+    ).toMatch(/▶ Finally, Ref\. \[286\].* ◀$/);
+  });
+
+  it("marks a marker that is a fragment of a citation group", () => {
+    const span =
+      "We anticipate that low-noise lensing reconstruction will drive the constraints [22,68].";
+    const ctx = `The field covers a small sky area [23]. ${span}`;
+    const result = annotateCitingContext(occurrenceAt(ctx, "68]"), [
+      spanOf(ctx, span),
+    ]);
+    expect(result).toMatch(/▶ We anticipate.*\[22,68\]\. ◀$/);
+  });
+
+  it("marks every sentence a span covers once one holds the marker", () => {
+    const ctx =
+      "Noise spectra follow Table I [12,71]. They were computed with Eq. 18 using these parameters. Unrelated text.";
+    const result = annotateCitingContext(occurrenceAt(ctx, "71]"), [
+      spanOf(
+        ctx,
+        "Noise spectra follow Table I [12,71]. They were computed with Eq. 18 using these parameters.",
+      ),
+    ]);
+    expect(result).toMatch(/^▶ Noise spectra.*these parameters\. ◀ Unrelated/);
+  });
+
+  it("ignores a support span whose text does not match its offsets", () => {
+    const ctx = "A finding was reported [5]. Another sentence follows.";
+    expect(
+      annotateCitingContext(occurrenceAt(ctx, "[5]"), [
+        { text: "Something else", charOffsetStart: 0, charOffsetEnd: 14 },
       ]),
     ).toBe(ctx);
+  });
+
+  describe("without an exact marker position", () => {
+    it("uses the seed's author-year label rather than a shared year", () => {
+      const span =
+        "cells were assigned identity based on a single gene (Pell et al. 2021)";
+      const ctx =
+        `Earlier work classified neurons differently. The cited work found ${span}. ` +
+        "A broader approach was proposed (Quill et al. 2021).";
+      const result = annotateCitingContext(
+        {
+          rawContext: ctx,
+          citationMarker: "2021",
+          seedRefLabel: "Pell et al., 2021",
+        },
+        [spanOf(ctx, span)],
+      );
+      expect(result).toMatch(/▶ The cited work found .*Pell.* ◀/);
+      expect(result).not.toMatch(/▶[^◀]*Quill/);
+    });
+
+    it("accepts a numeric marker only when it occurs once", () => {
+      const span = "Spans widen in mutants [59].";
+      const ctx = `${span} Other work disagrees [60].`;
+      const occurrence = { rawContext: ctx, citationMarker: "[59]" };
+      expect(annotateCitingContext(occurrence, [spanOf(ctx, span)])).toMatch(
+        /^▶ Spans widen in mutants \[59\]\. ◀/,
+      );
+      const repeated = `${ctx} As [59] notes, this holds.`;
+      expect(
+        annotateCitingContext({ ...occurrence, rawContext: repeated }, [
+          spanOf(repeated, span),
+        ]),
+      ).toBe(repeated);
+    });
+
+    it("leaves a span citing another reference unmarked", () => {
+      const ctx =
+        "One result cited another paper (Quill et al. 2021). Another result followed.";
+      expect(
+        annotateCitingContext(
+          {
+            rawContext: ctx,
+            citationMarker: "2021",
+            seedRefLabel: "Pell et al., 2021",
+          },
+          [spanOf(ctx, "One result cited another paper")],
+        ),
+      ).toBe(ctx);
+    });
   });
 
   it("fails closed on punctuation-only scope markers", () => {

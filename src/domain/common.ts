@@ -17,16 +17,23 @@ export type PaperResolutionProvenance = {
   [key: string]: unknown;
 };
 
+/** One place a provider says a work's text can be fetched from. */
+export type FullTextLocation = {
+  url: string;
+  /** A direct PDF link, or a page that may link to the text. */
+  kind: "pdf" | "landing_page";
+  /**
+   * The publisher's version of record, or a repository copy such as an arXiv
+   * preprint. Acquisition tries the version of record first.
+   */
+  host: "publisher" | "repository";
+};
+
 export type FullTextHints = {
   providerAvailability: "available" | "abstract_only" | "unavailable";
   providerReason?: string | undefined;
-  providerSourceHint?: string | undefined;
-  pdfUrl?: string | undefined;
-  landingPageUrl?: string | undefined;
-  repositoryUrl?: string | undefined;
-  sourceName?: string | undefined;
-  sourceType?: string | undefined;
-  [key: string]: unknown;
+  /** In the provider's order, primary location first; URLs are unique. */
+  locations: FullTextLocation[];
 };
 
 export type FullTextAcquisitionMethod =
@@ -78,6 +85,10 @@ export type ResolvedPaper = {
   doi?: string | undefined;
   pmcid?: string | undefined;
   pmid?: string | undefined;
+  /** arXiv identifier without version, e.g. `1806.10165`. */
+  arxivId?: string | undefined;
+  /** Journal volume, which physics-style references give in place of a title. */
+  volume?: string | undefined;
   title: string;
   authors: string[];
   source: "openalex" | "semantic_scholar" | "manual";

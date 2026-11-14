@@ -158,7 +158,7 @@ describe("paper cache integration", () => {
         attempts: [],
         selectedMethod: "direct_pdf_grobid",
         selectedLocatorKind: "direct_pdf_url",
-        selectedUrl: paper.fullTextHints.pdfUrl,
+        selectedUrl: paper.fullTextHints.locations[0]?.url,
         fullTextFormat: "grobid_tei_xml",
       }),
     });
@@ -226,7 +226,7 @@ describe("paper cache integration", () => {
         attempts: [],
         selectedMethod: "direct_pdf_grobid",
         selectedLocatorKind: "direct_pdf_url",
-        selectedUrl: paper.fullTextHints.pdfUrl,
+        selectedUrl: paper.fullTextHints.locations[0]?.url,
         fullTextFormat: "grobid_tei_xml",
       }),
     });
@@ -291,7 +291,7 @@ describe("paper cache integration", () => {
         attempts: [],
         selectedMethod: "direct_pdf_grobid",
         selectedLocatorKind: "direct_pdf_url",
-        selectedUrl: paper.fullTextHints.pdfUrl,
+        selectedUrl: paper.fullTextHints.locations[0]?.url,
         fullTextFormat: "grobid_tei_xml",
       }),
     });

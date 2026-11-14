@@ -28,9 +28,13 @@ const makePaper = (overrides: Partial<ResolvedPaper> = {}) =>
     authors: ["Harlow"],
     fullTextHints: {
       providerAvailability: "available",
-      providerSourceHint: "pdf",
-      pdfUrl: "https://example.com/paper.pdf",
-      repositoryUrl: "https://example.com/paper.pdf",
+      locations: [
+        {
+          url: "https://example.com/paper.pdf",
+          kind: "pdf",
+          host: "publisher",
+        },
+      ],
     },
     publicationYear: 2021,
     resolutionProvenance: { method: "doi", confidence: "exact" },

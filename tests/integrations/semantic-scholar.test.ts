@@ -38,7 +38,14 @@ describe("resolvePaperByDoi", () => {
     expect(result.data.authors).toEqual(["Alice Smith", "Bob Jones"]);
     expect(result.data.source).toBe("semantic_scholar");
     expect(result.data.fullTextHints.providerAvailability).toBe("available");
-    expect(result.data.fullTextHints.pdfUrl).toContain("biorxiv.org");
+    // A GREEN open-access PDF is a repository copy, not the publisher's.
+    expect(result.data.fullTextHints.locations).toEqual([
+      {
+        url: "https://www.biorxiv.org/content/10.1101/2024.01.01.000001v1.full.pdf",
+        kind: "pdf",
+        host: "repository",
+      },
+    ]);
 
     vi.restoreAllMocks();
   });

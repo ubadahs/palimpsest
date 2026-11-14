@@ -518,7 +518,7 @@ export function classifyPrepareOccurrenceDeterministically(
       confidence: "low",
       execution: {
         kind: "deterministic" as const,
-        implementation: "prepare-role-rules-v2",
+        implementation: "prepare-role-rules-v3",
       },
     });
   }
@@ -548,7 +548,6 @@ export function classifyPrepareOccurrenceDeterministically(
   const evaluationMode = deriveEvaluationMode(
     classified.citationRole,
     modifiers,
-    confidence,
   );
   const rationale =
     classified.classificationSignals.length > 0
@@ -562,7 +561,7 @@ export function classifyPrepareOccurrenceDeterministically(
     confidence,
     execution: {
       kind: "deterministic" as const,
-      implementation: "prepare-role-rules-v2",
+      implementation: "prepare-role-rules-v3",
     },
   };
   return prepareClassificationSchema.parse(
@@ -588,8 +587,8 @@ type AmbiguousPrepareClassification = Extract<
 /**
  * True when the deterministic pass left the role unresolved for a reason a
  * model can settle. `manual_review_extraction_limited` is deliberately
- * excluded: those records either lack a verified support span or carry a
- * low-confidence extraction, so there is nothing trustworthy to show a model.
+ * excluded: those records lack a verified support span, so there is no
+ * verified text to show a model.
  */
 export function prepareRoleNeedsModelFallback(
   classification: PrepareClassification,
@@ -641,7 +640,6 @@ export function applyPrepareModelRole(
           evaluationMode: deriveEvaluationMode(
             model.citationRole,
             deterministic.modifiers,
-            deterministic.confidence,
           ),
           ...common,
         },

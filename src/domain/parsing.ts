@@ -44,9 +44,28 @@ const parsedPaperReferenceSchema = z
     year: undefinedable(z.number().int()),
     pmcid: undefinedable(z.string()),
     pmid: undefinedable(z.string()),
+    /** arXiv identifier without version, as `parseArxivId` returns it. */
+    arxivId: undefinedable(z.string()),
+    volume: undefinedable(z.string()),
   })
   .passthrough();
 export type ParsedPaperReference = z.infer<typeof parsedPaperReferenceSchema>;
+
+/**
+ * How a citing paper's bibliography entry was taken to be the seed. Physics
+ * and astronomy references often carry no title, so an arXiv identifier, or
+ * first author + year + volume with shared co-authors, stands in for one.
+ */
+export const bibliographyMatchMethodSchema = z.enum([
+  "doi",
+  "arxiv_id",
+  "author_year_exact_title",
+  "author_year_title_overlap",
+  "author_year_volume",
+]);
+export type BibliographyMatchMethod = z.infer<
+  typeof bibliographyMatchMethodSchema
+>;
 
 const citationLocationQualityValues = [
   "exact_dom",
@@ -69,6 +88,18 @@ const citationSourceLocatorSchema = z
   })
   .strict();
 
+/**
+ * Where a citation marker sits inside its own `rawContext`, so the cited
+ * sentence is found by position rather than by searching for marker text that
+ * may repeat in the paragraph or be a fragment of a group like `[22,68]`.
+ */
+export const contextMarkerSpanSchema = z
+  .object({
+    charOffsetStart: z.number().int().nonnegative(),
+    charOffsetEnd: z.number().int().positive(),
+  })
+  .strict();
+
 const parsedCitationMentionSchema = z
   .object({
     mentionIndex: z.number().int().nonnegative(),
@@ -81,6 +112,7 @@ const parsedCitationMentionSchema = z
     targetRefIds: z.array(z.string()),
     charOffsetStart: undefinedable(z.number().int().nonnegative()),
     charOffsetEnd: undefinedable(z.number().int().nonnegative()),
+    markerSpan: undefinedable(contextMarkerSpanSchema),
     locationQuality: citationLocationQualitySchema,
     sourceLocator: undefinedable(citationSourceLocatorSchema),
     blockId: undefinedable(z.string()),

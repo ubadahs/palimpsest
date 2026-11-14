@@ -224,9 +224,7 @@ function casesFromChain(chain: Chain): {
           anthropicPrompt: buildCitationRolePrompt(record),
           roleInput: {
             markedContext: annotateCitingContext(
-              context,
-              occurrence.citationMarker,
-              occurrence.seedRefLabel,
+              occurrence,
               claims.map((claim) => claim.supportSpan!),
             ),
             citationMarker: occurrence.citationMarker,

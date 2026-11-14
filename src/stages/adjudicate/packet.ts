@@ -99,9 +99,7 @@ export function buildAdjudicatePacket(
   // Support-span offsets refer to the full citing context. Mark before
   // trimming the window so a repeated year elsewhere cannot redirect it.
   const markedFullContext = annotateCitingContext(
-    prepareRecord.citationOccurrence.rawContext,
-    rawMarker,
-    seedRefLabel,
+    prepareRecord.citationOccurrence,
     prepareRecord.occurrenceSourceClaimRecords.flatMap((claim) =>
       claim.supportSpan ? [claim.supportSpan] : [],
     ),

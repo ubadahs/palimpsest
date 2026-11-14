@@ -14,7 +14,6 @@ import {
   type ProvenanceStore,
 } from "../../pipeline/provenance-store.js";
 import {
-  inferFirstAuthorSurname,
   matchReferenceByMetadata,
   materializeParsedPaper,
 } from "../../retrieval/parsed-paper.js";
@@ -568,15 +567,7 @@ export function buildDiscoverAdapters(
       };
 
       const refs = materializeResult.data.parsedDocument.references;
-      const firstAuthorSurname = inferFirstAuthorSurname(seedPaper.authors[0]);
-      const seedMatch = matchReferenceByMetadata(refs, {
-        title: seedPaper.title,
-        ...(seedPaper.doi ? { doi: seedPaper.doi } : {}),
-        ...(seedPaper.publicationYear != null
-          ? { publicationYear: seedPaper.publicationYear }
-          : {}),
-        ...(firstAuthorSurname ? { firstAuthorSurname } : {}),
-      });
+      const seedMatch = matchReferenceByMetadata(refs, seedPaper);
       if (!seedMatch) {
         return {
           materialization: {
@@ -651,6 +642,7 @@ export function buildDiscoverAdapters(
                 charOffsetEnd: mention.charOffsetEnd,
               }
             : {}),
+          ...(mention.markerSpan ? { markerSpan: mention.markerSpan } : {}),
           ...(mention.sourceLocator
             ? { sourceLocator: mention.sourceLocator }
             : {}),

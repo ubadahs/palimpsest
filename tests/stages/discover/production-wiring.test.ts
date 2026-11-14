@@ -74,6 +74,7 @@ function seedPaper(): ResolvedPaper {
     paperType: "article",
     fullTextHints: {
       providerAvailability: "unavailable",
+      locations: [],
     },
     resolutionProvenance: {
       method: "doi",
@@ -95,7 +96,7 @@ function paywalledCiter(): ResolvedPaper {
     paperType: "article",
     fullTextHints: {
       providerAvailability: "unavailable",
-      pdfUrl: PAYWALL_PDF,
+      locations: [{ url: PAYWALL_PDF, kind: "pdf", host: "publisher" }],
     },
   };
 }
@@ -111,7 +112,9 @@ function bundledCiter(): ResolvedPaper {
     paperType: "article",
     fullTextHints: {
       providerAvailability: "available",
-      landingPageUrl: BUNDLED_LANDING,
+      locations: [
+        { url: BUNDLED_LANDING, kind: "landing_page", host: "publisher" },
+      ],
     },
   };
 }

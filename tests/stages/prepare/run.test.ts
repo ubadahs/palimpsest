@@ -9,6 +9,7 @@ import {
   prepareArtifactPayloadSchema,
   prepareClassificationSchema,
   type DiscoverArtifact,
+  type DiscoverAttributedClaimRecord,
   type DiscoverCitationOccurrence,
   type PrepareClassification,
   type ScopeArtifact,
@@ -26,6 +27,7 @@ import {
   PrepareBoundaryError,
   PrepareFatalError,
   classifyPrepareOccurrenceDeterministically,
+  prepareRoleNeedsModelFallback,
   runPrepare,
   type PrepareAdapters,
   type PrepareClassifierInput,
@@ -951,6 +953,35 @@ describe("Prepare", () => {
       citationRole: "unclear",
       evaluationMode: "manual_review_role_ambiguous",
     });
+
+    // A low-confidence claim on a verified span is a weak attribution, not a
+    // broken extraction: the role model still gets to label it.
+    const weakContext =
+      "Later surveys may extend these limits substantially (Harlow et al., 2021), which we do not pursue here.";
+    const weakSpan = "Later surveys may extend these limits substantially";
+    const weak = classifyPrepareOccurrenceDeterministically(
+      occurrence({ mentionIndex: 2, rawContext: weakContext }),
+      {
+        occurrenceSourceClaimRecords: [
+          {
+            claimRecordId: "claim-weak",
+            extractedClaimText: "Later surveys may extend these limits.",
+            confidence: "low",
+            supportSpan: {
+              text: weakSpan,
+              charOffsetStart: 0,
+              charOffsetEnd: weakSpan.length,
+              verificationStatus: "verified_exact",
+            },
+          } as DiscoverAttributedClaimRecord,
+        ],
+      },
+    );
+    expect(weak).toMatchObject({
+      citationRole: "unclear",
+      evaluationMode: "manual_review_role_ambiguous",
+    });
+    expect(prepareRoleNeedsModelFallback(weak)).toBe(true);
 
     const bundledClear = classifyPrepareOccurrenceDeterministically(
       occurrence({
