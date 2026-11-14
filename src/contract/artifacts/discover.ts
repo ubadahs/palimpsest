@@ -5,6 +5,10 @@
 import { z } from "zod";
 
 import { paperTypeSchema } from "../../domain/common.js";
+import {
+  bibliographyMatchMethodSchema,
+  contextMarkerSpanSchema,
+} from "../../domain/parsing.js";
 import { buildStableId } from "../../shared/stable-identity.js";
 import { normalizeDiscoverClaimText } from "../claim-unit.js";
 import {
@@ -336,11 +340,7 @@ export const discoverCitingPaperRecordSchema = z
       .optional(),
     bibliographyMatch: z
       .object({
-        method: z.enum([
-          "doi",
-          "author_year_exact_title",
-          "author_year_title_overlap",
-        ]),
+        method: bibliographyMatchMethodSchema,
         refId: z.string().min(1),
       })
       .strict()
@@ -392,6 +392,8 @@ export const discoverCitationOccurrenceSchema = z
     locationQuality: z.enum(["exact_dom", "approximate", "missing"]),
     citationMarker: z.string(),
     rawContext: z.string(),
+    /** Where `citationMarker` sits in `rawContext`; absent unless `exact_dom`. */
+    markerSpan: contextMarkerSpanSchema.optional(),
     sectionTitle: z.string().optional(),
     seedRefLabel: z.string().optional(),
     isBundledCitation: z.boolean(),

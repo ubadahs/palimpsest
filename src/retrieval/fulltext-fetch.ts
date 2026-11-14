@@ -7,6 +7,7 @@ import type {
   FullTextAcquisition,
   FullTextAcquisitionMethod,
   FullTextAcquisitionSelectedLocatorKind,
+  FullTextLocation,
   ResolvedPaper,
   Result,
 } from "../domain/common.js";
@@ -160,10 +161,8 @@ type AcquisitionCandidateResult =
       kind: "selected";
       payload: AcquisitionSuccessPayload;
     }
-  | {
-      kind: "continue";
-      failureReason?: string;
-    };
+  /** Try the next candidate; the attempt log already says why. */
+  | { kind: "continue" };
 
 type AcquisitionAttemptInput = {
   candidateKind: string;
@@ -386,6 +385,46 @@ function extractLandingPageLinks(
   };
 }
 
+/**
+ * Queue order for a provider location. The publisher's version of record is
+ * what citing authors published, so its landing page (60, whose discovered
+ * XML runs at 65 and PDFs at 80) and direct PDF (70) go first; a repository
+ * copy such as an arXiv preprint (85, landing page 90) is the fallback, still
+ * ahead of the institutional proxy (110+).
+ */
+const LOCATION_PRIORITY: Record<
+  FullTextLocation["host"],
+  Record<FullTextLocation["kind"], number>
+> = {
+  publisher: { landing_page: 60, pdf: 70 },
+  repository: { pdf: 85, landing_page: 90 },
+};
+
+function locationCandidate(
+  location: FullTextLocation,
+  url: string,
+  priorityOffset = 0,
+): AcquisitionCandidate {
+  const priority =
+    LOCATION_PRIORITY[location.host][location.kind] + priorityOffset;
+  return location.kind === "pdf"
+    ? {
+        candidateKind: "direct_pdf",
+        method: "direct_pdf_grobid",
+        locatorKind: "direct_pdf_url",
+        locatorValue: location.url,
+        url,
+        priority,
+      }
+    : {
+        candidateKind: "landing_page_discovery",
+        locatorKind: "landing_page_url",
+        locatorValue: location.url,
+        url,
+        priority,
+      };
+}
+
 function buildInitialCandidates(
   paper: ResolvedPaper,
   biorxivBaseUrl: string,
@@ -401,13 +440,12 @@ function buildInitialCandidates(
       ? paper.resolutionProvenance.requestedIdentifier
       : undefined;
   const resolvedDoi = paper.doi;
-  const sourceHint =
-    paper.fullTextHints.providerSourceHint?.toLowerCase() ?? "";
+  const { locations } = paper.fullTextHints;
 
   if (
     requestedDoi?.startsWith("10.1101/") ||
     resolvedDoi?.startsWith("10.1101/") ||
-    sourceHint.includes("biorxiv")
+    locations.some((location) => /biorxiv\.org/i.test(location.url))
   ) {
     const doi = requestedDoi ?? resolvedDoi;
     if (doi) {
@@ -434,12 +472,8 @@ function buildInitialCandidates(
     });
   }
 
-  for (const maybeUrl of [
-    paper.fullTextHints.pdfUrl,
-    paper.fullTextHints.landingPageUrl,
-    paper.fullTextHints.repositoryUrl,
-  ]) {
-    const derivedPmcid = parsePmcidFromText(maybeUrl);
+  for (const { url } of locations) {
+    const derivedPmcid = parsePmcidFromText(url);
     if (!derivedPmcid || derivedPmcid === paper.pmcid) {
       continue;
     }
@@ -475,37 +509,8 @@ function buildInitialCandidates(
     });
   }
 
-  for (const directPdfUrl of [
-    paper.fullTextHints.pdfUrl,
-    paper.fullTextHints.repositoryUrl,
-  ]) {
-    if (!directPdfUrl) {
-      continue;
-    }
-    enqueueCandidate(state, {
-      candidateKind: "direct_pdf",
-      method: "direct_pdf_grobid",
-      locatorKind: "direct_pdf_url",
-      locatorValue: directPdfUrl,
-      url: directPdfUrl,
-      priority: 70,
-    });
-  }
-
-  for (const discoveryUrl of [
-    paper.fullTextHints.landingPageUrl,
-    paper.fullTextHints.repositoryUrl,
-  ]) {
-    if (!discoveryUrl) {
-      continue;
-    }
-    enqueueCandidate(state, {
-      candidateKind: "landing_page_discovery",
-      locatorKind: "landing_page_url",
-      locatorValue: discoveryUrl,
-      url: discoveryUrl,
-      priority: 60,
-    });
+  for (const location of locations) {
+    enqueueCandidate(state, locationCandidate(location, location.url));
   }
 
   return state;
@@ -555,7 +560,7 @@ async function executeBiorxivCandidate(
       success: false,
       failureReason: meta.error,
     });
-    return { kind: "continue", failureReason: meta.error };
+    return { kind: "continue" };
   }
 
   const entry = meta.data.collection[0];
@@ -570,10 +575,7 @@ async function executeBiorxivCandidate(
       success: false,
       failureReason: "No bioRxiv JATS XML URL found",
     });
-    return {
-      kind: "continue",
-      failureReason: "No bioRxiv JATS XML URL found",
-    };
+    return { kind: "continue" };
   }
 
   const xmlResponse = await fetchUrlForXml(entry.jatsxml, adapters);
@@ -588,7 +590,7 @@ async function executeBiorxivCandidate(
       success: false,
       failureReason: xmlResponse.error,
     });
-    return { kind: "continue", failureReason: xmlResponse.error };
+    return { kind: "continue" };
   }
 
   if (xmlResponse.data.status >= 400) {
@@ -605,7 +607,7 @@ async function executeBiorxivCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   if (!looksLikeXml(xmlResponse.data.body, xmlResponse.data.contentType)) {
@@ -627,7 +629,7 @@ async function executeBiorxivCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   pushAttempt(state, {
@@ -699,7 +701,7 @@ async function executePmcCandidate(
         success: false,
         failureReason: resolved.error,
       });
-      return { kind: "continue", failureReason: resolved.error };
+      return { kind: "continue" };
     }
     pmcid = resolved.data;
   }
@@ -717,7 +719,7 @@ async function executePmcCandidate(
       success: false,
       failureReason: xmlResponse.error,
     });
-    return { kind: "continue", failureReason: xmlResponse.error };
+    return { kind: "continue" };
   }
 
   if (xmlResponse.data.status >= 400) {
@@ -734,7 +736,7 @@ async function executePmcCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   if (!looksLikeXml(xmlResponse.data.body, xmlResponse.data.contentType)) {
@@ -756,7 +758,7 @@ async function executePmcCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   pushAttempt(state, {
@@ -803,7 +805,7 @@ async function executePdfCandidate(
       success: false,
       failureReason: response.error,
     });
-    return { kind: "continue", failureReason: response.error };
+    return { kind: "continue" };
   }
 
   const fetched = response.data;
@@ -821,7 +823,7 @@ async function executePdfCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   if (!isPdfBuffer(fetched.body)) {
@@ -844,7 +846,7 @@ async function executePdfCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   const teiResult = await adapters.processPdfWithGrobid(fetched.body);
@@ -861,7 +863,7 @@ async function executePdfCandidate(
       success: false,
       failureReason: teiResult.error,
     });
-    return { kind: "continue", failureReason: teiResult.error };
+    return { kind: "continue" };
   }
 
   pushAttempt(state, {
@@ -908,7 +910,7 @@ async function executeLandingPageDiscoveryCandidate(
       success: false,
       failureReason: response.error,
     });
-    return { kind: "continue", failureReason: response.error };
+    return { kind: "continue" };
   }
 
   const fetched = response.data;
@@ -925,7 +927,7 @@ async function executeLandingPageDiscoveryCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   if (!looksLikeHtml(fetched.body, fetched.contentType)) {
@@ -942,10 +944,7 @@ async function executeLandingPageDiscoveryCandidate(
       success: false,
       failureReason: "Landing-page discovery URL did not return HTML",
     });
-    return {
-      kind: "continue",
-      failureReason: "Landing-page discovery URL did not return HTML",
-    };
+    return { kind: "continue" };
   }
 
   const html = decodeBody(fetched.body);
@@ -988,10 +987,7 @@ async function executeLandingPageDiscoveryCandidate(
   }
 
   if (discovered.xmlUrls.length === 0 && discovered.pdfUrls.length === 0) {
-    return {
-      kind: "continue",
-      failureReason: "No XML/PDF links found in landing page metadata",
-    };
+    return { kind: "continue" };
   }
 
   return { kind: "continue" };
@@ -1015,7 +1011,7 @@ async function executeXmlUrlCandidate(
       success: false,
       failureReason: response.error,
     });
-    return { kind: "continue", failureReason: response.error };
+    return { kind: "continue" };
   }
 
   const fetched = response.data;
@@ -1033,7 +1029,7 @@ async function executeXmlUrlCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   if (!looksLikeXml(fetched.body, fetched.contentType)) {
@@ -1052,7 +1048,7 @@ async function executeXmlUrlCandidate(
       success: false,
       failureReason: reason,
     });
-    return { kind: "continue", failureReason: reason };
+    return { kind: "continue" };
   }
 
   pushAttempt(state, {
@@ -1103,78 +1099,44 @@ function decodeCachedAcquisition(
   }
 }
 
+/** Proxy candidates run after every open-access one (publisher 110/120). */
+const PROXY_PRIORITY_OFFSET = 50;
+
 /**
- * Build proxy-prefixed fallback candidates from the paper's publisher URLs.
- * Only called when open-access acquisition fails and a proxy URL is configured.
+ * Proxy-prefixed retries of the publisher's locations, plus the DOI landing
+ * page for papers whose provider lists none. Only queued after open access
+ * failed and a proxy URL is configured; repository copies need no proxy.
  */
 function buildProxyCandidates(
   paper: ResolvedPaper,
   proxyUrl: string,
 ): AcquisitionCandidate[] {
-  const candidates: AcquisitionCandidate[] = [];
   const prefix = proxyUrl.replace(/\/+$/, "");
-
-  // Landing page through proxy → may yield authenticated PDF/XML links.
-  for (const pageUrl of [
-    paper.fullTextHints.landingPageUrl,
-    paper.fullTextHints.repositoryUrl,
-  ]) {
-    if (pageUrl) {
-      candidates.push({
-        candidateKind: "landing_page_discovery",
-        locatorKind: "landing_page_url",
-        locatorValue: pageUrl,
-        url: `${prefix}${pageUrl}`,
-        priority: 110,
-      });
-    }
-  }
-
-  // Direct PDF URLs through proxy.
-  for (const pdfUrl of [
-    paper.fullTextHints.pdfUrl,
-    paper.fullTextHints.repositoryUrl,
-  ]) {
-    if (pdfUrl) {
-      candidates.push({
-        candidateKind: "direct_pdf",
-        method: "direct_pdf_grobid",
-        locatorKind: "direct_pdf_url",
-        locatorValue: pdfUrl,
-        url: `${prefix}${pdfUrl}`,
-        priority: 120,
-      });
-    }
-  }
-
-  // DOI-based landing page through proxy (catches papers with no explicit URLs).
-  const doi = paper.doi;
-  if (doi) {
-    const doiUrl = `https://doi.org/${doi}`;
+  const candidates = paper.fullTextHints.locations
+    .filter((location) => location.host === "publisher")
+    .map((location) =>
+      locationCandidate(
+        location,
+        `${prefix}${location.url}`,
+        PROXY_PRIORITY_OFFSET,
+      ),
+    );
+  if (paper.doi) {
     candidates.push({
       candidateKind: "landing_page_discovery",
       locatorKind: "doi_resolved",
-      locatorValue: doi,
-      url: `${prefix}${doiUrl}`,
+      locatorValue: paper.doi,
+      url: `${prefix}https://doi.org/${paper.doi}`,
       priority: 115,
     });
   }
-
   return candidates;
 }
 
 async function executeCandidateQueue(
   state: AcquisitionExecutionState,
   adapters: FullTextFetchAdapters,
-): Promise<
-  AcquisitionCandidateResult & {
-    lastFailureReason: string;
-    lastFailureCode: FullTextAcquisitionFailureCode;
-  }
-> {
-  let lastFailureReason = "No fetchable full text candidates";
-  let lastFailureCode: FullTextAcquisitionFailureCode = "not_found";
-
+): Promise<AcquisitionSuccessPayload | undefined> {
   while (state.candidates.length > 0) {
     const candidate = state.candidates.shift()!;
     let candidateResult: AcquisitionCandidateResult;
@@ -1206,21 +1168,29 @@ async function executeCandidateQueue(
       );
     }
 
-    if (candidateResult.kind === "selected") {
-      return { ...candidateResult, lastFailureReason, lastFailureCode };
-    }
-    if (candidateResult.failureReason) {
-      lastFailureReason = candidateResult.failureReason;
-      const lastAttempt = state.attempts[state.attempts.length - 1];
-      lastFailureCode = classifyAcquisitionAttemptFailure({
-        httpStatus: lastAttempt?.httpStatus,
-        probeClassification: lastAttempt?.probeClassification,
-        failureReason: lastFailureReason,
-      });
-    }
+    if (candidateResult.kind === "selected") return candidateResult.payload;
   }
+  return undefined;
+}
 
-  return { kind: "continue", lastFailureReason, lastFailureCode };
+/**
+ * The failed attempt that got furthest. A PDF or XML that arrived and then
+ * failed to parse explains the loss better than a challenge page tried after
+ * it, so it wins over the last attempt.
+ */
+function mostInformativeFailure(
+  attempts: FullTextAcquisition["attempts"],
+): FullTextAcquisition["attempts"][number] | undefined {
+  const failures = attempts.filter(
+    (attempt) => !attempt.success && attempt.failureReason,
+  );
+  return (
+    failures.find(
+      (attempt) =>
+        attempt.probeClassification === "pdf" ||
+        attempt.probeClassification === "xml",
+    ) ?? failures.at(-1)
+  );
 }
 
 async function acquireFullTextFromNetwork(
@@ -1229,93 +1199,57 @@ async function acquireFullTextFromNetwork(
   adapters: FullTextFetchAdapters,
 ): Promise<FullTextAcquisitionResult> {
   const state = buildInitialCandidates(paper, biorxivBaseUrl);
-
-  // Phase 1: try open-access candidates.
-  const oaResult = await executeCandidateQueue(state, adapters);
-
-  if (oaResult.kind === "selected") {
-    const acquisition = makeAcquisition(
-      {
-        materializationSource: "network",
-        attempts: state.attempts,
+  const succeeded = (
+    payload: AcquisitionSuccessPayload,
+    accessChannel: "open_access" | "institutional_proxy",
+  ): FullTextAcquisitionResult => ({
+    ok: true,
+    data: {
+      content: payload.content,
+      format: payload.format,
+      acquisition: {
+        ...makeAcquisition(
+          { materializationSource: "network", attempts: state.attempts },
+          {
+            method: payload.method,
+            locatorKind: payload.locatorKind,
+            selectedUrl: payload.selectedUrl,
+            fullTextFormat: payload.format,
+          },
+        ),
+        accessChannel,
       },
-      {
-        method: oaResult.payload.method,
-        locatorKind: oaResult.payload.locatorKind,
-        selectedUrl: oaResult.payload.selectedUrl,
-        fullTextFormat: oaResult.payload.format,
-      },
-    );
-    acquisition.accessChannel = "open_access";
-    return {
-      ok: true,
-      data: {
-        content: oaResult.payload.content,
-        format: oaResult.payload.format,
-        acquisition,
-      },
-    };
-  }
+    },
+  });
 
-  // Phase 2: if open-access failed and a proxy URL is configured, retry
-  // through the institutional proxy.
+  const openAccess = await executeCandidateQueue(state, adapters);
+  if (openAccess) return succeeded(openAccess, "open_access");
+
   if (adapters.institutionalProxyUrl) {
-    const proxyCandidates = buildProxyCandidates(
+    for (const candidate of buildProxyCandidates(
       paper,
       adapters.institutionalProxyUrl,
-    );
-    for (const c of proxyCandidates) {
-      enqueueCandidate(state, c);
+    )) {
+      enqueueCandidate(state, candidate);
     }
-
-    const proxyResult = await executeCandidateQueue(state, adapters);
-
-    if (proxyResult.kind === "selected") {
-      const acquisition = makeAcquisition(
-        {
-          materializationSource: "network",
-          attempts: state.attempts,
-        },
-        {
-          method: proxyResult.payload.method,
-          locatorKind: proxyResult.payload.locatorKind,
-          selectedUrl: proxyResult.payload.selectedUrl,
-          fullTextFormat: proxyResult.payload.format,
-        },
-      );
-      acquisition.accessChannel = "institutional_proxy";
-      return {
-        ok: true,
-        data: {
-          content: proxyResult.payload.content,
-          format: proxyResult.payload.format,
-          acquisition,
-        },
-      };
-    }
+    const proxied = await executeCandidateQueue(state, adapters);
+    if (proxied) return succeeded(proxied, "institutional_proxy");
   }
 
-  const lastAttempt = state.attempts[state.attempts.length - 1];
-  const lastFailureReason =
-    lastAttempt?.failureReason ?? oaResult.lastFailureReason;
-  const lastFailureCode = classifyAcquisitionAttemptFailure({
-    httpStatus: lastAttempt?.httpStatus,
-    probeClassification: lastAttempt?.probeClassification,
-    failureReason: lastFailureReason,
-  });
-  const acquisition = makeAcquisition(
-    {
-      materializationSource: "network",
-      attempts: state.attempts,
-    },
-    undefined,
-    lastFailureReason,
-  );
+  const failure = mostInformativeFailure(state.attempts);
+  const failureReason =
+    failure?.failureReason ?? "No fetchable full text candidates";
   return {
     ok: false,
-    error: lastFailureReason,
-    failureCode: lastFailureCode,
-    acquisition,
+    error: failureReason,
+    failureCode: failure
+      ? classifyAcquisitionAttemptFailure(failure)
+      : "not_found",
+    acquisition: makeAcquisition(
+      { materializationSource: "network", attempts: state.attempts },
+      undefined,
+      failureReason,
+    ),
   };
 }
 

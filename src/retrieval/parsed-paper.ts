@@ -11,6 +11,7 @@ import type {
   Result,
 } from "../domain/common.js";
 import type {
+  BibliographyMatchMethod,
   FullTextFormat,
   ParsedBlockKind,
   ParsedCitationMention,
@@ -19,6 +20,7 @@ import type {
   ParsedPaperReference,
 } from "../domain/parsing.js";
 import { parsedPaperDocumentSchema } from "../domain/parsing.js";
+import { parseArxivId } from "../shared/arxiv.js";
 import {
   acquireFullText,
   classifyAcquisitionAttemptFailure,
@@ -32,7 +34,7 @@ import {
   upsertParsedData,
 } from "../storage/paper-cache.js";
 
-export const PARSED_PAPER_PARSER_VERSION = "structured-v3";
+export const PARSED_PAPER_PARSER_VERSION = "structured-v4";
 
 type ParsedPaperMaterialized = {
   fullText: FullTextContent;
@@ -261,6 +263,15 @@ function locateCitationGroupsInParagraph(
   return { rawContext: normalized, groups };
 }
 
+/** The marker's offsets in its paragraph, when the DOM located it exactly. */
+function contextMarkerSpan(
+  group: ParagraphCitationGroup,
+): ParsedCitationMention["markerSpan"] {
+  return group.locationQuality === "exact_dom"
+    ? { charOffsetStart: group.localStart, charOffsetEnd: group.localEnd }
+    : undefined;
+}
+
 function bundleMetadataForGroup(
   groups: readonly ParagraphCitationGroup[],
   groupIndex: number,
@@ -361,6 +372,7 @@ function buildParsedCitationMention(input: {
   targetRefIds: string[];
   charOffsetStart: number | undefined;
   charOffsetEnd: number | undefined;
+  markerSpan: ParsedCitationMention["markerSpan"];
   locationQuality: ParsedCitationMention["locationQuality"];
   sourceLocator: ParsedCitationMention["sourceLocator"];
   blockId: string | undefined;
@@ -381,6 +393,7 @@ function buildParsedCitationMention(input: {
     targetRefIds: input.targetRefIds,
     charOffsetStart: input.charOffsetStart,
     charOffsetEnd: input.charOffsetEnd,
+    markerSpan: input.markerSpan,
     locationQuality: input.locationQuality,
     sourceLocator: input.sourceLocator,
     blockId: input.blockId,
@@ -392,6 +405,30 @@ function buildParsedCitationMention(input: {
     sourceType: input.sourceType,
     parser: input.parser,
   };
+}
+
+function nonEmptyText(element: Element | undefined): string | undefined {
+  const text = element ? getTextContent(element).trim() : "";
+  return text.length > 0 ? text : undefined;
+}
+
+/**
+ * The first arXiv identifier among a reference's identifier, note, and link
+ * elements, read one element at a time so neighbouring text such as a year
+ * cannot run into the number.
+ */
+function findArxivId(elements: readonly Element[]): string | undefined {
+  for (const element of elements) {
+    const arxivId =
+      parseArxivId(getTextContent(element)) ??
+      parseArxivId(
+        element.getAttribute("target") ??
+          element.getAttribute("xlink:href") ??
+          "",
+      );
+    if (arxivId) return arxivId;
+  }
+  return undefined;
 }
 
 function parseJatsReferences(doc: Document): ParsedPaperReference[] {
@@ -421,6 +458,7 @@ function parseJatsReferences(doc: Document): ParsedPaperReference[] {
     const yearEl = getFirstElement(refEl, "year");
     const titleEl = getFirstElement(refEl, "article-title");
     const labelEl = getFirstElement(refEl, "label");
+    const volumeEl = getFirstElement(refEl, "volume");
     const surnames = getElementsByTagName(refEl, "surname").map(getTextContent);
 
     references.push({
@@ -428,8 +466,13 @@ function parseJatsReferences(doc: Document): ParsedPaperReference[] {
       doi: doiEl ? getTextContent(doiEl) : undefined,
       pmcid: pmcidEl ? getTextContent(pmcidEl) : undefined,
       pmid: pmidEl ? getTextContent(pmidEl) : undefined,
+      arxivId: findArxivId([
+        ...getElementsByTagName(refEl, "pub-id"),
+        ...getElementsByTagName(refEl, "ext-link"),
+      ]),
+      volume: nonEmptyText(volumeEl),
       year: parseYear(yearEl ? getTextContent(yearEl) : undefined),
-      title: titleEl ? getTextContent(titleEl) : undefined,
+      title: nonEmptyText(titleEl),
       label: labelEl ? getTextContent(labelEl) : undefined,
       authorSurnames: surnames,
     });
@@ -507,6 +550,7 @@ function parseJatsMentions(
           targetRefIds: group.targetRefIds,
           charOffsetStart: absoluteStart,
           charOffsetEnd: absoluteEnd,
+          markerSpan: contextMarkerSpan(group),
           locationQuality:
             absoluteStart != null && absoluteEnd != null
               ? "exact_dom"
@@ -674,12 +718,20 @@ function parseGrobidReferences(doc: Document): ParsedPaperReference[] {
       "idno",
       (el) => (el.getAttribute("type") ?? "").toLowerCase() === "pmid",
     );
-    const titleEl =
-      findFirstMatchingElement(
-        bibl,
-        "title",
-        (el) => (el.getAttribute("level") ?? "").toLowerCase() === "a",
-      ) ?? getFirstElement(bibl, "title");
+    // The work's own title: never a journal (`j`) or series (`s`) title,
+    // which GROBID gives for references that state no title of their own.
+    const titleEl = findFirstMatchingElement(
+      bibl,
+      "title",
+      (el) =>
+        !["j", "s"].includes((el.getAttribute("level") ?? "").toLowerCase()) &&
+        nonEmptyText(el) != null,
+    );
+    const volumeEl = findFirstMatchingElement(
+      bibl,
+      "biblScope",
+      (el) => el.getAttribute("unit") === "volume",
+    );
     const dateEl = getFirstElement(bibl, "date");
     const surnames = getElementsByTagName(bibl, "surname").map(getTextContent);
 
@@ -688,10 +740,16 @@ function parseGrobidReferences(doc: Document): ParsedPaperReference[] {
       doi: doiEl ? getTextContent(doiEl) : undefined,
       pmcid: pmcidEl ? getTextContent(pmcidEl) : undefined,
       pmid: pmidEl ? getTextContent(pmidEl) : undefined,
+      arxivId: findArxivId([
+        ...getElementsByTagName(bibl, "idno"),
+        ...getElementsByTagName(bibl, "note"),
+        ...getElementsByTagName(bibl, "ptr"),
+      ]),
+      volume: nonEmptyText(volumeEl),
       year: parseYear(
         dateEl?.getAttribute("when") ?? getTextContent(dateEl ?? bibl),
       ),
-      title: titleEl ? getTextContent(titleEl) : undefined,
+      title: nonEmptyText(titleEl),
       label: bibl.getAttribute("n") ?? undefined,
       authorSurnames: surnames,
     });
@@ -783,6 +841,7 @@ function parseGrobidMentions(
           targetRefIds: group.targetRefIds,
           charOffsetStart: absoluteStart,
           charOffsetEnd: absoluteEnd,
+          markerSpan: contextMarkerSpan(group),
           locationQuality:
             absoluteStart != null && absoluteEnd != null
               ? "exact_dom"
@@ -1111,11 +1170,6 @@ export async function materializeLocalPdf(
   };
 }
 
-type BibliographyMatchMethod =
-  | "doi"
-  | "author_year_exact_title"
-  | "author_year_title_overlap";
-
 export type BibliographyMatch = {
   reference: ParsedPaperReference;
   method: BibliographyMatchMethod;
@@ -1185,7 +1239,7 @@ const AUTHOR_SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv"]);
  * "Family, Given". Suffixes are ignored. Compound surnames remain a possible
  * false-negative, which is safer than matching the wrong bibliography entry.
  */
-export function inferFirstAuthorSurname(
+export function inferSurname(
   displayName: string | undefined,
 ): string | undefined {
   const trimmed = displayName?.trim();
@@ -1206,74 +1260,87 @@ export function inferFirstAuthorSurname(
   return parts.at(-1);
 }
 
-/**
- * Match a seed paper against a citing bibliography.
- *
- * Order: DOI → exact normalized title → conservative author+year+title-token
- * overlap. Ambiguous conservative matches are rejected.
- */
-export function matchReferenceByMetadata(
-  references: ParsedPaperReference[],
-  locator: {
-    doi?: string;
-    title: string;
-    publicationYear?: number;
-    firstAuthorSurname?: string;
-  },
-): BibliographyMatch | undefined {
-  if (locator.doi) {
-    const normalizedDoi = locator.doi
-      .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-      .toLowerCase();
-    const byDoi = references.find(
-      (reference) =>
-        reference.doi
-          ?.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-          .toLowerCase() === normalizedDoi,
-    );
-    if (byDoi) {
-      return { reference: byDoi, method: "doi" };
-    }
-  }
-
-  const normalizedTitle = normalizeBibliographyTitle(locator.title);
-  const year = locator.publicationYear;
-  const firstAuthor = locator.firstAuthorSurname
-    ? normalizeSurname(locator.firstAuthorSurname)
-    : undefined;
-  if (year == null || !firstAuthor || normalizedTitle.length === 0) {
-    return undefined;
-  }
-
-  const conservativeMatches = references.filter((reference) => {
-    if (reference.year !== year) return false;
-    const refFirst = reference.authorSurnames[0];
-    if (!refFirst || normalizeSurname(refFirst) !== firstAuthor) return false;
-    if (!reference.title) return false;
-    return titleTokenOverlapRatio(locator.title, reference.title) >= 0.8;
-  });
-  if (conservativeMatches.length !== 1) {
-    return undefined;
-  }
-  const reference = conservativeMatches[0]!;
-  return {
-    reference,
-    method:
-      normalizeBibliographyTitle(reference.title!) === normalizedTitle
-        ? "author_year_exact_title"
-        : "author_year_title_overlap",
-  };
+function normalizeDoi(doi: string): string {
+  return doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase();
 }
 
-/** @deprecated Prefer matchReferenceByMetadata for match-method provenance. */
-export function findReferenceByMetadata(
-  references: ParsedPaperReference[],
-  locator: {
-    doi?: string;
-    title: string;
-    publicationYear?: number;
-    firstAuthorSurname?: string;
-  },
-): ParsedPaperReference | undefined {
-  return matchReferenceByMetadata(references, locator)?.reference;
+/** Co-authors a title-less reference must share with the seed. */
+const VOLUME_MATCH_SHARED_AUTHORS = 2;
+
+/**
+ * Match a seed paper against a citing bibliography, in order: DOI, arXiv
+ * identifier, then first author + year with either a title (exact, or 80% of
+ * the seed's title tokens) or, for a reference that gives no title as physics
+ * references often do, the same volume and at least two shared co-authors.
+ * Each author + year step accepts only a single candidate.
+ */
+export function matchReferenceByMetadata(
+  references: readonly ParsedPaperReference[],
+  seed: Pick<
+    ResolvedPaper,
+    "doi" | "arxivId" | "title" | "authors" | "publicationYear" | "volume"
+  >,
+): BibliographyMatch | undefined {
+  const seedDoi = seed.doi ? normalizeDoi(seed.doi) : undefined;
+  const byDoi = seedDoi
+    ? references.find(
+        (reference) => reference.doi && normalizeDoi(reference.doi) === seedDoi,
+      )
+    : undefined;
+  if (byDoi) return { reference: byDoi, method: "doi" };
+
+  const byArxiv = seed.arxivId
+    ? references.find((reference) => reference.arxivId === seed.arxivId)
+    : undefined;
+  if (byArxiv) return { reference: byArxiv, method: "arxiv_id" };
+
+  const seedSurnames = seed.authors.flatMap((name) => {
+    const surname = inferSurname(name);
+    return surname ? [normalizeSurname(surname)] : [];
+  });
+  const firstAuthor = seedSurnames[0];
+  if (seed.publicationYear == null || !firstAuthor) return undefined;
+  const sameFirstAuthorAndYear = references.filter((reference) => {
+    const referenceFirst = reference.authorSurnames[0];
+    return (
+      reference.year === seed.publicationYear &&
+      referenceFirst != null &&
+      normalizeSurname(referenceFirst) === firstAuthor
+    );
+  });
+
+  const byTitle = sameFirstAuthorAndYear.filter(
+    (reference) =>
+      reference.title != null &&
+      titleTokenOverlapRatio(seed.title, reference.title) >= 0.8,
+  );
+  if (byTitle.length === 1) {
+    const reference = byTitle[0]!;
+    return {
+      reference,
+      method:
+        normalizeBibliographyTitle(reference.title!) ===
+        normalizeBibliographyTitle(seed.title)
+          ? "author_year_exact_title"
+          : "author_year_title_overlap",
+    };
+  }
+  if (byTitle.length > 1 || seed.volume == null) return undefined;
+
+  const seedSurnameSet = new Set(seedSurnames);
+  const sharedAuthorsNeeded = Math.min(
+    VOLUME_MATCH_SHARED_AUTHORS,
+    seedSurnameSet.size,
+  );
+  const byVolume = sameFirstAuthorAndYear.filter(
+    (reference) =>
+      reference.title == null &&
+      reference.volume === seed.volume &&
+      reference.authorSurnames.filter((surname) =>
+        seedSurnameSet.has(normalizeSurname(surname)),
+      ).length >= sharedAuthorsNeeded,
+  );
+  return byVolume.length === 1
+    ? { reference: byVolume[0]!, method: "author_year_volume" }
+    : undefined;
 }

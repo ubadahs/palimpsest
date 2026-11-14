@@ -14,6 +14,10 @@ import {
 } from "./candidate-selection.js";
 import { paperTypeSchema } from "../../domain/common.js";
 import {
+  bibliographyMatchMethodSchema,
+  contextMarkerSpanSchema,
+} from "../../domain/parsing.js";
+import {
   artifactReferenceSchema,
   buildAttributedClaimRecordId,
   buildCitationOccurrenceId,
@@ -217,6 +221,7 @@ const harvestedMentionInputSchema = z
     targetRefIds: z.array(z.string().min(1)).default([]),
     charOffsetStart: z.number().int().nonnegative().optional(),
     charOffsetEnd: z.number().int().nonnegative().optional(),
+    markerSpan: contextMarkerSpanSchema.optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
     citationGroupOrdinal: z.number().int().nonnegative().optional(),
     locationQuality: z.enum(["exact_dom", "approximate", "missing"]).optional(),
@@ -250,6 +255,19 @@ const harvestedMentionInputSchema = z
         code: "custom",
         path: ["charOffsetEnd"],
         message: "Citation source offset end must be greater than start",
+      });
+    }
+    if (
+      mention.markerSpan &&
+      mention.rawContext.slice(
+        mention.markerSpan.charOffsetStart,
+        mention.markerSpan.charOffsetEnd,
+      ) !== mention.citationMarker
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["markerSpan"],
+        message: "Citation marker span must locate the marker in its context",
       });
     }
   });
@@ -311,11 +329,7 @@ export const mentionHarvestResultSchema = z
     /** Which bibliography entry was taken to be the seed, and how. */
     bibliographyMatch: z
       .object({
-        method: z.enum([
-          "doi",
-          "author_year_exact_title",
-          "author_year_title_overlap",
-        ]),
+        method: bibliographyMatchMethodSchema,
         refId: z.string().min(1),
       })
       .strict()
@@ -1227,6 +1241,9 @@ function createCitationOccurrence(input: {
       ? { citationGroupOrdinal: input.mention.citationGroupOrdinal }
       : {}),
     locationQuality: input.mention.locationQuality ?? "missing",
+    ...(input.mention.markerSpan
+      ? { markerSpan: input.mention.markerSpan }
+      : {}),
     ...(input.mention.sectionTitle
       ? { sectionTitle: input.mention.sectionTitle }
       : {}),

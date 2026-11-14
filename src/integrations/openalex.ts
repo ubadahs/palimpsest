@@ -2,10 +2,12 @@ import { z } from "zod";
 
 import type {
   FullTextHints,
+  FullTextLocation,
   PaperResolutionProvenance,
   ResolvedPaper,
   Result,
 } from "../domain/common.js";
+import { parseArxivId } from "../shared/arxiv.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schemas for the OpenAlex Works API subset we use ---
@@ -25,6 +27,7 @@ const openAlexSourceSchema = z
 
 const openAlexLocationSchema = z
   .object({
+    is_oa: z.boolean().nullable().optional(),
     source: openAlexSourceSchema.optional(),
     pdf_url: z.string().nullable().optional(),
     landing_page_url: z.string().nullable().optional(),
@@ -51,6 +54,11 @@ const openAlexWorkSchema = z
     authorships: z.array(openAlexAuthorshipSchema).optional(),
     open_access: openAlexOpenAccessSchema.optional(),
     primary_location: openAlexLocationSchema.optional(),
+    locations: z.array(openAlexLocationSchema).nullable().optional(),
+    biblio: z
+      .object({ volume: z.string().nullable().optional() })
+      .nullable()
+      .optional(),
     type: z.string().nullable().optional(),
     referenced_works_count: z.number().optional(),
     publication_year: z.number().nullable().optional(),
@@ -72,55 +80,55 @@ function stripDoiPrefix(rawDoi: string): string {
   return rawDoi.replace(/^https?:\/\/doi\.org\//i, "");
 }
 
-const STRUCTURED_SOURCE_PATTERNS = [
-  { pattern: /biorxiv/i, source: "biorxiv_xml" },
-  { pattern: /pmc|pubmed\s*central/i, source: "pmc_xml" },
-];
-
-function inferFullTextHints(work: OpenAlexWork): FullTextHints {
-  const isOa = work.open_access?.is_oa ?? false;
-  const oaUrl = work.open_access?.oa_url ?? undefined;
-  const sourceName = work.primary_location?.source?.display_name ?? "";
-  const sourceType = work.primary_location?.source?.type ?? "";
-  const pdfUrl = work.primary_location?.pdf_url ?? undefined;
-  const landingPageUrl = work.primary_location?.landing_page_url ?? undefined;
-
-  let providerAvailability: FullTextHints["providerAvailability"] = "available";
-  let providerReason: string | undefined;
-  let providerSourceHint: string | undefined;
-
-  if (!isOa || oaUrl == null) {
-    providerAvailability = "unavailable";
-    providerReason = "No open-access URL available";
-  } else {
-    for (const { pattern, source } of STRUCTURED_SOURCE_PATTERNS) {
-      if (pattern.test(sourceName)) {
-        providerSourceHint = source;
-        break;
-      }
-    }
-
-    if (!providerSourceHint) {
-      if (sourceType === "repository") {
-        providerSourceHint = "repository_pdf";
-      } else if (pdfUrl) {
-        providerSourceHint = "pdf";
-      } else {
-        providerSourceHint = "oa_link";
-      }
+/**
+ * The primary location (open or not, since a closed publisher page can still
+ * be reached through the institutional proxy) followed by every other
+ * open-access location. Publishers often serve a bot challenge where the PDF
+ * should be while the same work's arXiv or repository copy downloads cleanly.
+ */
+function toFullTextLocations(work: OpenAlexWork): FullTextLocation[] {
+  const locations: FullTextLocation[] = [];
+  const seenUrls = new Set<string>();
+  const others = (work.locations ?? []).filter((location) => location?.is_oa);
+  for (const location of [work.primary_location, ...others]) {
+    if (!location) continue;
+    const host =
+      location.source?.type === "repository" ? "repository" : "publisher";
+    for (const [url, kind] of [
+      [location.pdf_url, "pdf"],
+      [location.landing_page_url, "landing_page"],
+    ] as const) {
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      locations.push({ url, kind, host });
     }
   }
+  return locations;
+}
 
-  return {
-    providerAvailability,
-    providerReason,
-    providerSourceHint,
-    pdfUrl,
-    landingPageUrl,
-    repositoryUrl: oaUrl,
-    sourceName: work.primary_location?.source?.display_name ?? undefined,
-    sourceType: work.primary_location?.source?.type ?? undefined,
-  };
+function inferFullTextHints(work: OpenAlexWork): FullTextHints {
+  const locations = toFullTextLocations(work);
+  return work.open_access?.is_oa && work.open_access.oa_url != null
+    ? { providerAvailability: "available", locations }
+    : {
+        providerAvailability: "unavailable",
+        providerReason: "No open-access URL available",
+        locations,
+      };
+}
+
+function findArxivId(work: OpenAlexWork): string | undefined {
+  for (const text of [
+    work.doi,
+    ...(work.locations ?? []).flatMap((location) => [
+      location?.landing_page_url,
+      location?.pdf_url,
+    ]),
+  ]) {
+    const arxivId = text ? parseArxivId(text) : undefined;
+    if (arxivId) return arxivId;
+  }
+  return undefined;
 }
 
 function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
@@ -131,6 +139,8 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
     id: work.id,
     doi: rawDoi ? stripDoiPrefix(rawDoi) : undefined,
     pmcid: work.ids?.pmcid ?? undefined,
+    arxivId: findArxivId(work),
+    volume: work.biblio?.volume ?? undefined,
     pmid:
       work.ids?.pmid?.replace(
         /^https?:\/\/pubmed\.ncbi\.nlm\.nih\.gov\//i,
@@ -233,6 +243,8 @@ const OPENALEX_SELECT_FIELDS = [
   "authorships",
   "open_access",
   "primary_location",
+  "locations",
+  "biblio",
   "type",
   "referenced_works_count",
   "publication_year",

@@ -6,6 +6,7 @@ import type {
   ResolvedPaper,
   Result,
 } from "../domain/common.js";
+import { parseArxivId } from "../shared/arxiv.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schema for the Semantic Scholar Paper endpoint subset ---
@@ -17,7 +18,11 @@ const s2PaperSchema = z
     authors: z.array(z.object({ name: z.string() })).optional(),
     isOpenAccess: z.boolean().optional(),
     openAccessPdf: z
-      .object({ url: z.string().nullable() })
+      .object({
+        url: z.string().nullable(),
+        /** `GREEN` marks a repository copy rather than the publisher's. */
+        status: z.string().nullable().optional(),
+      })
       .nullable()
       .optional(),
     externalIds: z
@@ -25,7 +30,12 @@ const s2PaperSchema = z
         DOI: z.string().nullable().optional(),
         PubMed: z.string().nullable().optional(),
         PubMedCentral: z.string().nullable().optional(),
+        ArXiv: z.string().nullable().optional(),
       })
+      .nullable()
+      .optional(),
+    journal: z
+      .object({ volume: z.string().nullable().optional() })
       .nullable()
       .optional(),
     publicationTypes: z.array(z.string()).nullable().optional(),
@@ -39,32 +49,23 @@ type S2Paper = z.infer<typeof s2PaperSchema>;
 // --- Helpers ---
 
 function inferFullTextHints(paper: S2Paper): FullTextHints {
-  const isOa = paper.isOpenAccess ?? false;
-  const pdfUrl = paper.openAccessPdf?.url ?? undefined;
-
-  if (!isOa || pdfUrl == null) {
-    return {
-      providerAvailability: "unavailable",
-      providerReason: "No open-access PDF available",
-      providerSourceHint: undefined,
-      pdfUrl,
-      landingPageUrl: undefined,
-      repositoryUrl: undefined,
-      sourceName: undefined,
-      sourceType: undefined,
-    };
-  }
-
-  return {
-    providerAvailability: "available",
-    providerReason: undefined,
-    providerSourceHint: "pdf",
-    pdfUrl,
-    landingPageUrl: undefined,
-    repositoryUrl: undefined,
-    sourceName: undefined,
-    sourceType: undefined,
-  };
+  const pdf = paper.openAccessPdf;
+  const locations: FullTextHints["locations"] = pdf?.url
+    ? [
+        {
+          url: pdf.url,
+          kind: "pdf",
+          host: pdf.status === "GREEN" ? "repository" : "publisher",
+        },
+      ]
+    : [];
+  return paper.isOpenAccess && locations.length > 0
+    ? { providerAvailability: "available", locations }
+    : {
+        providerAvailability: "unavailable",
+        providerReason: "No open-access PDF available",
+        locations,
+      };
 }
 
 function mapS2Type(types: string[] | null | undefined): string | undefined {
@@ -80,6 +81,10 @@ function toResolvedPaper(paper: S2Paper): ResolvedPaper {
     doi: paper.externalIds?.DOI ?? undefined,
     pmcid: paper.externalIds?.PubMedCentral ?? undefined,
     pmid: paper.externalIds?.PubMed ?? undefined,
+    arxivId: paper.externalIds?.ArXiv
+      ? parseArxivId(`arXiv:${paper.externalIds.ArXiv}`)
+      : undefined,
+    volume: paper.journal?.volume ?? undefined,
     title: paper.title ?? "Untitled",
     authors: (paper.authors ?? []).map((a) => a.name),
     source: "semantic_scholar",
@@ -158,7 +163,7 @@ function matchesPublicationYear(
 // --- Public API ---
 
 const S2_FIELDS =
-  "paperId,title,authors,isOpenAccess,openAccessPdf,externalIds,publicationTypes,referenceCount,year";
+  "paperId,title,authors,isOpenAccess,openAccessPdf,externalIds,journal,publicationTypes,referenceCount,year";
 
 export async function resolvePaperByDoi(
   doi: string,

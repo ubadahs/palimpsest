@@ -8,7 +8,8 @@
   "abstract": "We found that gene X may increase expression of protein Y.",
   "isOpenAccess": true,
   "openAccessPdf": {
-    "url": "https://www.biorxiv.org/content/10.1101/2024.01.01.000001v1.full.pdf"
+    "url": "https://www.biorxiv.org/content/10.1101/2024.01.01.000001v1.full.pdf",
+    "status": "GREEN"
   },
   "externalIds": {
     "DOI": "10.1101/2024.01.01.000001",

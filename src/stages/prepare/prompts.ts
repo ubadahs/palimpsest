@@ -44,9 +44,7 @@ ${section}${refLabel}${bundle}
 
 Citing context (sentences attributed to the cited reference are wrapped in ▶ ... ◀):
 ${annotateCitingContext(
-  occurrence.rawContext,
-  occurrence.citationMarker,
-  occurrence.seedRefLabel,
+  occurrence,
   input.occurrenceSourceClaimRecords.flatMap((claim) =>
     claim.supportSpan ? [claim.supportSpan] : [],
   ),

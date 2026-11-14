@@ -1,6 +1,5 @@
 import type {
   CitationRole,
-  Confidence,
   EvaluationMode,
   TransmissionModifiers,
 } from "../../domain/classification.js";
@@ -18,17 +17,18 @@ const BUNDLED_ELIGIBLE_ROLES = new Set<CitationRole>([
   "background_context",
 ]);
 
+/**
+ * The evaluation mode a resolved role implies. An unclear role is always
+ * `manual_review_role_ambiguous`, whatever the extractor's confidence: a
+ * low-confidence claim is a weak attribution on a verified span, which the
+ * role model can still label. Only a claim with no verified span is
+ * `manual_review_extraction_limited`, and Prepare sets that before any role.
+ */
 export function deriveEvaluationMode(
   role: CitationRole,
   modifiers: TransmissionModifiers,
-  extractionConfidence?: Confidence,
 ): EvaluationMode {
-  // An unclear role cannot be adjudicated regardless of transmission path.
-  if (role === "unclear") {
-    return extractionConfidence === "low"
-      ? "manual_review_extraction_limited"
-      : "manual_review_role_ambiguous";
-  }
+  if (role === "unclear") return "manual_review_role_ambiguous";
 
   if (modifiers.isReviewMediated) return "review_transmission";
 

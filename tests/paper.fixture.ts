@@ -12,8 +12,13 @@ export function makePaper(
     source: "openalex",
     fullTextHints: {
       providerAvailability: "available",
-      providerSourceHint: "pdf",
-      pdfUrl: "https://example.com/paper.pdf",
+      locations: [
+        {
+          url: "https://example.com/paper.pdf",
+          kind: "pdf",
+          host: "publisher",
+        },
+      ],
     },
     paperType: "article",
     referencedWorksCount: 10,
