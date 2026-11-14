@@ -1,9 +1,16 @@
-/** Human verdicts carried into a dataset from a report's review sidecar. */
+/**
+ * Human verdicts carried into a dataset from a report's review sidecar: the
+ * packet-audit review events and the seed author's answers.
+ */
 import { z } from "zod";
 import {
   humanReviewEventLogSchema,
   projectHumanReviewRecords,
 } from "../contract/human-review.js";
+import {
+  authorAnswerLabel,
+  storedAuthorReviewSchema,
+} from "../review/author-review.js";
 
 export const importedReviewsSchema = z.array(
   z.object({
@@ -13,6 +20,8 @@ export const importedReviewsSchema = z.array(
       reportContentHash: z.string(),
     }),
     events: z.array(z.unknown()),
+    /** Absent from datasets built before author reviews were imported. */
+    authorReviews: z.array(storedAuthorReviewSchema).optional(),
     recordUnitKeys: z.record(z.string(), z.string()),
   }),
 );
@@ -29,13 +38,25 @@ const VERDICTS = ["F", "D", "E", "U"] as const;
 /**
  * One verdict per claim unit. Only final reviews that found the record
  * eligible, in scope, correctly extracted, and sufficiently evidenced count,
- * and a unit whose reviews disagree gets no verdict.
+ * as does every author answer that judged the sentence (one answer covers
+ * every record of it). A unit whose labels disagree gets no verdict.
  */
 export function importedUnitVerdicts(
   imported: ImportedReviews,
 ): Map<string, ImportedUnitVerdict> {
   const byUnit = new Map<string, ImportedUnitVerdict[]>();
   for (const item of imported) {
+    const unitOf = (recordId: string): string => {
+      const unitKey = item.recordUnitKeys[recordId];
+      if (!unitKey)
+        throw new Error(
+          `Imported review references unknown record ${recordId}`,
+        );
+      return unitKey;
+    };
+    const add = (unitKey: string, label: ImportedUnitVerdict) =>
+      byUnit.set(unitKey, [...(byUnit.get(unitKey) ?? []), label]);
+
     const log = humanReviewEventLogSchema.parse({
       schemaVersion: "human-review-events-v2",
       lineage: item.lineage,
@@ -54,14 +75,18 @@ export function importedUnitVerdicts(
         !verdict
       )
         continue;
-      const unitKey = item.recordUnitKeys[record.recordId];
-      if (!unitKey)
-        throw new Error(
-          `Imported review references unknown record ${record.recordId}`,
-        );
-      const labels = byUnit.get(unitKey) ?? [];
-      labels.push({ verdict, exposed: !assessment.blinded });
-      byUnit.set(unitKey, labels);
+      add(unitOf(record.recordId), { verdict, exposed: !assessment.blinded });
+    }
+
+    for (const review of item.authorReviews ?? []) {
+      for (const entry of review.items) {
+        const label = entry.answer
+          ? authorAnswerLabel(entry.answer)
+          : undefined;
+        if (!label) continue;
+        const units = new Set(entry.records.map((r) => unitOf(r.recordId)));
+        for (const unitKey of units) add(unitKey, label);
+      }
     }
   }
   const verdicts = new Map<string, ImportedUnitVerdict>();

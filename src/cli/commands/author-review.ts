@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
@@ -12,7 +12,10 @@ import {
   selectAuthorReviewItems,
 } from "../../review/author-review.js";
 import { renderAuthorReviewPage } from "../../review/author-review-page.js";
-import { resolveHumanReviewEventsPath } from "../../review/human-review-store.js";
+import {
+  resolveAuthorReviewPagePath,
+  saveAuthorReview,
+} from "../../review/author-review-store.js";
 import { getRunStage } from "../../storage/analysis-runs.js";
 import { openDatabase } from "../../storage/database.js";
 import { runMigrations } from "../../storage/migration-service.js";
@@ -100,7 +103,10 @@ export function runAuthorReviewExportCommand(argv: readonly string[]): void {
   });
   const out = resolve(
     flagValue(argv, "--out") ??
-      join(runRoot, "review", chain.report.artifactId, "author-review.html"),
+      resolveAuthorReviewPagePath({
+        runRoot,
+        reportArtifactId: chain.report.artifactId,
+      }),
   );
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, html, "utf8");
@@ -117,7 +123,8 @@ export function runAuthorReviewExportCommand(argv: readonly string[]): void {
 
 export function runAuthorReviewImportCommand(argv: readonly string[]): void {
   const file = flagValue(argv, "--file") ?? fail("--file is required");
-  const read = readAuthorReviewFile(readFileSync(resolve(file), "utf8"));
+  const returnedFile = readFileSync(resolve(file), "utf8");
+  const read = readAuthorReviewFile(returnedFile);
   if (!read.ok) fail(`Not a readable author review file: ${read.error}`);
   const { data, answers } = read;
 
@@ -125,32 +132,22 @@ export function runAuthorReviewImportCommand(argv: readonly string[]): void {
   const runRoot = resolveRunRoot(data.lineage.runId);
   if (!existsSync(runRoot))
     fail(`Run directory ${runRoot} for this file no longer exists`);
-  const reviewDir = dirname(
-    resolveHumanReviewEventsPath({
-      runRoot,
-      reportArtifactId: data.lineage.reportArtifactId,
-    }),
+  const out = saveAuthorReview(
+    runRoot,
+    {
+      schemaVersion: "author-review-answers-v1",
+      lineage: data.lineage,
+      ...(data.readerName ? { reader: data.readerName } : {}),
+      importedAt: new Date().toISOString(),
+      items: data.items.map((item) => ({
+        itemId: item.itemId,
+        records: item.records,
+        shownVerdict: item.ours.verdict,
+        answer: answers[item.itemId] ?? null,
+      })),
+    },
+    returnedFile,
   );
-  const importedAt = new Date().toISOString();
-  const stored = {
-    schemaVersion: "author-review-answers-v1",
-    lineage: data.lineage,
-    ...(data.readerName ? { reader: data.readerName } : {}),
-    importedAt,
-    items: data.items.map((item) => ({
-      itemId: item.itemId,
-      records: item.records,
-      shownVerdict: item.ours.verdict,
-      answer: answers[item.itemId] ?? null,
-    })),
-  };
-  const out = join(
-    reviewDir,
-    "author-reviews",
-    `${importedAt.replaceAll(":", "-")}.json`,
-  );
-  mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
 
   let agreed = 0;
   let answered = 0;

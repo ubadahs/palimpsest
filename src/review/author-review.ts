@@ -68,16 +68,19 @@ const authorReviewItemSchema = z
   .strict();
 export type AuthorReviewItem = z.infer<typeof authorReviewItemSchema>;
 
+/** The report a review file was made from. */
+const lineageSchema = z
+  .object({
+    runId: z.string().min(1),
+    reportArtifactId: z.string().min(1),
+    reportContentHash: z.string().min(1),
+  })
+  .strict();
+
 const authorReviewDataSchema = z
   .object({
     schemaVersion: z.literal("author-review-v1"),
-    lineage: z
-      .object({
-        runId: z.string().min(1),
-        reportArtifactId: z.string().min(1),
-        reportContentHash: z.string().min(1),
-      })
-      .strict(),
+    lineage: lineageSchema,
     seedTitle: z.string(),
     readerName: z.string().optional(),
     /** Distinct citing sentences in the report, of which `items` is a sample. */
@@ -94,17 +97,63 @@ export type AuthorReviewData = z.infer<typeof authorReviewDataSchema>;
  * the blind label; `final` is where they left it, which may differ once they
  * have seen ours.
  */
-const authorAnswersSchema = z.record(
-  z.string(),
-  z
-    .object({
-      first: authorAnswerSchema,
-      final: authorAnswerSchema,
-      note: z.string(),
-    })
-    .strict(),
-);
+const authorItemAnswerSchema = z
+  .object({
+    first: authorAnswerSchema,
+    final: authorAnswerSchema,
+    note: z.string(),
+  })
+  .strict();
+type AuthorItemAnswer = z.infer<typeof authorItemAnswerSchema>;
+const authorAnswersSchema = z.record(z.string(), authorItemAnswerSchema);
 export type AuthorAnswers = z.infer<typeof authorAnswersSchema>;
+
+/**
+ * A returned file as `author-review:import` stores it, beside the report it
+ * was made from: each item's records with the verdict the tool gave them, the
+ * verdict the reader was shown, and their answer.
+ */
+export const storedAuthorReviewSchema = z
+  .object({
+    schemaVersion: z.literal("author-review-answers-v1"),
+    lineage: lineageSchema,
+    reader: z.string().optional(),
+    importedAt: z.string().datetime(),
+    items: z.array(
+      z
+        .object({
+          itemId: z.string().min(1),
+          records: z
+            .array(
+              z
+                .object({ recordId: z.string().min(1), verdict: verdictSchema })
+                .strict(),
+            )
+            .min(1),
+          shownVerdict: verdictSchema,
+          answer: authorItemAnswerSchema.nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type StoredAuthorReview = z.infer<typeof storedAuthorReviewSchema>;
+
+/**
+ * The label an author's answer gives: where they left it, `exposed` when that
+ * moved after the tool's verdict was shown (the first answer alone was
+ * blind). "Not sure" gives none: it says the reader could not judge, not the
+ * rubric's U, which is an ambiguity in the evidence.
+ */
+export function authorAnswerLabel(
+  answer: AuthorItemAnswer,
+): { verdict: "F" | "D" | "E"; exposed: boolean } | undefined {
+  if (answer.final === "unsure") return undefined;
+  return {
+    verdict: AUTHOR_ANSWER_VERDICT[answer.final] as "F" | "D" | "E",
+    exposed: answer.final !== answer.first,
+  };
+}
 
 const FLAGGED = new Set(["D", "E", "U"]);
 /** Most to least severe, so an item shows its most serious machine outcome. */

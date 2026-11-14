@@ -18,6 +18,7 @@ import {
   resolveHumanReviewEventsPath,
   loadHumanReviewEventLog,
 } from "../review/human-review-store.js";
+import { loadAuthorReviews } from "../review/author-review-store.js";
 import { buildStableId, canonicalSha256 } from "../shared/stable-identity.js";
 import { compareCodeUnits } from "../shared/order.js";
 import {
@@ -350,17 +351,31 @@ function importedReviews(
   chains: readonly { chain: ReportChain; runRoot: string }[],
 ): ImportedReviews {
   return chains.flatMap(({ chain, runRoot }) => {
-    const path = resolveHumanReviewEventsPath({
-      runRoot,
+    const report = {
+      runId: chain.report.runId,
       reportArtifactId: chain.report.artifactId,
+      reportContentHash: chain.report.contentHash,
+    };
+    const log = loadHumanReviewEventLog(
+      resolveHumanReviewEventsPath({
+        runRoot,
+        reportArtifactId: report.reportArtifactId,
+      }),
+    );
+    const authorReviews = loadAuthorReviews({
+      runRoot,
+      reportArtifactId: report.reportArtifactId,
     });
-    const log = loadHumanReviewEventLog(path);
-    if (!log) return [];
-    if (
-      log.lineage.reportContentHash !== chain.report.contentHash ||
-      log.lineage.runId !== chain.report.runId
-    )
-      throw new Error("Review lineage mismatch");
+    if (!log && authorReviews.length === 0) return [];
+    for (const lineage of [
+      ...(log ? [log.lineage] : []),
+      ...authorReviews.map((review) => review.lineage),
+    ])
+      if (
+        lineage.reportContentHash !== report.reportContentHash ||
+        lineage.runId !== report.runId
+      )
+        throw new Error("Review lineage mismatch");
     const recordUnitKeys = Object.fromEntries(
       resolvePreparedRecords(chain.prepare.payload).map((record) => [
         record.recordId,
@@ -373,7 +388,14 @@ function importedReviews(
         }),
       ]),
     );
-    return [{ lineage: log.lineage, events: log.events, recordUnitKeys }];
+    return [
+      {
+        lineage: log?.lineage ?? report,
+        events: log?.events ?? [],
+        ...(authorReviews.length > 0 ? { authorReviews } : {}),
+        recordUnitKeys,
+      },
+    ];
   });
 }
 
@@ -474,6 +496,8 @@ const importsSchema = z.object({
 export function validateEvaluationDataset(id: string): {
   caseCounts: Record<string, number>;
   importedReviewEvents: number;
+  /** Adjudication cases an imported review or author answer labels. */
+  importedLabelledCases: number;
 } {
   const dataset = loadDataset(id);
   if (datasetIdentity(dataset) !== dataset.datasetId)
@@ -571,11 +595,15 @@ export function validateEvaluationDataset(id: string): {
   const caseCounts: Record<string, number> = {};
   for (const item of dataset.cases)
     caseCounts[item.task] = (caseCounts[item.task] ?? 0) + 1;
+  const verdicts = importedUnitVerdicts(reviews);
   return {
     caseCounts,
     importedReviewEvents: reviews.reduce(
       (sum, item) => sum + item.events.length,
       0,
     ),
+    importedLabelledCases: dataset.cases.filter(
+      (item) => item.task === "adjudication" && verdicts.has(item.unitKey),
+    ).length,
   };
 }

@@ -169,7 +169,7 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
 
 ### Evaluation harness
 
-- A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history, and runs blind annotation plus resumable provider comparisons.
+- A local evaluation harness freezes a finished report into cases under `data/evaluations/`, imports that report's review history and its seed author's answers as labels, and runs blind annotation plus resumable provider comparisons.
 - Datasets, trials, and scores stay on disk.
 - The UI grades one case at a time from the keyboard.
 - `eval request` saves a named set of cases that shows up in the UI as waiting until each has a final label.
