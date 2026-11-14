@@ -94,6 +94,16 @@ describe("evaluation prompt revisions", () => {
     expect(promptsSeen("evaluation-prompts-v4", jev, "rerank")).toBe(
       "evaluation-prompts-v2",
     );
+    // v5 changed only the bundle note, which only whole-paper adjudication renders live.
+    expect(
+      promptsSeen("evaluation-prompts-v5", wholePaper, "adjudication"),
+    ).toBe("evaluation-prompts-v5");
+    expect(promptsSeen("evaluation-prompts-v5", jev, "adjudication")).toBe(
+      "evaluation-prompts-v4",
+    );
+    expect(
+      promptsSeen("evaluation-prompts-v5", anthropic, "adjudication"),
+    ).toBe("evaluation-prompts-v2");
     expect(promptsSeen("evaluation-prompts-v1", anthropic, "role")).toBe(
       "evaluation-prompts-v1",
     );

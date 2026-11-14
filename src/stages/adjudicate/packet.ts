@@ -237,7 +237,7 @@ export function packetEvidenceLimitation(
  */
 export function renderCitingSide(packet: AdjudicatePacket): string {
   const bundleWarning = packet.isBundled
-    ? `\nBundled-reference warning: this citation marker is shared with ${String(packet.bundleSize)} references. Evaluate only the claim attributed to the cited paper under review; ignore attributions to other bundled works.`
+    ? `\nBundled citation: this statement cites ${String(packet.bundleSize)} references together. A bundle does not claim that each work supports the whole statement, so judge whether the cited paper supports some part of it (one item in a list, or the general point it makes). If it does, the breadth of the whole statement is the bundle's, not a distortion by this paper: that is F unless the part it supports is itself misstated. It is E only when it supports no part of what the bundle states.`
     : "";
   const seedLabel = packet.seedRefLabel
     ? `\nCited paper's reference label: ${packet.seedRefLabel}`

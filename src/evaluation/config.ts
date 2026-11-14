@@ -49,11 +49,12 @@ const promptRevisionValues = [
   "evaluation-prompts-v2",
   "evaluation-prompts-v3",
   "evaluation-prompts-v4",
+  "evaluation-prompts-v5",
 ] as const;
 type PromptRevision = (typeof promptRevisionValues)[number];
 
 /** The only revision new trials run under; older experiments stay readable. */
-export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v4";
+export const CURRENT_PROMPT_REVISION: PromptRevision = "evaluation-prompts-v5";
 
 type PromptReader = Pick<ProviderConfig, "kind" | "adjudicationEvidence">;
 
@@ -63,7 +64,9 @@ type PromptReader = Pick<ProviderConfig, "kind" | "adjudicationEvidence">;
  * production rubric. v4 put the verdict definitions and the whole-paper
  * adjudication prompt in plain words ("the cited paper", no "kernel"); the
  * selected-chunks prompt Anthropic providers read is frozen in each dataset,
- * so only Jev and whole-paper adjudication saw it change.
+ * so only Jev and whole-paper adjudication saw it change. v5 told bundled
+ * records that a paper supporting part of the statement is faithfully cited;
+ * only whole-paper adjudication renders that note live.
  */
 const REWORDED: Partial<
   Record<
@@ -77,6 +80,10 @@ const REWORDED: Partial<
     task === "adjudication" &&
     (kind === "jev" ||
       (kind === "anthropic" && adjudicationEvidence === "seed_text")),
+  "evaluation-prompts-v5": ({ kind, adjudicationEvidence }, task) =>
+    task === "adjudication" &&
+    kind === "anthropic" &&
+    adjudicationEvidence === "seed_text",
 };
 
 /**

@@ -92,6 +92,9 @@ describe("adjudicate packet quality", () => {
     expect(prompt).toMatch(/Proxy endpoints/i);
     expect(prompt).toMatch(/supportSpan:/);
     expect(prompt).toMatch(/figure-only support/i);
+    // A bundle's breadth is not held against one of its works.
+    expect(prompt).toMatch(/supports some part of it/);
+    expect(prompt).toMatch(/breadth of the whole statement is the bundle's/);
     // Rationales echo the prompt's words; people outside the pipeline read them.
     expect(prompt).not.toMatch(/\bthe seed\b|kernel/i);
   });
