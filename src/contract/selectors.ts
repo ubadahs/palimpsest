@@ -818,6 +818,9 @@ function buildReportInspectorRecordRow(input: {
     citingPaperId: paper.paperId,
     citingPaperTitle: paper.title,
     citationContext: occurrence.rawContext,
+    ...(occurrence.markerSpan
+      ? { citationMarkerSpan: occurrence.markerSpan }
+      : {}),
     classificationStatus: classification.status,
     groundingStatus: prepareRecord.family.grounding.status,
     verifiedSeedGroundingSpans: buildVerifiedGroundingSpans(

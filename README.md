@@ -114,7 +114,7 @@ By default, Claude Haiku 5.5 extracts claims, classifies citations, reranks pass
 
 ## Evaluation
 
-`npm run dev -- eval` freezes a finished report into local test cases and compares models or settings on them. It can add constructed cases, edits of statements a reviewer judged faithful, whose correct verdict is known. Reviewers grade cases blind in the local UI. Datasets stay on your machine and out of git. See [docs/evaluation.md](docs/evaluation.md).
+`npm run dev -- eval` freezes a finished report into local test cases and compares models or settings on them. It can add constructed cases, edits of statements a reviewer judged faithful, whose correct verdict is known. Reviewers grade cases blind in the local UI. Datasets stay on your machine and out of git. To ask a seed paper's author, `author-review:export` writes one HTML file they can open offline, answer, save, and email back; `author-review:import` reads their answers in. See [docs/evaluation.md](docs/evaluation.md).
 
 ## Documentation
 

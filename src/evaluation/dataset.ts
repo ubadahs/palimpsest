@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import {
   buildAdjudicatePacket,
@@ -9,15 +9,9 @@ import {
 import { buildClaimUnitKey } from "../contract/claim-unit.js";
 import { humanReviewEventLogSchema } from "../contract/human-review.js";
 import { resolvePreparedRecords } from "../contract/artifacts/index.js";
-import {
-  buildReportInspectorRecords,
-  loadArtifact,
-} from "../contract/selectors.js";
-import type { StageArtifactMap } from "../contract/inspector-payloads.js";
-import type { StageKey } from "../contract/stages.js";
 import type { SeedSectionRole } from "../contract/artifacts/seed-section-role.js";
 import { inferSectionRoles } from "../domain/section-patterns.js";
-import { verifyReportAncestors } from "../stages/report/run.js";
+import { loadReportChain, type ReportChain } from "../pipeline/report-chain.js";
 import { classifyPrepareOccurrenceDeterministically } from "../stages/prepare/run.js";
 import { annotateCitingContext } from "../shared/citation-context-window.js";
 import {
@@ -58,79 +52,12 @@ function withCaseId<T extends Omit<EvaluationCase, "caseId">>(
   };
 }
 
-type AncestorStage =
-  | "discover"
-  | "scope"
-  | "prepare"
-  | "evidence"
-  | "adjudicate";
-type Chain = { [K in StageKey]: StageArtifactMap[K] };
-
-function loadAncestor<K extends AncestorStage>(
-  runRoot: string,
-  stage: K,
-  reference: { artifactId: string; contentHash: string },
-): StageArtifactMap[K] {
-  const folder = readdirSync(runRoot, { withFileTypes: true }).find(
-    (entry) => entry.isDirectory() && entry.name.endsWith(`-${stage}`),
-  );
-  if (!folder)
-    throw new Error(`Missing ${stage} stage directory in ${runRoot}`);
-  const matches = readdirSync(join(runRoot, folder.name)).filter(
-    (name) =>
-      name.endsWith(`_${stage}.json`) && name.includes(reference.artifactId),
-  );
-  if (matches.length !== 1)
-    throw new Error(
-      `Expected one ${stage} artifact matching ${reference.artifactId}`,
-    );
-  const artifact = loadArtifact(stage, join(runRoot, folder.name, matches[0]!));
-  if (
-    artifact.artifactId !== reference.artifactId ||
-    artifact.contentHash !== reference.contentHash
-  )
-    throw new Error(`${stage} lineage mismatch`);
-  return artifact;
-}
-
-function loadChain(reportPath: string): { chain: Chain; runRoot: string } {
-  const full = resolve(reportPath);
-  const report = loadArtifact("report", full);
-  const runRoot = dirname(dirname(full));
-  const lineage = report.payload.lineage;
-  if (report.runId !== lineage.runId)
-    throw new Error("Report run identity mismatch");
-  const discover = loadAncestor(runRoot, "discover", lineage.discoverArtifact);
-  const scope = loadAncestor(runRoot, "scope", lineage.scopeArtifact);
-  const prepare = loadAncestor(runRoot, "prepare", lineage.prepareArtifact);
-  const evidence = loadAncestor(runRoot, "evidence", lineage.evidenceArtifact);
-  const adjudicate = loadAncestor(
-    runRoot,
-    "adjudicate",
-    lineage.adjudicateArtifact,
-  );
-  verifyReportAncestors({
-    discoverArtifact: discover,
-    scopeArtifact: scope,
-    prepareArtifact: prepare,
-    evidenceArtifact: evidence,
-    adjudicateArtifact: adjudicate,
-  });
-  buildReportInspectorRecords({ report, prepare, evidence, adjudicate });
-  if (report.payload.recordTraces.length !== prepare.payload.records.length)
-    throw new Error("Report record spine is incomplete");
-  return {
-    chain: { discover, scope, prepare, evidence, adjudicate, report },
-    runRoot,
-  };
-}
-
 /**
  * Cases as the current code would build them from one run's artifacts. A
  * record the run adjudicated but today's packet gate would hold back is not a
  * case: no model would be asked about it now.
  */
-function casesFromChain(chain: Chain): {
+function casesFromChain(chain: ReportChain): {
   cases: EvaluationCase[];
   heldBackRecordIds: string[];
 } {
@@ -338,7 +265,7 @@ function casesFromChain(chain: Chain): {
 }
 
 /** Current section role of every seed block, keyed by seed and block. */
-function currentSectionRoles(chain: Chain): Map<string, SeedSectionRole> {
+function currentSectionRoles(chain: ReportChain): Map<string, SeedSectionRole> {
   const roles = new Map<string, SeedSectionRole>();
   for (const seed of chain.scope.payload.seedMaterializations) {
     if (seed.status !== "materialized") continue;
@@ -351,7 +278,7 @@ function currentSectionRoles(chain: Chain): Map<string, SeedSectionRole> {
 }
 
 /** The seed text Scope froze, one document per seed that has any. */
-function seedDocumentsFromChain(chain: Chain): SeedDocument[] {
+function seedDocumentsFromChain(chain: ReportChain): SeedDocument[] {
   const roles = currentSectionRoles(chain);
   const seedById = new Map(
     chain.discover.payload.seeds.map((seed) => [seed.seedId, seed]),
@@ -384,7 +311,7 @@ function seedDocumentsFromChain(chain: Chain): SeedDocument[] {
   });
 }
 
-function historicalObservations(chains: readonly Chain[]) {
+function historicalObservations(chains: readonly ReportChain[]) {
   return chains.map((chain) => ({
     runId: chain.report.runId,
     role: chain.prepare.payload.records.map((record) => ({
@@ -420,7 +347,7 @@ function historicalObservations(chains: readonly Chain[]) {
 }
 
 function importedReviews(
-  chains: readonly { chain: Chain; runRoot: string }[],
+  chains: readonly { chain: ReportChain; runRoot: string }[],
 ): ImportedReviews {
   return chains.flatMap(({ chain, runRoot }) => {
     const path = resolveHumanReviewEventsPath({
@@ -472,7 +399,7 @@ export function buildEvaluationDataset(input: {
 }): { dataset: EvaluationDataset; heldBackRecordIds: string[] } {
   if (input.reportPaths.length === 0)
     throw new Error("At least one --report is required");
-  const chains = input.reportPaths.map(loadChain);
+  const chains = input.reportPaths.map(loadReportChain);
   const sources = chains.map(({ chain }) => ({
     runId: chain.report.runId,
     reportArtifactId: chain.report.artifactId,
