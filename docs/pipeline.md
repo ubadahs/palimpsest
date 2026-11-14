@@ -9,7 +9,7 @@ discover → scope → prepare → evidence → adjudicate → report
 | Stage | In one line |
 |---|---|
 | [Discover](#discover) | Lists the papers that cite the seed, reads a sample of them, and groups what they claim about the seed into candidate claim families. |
-| [Scope](#scope) | Freezes which families and citation occurrences are evaluated, materializes the seed paper's text, and builds a codebook of the seed's statements. |
+| [Scope](#scope) | Freezes which families and citation occurrences are evaluated, and materializes the seed paper's text. |
 | [Prepare](#prepare) | Builds one record per family × citation occurrence and classifies the role each citation plays. |
 | [Evidence](#evidence) | Retrieves passages of the seed paper for each record. |
 | [Adjudicate](#adjudicate) | Gives each eligible record one verdict, `F`, `D`, `E`, or `U`, or a typed reason it was not judged. |
@@ -48,7 +48,6 @@ npm run dev -- pipeline --run-id <uuid> --rerun-from scope
 npm run dev -- pipeline --input path/to/dois.json --max-cost 4
 npm run dev -- pipeline --input path/to/dois.json --batch
 npm run dev -- pipeline --input path/to/dois.json --census --max-cost 40
-npm run dev -- pipeline --run-id <uuid> --rerun-from scope --regenerate-codebook
 ```
 
 The input is a JSON object with a nonempty DOI array:
@@ -156,63 +155,18 @@ Scope fixes what the rest of the pipeline evaluates and gathers the seed-side te
 - Freezes each selected family's exact source-claim and citation-occurrence membership.
 - Materializes immutable seed text once per seed. Each seed-text block records a coarse `sectionRole` (abstract, introduction, methods, results, discussion, figure, table, other) and the number of in-text citations the seed itself makes in that block. Later stages use these to tell the seed's own findings from its summary of prior work.
 - Grounds each family: a model finds seed-text spans that state the family's finding, with exact-verified quotes. These are the grounding pins.
-- Builds the seed codebook and tags every Discover claim with it. See [Seed codebook and tagging](#seed-codebook-and-tagging).
 
 Grounding is an annotation: `not_found`, unavailable text, or a provider failure does not silently remove a frozen family.
 
-**Writes.** The Scope artifact: frozen families, seed-text materializations, grounding results, `codebooks`, and `claimTags`.
+**Writes.** The Scope artifact: frozen families, seed-text materializations, and grounding results.
 
-**Fails and gates.** Scope accounts for every candidate, so nothing drops silently. A seed without usable text leaves its codebook `seed_text_unavailable`. See the codebook statuses below.
+**Fails and gates.** Scope accounts for every candidate, so nothing drops silently.
 
 **Options.**
 
-- Config: `scope.groundingModel`, `scope.groundingThinking`, `scope.codebookModel`, `scope.taggingModel`, `scope.seedPdfPath`.
-- CLI: `--grounding-model`, `--grounding-thinking` / `--no-grounding-thinking`, `--seed-pdf`, `--regenerate-codebook`, `--force-refresh`.
+- Config: `scope.groundingModel`, `scope.groundingThinking`, `scope.seedPdfPath`.
+- CLI: `--grounding-model`, `--grounding-thinking` / `--no-grounding-thinking`, `--seed-pdf`, `--force-refresh`.
 - `--seed-pdf <path>` works only on a single-DOI run. It bypasses open-access lookup for the seed, reads the local PDF, and sends it to GROBID. The path is persisted only as `scope.seedPdfPath`. Multi-DOI runs reject a single shared PDF. The UI new-run form has an optional PDF upload field.
-
-#### Seed codebook and tagging
-
-Scope also builds a **seed codebook** and tags every Discover claim with it. Both are annotations: they change no family, candidate, record, or verdict, and nothing downstream of Scope reads them except Report.
-
-Families are drawn by a clustering call over all claims, so the partition shifts whenever the citer list changes. Codebook entries are drawn from the seed paper itself, so they stay put and per-entry numbers can be compared between runs.
-
-**Codebook procedure.**
-
-- Three calls to `scope.codebookModel` (`claude-sonnet-5-5` by default, adaptive `medium` effort, purpose `seed-codebook`).
-- All three use the seed text as the same cached prompt prefix and one shared response schema. The schema is sent ahead of the prompt, so a schema per step would break the cache. They run one after another so the first writes the cache.
-- The steps:
-  1. List the headline and the seed's own results, each with its interpretation folded in.
-  2. List background the seed relays from prior work, and the methods, reagents, lines, and resources it can be cited for.
-  3. Organise both lists into a few themes, each with specific entries, and deduplicate.
-- The organise step is told that the headline theme is never empty (the steps of the main claim sit under it, so a general restatement and its parts roll up to one theme), that a result and its interpretation are one entry, that a restatement of the headline is the headline theme itself, and to compare every pair of entries, across themes too, and merge near-duplicates.
-- Each entry has an id (`E01`…), a statement, a type (`result`, `background_prior_work`, `method_or_resource`), `attributedToOtherWork`, a parent theme (`T1`…, one marked `isHeadline`), and at least one quote.
-- Every quote is exact-verified against a single seed-text block, as grounding spans are.
-- Dropped and counted: an entry whose quotes all fail, and an entry whose theme is missing. A theme with neither a verified quote nor an entry is dropped. Ids are renumbered densely afterwards.
-- After the drops, exactly one theme must be the headline and keep an entry. The prompt asks for this; verification enforces it, and the SQLite store refuses a codebook that breaks it.
-- A codebook with no verified entry (`no_verified_entries`), one that breaks the headline rule (`no_headline_theme`), or a nonfatal provider failure leaves the seed `failed` and its claims `not_tagged`.
-
-**Frozen once per seed.**
-
-- The verified codebook is stored in SQLite (`seed_codebooks`, migration 0015), keyed by seed id, a content hash of the seed-text blocks, and `SEED_CODEBOOK_PROCEDURE_VERSION`.
-- Scope reuses the stored codebook whenever the key matches and generates one otherwise. A changed seed text or procedure regenerates; a changed `codebookModel` does not.
-- `--force-refresh` does not regenerate it, because refreshing papers is a different intent.
-- Only `pipeline --regenerate-codebook` asks the model again and replaces the stored row. It needs Scope to run in that invocation (`--rerun-from scope` on a resume).
-- `db:gc` never deletes it.
-- The Scope artifact's `codebooks` records each seed's codebook in full with `status`:
-  - `generated`, with its three model executions
-  - `reused`, with the run that generated it
-  - `failed`
-  - `seed_text_unavailable`
-
-**Tags.**
-
-- One request per claim to `scope.taggingModel` (`claude-haiku-5-5` by default, `low` effort, purpose `codebook-tagging`). The codebook is the shared cached prefix and only that claim's text is in the suffix.
-- Claims of a seed with the same whitespace-normalized text share one request.
-- The answer is 1 to 3 specific entries, or one theme alone when the claim is broader than any entry under it, or none, with a one-line reason. Topic decides, not accuracy: a claim that misstates an entry is still about it.
-- A reply naming unknown ids, more than three entries, or a theme-only answer without a theme fails validation and is never cached.
-- Requests run `modelConcurrency` at a time (so `--batch` batches them), the first per seed alone to write the cache, through the exact-result cache.
-- A failed request is a typed `tagging_failed` outcome on its claims, never a stage failure (fatal provider errors and `--max-cost` excepted).
-- `claimTags` holds one outcome per Discover claim, in or out of a selected family.
 
 ### Prepare
 
@@ -316,7 +270,6 @@ Families are drawn by a clustering call over all claims, so the partition shifts
   - adaptive portfolio deferral reasons (family cap, record budget, lexical novelty);
   - manual-review queue splits and gate-code counts;
   - the probe sampling design per seed and year-band × type-group stratum, with each stratum's frame size and inclusion probability.
-- **`seedCodebooks`**: the codebook view (below).
 - **`selectionAudit`**: each candidate's portfolio component scores. Each record trace carries its citation-role signals.
 
 **Rates.**
@@ -333,13 +286,6 @@ Families are drawn by a clustering call over all claims, so the partition shifts
 - Above 200: summarizes each family instead. Each summary has its counts, each verdict's share of its adjudicated records, one grounding span, and up to two restatements per verdict (D and E first, with the adjudicator's statements, then U and F, earliest citing papers first), then names where in the JSON the rest are. The per-record trace section points to `recordTraces`. Size then follows families, not records: about 4,400 lines for a synthetic 3,000-record, 120-family run, against about 16,000 listing every record. The JSON stays complete.
 - The Markdown states what share of the enumerated works the sampling frame is.
 
-**Seed codebook view.** Rendered after the families as "Seed codebook view", with one table per level. Tags join verdicts through each adjudicated outcome's `evaluatedClaimRecordIds`.
-
-- Per entry: tagged claim units (distinct citing paper × normalized claim text), adjudicated records, and F/D/E/U. A record is counted under every entry it is tagged with.
-- Per theme: the same, where a claim unit or record counts once if it carries the theme itself or any entry under it. This absorbs a tagger choosing the theme for one wording and an entry under it for another. The theme row also splits claim units tagged with the theme alone from those tagged with an entry under it.
-- Also given: claims by tag kind, tagging failures, untagged claim units and adjudicated records, and entries no claim cites.
-- The text states that entries come from the seed paper and are stable across runs of the same seed text, that tags are not verdicts, and that "none" does not mean the seed never said it.
-
 **Fails and gates.** Report tamper-verifies the chain first, so a chain that does not verify produces no report.
 
 **Options.** None.
@@ -351,11 +297,11 @@ Families are drawn by a clustering call over all claims, so the partition shifts
 - Every model call uses provider-enforced structured output (`generateObject`) against the adapter's own response schema.
 - The provider only sees the shape (Anthropic rejects bounds, `oneOf`, and defaults), so the reply is validated locally against the full Zod schema.
 - Each request body stores its prompt text once in the run's provenance directory, so any call can be reproduced from the artifact alone.
-- Calls are routed through `src/integrations/llm-client.ts`. See [caching.md](./caching.md) for the exact-result cache and the seed codebook store.
+- Calls are routed through `src/integrations/llm-client.ts`. See [caching.md](./caching.md) for the exact-result cache.
 
 ### Concurrency
 
-- **Model calls.** `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, clustering, role-classification, codebook, grounding, tagging, rerank, or adjudication requests are in flight within a stage. A seed's three codebook calls always run one after another; seeds run side by side.
+- **Model calls.** `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, clustering, role-classification, grounding, rerank, or adjudication requests are in flight within a stage.
 - **Determinism.** Results are appended in input order, so an artifact is byte-identical at any concurrency and the setting never enters identity.
 - **Prompt-cache writes.** Scope sends the seed text as a cached prompt prefix, so its first grounding call per seed runs alone and the rest fan out once the cache is written. Identical rerank requests issued at the same time share one call.
 - **Fetching.** Discover's citing-paper fetching and GROBID parsing have their own bound, `discover.fetchConcurrency` (default 6), one global limit across providers. The full-text fetcher has no per-provider spacing, and the HTTP client backs off on 429s.

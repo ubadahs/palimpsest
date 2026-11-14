@@ -33,7 +33,6 @@ import {
   runReport,
 } from "../../../src/stages/report/run.js";
 import { hashAdjudicateRequest } from "../../../src/contract/artifacts/index.js";
-import { stubCodebookAdapters } from "../scope/codebook.fixture.js";
 
 function reference(role: string, key: string): ArtifactReference {
   return {
@@ -304,7 +303,6 @@ export async function buildLargeReportChain(options: LargeChainOptions) {
             ...external("fixture-full-text", seed.seedId),
           },
         }),
-      ...stubCodebookAdapters(),
       groundFamily: ({ family }) =>
         Promise.resolve({
           status: "completed",

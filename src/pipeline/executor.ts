@@ -83,7 +83,6 @@ import {
   writeStageManifest,
 } from "./stage-paths.js";
 import { createRunCostTracker } from "./cost-summary.js";
-import { createSqliteSeedCodebookStore } from "../storage/seed-codebooks.js";
 import { RunTracker } from "./run-tracker.js";
 import {
   deriveStageSummary,
@@ -139,13 +138,6 @@ export type PipelineCliOverrides = {
    * off, and no scientific setting or artifact identity depends on it.
    */
   batch?: boolean | undefined;
-  /**
-   * Generate and store a new seed codebook in this invocation's Scope even
-   * when one is stored for the seed text and procedure version. Not part of
-   * the run config, and unlike `forceRefresh` the only way to replace a
-   * stored codebook.
-   */
-  regenerateCodebook?: boolean | undefined;
 };
 
 /**
@@ -984,18 +976,6 @@ export async function runPipeline(
 
   const stopAfter = assertStageKey(runConfig.stopAfterStage, "stopAfterStage");
   const tracker = new RunTracker(database, run.id);
-  if (args.regenerateCodebook === true) {
-    const firstToRun = firstIncompleteStage(database, run.id, stopAfter);
-    if (
-      firstToRun == null ||
-      compareStageKeys(firstToRun, "scope") > 0 ||
-      compareStageKeys(stopAfter, "scope") < 0
-    ) {
-      throw new PipelineError(
-        "--regenerate-codebook needs Scope to run in this invocation; add --rerun-from scope (or discover).",
-      );
-    }
-  }
 
   const ownsDatabase = params.ownsDatabase === true;
   const onSignal = () => {
@@ -1068,9 +1048,6 @@ export async function runPipeline(
         llmClient,
         provenanceStore,
         forceRefresh: runConfig.forceRefresh,
-        codebookStore: createSqliteSeedCodebookStore(database),
-        regenerateCodebook: args.regenerateCodebook === true,
-        runId: run.id,
         paperCache: {
           db: database,
           cachePolicy: runConfig.forceRefresh

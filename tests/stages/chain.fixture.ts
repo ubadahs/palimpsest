@@ -14,7 +14,6 @@ import type {
 } from "../../src/stages/discover/run.js";
 import type { PrepareAdapters } from "../../src/stages/prepare/run.js";
 import type { ScopeAdapters } from "../../src/stages/scope/run.js";
-import { stubCodebookAdapters } from "./scope/codebook.fixture.js";
 
 export const FAMILY_CLAIM =
   "Ril9 silencing causes loss of surface ridges and pocket formation.";
@@ -431,7 +430,6 @@ export function scopeAdapters(
         execution,
       });
     },
-    ...stubCodebookAdapters(),
     groundFamily: ({ family }) => {
       const execution = {
         ...modelExecution("scope", family.familyId),

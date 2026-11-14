@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuditTrail } from "@/components/report/audit-trail";
-import { CodebookTables } from "@/components/report/codebook-tables";
 import { FamiliesBrowser } from "@/components/report/families-browser";
 import { FunnelOverview } from "@/components/report/funnel-overview";
 import { RateCard } from "@/components/report/metrics";
@@ -170,7 +169,6 @@ export function ReportInspector({
             ))}
           </div>
           <FunnelOverview funnel={summary.funnel} rates={summary.rates} />
-          <CodebookTables codebooks={summary.seedCodebooks} />
         </TabsContent>
 
         <TabsContent value="families">

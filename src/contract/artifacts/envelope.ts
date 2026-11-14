@@ -456,9 +456,8 @@ function validateArtifactIdentity(
  * Payload checks follow one rule: a stage schema checks a method rule (what a
  * verdict needs, which denominator a rate uses, that every input has exactly
  * one outcome) or data its builder did not produce (model replies, adapter
- * output, cached papers, stored codebooks). Re-deriving what a builder just
- * wrote can only fail if the builder disagrees with itself, which its tests
- * cover.
+ * output, cached papers). Re-deriving what a builder just wrote can only fail
+ * if the builder disagrees with itself, which its tests cover.
  */
 function validateStageInputLineage(
   artifact: {

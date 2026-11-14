@@ -1012,7 +1012,6 @@ function buildReportInspectorPayload(
       decisionSummaries: artifact.payload.decisionSummaries,
       records,
       families,
-      seedCodebooks: artifact.payload.seedCodebooks,
     },
     ...(options?.markdownPath ? { markdownPath: options.markdownPath } : {}),
   };

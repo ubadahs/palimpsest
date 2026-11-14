@@ -431,21 +431,6 @@ function buildAllStageArtifacts() {
           provenanceArtifacts: [discoverReference, responseReference],
         },
       ],
-      codebooks: [
-        {
-          status: "seed_text_unavailable",
-          seedId,
-          reason: "Fixture intentionally omits seed full text.",
-        },
-      ],
-      claimTags: [
-        {
-          claimRecordId: sourceClaimRecordId,
-          seedId,
-          status: "not_tagged",
-          reason: "codebook_unavailable",
-        },
-      ],
     },
   });
   const prepareScopeReference = {
@@ -1269,7 +1254,6 @@ function buildAllStageArtifacts() {
       recordTraces: [],
       decisionSummaries: [],
       selectionAudit: [],
-      seedCodebooks: [],
     },
   });
   return { discover, scope, prepare, evidence, adjudicate, report };

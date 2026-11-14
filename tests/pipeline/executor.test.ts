@@ -55,7 +55,6 @@ import {
   parseProgressEventLine,
 } from "../../src/contract/workflow.js";
 import { loadArtifact } from "../../src/contract/selectors.js";
-import { stubCodebookAdapters } from "../stages/scope/codebook.fixture.js";
 import {
   FAMILY_CLAIM,
   artifactReference,
@@ -197,7 +196,6 @@ function fixtureScopeAdapters(): ScopeAdapters {
           ...externalExecution("fixture-full-text", seed.seedId),
         },
       }),
-    ...stubCodebookAdapters(),
     groundFamily: ({ family }) =>
       Promise.resolve({
         status: "completed",

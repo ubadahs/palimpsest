@@ -47,7 +47,6 @@ import {
   loadArtifact,
   writeArtifact,
 } from "../../../src/contract/selectors.js";
-import { stubCodebookAdapters } from "../scope/codebook.fixture.js";
 import {
   artifactReference,
   discoverOptions,
@@ -324,7 +323,6 @@ function scopeAdapters(variant: GroundingVariant): ScopeAdapters {
         execution,
       });
     },
-    ...stubCodebookAdapters(),
     groundFamily: ({ family }) => {
       const execution = {
         ...modelExecution("scope", family.familyId),

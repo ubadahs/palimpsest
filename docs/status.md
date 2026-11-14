@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-11-12
+**Last updated:** 2026-11-14
 
 This document records shipped behavior. The runnable production workflow is the six-stage pipeline:
 
@@ -41,9 +41,6 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 - Freezes exact family and occurrence membership.
 - Materializes seed text once per seed.
 - Records verified grounding without excluding a family.
-- Also annotates:
-  - a seed codebook: themes and entries drawn from the seed paper by three cached-prefix calls, quotes exact-verified, stored in SQLite and reused across runs of the same seed text;
-  - one codebook tag outcome per Discover claim.
 
 ### `prepare`
 
@@ -84,8 +81,7 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
     - verdicts by evidence regime, support-span coverage, and evidence-sufficiency diagnostics;
     - portfolio deferrals and manual-review splits;
   - `selectionAudit`: per-candidate portfolio scores;
-  - per-record citation-role signals;
-  - `seedCodebooks`: per codebook theme and entry, the tagged claim units, adjudicated records, and F/D/E/U, with a theme roll-up.
+  - per-record citation-role signals.
 - Renders Markdown from that JSON.
 
 Run with:
@@ -194,26 +190,6 @@ A comparison of three models on one seed used all three:
 - The run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort.
 - No run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
 
-## Seed codebook (November 2026)
-
-Landed as an additive annotation, untested at scale.
-
-- **Why.** Family partitions move with the citer list, so per-family numbers do not compare between runs.
-- **Codebook.** Scope now builds a codebook of the seed's citable statements from the seed paper itself:
-  - results and headline;
-  - relayed background, methods and resources;
-  - then an organise step into themes and entries, whose headline theme holds the steps of the main claim.
-- **Storage.** Quotes are exact-verified, and the codebook is frozen in SQLite per seed text and procedure version. `--force-refresh` and `db:gc` leave it; `--regenerate-codebook` replaces it.
-- **Tagging.** Each Discover claim is tagged with 1 to 3 entries, a theme alone, or none, one Haiku request per claim.
-- **Report.** It adds per-entry and per-theme tables beside the families, which are unchanged.
-- **Offline pilot.**
-  - Per-entry record counts were stable across repeat taggings against a frozen codebook.
-  - Reworded claims kept identical tag sets only about 60% of the time, mostly by switching between a theme and an entry under it.
-  - The theme roll-up and the non-empty headline theme are meant to absorb that.
-  - Whether per-entry verdict rates are stable is unproven.
-- **Independence.** Families, selection, records, and verdicts do not read the codebook.
-- **UI.** The Report Overview shows both tables.
-
 ## Scientific status
 
 Adjudicate is **uncalibrated**. Successful execution does not validate its judgments, establish accuracy, or support trust claims. Blinded human calibration and separate evaluation reporting remain required.
@@ -222,7 +198,7 @@ Scope, Prepare, Evidence, and Adjudicate retain complete record accounting: ever
 
 ## Storage and cleanup
 
-Paper storage is `paper_cache` / `paper_parsed`. `db:gc --days <n> [--dry-run]` deletes aged analysis-run registry rows and stale LLM exact-result cache rows from SQLite; it does not delete artifact directories or stored seed codebooks. `runs:gc [--run-id <uuid>] [--dry-run]` handles the on-disk side: superseded stage attempts the run registry no longer points at, and the provenance blobs only those attempts referenced. Evaluation commands operate on separate frozen datasets under `data/evaluations/`.
+Paper storage is `paper_cache` / `paper_parsed`. `db:gc --days <n> [--dry-run]` deletes aged analysis-run registry rows and stale LLM exact-result cache rows from SQLite; it does not delete artifact directories. `runs:gc [--run-id <uuid>] [--dry-run]` handles the on-disk side: superseded stage attempts the run registry no longer points at, and the provenance blobs only those attempts referenced. Evaluation commands operate on separate frozen datasets under `data/evaluations/`.
 
 The SQLite column `analysis_run_stages.family_index` is part of an immutable migration primary key; execution always writes `0` (one row per stage).
 
@@ -241,4 +217,4 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
-- LLM purposes are limited to `attributed-claim-extraction`, `claim-clustering`, `seed-grounding`, `seed-codebook`, `codebook-tagging`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.
+- LLM purposes are limited to `attributed-claim-extraction`, `claim-clustering`, `seed-grounding`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.

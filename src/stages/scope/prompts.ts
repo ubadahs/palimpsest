@@ -1,18 +1,10 @@
-/** Scope's prompt identities and the grounding prompt. The codebook prompts live in `seed-codebook.ts`. */
+/** Scope's prompt identity and the grounding prompt. */
 
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 
 export const GROUNDING_PROMPT_ID = "scope-grounding" as const;
 
 export const GROUNDING_PROMPT_VERSION = PROMPT_VERSIONS.grounding;
-
-export const SEED_CODEBOOK_PROMPT_ID = "seed-codebook" as const;
-
-export const SEED_CODEBOOK_PROMPT_VERSION = PROMPT_VERSIONS.seedCodebook;
-
-export const CODEBOOK_TAGGING_PROMPT_ID = "codebook-tagging" as const;
-
-export const CODEBOOK_TAGGING_PROMPT_VERSION = PROMPT_VERSIONS.codebookTagging;
 
 /**
  * The grounding prompt is split so the seed text (identical for every family

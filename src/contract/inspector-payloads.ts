@@ -168,8 +168,6 @@ export type ReportInspectorSummary = {
   decisionSummaries: ReportArtifact["payload"]["decisionSummaries"];
   records: ReportInspectorRecordRow[];
   families: MutationFamilyView[];
-  /** Per seed codebook theme and entry tables, straight from the Report. */
-  seedCodebooks: ReportArtifact["payload"]["seedCodebooks"];
 };
 
 export type StageInspectorPayloadMap = {

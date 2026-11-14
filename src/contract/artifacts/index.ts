@@ -62,7 +62,6 @@ export {
   reportRecordTraceSchema,
   reportWeightedRateSchema,
   reportSelectionAuditRowSchema,
-  reportSeedCodebookSchema,
   type ReportMethod,
   type ReportArtifactPayload,
   type ReportCount,
@@ -75,15 +74,12 @@ export {
   type ReportRecordTrace,
   type ReportWeightedRate,
   type ReportSelectionAuditRow,
-  type ReportSeedCodebook,
-  type ReportCodebookCounts,
   type ReportInterpretationStatus,
 } from "./report.js";
 
 export * from "./envelope.js";
 export * from "./discover.js";
 export * from "./scope.js";
-export * from "./codebook.js";
 export * from "./prepare.js";
 export * from "./evidence.js";
 export * from "./seed-section-role.js";

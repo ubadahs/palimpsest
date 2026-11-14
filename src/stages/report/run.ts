@@ -4,7 +4,6 @@ import { compareCodeUnits } from "../../shared/order.js";
 import { createBoundaryParser } from "../../shared/boundary.js";
 
 import { buildClaimUnitKey } from "../../contract/claim-unit.js";
-import { buildSeedCodebookViews } from "./codebook.js";
 import { summarizeStatuses } from "../../contract/artifacts/report.js";
 
 import {
@@ -171,19 +170,6 @@ export function runReport(
     adjudicateArtifact,
   });
 
-  let seedCodebooks;
-  try {
-    seedCodebooks = buildSeedCodebookViews({
-      discoverArtifact,
-      scopeArtifact,
-      adjudicateArtifact,
-    });
-  } catch (error) {
-    throw new ReportBoundaryError(
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
   const payload = reportArtifactPayloadSchema.parse({
     lineage,
     method: reportMethod,
@@ -198,7 +184,6 @@ export function runReport(
     recordTraces,
     decisionSummaries,
     selectionAudit,
-    seedCodebooks,
   });
 
   const decisions = [

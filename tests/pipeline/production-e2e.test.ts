@@ -33,7 +33,6 @@ import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
 import { canonicalSha256 } from "../../src/shared/stable-identity.js";
 import { loadArtifact } from "../../src/contract/selectors.js";
-import { stubCodebookAdapters } from "../stages/scope/codebook.fixture.js";
 import { selectSeedReferenceMentions } from "../../src/stages/discover/adapters.js";
 import { buildPrepareAdapters } from "../../src/stages/prepare/adapters.js";
 import { mapFullTextAcquisitionFailure } from "../../src/stages/production.js";
@@ -251,7 +250,6 @@ function productionPathScopeAdapters(): ScopeAdapters {
           ...externalExecution("fixture-full-text", seed.seedId),
         },
       }),
-    ...stubCodebookAdapters(),
     groundFamily: ({ family }) =>
       Promise.resolve({
         status: "completed",

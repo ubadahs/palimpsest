@@ -104,13 +104,7 @@ npm run dev -- pipeline --input dois.json --batch
 npm run dev -- pipeline --input dois.json --census --max-cost 40
 ```
 
-Scope also builds a **codebook** of the seed's citable statements, stored so later runs of the same seed reuse it, and tags each citing claim with the entries it is about. To build a new one:
-
-```bash
-npm run dev -- pipeline --run-id <run-id> --rerun-from scope --regenerate-codebook
-```
-
-By default, Claude Haiku 5.5 extracts claims, classifies citations, reranks passages, and tags claims; Claude Sonnet 5.5 groups claims, locates them in the seed, builds the codebook, and adjudicates. Every model and option can be changed in the run config ([docs/pipeline.md](docs/pipeline.md)).
+By default, Claude Haiku 5.5 extracts claims, classifies citations, and reranks passages; Claude Sonnet 5.5 groups claims, locates them in the seed, and adjudicates. Every model and option can be changed in the run config ([docs/pipeline.md](docs/pipeline.md)).
 
 ## Evaluation
 
@@ -137,7 +131,7 @@ By default, Claude Haiku 5.5 extracts claims, classifies citations, reranks pass
 | `npm run test`                                         | Run the test suite                                                                                   |
 | `npm --workspace @palimpsest/ui run test`              | Run the UI tests                                                                                     |
 | `npm run test:live-smoke`                              | Optional live smoke test against real providers (`PALIMPSEST_LIVE_SMOKE=1`)                          |
-| `npm run db:gc -- --days 90 [--dry-run]`               | Delete old run records, stale model-response cache rows, and expired batch rows (never codebooks)   |
+| `npm run db:gc -- --days 90 [--dry-run]`               | Delete old run records, stale model-response cache rows, and expired batch rows                     |
 | `npm run runs:gc -- [--run-id <run-id>] [--dry-run]`   | Delete stage attempts a rerun replaced, and the provenance files only they used                     |
 | `npm run ui:dev` / `ui:build` / `ui:start`             | Run the local UI                                                                                     |
 

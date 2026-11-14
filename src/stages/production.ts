@@ -29,7 +29,6 @@ import {
   type FullTextFetchAdapters,
 } from "../retrieval/fulltext-fetch.js";
 import type { ParsedPaperCacheOptions } from "../retrieval/parsed-paper.js";
-import type { SeedCodebookStore } from "../storage/seed-codebooks.js";
 
 export function createFullTextAdapters(
   config: AppConfig,
@@ -65,8 +64,6 @@ export function llmRequestProvenanceFields(params: {
     | "claim-clustering"
     | "citation-role-classification"
     | "seed-grounding"
-    | "seed-codebook"
-    | "codebook-tagging"
     | "evidence-rerank"
     | "adjudication";
   model: string;
@@ -112,12 +109,6 @@ export type ProductionAdapterDeps = {
   fullTextAdapters?: FullTextFetchAdapters;
   paperCache?: ParsedPaperCacheOptions;
   forceRefresh?: boolean;
-  /** Verified seed codebooks kept between runs; absent, each run generates. */
-  codebookStore?: SeedCodebookStore;
-  /** Generate and store a new codebook even when one is stored for the key. */
-  regenerateCodebook?: boolean;
-  /** Run that a newly generated codebook is attributed to. */
-  runId?: string;
   paperProviders?: {
     resolvePaperByDoi: typeof resolvePaperByDoi;
     getCitingWorks: typeof openalex.getCitingWorks;

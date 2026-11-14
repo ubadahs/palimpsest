@@ -10,13 +10,6 @@ export const PROMPT_VERSIONS = {
   clustering: "2026-09-02-v2",
   /** A family claim grounded in the seed text (Scope). */
   grounding: "2026-11-12-v3",
-  /**
-   * The seed codebook calls (Scope). Stored codebooks are keyed by this, so
-   * bumping it regenerates them.
-   */
-  seedCodebook: "2026-11-12-v2",
-  /** One citing claim tagged against its seed codebook (Scope). */
-  codebookTagging: "2026-11-12-v1",
   /** Citation role for occurrences the regex pass leaves unclear (Prepare). */
   roleClassification: "2026-09-23-v2",
   /** Relevance reranking of BM25 candidates (Evidence). */
