@@ -50,44 +50,44 @@ describe("annotateCitingContext", () => {
 
   it("tells repeated numeric markers apart by position", () => {
     const first =
-      "Lensing dominates the projected constraint while other spectra contribute equally [286].";
+      "Kestrin neurons dominate the projected response while other classes contribute equally [41].";
     const third =
-      "Finally, Ref. [286] has also shown the effect is distinguishable from neutrino mass.";
-    const ctx = `${first} Ref. [136] has shown sky coverage matters little. ${third}`;
+      "Finally, Ref. [41] has also shown the effect is distinguishable from Lorn expression.";
+    const ctx = `${first} Ref. [19] has shown slice thickness matters little. ${third}`;
 
-    const atFirst = occurrenceAt(ctx, "[286]", 0);
+    const atFirst = occurrenceAt(ctx, "[41]", 0);
     expect(annotateCitingContext(atFirst, [spanOf(ctx, first)])).toMatch(
-      /^▶ Lensing dominates.*\[286\]\. ◀/,
+      /^▶ Kestrin neurons dominate.*\[41\]\. ◀/,
     );
-    // A span resting on the other [286] belongs to that occurrence.
+    // A span resting on the other [41] belongs to that occurrence.
     expect(annotateCitingContext(atFirst, [spanOf(ctx, third)])).toBe(ctx);
     expect(
-      annotateCitingContext(occurrenceAt(ctx, "[286]", 1), [
-        spanOf(ctx, third),
-      ]),
-    ).toMatch(/▶ Finally, Ref\. \[286\].* ◀$/);
+      annotateCitingContext(occurrenceAt(ctx, "[41]", 1), [spanOf(ctx, third)]),
+    ).toMatch(/▶ Finally, Ref\. \[41\].* ◀$/);
   });
 
   it("marks a marker that is a fragment of a citation group", () => {
     const span =
-      "We anticipate that low-noise lensing reconstruction will drive the constraints [22,68].";
-    const ctx = `The field covers a small sky area [23]. ${span}`;
-    const result = annotateCitingContext(occurrenceAt(ctx, "68]"), [
+      "We expect that denser Norel sampling will drive the estimates [12,57].";
+    const ctx = `The field covers a small sample [23]. ${span}`;
+    const result = annotateCitingContext(occurrenceAt(ctx, "57]"), [
       spanOf(ctx, span),
     ]);
-    expect(result).toMatch(/▶ We anticipate.*\[22,68\]\. ◀$/);
+    expect(result).toMatch(/▶ We expect.*\[12,57\]\. ◀$/);
   });
 
   it("marks every sentence a span covers once one holds the marker", () => {
     const ctx =
-      "Noise spectra follow Table I [12,71]. They were computed with Eq. 18 using these parameters. Unrelated text.";
-    const result = annotateCitingContext(occurrenceAt(ctx, "71]"), [
+      "Staining conditions follow Table 1 [8,33]. They were set with Eq. 4 using these parameters. Unrelated text.";
+    const result = annotateCitingContext(occurrenceAt(ctx, "33]"), [
       spanOf(
         ctx,
-        "Noise spectra follow Table I [12,71]. They were computed with Eq. 18 using these parameters.",
+        "Staining conditions follow Table 1 [8,33]. They were set with Eq. 4 using these parameters.",
       ),
     ]);
-    expect(result).toMatch(/^▶ Noise spectra.*these parameters\. ◀ Unrelated/);
+    expect(result).toMatch(
+      /^▶ Staining conditions.*these parameters\. ◀ Unrelated/,
+    );
   });
 
   it("ignores a support span whose text does not match its offsets", () => {

@@ -104,7 +104,8 @@ describe("selectAuthorReviewItems", () => {
   });
 
   it("asks once about a sentence two papers print word for word, keeping both", () => {
-    const reprinted = "Constraints will be driven entirely by lensing [82].";
+    const reprinted =
+      "Lorn expression is driven entirely by Kestrin input [7].";
     const { items } = selectAuthorReviewItems({
       rows: [
         row({ recordId: "notes", verdict: "F", sentence: reprinted }),

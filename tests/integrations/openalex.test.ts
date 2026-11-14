@@ -141,11 +141,12 @@ describe("resolveWorkByDoi", () => {
             authorships: [],
             open_access: {
               is_oa: true,
-              oa_url: "https://iopscience.iop.org/article/10.1088/x",
+              oa_url: "https://publisher.example.org/article/10.0000/x",
             },
             primary_location: {
               is_oa: true,
-              landing_page_url: "https://iopscience.iop.org/article/10.1088/x",
+              landing_page_url:
+                "https://publisher.example.org/article/10.0000/x",
               pdf_url: null,
               source: { display_name: "JCAP", type: "journal" },
             },
@@ -153,13 +154,13 @@ describe("resolveWorkByDoi", () => {
               {
                 is_oa: true,
                 landing_page_url:
-                  "https://iopscience.iop.org/article/10.1088/x",
+                  "https://publisher.example.org/article/10.0000/x",
                 pdf_url: null,
               },
               {
                 is_oa: true,
-                landing_page_url: "https://arxiv.org/abs/2010.04074",
-                pdf_url: "https://arxiv.org/pdf/2010.04074v2",
+                landing_page_url: "https://arxiv.org/abs/2101.00001",
+                pdf_url: "https://arxiv.org/pdf/2101.00001v2",
                 source: { display_name: "arXiv", type: "repository" },
               },
               {
@@ -182,22 +183,22 @@ describe("resolveWorkByDoi", () => {
     if (!result.ok) return;
     expect(result.data.fullTextHints.locations).toEqual([
       {
-        url: "https://iopscience.iop.org/article/10.1088/x",
+        url: "https://publisher.example.org/article/10.0000/x",
         kind: "landing_page",
         host: "publisher",
       },
       {
-        url: "https://arxiv.org/pdf/2010.04074v2",
+        url: "https://arxiv.org/pdf/2101.00001v2",
         kind: "pdf",
         host: "repository",
       },
       {
-        url: "https://arxiv.org/abs/2010.04074",
+        url: "https://arxiv.org/abs/2101.00001",
         kind: "landing_page",
         host: "repository",
       },
     ]);
-    expect(result.data.arxivId).toBe("2010.04074");
+    expect(result.data.arxivId).toBe("2101.00001");
 
     vi.restoreAllMocks();
   });

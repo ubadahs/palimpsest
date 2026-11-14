@@ -236,7 +236,7 @@ describe("parseParsedPaperDocument", () => {
 
   describe("references that give no title", () => {
     const seed = {
-      title: "Forecasting dark sector scattering with lensing",
+      title: "Forecasting Norel lamination from sparse sections",
       publicationYear: 2018,
       authors: ["Rin Halvorsen", "Teo Marchetti", "Ada Quist"],
       arxivId: "1801.00001",

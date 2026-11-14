@@ -91,7 +91,7 @@ const citationSourceLocatorSchema = z
 /**
  * Where a citation marker sits inside its own `rawContext`, so the cited
  * sentence is found by position rather than by searching for marker text that
- * may repeat in the paragraph or be a fragment of a group like `[22,68]`.
+ * may repeat in the paragraph or be a fragment of a group like `[12,57]`.
  */
 export const contextMarkerSpanSchema = z
   .object({

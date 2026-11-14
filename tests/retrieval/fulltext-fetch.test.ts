@@ -313,8 +313,8 @@ describe("fetchFullText acquisition policy", () => {
 
   it("falls back to a repository copy after the publisher's version", async () => {
     const PDF_MAGIC = Buffer.from("%PDF-1.4 preprint");
-    const publisherPage = "https://iopscience.iop.org/article/10.1088/x";
-    const preprintUrl = "https://arxiv.org/pdf/2010.04074";
+    const publisherPage = "https://publisher.example.org/article/10.0000/x";
+    const preprintUrl = "https://arxiv.org/pdf/2101.00001";
     const grobid = vi.fn(async () =>
       Promise.resolve({ ok: true as const, data: "<tei>preprint</tei>" }),
     );
