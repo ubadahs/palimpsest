@@ -167,8 +167,9 @@ Landed as code, still unmeasured:
   - The Review tab opens with machine judgment hidden, the reviewer records their own label, and agreement is derived at export time.
   - The CSV export collapses to claim units.
   - Local labels do not calibrate Adjudicate, so `calibrationStatus` stays `uncalibrated`.
+  - Author review: `author-review:export` writes one offline HTML file asking the seed's author to judge every flagged restatement and a few faithful ones, blind until each answer; `author-review:import` stores the returned answers beside the report.
 - **Citation targeting and pin-filled packets.**
-  - Markers are anchored to exact verified support spans and the resolved reference before the window is cut.
+  - Markers are anchored to exact verified support spans and the occurrence's own marker position before the window is cut; only an occurrence the parser could not locate exactly falls back to the resolved reference.
   - An unverified target stays unmarked and is gated to manual review.
   - When verified grounding pins fill every selected slot, Evidence skips the reranker, keeps that pin-only packet, and Report counts the skip.
   - A descriptive findings section after Methods is treated as results when the parser omitted the parent heading.

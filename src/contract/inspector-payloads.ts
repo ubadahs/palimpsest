@@ -86,6 +86,8 @@ export type ReportInspectorRecordRow = {
   seedRefLabel?: string;
   sectionTitle?: string;
   citationContext: string;
+  /** Where the seed's citation marker sits in `citationContext`. */
+  citationMarkerSpan?: { charOffsetStart: number; charOffsetEnd: number };
   classificationStatus: string;
   citationRole?: string;
   evaluationMode?: string;
