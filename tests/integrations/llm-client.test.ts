@@ -635,6 +635,27 @@ describe("spend limit", () => {
     expect(generateObjectMock).toHaveBeenCalledOnce();
   });
 
+  it("can reserve a direct request's input and full output ceiling before sending", async () => {
+    const client = createLLMClient({
+      apiKey: "test-key",
+      spendLimit: {
+        maxUsd: 0.5,
+        spentUsd: () => 0.49,
+        reserveDirectRequests: true,
+      },
+    });
+    await expect(
+      client.generateObject({
+        schema: anySchema,
+        purpose: "seed-claim-matching",
+        prompt: "p",
+        maxOutputTokens: 6000,
+      }),
+    ).rejects.toThrow(/reserved for requests/);
+    expect(generateObjectMock).not.toHaveBeenCalled();
+    expect(client.getLedger().totalCalls).toBe(0);
+  });
+
   it("refuses to send a request once spend reaches the limit", async () => {
     const client = createLLMClient({
       apiKey: "test-key",
@@ -737,6 +758,26 @@ describe("toProviderJsonSchema", () => {
 });
 
 describe("malformed requests and malformed replies", () => {
+  it("treats an oversized compiled grammar as fatal rather than retryable", async () => {
+    const error = new Error(
+      "The compiled grammar is too large, which would cause performance issues. Simplify your tool schemas or reduce the number of strict tools.",
+    );
+    expect(classifyProviderError(error)).toMatchObject({
+      classification: "invalid_request",
+      fatal: true,
+    });
+    generateObjectMock.mockReset();
+    generateObjectMock.mockRejectedValue(error);
+    const client = createLLMClient({ apiKey: "test-key" });
+    await expect(
+      client.generateObject({
+        schema: anySchema,
+        purpose: "seed-claim-matching",
+        prompt: "test",
+      }),
+    ).rejects.toThrow("compiled grammar");
+    expect(generateObjectMock).toHaveBeenCalledOnce();
+  });
   it("classifies a schema rejection as a fatal invalid request", () => {
     const result = classifyProviderError(
       new Error(
@@ -893,4 +934,117 @@ describe("resolveSentPromptCacheControl", () => {
       }),
     ).toBeUndefined();
   });
+});
+
+it("reserves concurrent direct requests and releases reservations after failure", async () => {
+  generateObjectMock.mockReset();
+  let rejectPending!: (error: Error) => void;
+  generateObjectMock.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPending = reject;
+      }) as never,
+  );
+  const client = createLLMClient({
+    apiKey: "test-key",
+    defaultModel: "claude-sonnet-5-5",
+    spendLimit: { maxUsd: 0.15, spentUsd: () => 0, reserveDirectRequests: true },
+  });
+  const request = {
+    schema: anySchema,
+    purpose: "adjudication" as const,
+    prompt: "p",
+    maxOutputTokens: 9000,
+  };
+  const pending = client.generateObject(request);
+  const rejected = expect(pending).rejects.toThrow();
+  await vi.waitFor(() => expect(generateObjectMock).toHaveBeenCalledOnce());
+  await expect(
+    client.generateObject({ ...request, prompt: "another" }),
+  ).rejects.toThrow(/Spend limit/);
+  rejectPending(new Error("400 invalid_request_error"));
+  await rejected;
+  generateObjectMock.mockResolvedValueOnce({
+    object: { ok: true },
+    finishReason: "stop",
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+  } as never);
+  await expect(client.generateObject(request)).resolves.toBeDefined();
+  expect(generateObjectMock).toHaveBeenCalledTimes(2);
+});
+
+it("reserves a cache write even after a successful warm-prefix call and after expiry", async () => {
+  generateObjectMock.mockReset();
+  generateObjectMock.mockResolvedValue({
+    object: { ok: true },
+    finishReason: "stop",
+    usage: {
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      inputTokenDetails: {
+        noCacheTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 10,
+      },
+    },
+  } as never);
+  let spent = 0;
+  const client = createLLMClient({
+    apiKey: "test-key",
+    defaultModel: "claude-sonnet-5-5",
+    spendLimit: {
+      maxUsd: 0.5,
+      spentUsd: () => spent,
+      reserveDirectRequests: true,
+    },
+  });
+  const request = {
+    schema: anySchema,
+    purpose: "adjudication" as const,
+    promptPrefix: "x".repeat(100000),
+    promptSuffix: "first",
+    maxOutputTokens: 10,
+  };
+  await client.generateObject(request);
+  spent = 0.42;
+  await expect(
+    client.generateObject({ ...request, promptSuffix: "warm" }),
+  ).rejects.toThrow(/Spend limit/);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 600000);
+  try {
+    await expect(
+      client.generateObject({ ...request, promptSuffix: "expired" }),
+    ).rejects.toThrow(/Spend limit/);
+  } finally {
+    clock.mockRestore();
+  }
+  expect(generateObjectMock).toHaveBeenCalledOnce();
+});
+
+it("checks the direct reservation again before a retry", async () => {
+  generateObjectMock.mockReset();
+  let spent = 0;
+  generateObjectMock.mockImplementationOnce(() => {
+    spent = 0.19;
+    return Promise.reject(new Error("429 rate limit"));
+  });
+  const client = createLLMClient({
+    apiKey: "test-key",
+    defaultModel: "claude-sonnet-5-5",
+    spendLimit: {
+      maxUsd: 0.2,
+      spentUsd: () => spent,
+      reserveDirectRequests: true,
+    },
+  });
+  await expect(
+    client.generateObject({
+      schema: anySchema,
+      purpose: "adjudication",
+      prompt: "p",
+      maxOutputTokens: 9000,
+    }),
+  ).rejects.toThrow(/Spend limit/);
+  expect(generateObjectMock).toHaveBeenCalledOnce();
 });

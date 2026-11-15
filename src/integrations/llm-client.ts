@@ -61,7 +61,9 @@ export type LLMPurpose =
   | "citation-role-classification"
   | "seed-grounding"
   | "evidence-rerank"
-  | "adjudication";
+  | "adjudication"
+  | "chain-claim-matching"
+  | "seed-claim-matching";
 
 export type LLMProviderErrorClass =
   | "billing_or_quota"
@@ -96,6 +98,8 @@ export const llmCallRecordSchema = z
       "seed-grounding",
       "evidence-rerank",
       "adjudication",
+      "chain-claim-matching",
+      "seed-claim-matching",
     ]),
     model: z.string(),
     servedModel: z.string().optional(),
@@ -304,7 +308,12 @@ export type CreateLLMClientOptions = {
    * and are billed: concurrency bounds how far past the limit a run can go.
    * Exact-cache hits cost nothing and are still served.
    */
-  spendLimit?: { maxUsd: number; spentUsd: () => number };
+  spendLimit?: {
+    maxUsd: number;
+    spentUsd: () => number;
+    /** Also reserve estimated input and the full output ceiling for direct calls. */
+    reserveDirectRequests?: boolean;
+  };
   /**
    * Send Messages requests through the Message Batches API at half price
    * (see `batch-transport.ts`). With a `database`, submitted requests are
@@ -514,7 +523,7 @@ export function classifyProviderError(error: unknown): {
   }
 
   if (
-    /invalid_request_error|output_config|is not supported|invalid schema|\b400\b/i.test(
+    /invalid_request_error|output_config|is not supported|invalid schema|schema is too complex for compilation|compiled grammar.*too large|simplify your tool schemas|\b400\b/i.test(
       normalized,
     )
   ) {
@@ -563,6 +572,7 @@ const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
   Record<LLMPurpose, PromptCachePolicy>
 > = {
   "seed-grounding": SHARED_SEED_TEXT_POLICY,
+  "seed-claim-matching": SHARED_SEED_TEXT_POLICY,
   adjudication: SHARED_SEED_TEXT_POLICY,
 };
 
@@ -944,12 +954,12 @@ export function estimateExpectedRequestUsd(params: {
   uncachedChars: number;
   outputTokens: number;
   batch: boolean;
+  charsPerToken?: number;
 }): number {
-  const prefixTokens = Math.ceil(
-    params.cachedPrefixChars / RESERVATION_CHARS_PER_TOKEN,
-  );
+  const charsPerToken = params.charsPerToken ?? RESERVATION_CHARS_PER_TOKEN;
+  const prefixTokens = Math.ceil(params.cachedPrefixChars / charsPerToken);
   const uncachedTokens =
-    Math.ceil(params.uncachedChars / RESERVATION_CHARS_PER_TOKEN) +
+    Math.ceil(params.uncachedChars / charsPerToken) +
     RESERVATION_OVERHEAD_TOKENS;
   return estimateAnthropicUsd(
     params.model,
@@ -1386,6 +1396,33 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
             // ones are all queued before any is billed, so each also reserves its
             // ceiling cost until its real cost is recorded.
             let reservation = 0;
+            const directReservation = () => {
+              const prefix =
+                promptInput.cacheControl != null
+                  ? params.promptPrefix
+                  : undefined;
+              return {
+                cost: estimateExpectedRequestUsd({
+                  model: modelId,
+                  cachedPrefixChars: prefix?.length ?? 0,
+                  prefixBilling:
+                    promptInput.cacheControl?.ttl === "1h"
+                      ? "write_1h"
+                      : "write_5m",
+                  uncachedChars:
+                    resolveFullPrompt(params).length -
+                    (prefix?.length ?? 0) +
+                    JSON.stringify(toProviderJsonSchema(params.schema)).length,
+                  outputTokens: maxOutputTokens,
+                  batch: false,
+                  // Reserve a cache write even for warm prefixes: expiry and eviction cannot bypass the cap.
+                  // Still an estimate, not a provider token count.
+                  charsPerToken: 2,
+                }),
+              };
+            };
+            if (limit?.reserveDirectRequests && !batching)
+              reservation = directReservation().cost;
             if (limit && batching) {
               const cachedPrefix =
                 promptInput.cacheControl != null && params.promptPrefix != null
@@ -1431,7 +1468,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
               }
               if (spent + reservedUsd + reservation > limit.maxUsd) {
                 throw new LLMProviderError(
-                  `Spend limit reached: estimated $${spent.toFixed(2)} spent and an expected $${(reservedUsd + reservation).toFixed(2)} queued in batches would pass $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
+                  `Spend limit reached: estimated $${spent.toFixed(2)} spent and $${(reservedUsd + reservation).toFixed(2)} reserved for requests would pass $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
                   "spend_limit",
                   true,
                 );
@@ -1457,6 +1494,20 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
                       if (limit && limit.spentUsd() >= limit.maxUsd)
                         throw new LLMProviderError(
                           "Spend limit reached before the next model attempt",
+                          "spend_limit",
+                          true,
+                        );
+                      if (
+                        limit?.reserveDirectRequests &&
+                        !batching &&
+                        limit.spentUsd() +
+                          reservedUsd -
+                          reservation +
+                          directReservation().cost >
+                          limit.maxUsd
+                      )
+                        throw new LLMProviderError(
+                          "Spend limit reached before the next reserved model attempt",
                           "spend_limit",
                           true,
                         );
