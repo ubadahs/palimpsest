@@ -17,10 +17,9 @@ function loadFixture(name: string): unknown {
 
 describe("resolveWorkByDoi", () => {
   it("asks OpenAlex only for the fields it reads", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(loadFixture("work-response.json")),
-    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(Response.json(loadFixture("work-response.json")));
     vi.stubGlobal("fetch", fetchMock);
 
     await resolveWorkByDoi("10.1101/2024.01.01.000001", "https://api.test");
@@ -34,13 +33,7 @@ describe("resolveWorkByDoi", () => {
 
   it("transforms an OpenAlex work response into a ResolvedPaper", async () => {
     const fixture = loadFixture("work-response.json");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(fixture),
-      }),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(fixture)));
 
     const result = await resolveWorkByDoi(
       "10.1101/2024.01.01.000001",
@@ -84,28 +77,26 @@ describe("resolveWorkByDoi", () => {
   it("keeps direct PDF URLs separate from landing pages", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            id: "https://openalex.org/W999",
-            doi: "https://doi.org/10.1234/direct-pdf",
-            display_name: "Direct PDF Paper",
-            authorships: [],
-            open_access: {
-              is_oa: true,
-              oa_url: "https://example.com/landing",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          id: "https://openalex.org/W999",
+          doi: "https://doi.org/10.1234/direct-pdf",
+          display_name: "Direct PDF Paper",
+          authorships: [],
+          open_access: {
+            is_oa: true,
+            oa_url: "https://example.com/landing",
+          },
+          primary_location: {
+            landing_page_url: "https://example.com/landing",
+            pdf_url: "https://example.com/paper.pdf",
+            source: {
+              display_name: "Example Publisher",
+              type: "journal",
             },
-            primary_location: {
-              landing_page_url: "https://example.com/landing",
-              pdf_url: "https://example.com/paper.pdf",
-              source: {
-                display_name: "Example Publisher",
-                type: "journal",
-              },
-            },
-          }),
-      }),
+          },
+        }),
+      ),
     );
 
     const result = await resolveWorkByDoi(
@@ -131,47 +122,44 @@ describe("resolveWorkByDoi", () => {
   it("lists the work's other open-access locations after the primary one", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            id: "https://openalex.org/W997",
-            doi: "https://doi.org/10.1000/journal-with-preprint",
-            display_name: "Journal Article With Preprint",
-            authorships: [],
-            open_access: {
-              is_oa: true,
-              oa_url: "https://publisher.example.org/article/10.0000/x",
-            },
-            primary_location: {
+      vi.fn().mockResolvedValue(
+        Response.json({
+          id: "https://openalex.org/W997",
+          doi: "https://doi.org/10.1000/journal-with-preprint",
+          display_name: "Journal Article With Preprint",
+          authorships: [],
+          open_access: {
+            is_oa: true,
+            oa_url: "https://publisher.example.org/article/10.0000/x",
+          },
+          primary_location: {
+            is_oa: true,
+            landing_page_url: "https://publisher.example.org/article/10.0000/x",
+            pdf_url: null,
+            source: { display_name: "JCAP", type: "journal" },
+          },
+          locations: [
+            {
               is_oa: true,
               landing_page_url:
                 "https://publisher.example.org/article/10.0000/x",
               pdf_url: null,
-              source: { display_name: "JCAP", type: "journal" },
             },
-            locations: [
-              {
-                is_oa: true,
-                landing_page_url:
-                  "https://publisher.example.org/article/10.0000/x",
-                pdf_url: null,
-              },
-              {
-                is_oa: true,
-                landing_page_url: "https://arxiv.org/abs/2101.00001",
-                pdf_url: "https://arxiv.org/pdf/2101.00001v2",
-                source: { display_name: "arXiv", type: "repository" },
-              },
-              {
-                is_oa: false,
-                landing_page_url: "https://closed.example.com/x",
-                pdf_url: "https://closed.example.com/x.pdf",
-              },
-              null,
-            ],
-          }),
-      }),
+            {
+              is_oa: true,
+              landing_page_url: "https://arxiv.org/abs/2101.00001",
+              pdf_url: "https://arxiv.org/pdf/2101.00001v2",
+              source: { display_name: "arXiv", type: "repository" },
+            },
+            {
+              is_oa: false,
+              landing_page_url: "https://closed.example.com/x",
+              pdf_url: "https://closed.example.com/x.pdf",
+            },
+            null,
+          ],
+        }),
+      ),
     );
 
     const result = await resolveWorkByDoi(
@@ -206,28 +194,26 @@ describe("resolveWorkByDoi", () => {
   it("does not promote landing pages to direct PDF URLs", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            id: "https://openalex.org/W998",
-            doi: "https://doi.org/10.1234/landing-only",
-            display_name: "Landing Page Only",
-            authorships: [],
-            open_access: {
-              is_oa: true,
-              oa_url: "https://example.com/landing",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          id: "https://openalex.org/W998",
+          doi: "https://doi.org/10.1234/landing-only",
+          display_name: "Landing Page Only",
+          authorships: [],
+          open_access: {
+            is_oa: true,
+            oa_url: "https://example.com/landing",
+          },
+          primary_location: {
+            landing_page_url: "https://example.com/landing",
+            pdf_url: null,
+            source: {
+              display_name: "Example Publisher",
+              type: "journal",
             },
-            primary_location: {
-              landing_page_url: "https://example.com/landing",
-              pdf_url: null,
-              source: {
-                display_name: "Example Publisher",
-                type: "journal",
-              },
-            },
-          }),
-      }),
+          },
+        }),
+      ),
     );
 
     const result = await resolveWorkByDoi(
@@ -256,10 +242,7 @@ describe("resolveWorkByDoi", () => {
 describe("getCitingWorks", () => {
   it("returns resolved papers from citing-works response", async () => {
     const fixture = loadFixture("citing-works-response.json");
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(fixture),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(fixture));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getCitingWorks(
@@ -303,10 +286,7 @@ describe("getCitingWorks", () => {
 
   it("reports truncated coverage when the observation limit stops pagination early", async () => {
     const page1 = loadFixture("citing-works-page1.json");
-    const fetchMock = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve(page1),
-    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(page1));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getCitingWorks(
@@ -330,7 +310,7 @@ describe("getCitingWorks", () => {
   it("propagates a page fetch failure without fabricating partial results", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 404 }),
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
     );
 
     const result = await getCitingWorks(
@@ -348,10 +328,7 @@ describe("resolveWorkByDoi error handling", () => {
   it("returns an error for HTTP failures", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-      }),
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
     );
 
     const result = await resolveWorkByDoi(
@@ -369,10 +346,7 @@ describe("resolveWorkByDoi error handling", () => {
   it("returns an error for malformed responses", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ garbage: true }),
-      }),
+      vi.fn().mockResolvedValue(Response.json({ garbage: true })),
     );
 
     const result = await resolveWorkByDoi(
@@ -408,10 +382,7 @@ describe("getCitingWorks over a large neighborhood", () => {
       // A reorder between requests can push a work seen on page 1 onto page 2.
       if (options.repeatAcrossPages && page === 2) start -= 1;
       const size = Math.max(0, Math.min(perPage, total - start));
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(syntheticPage(start, size)),
-      });
+      return Promise.resolve(Response.json(syntheticPage(start, size)));
     });
   }
 

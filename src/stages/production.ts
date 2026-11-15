@@ -1,3 +1,4 @@
+import { rethrowTraceError } from "../telemetry/trace.js";
 /**
  * What every stage's production adapter shares: its dependencies, the session
  * that carries resolved papers between stages, failure mapping, and the
@@ -177,6 +178,7 @@ export function mapLlmFailureCode(error: unknown): {
   /** Raw model text, when the provider answered but the reply was unusable. */
   responseText?: string;
 } {
+  rethrowTraceError(error);
   const classified = classifyProviderError(error);
   const reason = classified.message;
   if (

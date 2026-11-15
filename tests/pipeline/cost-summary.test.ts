@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createRunCostTracker,
-  mergeCostSummaries,
+  rebuildRunCostSummary,
+  readPersistedCalls,
   summarizeLedgerByStage,
 } from "../../src/pipeline/cost-summary.js";
 import type { LLMRunLedger } from "../../src/integrations/llm-client.js";
@@ -70,16 +71,6 @@ describe("run cost summary", () => {
       first.byStage.map((stage) => [stage.stage, stage.batchCalls]),
     );
     expect(byStage).toEqual({ adjudicate: 1, scope: undefined });
-
-    const merged = mergeCostSummaries(
-      first,
-      summarizeLedgerByStage(
-        ledgerOf([call({ stageKey: "adjudicate", transport: "batch" })]),
-      ),
-    );
-    expect(
-      merged.byStage.find((stage) => stage.stage === "adjudicate")?.batchCalls,
-    ).toBe(2);
   });
 
   it("attributes cache reads and writes to the stage that made the call", () => {
@@ -116,88 +107,6 @@ describe("run cost summary", () => {
         cacheWriteTokens: 0,
       },
     );
-  });
-
-  it("adds a resume attempt to what an earlier attempt already spent", () => {
-    const first = summarizeLedgerByStage(
-      ledgerOf([call({ stageKey: "discover", estimatedCostUsd: 0.5 })]),
-    );
-    first.byPurpose = {
-      "attributed-claim-extraction": {
-        attempted: 1,
-        successful: 1,
-        failed: 0,
-        billable: 1,
-        exactCacheHits: 0,
-        inputTokens: 100,
-        outputTokens: 10,
-        reasoningTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        estimatedCostUsd: 0.5,
-      },
-    };
-    const resume = summarizeLedgerByStage(
-      ledgerOf([
-        call({
-          stageKey: "discover",
-          estimatedCostUsd: 0.25,
-          exactCacheHit: true,
-          cacheReadTokens: 900,
-        }),
-        call({ stageKey: "adjudicate", estimatedCostUsd: 2 }),
-      ]),
-    );
-    resume.byPurpose = {
-      "attributed-claim-extraction": {
-        attempted: 1,
-        successful: 1,
-        failed: 0,
-        billable: 1,
-        exactCacheHits: 1,
-        inputTokens: 100,
-        outputTokens: 10,
-        reasoningTokens: 0,
-        cacheReadTokens: 900,
-        cacheWriteTokens: 0,
-        estimatedCostUsd: 0.25,
-      },
-      adjudication: {
-        attempted: 1,
-        successful: 1,
-        failed: 0,
-        billable: 1,
-        exactCacheHits: 0,
-        inputTokens: 100,
-        outputTokens: 10,
-        reasoningTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        estimatedCostUsd: 2,
-      },
-    };
-
-    const merged = mergeCostSummaries(first, resume);
-
-    expect(merged.totalEstimatedCostUsd).toBeCloseTo(2.75);
-    expect(merged.totalCalls).toBe(3);
-    expect(merged.totalExactCacheHits).toBe(1);
-    expect(merged.totalCacheReadTokens).toBe(900);
-    expect(merged.byStage.find((s) => s.stage === "discover")).toMatchObject({
-      calls: 2,
-      estimatedCostUsd: 0.75,
-      exactCacheHits: 1,
-      cacheReadTokens: 900,
-    });
-    expect(merged.byPurpose["attributed-claim-extraction"]).toMatchObject({
-      attempted: 2,
-      estimatedCostUsd: 0.75,
-      cacheReadTokens: 900,
-    });
-    expect(merged.byPurpose.adjudication).toMatchObject({
-      attempted: 1,
-      estimatedCostUsd: 2,
-    });
   });
 });
 
@@ -243,10 +152,12 @@ describe("run cost tracker", () => {
 
   it("counts an earlier attempt once however often a resume writes", () => {
     const root = runRoot();
-    const first = summarizeLedgerByStage(
-      ledgerOf([call({ stageKey: "discover", estimatedCostUsd: 1 })]),
+    const first = createRunCostTracker(root);
+    first.collector.recordCall(
+      call({ stageKey: "discover", estimatedCostUsd: 1 }),
     );
-    writeFileSync(join(root, "cost-summary.json"), JSON.stringify(first));
+    // The journal, not this stale projection, supplies the resume baseline.
+    writeFileSync(join(root, "cost-summary.json"), "{}");
 
     const resume = createRunCostTracker(root);
     for (let index = 0; index < 3; index++) {
@@ -261,5 +172,32 @@ describe("run cost tracker", () => {
     expect(onDisk(root).totalEstimatedCostUsd).toBeCloseTo(1.3);
     expect(onDisk(root).totalCalls).toBe(4);
     expect(resume.spentUsd()).toBeCloseTo(1.3);
+  });
+  it("recovers costs after a missing summary and flags unknown usage", () => {
+    const root = runRoot();
+    const tracker = createRunCostTracker(root);
+    tracker.collector.recordCall(
+      call({
+        billingStatus: "unknown",
+        usageStatus: "missing",
+        estimatedCostUsd: 0,
+      }),
+    );
+    rmSync(join(root, "cost-summary.json"));
+    const rebuilt = rebuildRunCostSummary(root);
+    expect(rebuilt).toMatchObject({
+      totalCalls: 1,
+      totalEstimatedCostUsd: 0,
+      unknownCostCalls: 1,
+    });
+    expect(readPersistedCalls(root)).toHaveLength(1);
+    expect(createRunCostTracker(root).spentUsd()).toBe(0);
+  });
+
+  it("does not silently mix summary-only historical costs with audited calls", () => {
+    const root = runRoot();
+    writeFileSync(join(root, "cost-summary.json"), "{}");
+    expect(() => createRunCostTracker(root)).toThrow("summary-only telemetry");
+    expect(readFileSync(join(root, "cost-summary.json"), "utf8")).toBe("{}");
   });
 });

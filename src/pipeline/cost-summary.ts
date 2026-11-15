@@ -1,80 +1,114 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  createTraceSession,
+  readTraceEvents,
+  inspectTrace,
+  TracePersistenceError,
+  type TraceSession,
+} from "../telemetry/trace.js";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 
-import { createLLMTelemetryCollector } from "../integrations/llm-client.js";
+import {
+  createLLMTelemetryCollector,
+  buildLedger,
+  llmCallRecordSchema,
+} from "../integrations/llm-client.js";
 import type {
   LLMRunLedger,
+  LLMCallRecord,
   LLMTelemetryCollector,
 } from "../integrations/llm-client.js";
 
 export type RunCostTracker = {
-  /** Pass to the LLM client: each call it records rewrites the summary. */
+  trace: TraceSession;
   collector: LLMTelemetryCollector;
-  /** Estimated spend so far, earlier attempts included. */
   spentUsd: () => number;
-  /**
-   * Writes the summary for `ledger` and returns it for the whole run and for
-   * this attempt alone. Unlike the per-call write, a failure here throws.
-   */
   write: (ledger: LLMRunLedger) => {
     run: RunCostSummary;
     attempt: RunCostSummary;
   };
 };
 
-/**
- * Keeps `cost-summary.json` current while a run is going, so spend can be
- * watched as it happens rather than read once at the end. A resume opens a
- * fresh client whose ledger covers only what it re-runs, so the earlier
- * attempts' summary is read once, here, and every write is that baseline plus
- * this attempt. Merging into the file on each write would count calls twice.
- */
+/** The journal is authoritative; cost-summary.json is a replaceable projection. */
 export function createRunCostTracker(runRoot: string): RunCostTracker {
   const path = resolve(runRoot, "cost-summary.json");
-  const baseline = readCostSummary(path);
+  const trace = createTraceSession(runRoot, { runId: basename(runRoot) });
+  const saved = readPersistedCalls(runRoot);
+  if (existsSync(path) && !existsSync(resolve(runRoot, "traces", "sessions"))) {
+    throw new Error(
+      "This run has summary-only telemetry. Start a new run; its historical cost summary is left untouched.",
+    );
+  }
+  const calls = new Map(saved.map((c) => [c.callId!, c]));
   const telemetry = createLLMTelemetryCollector();
-  let attemptUsd = 0;
-
   function write(ledger: LLMRunLedger) {
+    for (const call of ledger.calls) {
+      call.callId ??= randomUUID();
+      trace.recordCall(call.callId, call);
+      calls.set(call.callId, call);
+    }
+    const run = summarizeLedgerByStage(buildLedger([...calls.values()]));
     const attempt = summarizeLedgerByStage(ledger);
-    const run = baseline ? mergeCostSummaries(baseline, attempt) : attempt;
-    // Written beside the file and renamed over it, so a reader polling the
-    // summary never sees half a file.
-    const temporary = `${path}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+    const temporary = `${path}.${trace.sessionId}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(run, null, 2)}\n`, {
+      flush: true,
+    });
     renameSync(temporary, path);
     return { run, attempt };
   }
-
   return {
+    trace,
     collector: {
+      trace,
       recordCall(record) {
+        record.callId ??= randomUUID();
+        trace.recordCall(record.callId, record);
         telemetry.recordCall(record);
-        attemptUsd += record.estimatedCostUsd;
+        calls.set(record.callId, record);
+        // The durable record already exists. A summary failure stops the run
+        // rather than allowing unmetered spend; rebuilding reads the journal.
         try {
           write(telemetry.getLedger());
-        } catch {
-          // The client records a call inside its own error handling, so a
-          // throw here would be reported as the provider failing. The write
-          // at the end of the stage still surfaces a real disk problem.
+        } catch (cause) {
+          throw new TracePersistenceError(
+            "Cannot update the run cost projection",
+            { cause },
+          );
         }
       },
       getLedger: telemetry.getLedger,
     },
-    spentUsd: () => (baseline?.totalEstimatedCostUsd ?? 0) + attemptUsd,
+    spentUsd: () =>
+      [...calls.values()].reduce((sum, call) => sum + call.estimatedCostUsd, 0),
     write,
   };
 }
 
-function readCostSummary(path: string): RunCostSummary | undefined {
-  if (!existsSync(path)) return undefined;
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as RunCostSummary;
-  } catch {
-    // An unreadable summary from an earlier attempt must not fail the run;
-    // this attempt's numbers are still worth writing.
-    return undefined;
+export function readPersistedCalls(runRoot: string): LLMCallRecord[] {
+  const calls = new Map<string, LLMCallRecord>();
+  for (const event of readTraceEvents(runRoot).events) {
+    if (event.kind !== "llm" || event.name !== "usage") continue;
+    const call = llmCallRecordSchema.parse(event.data);
+    if (!call.callId)
+      throw new Error("Persisted model call is missing its call id");
+    calls.set(call.callId, call);
   }
+  return [...calls.values()];
+}
+
+export function rebuildRunCostSummary(runRoot: string): RunCostSummary {
+  const audit = inspectTrace(runRoot);
+  const summary = summarizeLedgerByStage(
+    buildLedger(readPersistedCalls(runRoot)),
+  );
+  return {
+    ...summary,
+    incompleteOperations: audit.incomplete.length,
+    incompleteJournals: audit.incompleteJournals.length,
+    unresolvedModelAttempts: audit.unresolvedModelAttempts,
+    unpricedExternalCalls: audit.unpricedExternalCalls,
+  };
 }
 
 type RunCostStageSummary = {
@@ -96,6 +130,21 @@ type RunCostStageSummary = {
 };
 
 export type RunCostSummary = {
+  unknownCostCalls: number;
+  incompleteOperations?: number;
+  incompleteJournals?: number;
+  unresolvedModelAttempts?: number;
+  unpricedExternalCalls?: number;
+  byModel: Record<
+    string,
+    {
+      calls: number;
+      inputTokens: number;
+      outputTokens: number;
+      estimatedCostUsd: number;
+      unknownCostCalls: number;
+    }
+  >;
   totalEstimatedCostUsd: number;
   totalCalls: number;
   totalAttemptedCalls: number;
@@ -126,12 +175,35 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
     if (call.transport === "batch") {
       existing.batchCalls = (existing.batchCalls ?? 0) + 1;
     }
-    existing.cacheReadTokens += call.cacheReadTokens ?? 0;
-    existing.cacheWriteTokens += call.cacheWriteTokens ?? 0;
+    existing.cacheReadTokens += call.sharedResponse
+      ? 0
+      : (call.cacheReadTokens ?? 0);
+    existing.cacheWriteTokens += call.sharedResponse
+      ? 0
+      : (call.cacheWriteTokens ?? 0);
     stageMap.set(stage, existing);
   }
 
+  const byModel: RunCostSummary["byModel"] = {};
+  for (const call of ledger.calls) {
+    const model = call.servedModel ?? call.model;
+    const row = (byModel[model] ??= {
+      calls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCostUsd: 0,
+      unknownCostCalls: 0,
+    });
+    row.calls++;
+    row.inputTokens += call.sharedResponse ? 0 : call.inputTokens;
+    row.outputTokens += call.sharedResponse ? 0 : call.outputTokens;
+    row.estimatedCostUsd += call.estimatedCostUsd;
+    if (call.billingStatus === "unknown") row.unknownCostCalls++;
+  }
   return {
+    unknownCostCalls: ledger.calls.filter((c) => c.billingStatus === "unknown")
+      .length,
+    byModel,
     totalEstimatedCostUsd: ledger.totalEstimatedCostUsd,
     totalCalls: ledger.totalCalls,
     totalAttemptedCalls: ledger.totalAttemptedCalls,
@@ -146,86 +218,6 @@ export function summarizeLedgerByStage(ledger: LLMRunLedger): RunCostSummary {
     ),
     byPurpose: ledger.byPurpose,
     generatedAt: new Date().toISOString(),
-  };
-}
-
-/**
- * A resume opens a fresh client, so its ledger covers only the stages it
- * re-ran. Overwriting would silently erase what the earlier attempt spent, and
- * the run's total cost is the sum of both attempts.
- */
-export function mergeCostSummaries(
-  previous: RunCostSummary,
-  next: RunCostSummary,
-): RunCostSummary {
-  const byStage = new Map<string, RunCostStageSummary>();
-  for (const stage of [...previous.byStage, ...next.byStage]) {
-    const existing = byStage.get(stage.stage) ?? emptyStageSummary(stage.stage);
-    byStage.set(stage.stage, {
-      stage: stage.stage,
-      estimatedCostUsd: existing.estimatedCostUsd + stage.estimatedCostUsd,
-      calls: existing.calls + stage.calls,
-      attemptedCalls: existing.attemptedCalls + stage.attemptedCalls,
-      successfulCalls: existing.successfulCalls + stage.successfulCalls,
-      failedCalls: existing.failedCalls + stage.failedCalls,
-      billableCalls: existing.billableCalls + stage.billableCalls,
-      exactCacheHits: existing.exactCacheHits + stage.exactCacheHits,
-      ...(existing.batchCalls != null || stage.batchCalls != null
-        ? { batchCalls: (existing.batchCalls ?? 0) + (stage.batchCalls ?? 0) }
-        : {}),
-      cacheReadTokens: existing.cacheReadTokens + stage.cacheReadTokens,
-      cacheWriteTokens: existing.cacheWriteTokens + stage.cacheWriteTokens,
-    });
-  }
-
-  const byPurpose: LLMRunLedger["byPurpose"] = {};
-  for (const source of [previous.byPurpose, next.byPurpose]) {
-    for (const [purpose, summary] of Object.entries(source) as [
-      keyof LLMRunLedger["byPurpose"],
-      NonNullable<LLMRunLedger["byPurpose"][keyof LLMRunLedger["byPurpose"]]>,
-    ][]) {
-      const existing = byPurpose[purpose];
-      byPurpose[purpose] = existing
-        ? {
-            attempted: existing.attempted + summary.attempted,
-            successful: existing.successful + summary.successful,
-            failed: existing.failed + summary.failed,
-            billable: existing.billable + summary.billable,
-            exactCacheHits: existing.exactCacheHits + summary.exactCacheHits,
-            inputTokens: existing.inputTokens + summary.inputTokens,
-            outputTokens: existing.outputTokens + summary.outputTokens,
-            reasoningTokens: existing.reasoningTokens + summary.reasoningTokens,
-            cacheReadTokens: existing.cacheReadTokens + summary.cacheReadTokens,
-            cacheWriteTokens:
-              existing.cacheWriteTokens + summary.cacheWriteTokens,
-            estimatedCostUsd:
-              existing.estimatedCostUsd + summary.estimatedCostUsd,
-          }
-        : { ...summary };
-    }
-  }
-
-  return {
-    totalEstimatedCostUsd:
-      previous.totalEstimatedCostUsd + next.totalEstimatedCostUsd,
-    totalCalls: previous.totalCalls + next.totalCalls,
-    totalAttemptedCalls:
-      previous.totalAttemptedCalls + next.totalAttemptedCalls,
-    totalSuccessfulCalls:
-      previous.totalSuccessfulCalls + next.totalSuccessfulCalls,
-    totalFailedCalls: previous.totalFailedCalls + next.totalFailedCalls,
-    totalBillableCalls: previous.totalBillableCalls + next.totalBillableCalls,
-    totalExactCacheHits:
-      previous.totalExactCacheHits + next.totalExactCacheHits,
-    totalCacheReadTokens:
-      previous.totalCacheReadTokens + next.totalCacheReadTokens,
-    totalCacheWriteTokens:
-      previous.totalCacheWriteTokens + next.totalCacheWriteTokens,
-    byStage: [...byStage.values()].sort((a, b) =>
-      a.stage.localeCompare(b.stage),
-    ),
-    byPurpose,
-    generatedAt: next.generatedAt,
   };
 }
 

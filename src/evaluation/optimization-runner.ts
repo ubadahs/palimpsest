@@ -1,3 +1,8 @@
+import {
+  rethrowTraceError,
+  traceOperation,
+  withTraceOwner,
+} from "../telemetry/trace.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -446,7 +451,23 @@ export function optimizationStatus(id: string) {
   };
 }
 
-export async function runJevOptimization(
+export function runJevOptimization(
+  id: string,
+  datasetId: string,
+  config: ExperimentConfig,
+  transport: JevTransport = fetchJev,
+) {
+  return withTraceOwner(experimentDir(id), { experimentId: id }, () =>
+    traceOperation(
+      "evaluation",
+      "optimization",
+      { experimentId: id, datasetId, config },
+      () => runJevOptimizationImpl(id, datasetId, config, transport),
+    ),
+  );
+}
+
+async function runJevOptimizationImpl(
   id: string,
   datasetId: string,
   config: ExperimentConfig,
@@ -913,6 +934,7 @@ export async function runJevOptimization(
           }
           retryWaitMs = Math.max(response.retryAfterMs ?? 0, backoff);
         } catch (error) {
+          rethrowTraceError(error);
           const interrupted = controller.signal.aborted;
           atomicJson(attemptPath(id, attemptId), {
             ...record,

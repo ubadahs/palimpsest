@@ -9,6 +9,8 @@
  * Paper acquisition caching stays in paper-cache.ts.
  */
 
+import { z } from "zod";
+
 import { createHash } from "node:crypto";
 
 import type Database from "better-sqlite3";
@@ -63,7 +65,14 @@ export function computeLLMCacheKey(input: LLMCacheKeyInput): string {
 // Read / write
 // ---------------------------------------------------------------------------
 
+const originSchema = z.object({
+  callId: z.string(),
+  traceRoot: z.string(),
+  servedModel: z.string().optional(),
+});
+
 export type CachedLLMResult = {
+  origin?: z.infer<typeof originSchema>;
   cacheKey: string;
   responseText: string;
   createdAt: string;
@@ -91,6 +100,9 @@ export function getCachedLLMResult(
     responseText: row["response_text"] as string,
     createdAt: row["created_at"] as string,
     lastHitAt: now,
+    ...(typeof row["trace_origin"] === "string"
+      ? { origin: originSchema.parse(JSON.parse(row["trace_origin"])) }
+      : {}),
   };
 }
 
@@ -116,10 +128,16 @@ export function storeLLMResult(
   entry: Omit<CachedLLMResult, "lastHitAt">,
 ): void {
   db.prepare(
-    `INSERT INTO llm_result_cache (cache_key, response_text, created_at)
-     VALUES (?, ?, ?)
+    `INSERT INTO llm_result_cache (cache_key, response_text, created_at, trace_origin)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(cache_key) DO UPDATE SET
        response_text = excluded.response_text,
-       created_at = excluded.created_at`,
-  ).run(entry.cacheKey, entry.responseText, entry.createdAt);
+       created_at = excluded.created_at,
+       trace_origin = excluded.trace_origin`,
+  ).run(
+    entry.cacheKey,
+    entry.responseText,
+    entry.createdAt,
+    entry.origin ? JSON.stringify(entry.origin) : null,
+  );
 }

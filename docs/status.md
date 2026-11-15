@@ -109,10 +109,12 @@ Live smoke (`tests/live/`, `npm run test:live-smoke`) is manual/nightly and non-
   - The provider receives a constraint-free copy of the schema (Anthropic rejects bounds, `oneOf`, and defaults), and the reply is validated locally against the full Zod schema.
   - A reply that fails the schema or is cut off at the token cap is not retried. Its tokens are still recorded in the ledger and its raw text lands in the failure record.
   - Open questions, each needing one seed re-run: whether Opus adjudicates as well under native structured output, and whether `adjudicate.effort: medium` agrees with `high`.
-- **Instrumented ledger.**
-  - `cost-summary.json` records cache reads and writes per stage and per purpose, and merges across resume attempts, so the prefix-cache claim can be checked rather than inferred.
-  - It is rewritten after every model call, so spend can be watched during a run (the run page shows it live).
-  - `--max-cost` stops a run before it spends past a limit.
+- **Durable centralized telemetry.**
+  - One append-only trace journal captures stage/tool operations, every HTTP attempt, Anthropic retries and cache hits, and Jev requests. Starts, raw responses and usage are flushed immediately; prompts and response payloads are content-addressed beside the journal.
+  - Anthropic records preserve requested/served models, provider ids, raw usage, cache TTL details and versioned estimated pricing. New exact-cache entries link to their original call (migration 0017).
+  - Cost summaries and the UI read this journal. `trace --root <run-or-experiment-directory> --calls` audits saved work offline, including unknown costs, unpriced external calls, incomplete operations and torn appends. Summary-only historical runs require a fresh run for audited work.
+  - Mock-network tests cover the real SDK path, retries, paid invalid outputs, cache provenance and shared batch replies. A SIGKILL test verifies that starts and received-response checkpoints survive process death. No paid run is required for these checks.
+  - `--max-cost` uses the known subtotal, including earlier attempts. Missing provider usage and work already in flight mean it remains approximate.
 - **Side-by-side model calls.**
   - Extraction, grounding, reranking, and adjudication run `modelConcurrency` requests at once (default 6, `--model-concurrency`).
   - Artifacts are identical at any concurrency; only wall time changes.

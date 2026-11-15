@@ -1,3 +1,4 @@
+import { traceOperation, withTraceSession } from "../telemetry/trace.js";
 /**
  * Six-stage pipeline executor.
  *
@@ -1088,20 +1089,29 @@ export async function runPipeline(
 
       try {
         const runner = STAGE_RUNNERS[stageKey];
-        const written = await runner.execute({
-          runId: run.id,
-          runRoot: run.runRoot,
-          recordedAt,
-          runConfig: stageRunConfig,
-          seedDois,
-          doiProvenance,
-          configuration: {
-            contentHash: configProvenance.contentHash,
-            sourceArtifact: configProvenance.sourceArtifact,
-          },
-          adapters,
-          chain,
-        });
+        const written = await withTraceSession(costs.trace, () =>
+          traceOperation(
+            "stage",
+            stageKey,
+            { runId: run.id, stageKey, runConfig: stageRunConfig },
+            () =>
+              runner.execute({
+                runId: run.id,
+                runRoot: run.runRoot,
+                recordedAt,
+                runConfig: stageRunConfig,
+                seedDois,
+                doiProvenance,
+                configuration: {
+                  contentHash: configProvenance.contentHash,
+                  sourceArtifact: configProvenance.sourceArtifact,
+                },
+                adapters,
+                chain,
+              }),
+            { stage: stageKey },
+          ),
+        );
         completedCount = written.completedCount;
         const manifestPath = writeStageManifest(
           written.primaryPath,
@@ -1181,7 +1191,7 @@ export async function runPipeline(
     if (reportPath) log("pipeline", `Report: ${reportPath}`);
     log(
       "pipeline",
-      `Estimated cost: $${cost.totalEstimatedCostUsd.toFixed(2)} over ${String(cost.totalCalls)} model calls`,
+      `Known estimated cost: $${cost.totalEstimatedCostUsd.toFixed(2)} over ${String(cost.totalCalls)} model attempts; ${cost.unknownCostCalls} with unknown charges`,
     );
     return { runId: run.id, runRoot: run.runRoot };
   } catch (error) {

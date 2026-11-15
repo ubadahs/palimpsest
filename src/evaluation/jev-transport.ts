@@ -1,3 +1,5 @@
+import { traceOperation } from "../telemetry/trace.js";
+import { tracedFetch } from "../telemetry/http.js";
 /**
  * The HTTP side of every Jev provider, whichever model it serves: where
  * requests go, the key they carry, one request, how long to back off, and
@@ -123,41 +125,49 @@ export const fetchJev: JevTransport = async (
   body,
   signal,
   timeoutMs,
-) => {
-  const key = process.env[keyEnv(provider)];
-  if (!key) throw new Error(`Missing ${keyEnv(provider)}`);
-  const response = await fetch(jevEndpoint(provider), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${key}`,
+) =>
+  traceOperation(
+    "llm.external",
+    "jev",
+    { provider: provider.id, requestedModel: provider.model, body },
+    async () => {
+      const key = process.env[keyEnv(provider)];
+      if (!key) throw new Error(`Missing ${keyEnv(provider)}`);
+      const response = await tracedFetch(jevEndpoint(provider), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(body),
+        signal:
+          timeoutMs == null
+            ? signal
+            : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
+      });
+      const responseText = await response.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(responseText) as unknown;
+      } catch {
+        parsed = undefined;
+      }
+      const requestId =
+        response.headers.get("x-request-id") ??
+        response.headers.get("x-vercel-id");
+      const retryAfter = retryAfterMs(response.headers.get("retry-after"));
+      return {
+        httpStatus: response.status,
+        ...(requestId ? { providerRequestId: requestId } : {}),
+        ...(retryAfter != null ? { retryAfterMs: retryAfter } : {}),
+        ...(parsed !== undefined ? { body: parsed } : {}),
+        ...(!response.ok || parsed === undefined
+          ? { diagnostics: failureDiagnostics(response, responseText, key) }
+          : {}),
+      };
     },
-    body: JSON.stringify(body),
-    signal:
-      timeoutMs == null
-        ? signal
-        : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-  });
-  const responseText = await response.text();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(responseText) as unknown;
-  } catch {
-    parsed = undefined;
-  }
-  const requestId =
-    response.headers.get("x-request-id") ?? response.headers.get("x-vercel-id");
-  const retryAfter = retryAfterMs(response.headers.get("retry-after"));
-  return {
-    httpStatus: response.status,
-    ...(requestId ? { providerRequestId: requestId } : {}),
-    ...(retryAfter != null ? { retryAfterMs: retryAfter } : {}),
-    ...(parsed !== undefined ? { body: parsed } : {}),
-    ...(!response.ok || parsed === undefined
-      ? { diagnostics: failureDiagnostics(response, responseText, key) }
-      : {}),
-  };
-};
+    { provider: provider.id, model: provider.model },
+  );
 
 function withQuotaLock<T>(
   provider: ProviderConfig,

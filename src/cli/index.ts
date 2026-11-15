@@ -4,6 +4,7 @@ import { runDoctorCommand } from "./commands/doctor.js";
 import { runPipelineCommand } from "./commands/pipeline.js";
 import { runRunsGcCommand } from "./commands/runs-gc.js";
 import { runEvalCommand } from "./commands/eval.js";
+import { runTraceCommand } from "./commands/trace.js";
 import {
   runAuthorReviewExportCommand,
   runAuthorReviewImportCommand,
@@ -19,6 +20,7 @@ Available commands:
   runs:gc       Delete superseded run artifacts and unreferenced provenance blobs
   pipeline      Run the six stages: discover → scope → prepare → evidence → adjudicate → report
   eval          Build datasets, validate, run/resume experiments, and report results
+  trace         Audit saved operations, model usage and incomplete attempts offline
   author-review:export  Write a short HTML review for the seed paper's author
   author-review:import  Read the author's saved answers back in
 `);
@@ -63,6 +65,11 @@ async function main(): Promise<void> {
 
   if (command === "eval") {
     await runEvalCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "trace") {
+    runTraceCommand(process.argv.slice(3));
     return;
   }
 

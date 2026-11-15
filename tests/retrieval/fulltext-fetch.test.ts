@@ -121,10 +121,7 @@ describe("fetchFullText acquisition policy", () => {
             ? { records: [{ pmcid: "PMC0000001" }] }
             : { records: [{ errmsg: "No PMCID found for DOI" }] };
 
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(body),
-        });
+        return Promise.resolve(Response.json(body));
       }),
     );
 

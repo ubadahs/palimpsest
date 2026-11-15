@@ -1,3 +1,4 @@
+export const ANTHROPIC_PRICING_VERSION = "palimpsest-anthropic-rates-v1";
 /** The models a run can name. Each supports adaptive thinking with an effort. */
 export const claudeModelValues = [
   "claude-fable-5-2",
@@ -25,7 +26,7 @@ const PRICING_USD_PER_MILLION: Record<ClaudeModel, ModelPrice> = {
 /** The table's price for a model, if the table names it. */
 export function listedClaudePrice(model: string): ModelPrice | undefined {
   return (PRICING_USD_PER_MILLION as Record<string, ModelPrice | undefined>)[
-    model
+    model.replace(/-\d{8}$/, "")
   ];
 }
 
@@ -63,19 +64,18 @@ export type AnthropicTokenCostUsage = {
 
 /**
  * Rough USD cost from Anthropic token usage. Accepts cache and reasoning breakdown fields. With
- * `batch`, the call was answered through the Message Batches API. A served model id the table
- * does not name (a dated snapshot) is priced as Sonnet.
+ * `batch`, the call was answered through the Message Batches API. Unknown model prices are excluded from the known subtotal.
  */
 export function estimateAnthropicUsd(
   model: string,
   usage: AnthropicTokenCostUsage,
   options?: { batch?: boolean },
 ): number {
-  return costAtPriceUsd(
-    listedClaudePrice(model) ?? PRICING_USD_PER_MILLION["claude-sonnet-5-5"],
-    usage,
-    options,
-  );
+  const price = listedClaudePrice(model);
+  // Unknown prices contribute nothing to the known subtotal; the call's
+  // billingStatus must remain unknown, never "free".
+  if (!price) return 0;
+  return costAtPriceUsd(price, usage, options);
 }
 
 /** USD cost of token usage at the given price, cache and batch rules included. */

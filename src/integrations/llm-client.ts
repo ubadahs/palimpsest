@@ -1,3 +1,13 @@
+import {
+  currentTraceSession,
+  currentTraceSpanId,
+  rethrowTraceError,
+  traceCheckpoint,
+  traceOperation,
+  withTraceSession,
+  type TraceSession,
+} from "../telemetry/trace.js";
+import { tracedFetch } from "../telemetry/http.js";
 /**
  * Centralized LLM client for all Anthropic API calls.
  *
@@ -7,10 +17,11 @@
  *   - Token usage, latency, and estimated cost are captured automatically.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   generateObject,
+  APICallError,
   jsonSchema,
   NoObjectGeneratedError,
   type JSONSchema7,
@@ -18,7 +29,11 @@ import {
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 
-import { estimateAnthropicUsd } from "../shared/anthropic-token-cost.js";
+import {
+  estimateAnthropicUsd,
+  listedClaudePrice,
+  ANTHROPIC_PRICING_VERSION,
+} from "../shared/anthropic-token-cost.js";
 import {
   createBatchTransport,
   TRANSPORT_HEADER,
@@ -33,6 +48,7 @@ import {
   computeLLMCacheKey,
   getCachedLLMResult,
   storeLLMResult,
+  type CachedLLMResult,
 } from "../storage/llm-result-cache.js";
 
 // ---------------------------------------------------------------------------
@@ -70,41 +86,94 @@ type LLMCallContext = {
 
 type LLMTransport = "direct" | "batch";
 
-export type LLMCallRecord = {
-  purpose: LLMPurpose;
-  /** Model the call asked for. */
-  model: string;
-  /** Model the provider says answered; differs when an alias resolves. */
-  servedModel?: string;
-  stageKey?: StageKey;
-  attempted: true;
-  successful: boolean;
-  failed: boolean;
-  billable: boolean;
-  thinkingEffort?: ThinkingEffort;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens?: number;
-  totalTokens: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  /** True when the response came from the persistent exact-result cache. */
-  exactCacheHit?: boolean;
-  /**
-   * How a provider reply arrived: one direct request, or a Message Batches
-   * result billed at half price. How the answer was obtained, never what it
-   * was, so it stays out of result identity like `servedModel`.
-   */
-  transport?: LLMTransport;
-  /** True when the LLM stopped due to max tokens (output truncated). */
-  truncated?: boolean;
-  latencyMs: number;
-  finishReason: string;
-  timestamp: string;
-  estimatedCostUsd: number;
-  providerErrorClass?: LLMProviderErrorClass;
-  errorMessage?: string;
-};
+export const llmCallRecordSchema = z
+  .object({
+    callId: z.string().optional(),
+    purpose: z.enum([
+      "attributed-claim-extraction",
+      "claim-clustering",
+      "citation-role-classification",
+      "seed-grounding",
+      "evidence-rerank",
+      "adjudication",
+    ]),
+    model: z.string(),
+    servedModel: z.string().optional(),
+    stageKey: z
+      .enum([
+        "discover",
+        "scope",
+        "prepare",
+        "evidence",
+        "adjudicate",
+        "report",
+      ])
+      .optional(),
+    attempted: z.literal(true),
+    successful: z.boolean(),
+    failed: z.boolean(),
+    billable: z.boolean(),
+    thinkingEffort: z.enum(["low", "medium", "high", "max"]).optional(),
+    inputTokens: z.number().nonnegative(),
+    outputTokens: z.number().nonnegative(),
+    totalTokens: z.number().nonnegative(),
+    reasoningTokens: z.number().nonnegative().optional(),
+    noCacheInputTokens: z.number().nonnegative().optional(),
+    cacheReadTokens: z.number().nonnegative().optional(),
+    cacheWriteTokens: z.number().nonnegative().optional(),
+    cacheCreation: z
+      .object({
+        ephemeral5mInputTokens: z.number().optional(),
+        ephemeral1hInputTokens: z.number().optional(),
+      })
+      .optional(),
+    rawUsage: z.unknown().optional(),
+    pricing: z
+      .object({
+        version: z.string(),
+        model: z.string(),
+        input: z.number(),
+        output: z.number(),
+        cacheRead: z.number().optional(),
+      })
+      .nullable()
+      .optional(),
+    usageStatus: z.enum(["reported", "missing", "not_sent"]).optional(),
+    billingStatus: z.enum(["billable", "free", "unknown"]).optional(),
+    providerRequestId: z.string().optional(),
+    providerResponseId: z.string().optional(),
+    cacheOrigin: z
+      .object({
+        callId: z.string(),
+        traceRoot: z.string(),
+        servedModel: z.string().optional(),
+      })
+      .optional(),
+    sharedResponse: z.boolean().optional(),
+    exactCacheHit: z.boolean().optional(),
+    transport: z.enum(["direct", "batch"]).optional(),
+    truncated: z.boolean().optional(),
+    latencyMs: z.number(),
+    finishReason: z.string(),
+    timestamp: z.string(),
+    estimatedCostUsd: z.number().nonnegative(),
+    providerErrorClass: z
+      .enum([
+        "billing_or_quota",
+        "authentication",
+        "authorization",
+        "rate_limit",
+        "network_or_transport",
+        "invalid_request",
+        "malformed_output",
+        "spend_limit",
+        "unknown",
+      ])
+      .optional(),
+    errorMessage: z.string().optional(),
+  })
+  .strict();
+export type LLMCallRecord = z.infer<typeof llmCallRecordSchema>;
 
 // ---------------------------------------------------------------------------
 // Run-level ledger aggregated across all purposes.
@@ -140,6 +209,7 @@ export type LLMRunLedger = {
 };
 
 export type LLMTelemetryCollector = {
+  trace?: TraceSession;
   recordCall: (record: LLMCallRecord) => void;
   getLedger: () => LLMRunLedger;
 };
@@ -217,6 +287,7 @@ type GenerateObjectResult<T> = {
 // ---------------------------------------------------------------------------
 
 export type CreateLLMClientOptions = {
+  trace?: TraceSession;
   apiKey: string;
   /** Default model when individual calls don't specify one. */
   defaultModel?: string;
@@ -696,7 +767,7 @@ function buildModelCallInput(params: {
   return { prompt: request.prompt ?? "" };
 }
 
-function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
+export function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
   const byPurpose: Partial<Record<LLMPurpose, LLMPurposeSummary>> = {};
   let totalCost = 0;
   let totalAttempted = 0;
@@ -722,8 +793,12 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
     if (call.exactCacheHit) {
       totalExactCacheHits += 1;
     }
-    totalCacheReadTokens += call.cacheReadTokens ?? 0;
-    totalCacheWriteTokens += call.cacheWriteTokens ?? 0;
+    totalCacheReadTokens += call.sharedResponse
+      ? 0
+      : (call.cacheReadTokens ?? 0);
+    totalCacheWriteTokens += call.sharedResponse
+      ? 0
+      : (call.cacheWriteTokens ?? 0);
 
     const existing = byPurpose[call.purpose];
     if (existing) {
@@ -740,11 +815,17 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
       if (call.exactCacheHit) {
         existing.exactCacheHits += 1;
       }
-      existing.inputTokens += call.inputTokens;
-      existing.outputTokens += call.outputTokens;
-      existing.reasoningTokens += call.reasoningTokens ?? 0;
-      existing.cacheReadTokens += call.cacheReadTokens ?? 0;
-      existing.cacheWriteTokens += call.cacheWriteTokens ?? 0;
+      existing.inputTokens += call.sharedResponse ? 0 : call.inputTokens;
+      existing.outputTokens += call.sharedResponse ? 0 : call.outputTokens;
+      existing.reasoningTokens += call.sharedResponse
+        ? 0
+        : (call.reasoningTokens ?? 0);
+      existing.cacheReadTokens += call.sharedResponse
+        ? 0
+        : (call.cacheReadTokens ?? 0);
+      existing.cacheWriteTokens += call.sharedResponse
+        ? 0
+        : (call.cacheWriteTokens ?? 0);
       existing.estimatedCostUsd += call.estimatedCostUsd;
     } else {
       byPurpose[call.purpose] = {
@@ -753,11 +834,13 @@ function buildLedger(calls: LLMCallRecord[]): LLMRunLedger {
         failed: call.failed ? 1 : 0,
         billable: call.billable ? 1 : 0,
         exactCacheHits: call.exactCacheHit ? 1 : 0,
-        inputTokens: call.inputTokens,
-        outputTokens: call.outputTokens,
-        reasoningTokens: call.reasoningTokens ?? 0,
-        cacheReadTokens: call.cacheReadTokens ?? 0,
-        cacheWriteTokens: call.cacheWriteTokens ?? 0,
+        inputTokens: call.sharedResponse ? 0 : call.inputTokens,
+        outputTokens: call.sharedResponse ? 0 : call.outputTokens,
+        reasoningTokens: call.sharedResponse ? 0 : (call.reasoningTokens ?? 0),
+        cacheReadTokens: call.sharedResponse ? 0 : (call.cacheReadTokens ?? 0),
+        cacheWriteTokens: call.sharedResponse
+          ? 0
+          : (call.cacheWriteTokens ?? 0),
         estimatedCostUsd: call.estimatedCostUsd,
       };
     }
@@ -918,7 +1001,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         ...(options.fetch ? { fetch: options.fetch } : {}),
         ...(db ? { store: createSqliteBatchRequestStore(db) } : {}),
       }).fetch
-    : options.fetch;
+    : (((input, init) =>
+        tracedFetch(input, init, options.fetch)) satisfies FetchFunction);
   const anthropic = createAnthropic({
     apiKey: options.apiKey,
     ...(providerFetch ? { fetch: providerFetch } : {}),
@@ -945,6 +1029,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
         return await fn();
       } catch (error) {
         if (attempt >= MAX_RETRIES) throw error;
+        rethrowTraceError(error);
         const classification = classifyProviderError(error);
         if (
           classification.fatal ||
@@ -962,6 +1047,8 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
   }
 
   function registerRecord(record: LLMCallRecord): void {
+    record.callId ??= currentTraceSpanId() ?? randomUUID();
+    currentTraceSession().recordCall(record.callId, record);
     calls.push(record);
     options.collector?.recordCall(record);
   }
@@ -971,6 +1058,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     modelId: string,
     context: LLMCallContext,
     effort?: ThinkingEffort,
+    cached?: CachedLLMResult,
   ): LLMCallRecord {
     const record: LLMCallRecord = {
       purpose,
@@ -982,11 +1070,21 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       billable: false,
       ...(effort != null ? { thinkingEffort: effort } : {}),
       exactCacheHit: true,
+      ...(cached?.origin
+        ? {
+            cacheOrigin: cached.origin,
+            ...(cached.origin.servedModel
+              ? { servedModel: cached.origin.servedModel }
+              : {}),
+          }
+        : {}),
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
       latencyMs: 0,
       finishReason: "cached",
+      usageStatus: "not_sent",
+      billingStatus: "free",
       timestamp: new Date().toISOString(),
       estimatedCostUsd: 0,
     };
@@ -1024,6 +1122,12 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     | "reasoningTokens"
     | "cacheReadTokens"
     | "cacheWriteTokens"
+    | "usageStatus"
+    | "billingStatus"
+    | "rawUsage"
+    | "noCacheInputTokens"
+    | "cacheCreation"
+    | "pricing"
   > {
     const inputTokens = usage?.inputTokens ?? 0;
     const outputTokens = usage?.outputTokens ?? 0;
@@ -1033,7 +1137,22 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     const cacheWriteTokens = usage?.inputTokenDetails?.cacheWriteTokens;
     const cacheCreation = extractCacheCreationFromRawUsage(usage?.raw);
     const totalBillableTokens = inputTokens + outputTokens;
+    const reported = usage?.inputTokens != null && usage.outputTokens != null;
+    const price = listedClaudePrice(modelId);
     return {
+      usageStatus: reported ? "reported" : "missing",
+      billingStatus:
+        reported && price
+          ? totalBillableTokens > 0
+            ? "billable"
+            : "free"
+          : "unknown",
+      rawUsage: usage?.raw ?? usage ?? null,
+      pricing: price
+        ? { version: ANTHROPIC_PRICING_VERSION, model: modelId, ...price }
+        : null,
+      ...(noCacheInputTokens != null ? { noCacheInputTokens } : {}),
+      ...(cacheCreation ? { cacheCreation } : {}),
       billable: totalBillableTokens > 0,
       inputTokens,
       outputTokens,
@@ -1067,6 +1186,7 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     finishReason: string,
     transport: LLMTransport,
     effort?: ThinkingEffort,
+    response?: { id?: string; headers?: Record<string, string> },
   ): LLMCallRecord {
     const record: LLMCallRecord = {
       purpose,
@@ -1077,7 +1197,19 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: true,
       failed: false,
       ...(effort != null ? { thinkingEffort: effort } : {}),
-      ...usageFields(modelId, usage, transport),
+      ...usageFields(servedModel ?? modelId, usage, transport),
+      ...(response?.id ? { providerResponseId: response.id } : {}),
+      ...(response?.headers?.["request-id"]
+        ? { providerRequestId: response.headers["request-id"] }
+        : {}),
+      ...(response?.headers?.["x-palimpsest-shared-response"] === "true"
+        ? {
+            sharedResponse: true,
+            estimatedCostUsd: 0,
+            billable: false,
+            billingStatus: "free" as const,
+          }
+        : {}),
       transport,
       latencyMs,
       finishReason,
@@ -1108,6 +1240,9 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       ? params.error
       : undefined;
     const servedModel = generated?.response?.modelId;
+    const errorHeaders = APICallError.isInstance(params.error)
+      ? params.error.responseHeaders
+      : undefined;
     const finishReason = generated?.finishReason ?? "error";
     // Only a reply that arrived says how it came; a refused request has no
     // usage to price either way.
@@ -1125,7 +1260,32 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
       successful: false,
       failed: true,
       ...(params.effort != null ? { thinkingEffort: params.effort } : {}),
-      ...usageFields(params.modelId, generated?.usage, transport ?? "direct"),
+      ...usageFields(
+        servedModel ?? params.modelId,
+        generated?.usage,
+        transport ?? "direct",
+      ),
+      ...(generated?.response?.headers?.["x-palimpsest-shared-response"] ===
+      "true"
+        ? {
+            sharedResponse: true,
+            estimatedCostUsd: 0,
+            billable: false,
+            billingStatus: "free" as const,
+          }
+        : {}),
+      ...(errorHeaders?.["request-id"] || errorHeaders?.["x-request-id"]
+        ? {
+            providerRequestId:
+              errorHeaders["request-id"] ?? errorHeaders["x-request-id"]!,
+          }
+        : {}),
+      ...(generated?.response?.id
+        ? { providerResponseId: generated.response.id }
+        : {}),
+      ...(generated?.response?.headers?.["request-id"]
+        ? { providerRequestId: generated.response.headers["request-id"] }
+        : {}),
       ...(transport != null ? { transport } : {}),
       latencyMs: params.latencyMs,
       finishReason,
@@ -1142,199 +1302,268 @@ export function createLLMClient(options: CreateLLMClientOptions): LLMClient {
     async generateObject<T extends z.ZodType>(
       params: GenerateObjectParams<T>,
     ): Promise<GenerateObjectResult<z.infer<T>>> {
-      const modelId = params.model ?? defaultModel;
-      const context = { ...options.defaultContext, ...params.context };
-
-      const sf = schemaFingerprint(params.schema);
-      const promptInput = buildModelCallInput({
-        request: params,
-        promptCaching: options.promptCaching,
-        batching,
-      });
-      const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
-        ? "bypass"
-        : "allow";
-      const cacheKeyInput = {
-        purpose: params.purpose,
-        model: modelId,
-        prompt: resolveFullPrompt(params),
-        effort: params.effort ?? "",
-        keyVersion: params.exactCache?.keyVersion ?? "",
-        schemaFingerprint: sf,
-        cachePolicy: cacheAccessPolicy,
-      };
-
-      // --- Exact-result cache lookup ---
-      if (db && params.exactCache && !forceRefresh) {
-        const cached = getCachedLLMResult(
-          db,
-          computeLLMCacheKey(cacheKeyInput),
-        );
-        // A row written under an older schema, or a corrupt one, must not
-        // pass as a fresh reply: re-validate and fall through on failure.
-        const parsed = cached
-          ? params.schema.safeParse(parseJsonOrUndefined(cached.responseText))
-          : undefined;
-        if (parsed?.success) {
-          const record = buildCacheHitRecord(
-            params.purpose,
-            modelId,
-            context,
-            params.effort,
-          );
-          return { object: parsed.data as z.infer<T>, record };
-        }
-      }
-
-      const maxOutputTokens =
-        params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
-      const limit = options.spendLimit;
-      // Direct requests are checked against what has been billed. Batched
-      // ones are all queued before any is billed, so each also reserves its
-      // ceiling cost until its real cost is recorded.
-      let reservation = 0;
-      if (limit && batching) {
-        const cachedPrefix =
-          promptInput.cacheControl != null && params.promptPrefix != null
-            ? params.promptPrefix
-            : undefined;
-        let prefixBilling: "read" | "write_5m" | "write_1h" = "read";
-        if (cachedPrefix != null) {
-          const prefixKey = createHash("sha256")
-            .update(`${modelId}\0${cachedPrefix}`)
-            .digest("hex");
-          if (!prefixesSeen.has(prefixKey)) {
-            prefixesSeen.add(prefixKey);
-            prefixBilling =
-              promptInput.cacheControl?.ttl === "1h" ? "write_1h" : "write_5m";
-          }
-        }
-        const seen = outputSeen.get(`${params.purpose}\0${modelId}`);
-        reservation = estimateExpectedRequestUsd({
-          model: modelId,
-          cachedPrefixChars: cachedPrefix?.length ?? 0,
-          prefixBilling,
-          uncachedChars:
-            resolveFullPrompt(params).length - (cachedPrefix?.length ?? 0),
-          outputTokens: reservedOutputTokens({
-            maxOutputTokens,
-            completedCalls: seen?.calls ?? 0,
-            completedOutputTokens: seen?.tokens ?? 0,
-          }),
-          batch: true,
-        });
-      }
-      if (limit) {
-        const spent = limit.spentUsd();
-        if (spent >= limit.maxUsd) {
-          throw new LLMProviderError(
-            `Spend limit reached: estimated $${spent.toFixed(2)} of $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
-            "spend_limit",
-            true,
-          );
-        }
-        if (spent + reservedUsd + reservation > limit.maxUsd) {
-          throw new LLMProviderError(
-            `Spend limit reached: estimated $${spent.toFixed(2)} spent and an expected $${(reservedUsd + reservation).toFixed(2)} queued in batches would pass $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
-            "spend_limit",
-            true,
-          );
-        }
-      }
-      reservedUsd += reservation;
-
-      const startMs = Date.now();
-      const anthropicProviderOptions = buildAnthropicThinkingProviderOptions(
-        params.effort,
-      );
-      const providerOptions =
-        Object.keys(anthropicProviderOptions).length > 0
-          ? { anthropic: anthropicProviderOptions }
-          : undefined;
-
-      try {
-        const result = await withRetry(
-          () =>
-            generateObject({
-              model: anthropic(modelId),
-              // The provider sees a constraint-free schema it can enforce;
-              // the full Zod schema validates the reply locally.
-              schema: jsonSchema<z.infer<T>>(
-                toProviderJsonSchema(params.schema),
-                {
-                  validate: (value) => {
-                    const parsed = params.schema.safeParse(value);
-                    return parsed.success
-                      ? { success: true, value: parsed.data as z.infer<T> }
-                      : { success: false, error: parsed.error };
-                  },
-                },
-              ),
-              maxOutputTokens,
-              ...(promptInput.prompt != null
-                ? { prompt: promptInput.prompt }
-                : { messages: promptInput.messages }),
-              ...(providerOptions ? { providerOptions } : {}),
-            }),
+      const session =
+        options.trace ?? options.collector?.trace ?? currentTraceSession();
+      session.protect([options.apiKey]);
+      return withTraceSession(session, () =>
+        traceOperation(
+          "llm.call",
           params.purpose,
-        );
-
-        const record = buildRecord(
-          params.purpose,
-          modelId,
-          context,
-          result.response?.modelId,
-          result.usage,
-          Date.now() - startMs,
-          result.finishReason,
-          transportFromHeaders(result.response?.headers),
-          params.effort,
-        );
-
-        if (record.truncated) {
-          console.error(
-            `[llm-client] WARNING: ${params.purpose} generateObject truncated (finish_reason=length, model=${modelId}). Output may be incomplete.`,
-          );
-        }
-
-        // --- Exact-result cache store (skip truncated responses) ---
-        if (db && params.exactCache && !forceRefresh && !record.truncated) {
-          storeLLMResult(db, {
-            cacheKey: computeLLMCacheKey(cacheKeyInput),
-            responseText: JSON.stringify(result.object),
-            createdAt: new Date().toISOString(),
-          });
-        }
-
-        return { object: result.object as z.infer<T>, record };
-      } catch (error) {
-        buildFailureRecord({
-          purpose: params.purpose,
-          modelId,
-          context,
-          latencyMs: Date.now() - startMs,
-          ...(params.effort != null ? { effort: params.effort } : {}),
-          error,
-        });
-        const provider = classifyProviderError(error);
-        const generated = NoObjectGeneratedError.isInstance(error)
-          ? error
-          : undefined;
-        throw new LLMProviderError(
-          provider.message,
-          provider.classification,
-          provider.fatal,
           {
-            cause: error,
-            ...(generated?.text != null
-              ? { responseText: generated.text }
-              : {}),
-            truncated: generated?.finishReason === "length",
+            model: params.model ?? defaultModel,
+            prompt: resolveFullPrompt(params),
+            schema: toProviderJsonSchema(params.schema),
+            effort: params.effort,
+            maxOutputTokens:
+              params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+            exactCache: params.exactCache,
+            forceRefresh,
+            batching,
+            pricing: {
+              version: ANTHROPIC_PRICING_VERSION,
+              model: params.model ?? defaultModel,
+              rates: listedClaudePrice(params.model ?? defaultModel) ?? null,
+            },
           },
-        );
-      } finally {
-        reservedUsd -= reservation;
-      }
+          async () => {
+            const modelId = params.model ?? defaultModel;
+            const context = { ...options.defaultContext, ...params.context };
+
+            const sf = schemaFingerprint(params.schema);
+            const promptInput = buildModelCallInput({
+              request: params,
+              promptCaching: options.promptCaching,
+              batching,
+            });
+            const cacheAccessPolicy: ExactCacheAccessPolicy = forceRefresh
+              ? "bypass"
+              : "allow";
+            const cacheKeyInput = {
+              purpose: params.purpose,
+              model: modelId,
+              prompt: resolveFullPrompt(params),
+              effort: params.effort ?? "",
+              keyVersion: params.exactCache?.keyVersion ?? "",
+              schemaFingerprint: sf,
+              cachePolicy: cacheAccessPolicy,
+            };
+
+            // --- Exact-result cache lookup ---
+            traceCheckpoint("cache_policy", {
+              key: computeLLMCacheKey(cacheKeyInput),
+              exactCache: params.exactCache ?? null,
+              forceRefresh,
+              promptCachePolicy: promptInput.cacheControl ?? null,
+            });
+            if (db && params.exactCache && !forceRefresh) {
+              const cached = getCachedLLMResult(
+                db,
+                computeLLMCacheKey(cacheKeyInput),
+              );
+              // A row written under an older schema, or a corrupt one, must not
+              // pass as a fresh reply: re-validate and fall through on failure.
+              const parsed = cached
+                ? params.schema.safeParse(
+                    parseJsonOrUndefined(cached.responseText),
+                  )
+                : undefined;
+              if (parsed?.success) {
+                const record = buildCacheHitRecord(
+                  params.purpose,
+                  modelId,
+                  context,
+                  params.effort,
+                  cached,
+                );
+                return { object: parsed.data as z.infer<T>, record };
+              }
+            }
+
+            const maxOutputTokens =
+              params.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+            const limit = options.spendLimit;
+            // Direct requests are checked against what has been billed. Batched
+            // ones are all queued before any is billed, so each also reserves its
+            // ceiling cost until its real cost is recorded.
+            let reservation = 0;
+            if (limit && batching) {
+              const cachedPrefix =
+                promptInput.cacheControl != null && params.promptPrefix != null
+                  ? params.promptPrefix
+                  : undefined;
+              let prefixBilling: "read" | "write_5m" | "write_1h" = "read";
+              if (cachedPrefix != null) {
+                const prefixKey = createHash("sha256")
+                  .update(`${modelId}\0${cachedPrefix}`)
+                  .digest("hex");
+                if (!prefixesSeen.has(prefixKey)) {
+                  prefixesSeen.add(prefixKey);
+                  prefixBilling =
+                    promptInput.cacheControl?.ttl === "1h"
+                      ? "write_1h"
+                      : "write_5m";
+                }
+              }
+              const seen = outputSeen.get(`${params.purpose}\0${modelId}`);
+              reservation = estimateExpectedRequestUsd({
+                model: modelId,
+                cachedPrefixChars: cachedPrefix?.length ?? 0,
+                prefixBilling,
+                uncachedChars:
+                  resolveFullPrompt(params).length -
+                  (cachedPrefix?.length ?? 0),
+                outputTokens: reservedOutputTokens({
+                  maxOutputTokens,
+                  completedCalls: seen?.calls ?? 0,
+                  completedOutputTokens: seen?.tokens ?? 0,
+                }),
+                batch: true,
+              });
+            }
+            if (limit) {
+              const spent = limit.spentUsd();
+              if (spent >= limit.maxUsd) {
+                throw new LLMProviderError(
+                  `Spend limit reached: estimated $${spent.toFixed(2)} of $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
+                  "spend_limit",
+                  true,
+                );
+              }
+              if (spent + reservedUsd + reservation > limit.maxUsd) {
+                throw new LLMProviderError(
+                  `Spend limit reached: estimated $${spent.toFixed(2)} spent and an expected $${(reservedUsd + reservation).toFixed(2)} queued in batches would pass $${limit.maxUsd.toFixed(2)}, so no further model requests are sent`,
+                  "spend_limit",
+                  true,
+                );
+              }
+            }
+            reservedUsd += reservation;
+
+            const anthropicProviderOptions =
+              buildAnthropicThinkingProviderOptions(params.effort);
+            const providerOptions =
+              Object.keys(anthropicProviderOptions).length > 0
+                ? { anthropic: anthropicProviderOptions }
+                : undefined;
+
+            try {
+              const completed = await withRetry(
+                () =>
+                  traceOperation(
+                    "llm.attempt",
+                    params.purpose,
+                    { requestedModel: modelId },
+                    async () => {
+                      if (limit && limit.spentUsd() >= limit.maxUsd)
+                        throw new LLMProviderError(
+                          "Spend limit reached before the next model attempt",
+                          "spend_limit",
+                          true,
+                        );
+                      const attemptStarted = Date.now();
+                      try {
+                        const result = await generateObject({
+                          model: anthropic(modelId),
+                          maxRetries: 0,
+                          schema: jsonSchema<z.infer<T>>(
+                            toProviderJsonSchema(params.schema),
+                            {
+                              validate: (value) => {
+                                const parsed = params.schema.safeParse(value);
+                                return parsed.success
+                                  ? {
+                                      success: true,
+                                      value: parsed.data as z.infer<T>,
+                                    }
+                                  : { success: false, error: parsed.error };
+                              },
+                            },
+                          ),
+                          maxOutputTokens,
+                          ...(promptInput.prompt != null
+                            ? { prompt: promptInput.prompt }
+                            : { messages: promptInput.messages }),
+                          ...(providerOptions ? { providerOptions } : {}),
+                        });
+                        const record = buildRecord(
+                          params.purpose,
+                          modelId,
+                          context,
+                          result.response?.modelId,
+                          result.usage,
+                          Date.now() - attemptStarted,
+                          result.finishReason,
+                          transportFromHeaders(result.response?.headers),
+                          params.effort,
+                          result.response,
+                        );
+                        return { object: result.object as z.infer<T>, record };
+                      } catch (error) {
+                        rethrowTraceError(error);
+                        buildFailureRecord({
+                          purpose: params.purpose,
+                          modelId,
+                          context,
+                          latencyMs: Date.now() - attemptStarted,
+                          ...(params.effort != null
+                            ? { effort: params.effort }
+                            : {}),
+                          error,
+                        });
+                        throw error;
+                      }
+                    },
+                  ),
+                params.purpose,
+              );
+              if (
+                db &&
+                params.exactCache &&
+                !forceRefresh &&
+                !completed.record.truncated
+              ) {
+                storeLLMResult(db, {
+                  cacheKey: computeLLMCacheKey(cacheKeyInput),
+                  responseText: JSON.stringify(completed.object),
+                  createdAt: new Date().toISOString(),
+                  origin: {
+                    callId: completed.record.callId!,
+                    traceRoot: session.root,
+                    ...(completed.record.servedModel
+                      ? { servedModel: completed.record.servedModel }
+                      : {}),
+                  },
+                });
+                traceCheckpoint("exact_cache_stored", {
+                  key: computeLLMCacheKey(cacheKeyInput),
+                });
+              }
+              return completed;
+            } catch (error) {
+              rethrowTraceError(error);
+              const provider = classifyProviderError(error);
+              const generated = NoObjectGeneratedError.isInstance(error)
+                ? error
+                : undefined;
+              throw new LLMProviderError(
+                provider.message,
+                provider.classification,
+                provider.fatal,
+                {
+                  cause: error,
+                  ...(generated?.text != null
+                    ? { responseText: generated.text }
+                    : {}),
+                  truncated: generated?.finishReason === "length",
+                },
+              );
+            } finally {
+              reservedUsd -= reservation;
+            }
+          },
+          params.context?.stageKey ? { stage: params.context.stageKey } : {},
+        ),
+      );
     },
 
     getLedger: () => buildLedger(calls),

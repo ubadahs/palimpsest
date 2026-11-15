@@ -1,3 +1,5 @@
+import { rethrowTraceError } from "../telemetry/trace.js";
+import { tracedFetch } from "../telemetry/http.js";
 import { z } from "zod";
 
 import type Database from "better-sqlite3";
@@ -1326,7 +1328,7 @@ async function defaultFetchUrl(
   options?: { accept?: string },
 ): Promise<Result<FullTextFetchResponse>> {
   try {
-    const resp = await fetch(url, {
+    const resp = await tracedFetch(url, {
       headers: {
         Accept: options?.accept ?? "*/*",
         "User-Agent": "palimpsest/0.1",
@@ -1344,6 +1346,7 @@ async function defaultFetchUrl(
       },
     };
   } catch (err) {
+    rethrowTraceError(err);
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -1367,7 +1370,7 @@ async function defaultProcessPdfWithGrobid(
     formData.append("consolidateCitations", "0");
 
     const normalizedBaseUrl = grobidBaseUrl.replace(/\/+$/, "");
-    const resp = await fetch(
+    const resp = await tracedFetch(
       `${normalizedBaseUrl}/api/processFulltextDocument`,
       {
         method: "POST",
@@ -1388,6 +1391,7 @@ async function defaultProcessPdfWithGrobid(
 
     return { ok: true, data: await resp.text() };
   } catch (err) {
+    rethrowTraceError(err);
     return {
       ok: false,
       error: `GROBID parse error: ${err instanceof Error ? err.message : String(err)}`,

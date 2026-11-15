@@ -1,3 +1,5 @@
+import { rethrowTraceError } from "../telemetry/trace.js";
+import { tracedFetch } from "../telemetry/http.js";
 import { resolve } from "node:path";
 
 import { loadEnvironmentLenient } from "../config/env.js";
@@ -30,7 +32,7 @@ export type EnvironmentHealthSummary = {
 async function checkGrobid(baseUrl: string): Promise<HealthCheck> {
   try {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-    const response = await fetch(`${normalizedBaseUrl}/api/isalive`, {
+    const response = await tracedFetch(`${normalizedBaseUrl}/api/isalive`, {
       headers: { "User-Agent": "palimpsest/0.1" },
       signal: AbortSignal.timeout(5_000),
     });
@@ -42,6 +44,7 @@ async function checkGrobid(baseUrl: string): Promise<HealthCheck> {
     }
     return { status: "ok" };
   } catch (error) {
+    rethrowTraceError(error);
     return {
       status: "error",
       detail: error instanceof Error ? error.message : String(error),
@@ -57,6 +60,7 @@ async function checkDatabase(path: string): Promise<HealthCheck> {
     database.close();
     return { status: "ok" };
   } catch (error) {
+    rethrowTraceError(error);
     return {
       status: "error",
       detail: error instanceof Error ? error.message : String(error),

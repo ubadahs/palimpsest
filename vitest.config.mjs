@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    setupFiles: ["tests/trace-setup.fixture.ts"],
     include: ["tests/**/*.ts"],
     // `*.fixture.ts` files are shared builders imported by tests.
     exclude: [

@@ -1,3 +1,8 @@
+import {
+  withTraceOwner,
+  traceOperation,
+  rethrowTraceError,
+} from "../telemetry/trace.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -285,7 +290,15 @@ function isTerminal(status: Trial["status"]): boolean {
   return status !== "pending" && status !== "cancelled";
 }
 
-export async function runExperiment(id: string): Promise<{
+export async function runExperiment(id: string) {
+  return withTraceOwner(experimentDir(id), { experimentId: id }, () =>
+    traceOperation("evaluation", "experiment", { experimentId: id }, () =>
+      runExperimentImpl(id),
+    ),
+  );
+}
+
+async function runExperimentImpl(id: string): Promise<{
   experimentId: string;
   completed: number;
   pending: number;
@@ -422,7 +435,15 @@ async function runComparison(experiment: Experiment): Promise<{
             })
           : undefined;
       const stopped = () => controller.signal.aborted || providerStopped;
-      const runTrial = async (plannedTrial: Trial): Promise<void> => {
+      const runTrial = (plannedTrial: Trial): Promise<void> =>
+        traceOperation(
+          "evaluation",
+          "trial",
+          plannedTrial,
+          () => runTrialImpl(plannedTrial),
+          { trialId: plannedTrial.trialId, provider: provider.id },
+        );
+      const runTrialImpl = async (plannedTrial: Trial): Promise<void> => {
         const item = cases.get(plannedTrial.caseId)!;
         const start = performance.now();
         let outcome: Trial;
@@ -469,6 +490,7 @@ async function runComparison(experiment: Experiment): Promise<{
               completedAt: new Date().toISOString(),
             };
           } catch (error) {
+            rethrowTraceError(error);
             const classified = classifyProviderError(error);
             if (classified.fatal) providerStopped = true;
             outcome = {

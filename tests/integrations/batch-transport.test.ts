@@ -221,6 +221,33 @@ describe("batch transport", () => {
     console.error = originalError;
   });
 
+  it("records concurrent duplicate callers but bills their shared reply once", async () => {
+    const api = createFakeApi();
+    const client = batchClient(api.fetch, { batch: { directBelow: 1 } });
+    const results = await Promise.all([
+      ask(client, "same"),
+      ask(client, "same"),
+    ]);
+    expect(api.batches).toHaveLength(1);
+    expect(api.batches[0]!.customIds).toHaveLength(1);
+    expect(
+      results.filter((result) => result.record.sharedResponse),
+    ).toHaveLength(1);
+    const ledger = client.getLedger();
+    expect(ledger.totalCalls).toBe(2);
+    expect(ledger.totalBillableCalls).toBe(1);
+    expect(ledger.byPurpose["evidence-rerank"]?.inputTokens).toBe(
+      USAGE.input_tokens,
+    );
+    expect(ledger.totalEstimatedCostUsd).toBeCloseTo(
+      estimateAnthropicUsd(
+        MODEL,
+        { inputTokens: USAGE.input_tokens, outputTokens: USAGE.output_tokens },
+        { batch: true },
+      ),
+    );
+  });
+
   it("puts concurrent requests in one batch and answers each caller with its own result", async () => {
     const api = createFakeApi();
     const client = batchClient(api.fetch);

@@ -1,3 +1,9 @@
+import { tracedFetch } from "../telemetry/http.js";
+import {
+  traceCheckpoint,
+  rethrowTraceError,
+  bindTraceContext,
+} from "../telemetry/trace.js";
 /**
  * Message Batches API as a transport under the Anthropic provider.
  *
@@ -131,6 +137,7 @@ type Entry = {
   params: Record<string, unknown>;
   bytes: number;
   waiters: Waiter[];
+  dispatch: () => Promise<Response>;
 };
 
 /** Requests that can share a batch: same endpoint, key, version and betas. */
@@ -239,8 +246,8 @@ export function createBatchTransport(
     pollMaxMs: options.pollMaxMs ?? DEFAULTS.pollMaxMs,
     retentionMs: options.retentionMs ?? DEFAULTS.retentionMs,
   };
-  const network: FetchFunction =
-    options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+  const network: FetchFunction = (input, init) =>
+    tracedFetch(input, init, options.fetch);
   const store = options.store ?? createMemoryBatchRequestStore();
   const now = options.now ?? (() => new Date());
   const log =
@@ -257,9 +264,12 @@ export function createBatchTransport(
 
   function settle(entry: Entry, respond: () => Response): void {
     inFlight.delete(entry.customId);
-    for (const waiter of entry.waiters) {
-      waiter.resolve(respond());
-    }
+    entry.waiters.forEach((waiter, index) => {
+      const response = respond();
+      if (index > 0)
+        response.headers.set("x-palimpsest-shared-response", "true");
+      waiter.resolve(response);
+    });
   }
 
   function fail(entry: Entry, error: unknown): void {
@@ -292,6 +302,7 @@ export function createBatchTransport(
   }
 
   function enqueue(group: Group, entry: Entry): void {
+    traceCheckpoint("batch_queued", { customId: entry.customId });
     group.queue.push(entry);
     group.bytes += entry.bytes;
     if (group.timer) clearTimeout(group.timer);
@@ -318,17 +329,20 @@ export function createBatchTransport(
       for (const entry of entries) sendDirect(entry);
       return;
     }
-    void submit(group, entries);
+    void submit(group, entries).catch((error: unknown) => {
+      for (const entry of entries) fail(entry, error);
+    });
   }
 
   function sendDirect(entry: Entry): void {
-    network(entry.url, entry.init).then(
+    entry.dispatch().then(
       (response) => {
         const [first, ...rest] = entry.waiters;
         const copies = rest.map(() => response.clone());
         inFlight.delete(entry.customId);
         first?.resolve(response);
         rest.forEach((waiter, index) => {
+          copies[index]!.headers.set("x-palimpsest-shared-response", "true");
           waiter.resolve(copies[index]!);
         });
       },
@@ -393,6 +407,10 @@ export function createBatchTransport(
     }
 
     const batchId = batch.data.id;
+    traceCheckpoint("batch_submitted", {
+      batchId,
+      customIds: entries.map((entry) => entry.customId),
+    });
     store.recordSubmitted(
       batchId,
       entries.map((entry) => entry.customId),
@@ -415,11 +433,12 @@ export function createBatchTransport(
     if (existing) return;
     members.set(batchId, ids);
     watch(batchId, group, firstDelayMs).catch((error: unknown) => {
-      // Never leave a caller hanging on a poller that broke.
-      const message = error instanceof Error ? error.message : String(error);
-      finish(batchId, () =>
-        errorResponse(500, "api_error", `Batch polling failed: ${message}`),
-      );
+      // Preserve persistence errors through to the client: never retry them.
+      for (const customId of members.get(batchId) ?? []) {
+        const entry = inFlight.get(customId);
+        if (entry) fail(entry, error);
+      }
+      members.delete(batchId);
     });
   }
 
@@ -451,6 +470,7 @@ export function createBatchTransport(
           { method: "GET", headers: group.headers },
         );
       } catch (error) {
+        rethrowTraceError(error);
         log(
           `polling ${batchId} failed (${error instanceof Error ? error.message : String(error)}); retrying`,
         );
@@ -482,7 +502,8 @@ export function createBatchTransport(
           method: "GET",
           headers: group.headers,
         });
-      } catch {
+      } catch (error) {
+        rethrowTraceError(error);
         continue;
       }
       if (!results.ok) continue;
@@ -556,6 +577,8 @@ export function createBatchTransport(
       ]),
     );
 
+    traceCheckpoint("batch_request", { customId });
+
     // An identical request already on its way: share its answer.
     const existing = inFlight.get(customId);
     if (existing) {
@@ -580,6 +603,7 @@ export function createBatchTransport(
       params,
       bytes: Buffer.byteLength(body),
       waiters: [waiter],
+      dispatch: bindTraceContext(() => network(url, init)),
     };
     inFlight.set(customId, entry);
     const group = groupFor(url, headers);
@@ -589,6 +613,10 @@ export function createBatchTransport(
       const stored =
         row.resultJson != null ? parseResultLine(row.resultJson) : undefined;
       if (stored) {
+        traceCheckpoint("batch_result_reused", {
+          batchId: row.batchId,
+          customId,
+        });
         log(`reusing a stored result from ${row.batchId}`);
         store.remove(customId);
         settle(entry, () => responseForResult(stored.result));
@@ -605,7 +633,7 @@ export function createBatchTransport(
   }
 
   return {
-    fetch(input, init) {
+    fetch: (input, init) => {
       const url = requestUrl(input);
       const method = (
         init?.method ?? (input instanceof Request ? input.method : "GET")
@@ -619,7 +647,22 @@ export function createBatchTransport(
         return network(input, init);
       }
       return new Promise<Response>((resolve, reject) => {
-        accept(url, init ?? {}, body, { resolve, reject });
+        accept(url, init ?? {}, body, {
+          resolve: bindTraceContext((response: Response) => {
+            try {
+              traceCheckpoint("transport_result", {
+                transport: response.headers.get(TRANSPORT_HEADER) ?? "direct",
+                sharedResponse:
+                  response.headers.get("x-palimpsest-shared-response") ===
+                  "true",
+              });
+              resolve(response);
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error(String(error)));
+            }
+          }),
+          reject,
+        });
       });
     },
   };

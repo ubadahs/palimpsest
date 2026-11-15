@@ -1,3 +1,4 @@
+import { traceMethods } from "../telemetry/trace.js";
 /** The production adapters for all six stages, sharing one session. */
 
 import { buildAdjudicateAdapters } from "../stages/adjudicate/adapters.js";
@@ -32,10 +33,13 @@ export function buildProductionAdapters(
   const withSession = { ...deps, session };
   return {
     session,
-    discover: buildDiscoverAdapters(withSession),
-    scope: buildScopeAdapters(withSession),
-    prepare: buildPrepareAdapters(withSession),
-    evidence: buildEvidenceAdapters(withSession),
-    adjudicate: buildAdjudicateAdapters(withSession),
+    discover: traceMethods("discover", buildDiscoverAdapters(withSession)),
+    scope: traceMethods("scope", buildScopeAdapters(withSession)),
+    prepare: traceMethods("prepare", buildPrepareAdapters(withSession)),
+    evidence: traceMethods("evidence", buildEvidenceAdapters(withSession)),
+    adjudicate: traceMethods(
+      "adjudicate",
+      buildAdjudicateAdapters(withSession),
+    ),
   };
 }

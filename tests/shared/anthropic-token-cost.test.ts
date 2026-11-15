@@ -3,12 +3,21 @@ import { describe, expect, it } from "vitest";
 import { estimateAnthropicUsd } from "../../src/shared/anthropic-token-cost.js";
 
 describe("estimateAnthropicUsd", () => {
-  it("prices a served snapshot the table does not name as Sonnet", () => {
+  it("prices a dated snapshot using its known model family", () => {
     const usd = estimateAnthropicUsd("claude-sonnet-5-5-20261001", {
       inputTokens: 1_000_000,
       outputTokens: 100_000,
     });
     expect(usd).toBeCloseTo(2 * 1 + 10 * 0.1);
+  });
+
+  it("does not invent a price for an unknown model", () => {
+    expect(
+      estimateAnthropicUsd("unpriced-model", {
+        inputTokens: 1000,
+        outputTokens: 100,
+      }),
+    ).toBe(0);
   });
 
   it("uses the current list rates, including each model's cache-read rate", () => {

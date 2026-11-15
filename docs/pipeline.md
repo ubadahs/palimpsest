@@ -308,9 +308,30 @@ Grounding is an annotation: `not_found`, unavailable text, or a provider failure
 - **GROBID.** PDFs reach GROBID at most `GROBID_CONCURRENCY` at a time (default 2). It is an environment setting, not run config, because a local container timed out parsing with six fetched side by side. A PDF waiting for a GROBID slot has not started its 30-second request timeout.
 - **Fatal provider errors** stop new dispatch, so one costs at most `modelConcurrency` calls (or `fetchConcurrency` fetches).
 
+### Durable operation traces
+
+`src/telemetry/trace.ts` owns the append-only journal and `src/telemetry/http.ts` is the single network boundary. Pipeline stages, adapter/tool calls, Anthropic attempts (including retries), Jev evaluation requests, full-text downloads, GROBID and batch submission/polling/results use this same store. Each operation has a span id, parent id, timestamps and run/stage or experiment/trial context.
+
+- Run traces live in `data/runs/<runId>/traces/`; experiment traces live beside their experiment files. Calls outside these entrypoints use `data/standalone/<invocationId>/traces/`, or `<PALIMPSEST_TRACE_ROOT>/traces/` when that environment variable names an owner directory. Tests use temporary owners.
+- `sessions/<sessionId>.jsonl` is an append-only journal per invocation. Large inputs, prompts, schemas, replies and downloaded files live once by SHA-256 under `blobs/`. Journal entries point to them. Credentials and signed URL parameters are redacted; scientific inputs and outputs are retained.
+- Starts are flushed to disk **before dispatch**. Request bodies, response headers, complete raw response bodies and usage are flushed as they arrive, before SDK/schema parsing and before stage checkpoints. Trace persistence failure stops dispatch; there is no silent unlogged mode.
+- The LLM client disables SDK-internal retries and records each explicit attempt. Records retain requested and served models, provider request/response ids when supplied, raw and normalized usage, input/output/reasoning tokens, uncached input, cache reads and writes including reported TTLs, thinking effort, transport, latency, errors, and a versioned price snapshot. Exact-result cache hits cost zero and new cache entries link to their originating call (migration 0017). Shared concurrent batch replies are charged once.
+- `cost-summary.json` is a replaceable projection of journaled Anthropic usage, updated after each completed attempt. Resume reads the journal; the UI rebuilds from it. Missing usage or unknown model pricing is **unknown**, never asserted to be free. Jev replies, including any usage supplied, are preserved in the same traces; their calls are flagged as unpriced external calls in the audit.
+- A killed process leaves started spans without terminal events. The audit reports these, attempts without normalized usage, and torn final journal lines. A raw reply received before a crash remains available even if no normalized usage record was written. Provider work completed after a connection was lost can only be reconciled with the provider; the local subtotal cannot claim to include it. The limit therefore remains an estimate.
+- Old summary-only runs cannot acquire the missing historical traces retrospectively. Start a fresh run for audited work; old scientific artifacts and summaries are preserved. Trace files are not removed by `db:gc` or `runs:gc`.
+
+Inspect any run or experiment offline, without provider calls:
+
+```bash
+npm run dev -- trace --root data/runs/<runId>
+npm run dev -- trace --root data/runs/<runId> --calls
+```
+
+`--calls` includes every normalized Anthropic attempt/cache-hit record. The audit also reports operation counts, unfinished spans and the known cost subtotal by model, purpose and stage. External model request/response payloads remain linked from the journal.
+
 ### Cost limit (`--max-cost`)
 
-- Estimated spend is in `cost-summary.json` at the run root, rewritten after every model call. Each stage logs its own cost and the run's total when it finishes.
+- Known estimated spend is projected into `cost-summary.json` at the run root after every recorded model attempt, including failures. Each stage logs its own cost and the run's total when it finishes.
 - `--max-cost <usd>` stops sending model requests once the run's estimated spend, earlier attempts included, reaches the limit. The stage in progress fails, and the run can be resumed with a higher limit.
 - Requests already in flight still finish, so a run can pass the limit by up to `modelConcurrency` requests.
 - The limit is not part of the run config, so raising it on resume changes nothing scientific.

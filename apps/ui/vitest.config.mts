@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: ["../../tests/trace-setup.fixture.ts"],
     environment: "happy-dom",
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
   },

@@ -1,3 +1,4 @@
+import { rethrowTraceError } from "../telemetry/trace.js";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import {
@@ -146,6 +147,7 @@ export function createRequestBudget(
         try {
           response = await transport(provider, body, signal);
         } catch (error) {
+          rethrowTraceError(error);
           throw new ProviderRequestError(
             String(error),
             "provider_failure",
@@ -379,6 +381,7 @@ async function executeJev(
           scores[candidate.chunkId] = answer.data.score;
         }
       } catch (error) {
+        rethrowTraceError(error);
         if (
           error instanceof ProviderRequestError &&
           error.message === "HTTP 503" &&
@@ -702,6 +705,7 @@ export async function executeProviderCase(
         answer.after,
       );
     } catch (error) {
+      rethrowTraceError(error);
       throw new ProviderRequestError(
         String(error),
         "invalid_response",

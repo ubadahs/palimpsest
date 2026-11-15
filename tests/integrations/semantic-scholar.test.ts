@@ -15,13 +15,7 @@ function loadFixture(name: string): unknown {
 describe("resolvePaperByDoi", () => {
   it("transforms an S2 paper response into a ResolvedPaper", async () => {
     const fixture = loadFixture("paper-response.json");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(fixture),
-      }),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(fixture)));
 
     const result = await resolvePaperByDoi(
       "10.1101/2024.01.01.000001",
@@ -53,19 +47,17 @@ describe("resolvePaperByDoi", () => {
   it("returns unavailable for closed-access papers", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            paperId: "closed123",
-            title: "Paywalled Paper",
-            authors: [],
-            abstract: null,
-            isOpenAccess: false,
-            openAccessPdf: null,
-            externalIds: { DOI: "10.9999/closed" },
-          }),
-      }),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          paperId: "closed123",
+          title: "Paywalled Paper",
+          authors: [],
+          abstract: null,
+          isOpenAccess: false,
+          openAccessPdf: null,
+          externalIds: { DOI: "10.9999/closed" },
+        }),
+      ),
     );
 
     const result = await resolvePaperByDoi(
@@ -84,7 +76,7 @@ describe("resolvePaperByDoi", () => {
   it("returns an error for HTTP failures", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 404 }),
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
     );
 
     const result = await resolvePaperByDoi(

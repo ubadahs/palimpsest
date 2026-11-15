@@ -1,3 +1,5 @@
+import { rethrowTraceError } from "../telemetry/trace.js";
+import { tracedFetch } from "../telemetry/http.js";
 import type { z } from "zod";
 
 import type { Result } from "../domain/common.js";
@@ -39,7 +41,7 @@ export async function fetchJson<T>(
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const response = await fetch(url, {
+      const response = await tracedFetch(url, {
         headers,
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -65,6 +67,7 @@ export async function fetchJson<T>(
 
       return { ok: true, data: parsed.data };
     } catch (err) {
+      rethrowTraceError(err);
       lastError = err instanceof Error ? err.message : String(err);
       if (attempt < maxRetries - 1) {
         await sleep(RETRY_BASE_MS * 2 ** attempt);

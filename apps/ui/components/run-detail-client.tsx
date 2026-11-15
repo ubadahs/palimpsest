@@ -71,7 +71,7 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [costUsd, setCostUsd] = useState<number | undefined>(undefined);
-  const [costSource, setCostSource] = useState<string>("pipeline");
+  const [unresolvedCost, setUnresolvedCost] = useState(0);
 
   const focusStage = useMemo(() => resolveFocusStage(run.stages), [run.stages]);
 
@@ -102,16 +102,27 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
     () =>
       fetchJson<{
         totalEstimatedCostUsd: number;
-        source: string;
+        unknownCostCalls: number;
+        unresolvedModelAttempts?: number;
+        unpricedExternalCalls?: number;
       } | null>(`/api/runs/${run.id}/cost`).catch(() => null),
     [run.id],
   );
   const applyCost = useCallback(
-    (cost: { totalEstimatedCostUsd: number; source: string } | null) => {
+    (
+      cost: {
+        totalEstimatedCostUsd: number;
+        unknownCostCalls: number;
+        unresolvedModelAttempts?: number;
+        unpricedExternalCalls?: number;
+      } | null,
+    ) => {
       if (cost && typeof cost.totalEstimatedCostUsd === "number") {
         setCostUsd(cost.totalEstimatedCostUsd);
-        setCostSource(
-          cost.source === "cost_file" ? "pipeline" : "adjudication only",
+        setUnresolvedCost(
+          cost.unknownCostCalls +
+            (cost.unresolvedModelAttempts ?? 0) +
+            (cost.unpricedExternalCalls ?? 0),
         );
       }
     },
@@ -216,22 +227,16 @@ export function RunDetailClient({ initialRun }: { initialRun: RunDetail }) {
                 </div>
               )}
               {costUsd != null ? (
-                <div
-                  title={
-                    costSource === "pipeline"
-                      ? "Total LLM cost across all pipeline stages"
-                      : "Adjudication LLM cost only — run again to capture full pipeline cost"
-                  }
-                >
+                <div title="Known estimated model cost from persisted traces; provider billing may differ">
                   <span className="text-[11px] uppercase tracking-[0.14em]">
-                    Est. LLM cost
+                    Known est. cost
                   </span>{" "}
                   <span className="font-semibold text-[var(--text)]">
                     ${costUsd.toFixed(2)}
                   </span>
-                  {costSource !== "pipeline" ? (
+                  {unresolvedCost > 0 ? (
                     <span className="ml-1 text-[10px] text-[var(--text-muted)]">
-                      ({costSource})
+                      ({unresolvedCost} calls with unresolved cost)
                     </span>
                   ) : null}
                 </div>

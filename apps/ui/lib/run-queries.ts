@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { rebuildRunCostSummary } from "palimpsest/contract/server";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
@@ -631,93 +632,9 @@ export function getArtifactContent(
   };
 }
 
-type RunCostPurposeSummary = {
-  attempted: number;
-  successful: number;
-  failed: number;
-  billable: number;
-  exactCacheHits: number;
-  inputTokens: number;
-  outputTokens: number;
-  reasoningTokens: number;
-  estimatedCostUsd: number;
-};
-
-type RunCostSummary = {
-  totalEstimatedCostUsd: number;
-  totalCalls: number;
-  totalAttemptedCalls: number;
-  totalSuccessfulCalls: number;
-  totalFailedCalls: number;
-  totalBillableCalls: number;
-  totalExactCacheHits: number;
-  byStage: Array<{
-    stage: string;
-    estimatedCostUsd: number;
-    calls: number;
-    attemptedCalls: number;
-    successfulCalls: number;
-    failedCalls: number;
-    billableCalls: number;
-    exactCacheHits: number;
-  }>;
-  byPurpose?: Record<string, RunCostPurposeSummary>;
-  source: "cost_file" | "adjudicate_artifacts";
-};
-
-/**
- * Read the pipeline-generated `cost-summary.json` for a run. The executor
- * keeps it at the run root, rewritten after every model call while a run is
- * going; there is no other source.
- */
-export function getRunCostSummary(runId: string): RunCostSummary | undefined {
-  const runRoot = getRunRoot(runId);
-  let costFile: string | undefined;
-  try {
-    costFile = readdirSync(runRoot).find((f) => f === "cost-summary.json");
-  } catch {
-    return undefined;
-  }
-
-  if (costFile) {
-    try {
-      const raw = JSON.parse(
-        readFileSync(`${runRoot}/${costFile}`, "utf8"),
-      ) as Record<string, unknown>;
-      return {
-        totalEstimatedCostUsd: Number(raw["totalEstimatedCostUsd"] ?? 0),
-        totalCalls: Number(raw["totalCalls"] ?? 0),
-        totalAttemptedCalls: Number(
-          raw["totalAttemptedCalls"] ?? raw["totalCalls"] ?? 0,
-        ),
-        totalSuccessfulCalls: Number(raw["totalSuccessfulCalls"] ?? 0),
-        totalFailedCalls: Number(raw["totalFailedCalls"] ?? 0),
-        totalBillableCalls: Number(raw["totalBillableCalls"] ?? 0),
-        totalExactCacheHits: Number(raw["totalExactCacheHits"] ?? 0),
-        byStage: ((raw["byStage"] as RunCostSummary["byStage"]) ?? []).map(
-          (entry) => ({
-            ...entry,
-            attemptedCalls: Number(entry.attemptedCalls ?? entry.calls ?? 0),
-            successfulCalls: Number(entry.successfulCalls ?? 0),
-            failedCalls: Number(entry.failedCalls ?? 0),
-            billableCalls: Number(entry.billableCalls ?? 0),
-            exactCacheHits: Number(entry.exactCacheHits ?? 0),
-          }),
-        ),
-        ...(raw["byPurpose"] != null
-          ? {
-              byPurpose: raw["byPurpose"] as Record<
-                string,
-                RunCostPurposeSummary
-              >,
-            }
-          : {}),
-        source: "cost_file",
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  return undefined;
+/** Rebuild from the same durable journal used by the CLI; never trust a stale projection. */
+export function getRunCostSummary(runId: string) {
+  const root = getRunRoot(runId);
+  if (!existsSync(`${root}/traces/sessions`)) return undefined;
+  return { ...rebuildRunCostSummary(root), source: "trace_ledger" as const };
 }
