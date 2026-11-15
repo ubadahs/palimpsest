@@ -34,7 +34,7 @@ import {
   upsertParsedData,
 } from "../storage/paper-cache.js";
 
-export const PARSED_PAPER_PARSER_VERSION = "structured-v4";
+export const PARSED_PAPER_PARSER_VERSION = "structured-v5";
 
 type ParsedPaperMaterialized = {
   fullText: FullTextContent;
@@ -460,12 +460,26 @@ function parseJatsReferences(doc: Document): ParsedPaperReference[] {
     const labelEl = getFirstElement(refEl, "label");
     const volumeEl = getFirstElement(refEl, "volume");
     const surnames = getElementsByTagName(refEl, "surname").map(getTextContent);
+    // Some JATS publishers store identifiers only in empty ext-link elements.
+    const externalIdentifier = (kind: string): string | undefined => {
+      const link = findFirstMatchingElement(
+        refEl,
+        "ext-link",
+        (el) => el.getAttribute("ext-link-type") === kind,
+      );
+      return link
+        ? link.getAttribute("xlink:href") ||
+            link.getAttribute("href") ||
+            getTextContent(link) ||
+            undefined
+        : undefined;
+    };
 
     references.push({
       refId,
-      doi: doiEl ? getTextContent(doiEl) : undefined,
-      pmcid: pmcidEl ? getTextContent(pmcidEl) : undefined,
-      pmid: pmidEl ? getTextContent(pmidEl) : undefined,
+      doi: doiEl ? getTextContent(doiEl) : externalIdentifier("doi"),
+      pmcid: pmcidEl ? getTextContent(pmcidEl) : externalIdentifier("pmcid"),
+      pmid: pmidEl ? getTextContent(pmidEl) : externalIdentifier("pmid"),
       arxivId: findArxivId([
         ...getElementsByTagName(refEl, "pub-id"),
         ...getElementsByTagName(refEl, "ext-link"),
@@ -1273,6 +1287,11 @@ const VOLUME_MATCH_SHARED_AUTHORS = 2;
  * the seed's title tokens) or, for a reference that gives no title as physics
  * references often do, the same volume and at least two shared co-authors.
  * Each author + year step accepts only a single candidate.
+ *
+ * A paper published online one year and in an issue the next is cited under
+ * either year, so the last step accepts a year one off when first author,
+ * exact title and volume all agree. The volume is what keeps a preprint and
+ * its journal version apart: they share a title and an adjacent year.
  */
 export function matchReferenceByMetadata(
   references: readonly ParsedPaperReference[],
@@ -1300,15 +1319,18 @@ export function matchReferenceByMetadata(
   });
   const firstAuthor = seedSurnames[0];
   if (seed.publicationYear == null || !firstAuthor) return undefined;
-  const sameFirstAuthorAndYear = references.filter((reference) => {
+  const seedYear = seed.publicationYear;
+  const sameFirstAuthor = references.filter((reference) => {
     const referenceFirst = reference.authorSurnames[0];
     return (
-      reference.year === seed.publicationYear &&
-      referenceFirst != null &&
-      normalizeSurname(referenceFirst) === firstAuthor
+      referenceFirst != null && normalizeSurname(referenceFirst) === firstAuthor
     );
   });
+  const sameFirstAuthorAndYear = sameFirstAuthor.filter(
+    (reference) => reference.year === seedYear,
+  );
 
+  const seedTitle = normalizeBibliographyTitle(seed.title);
   const byTitle = sameFirstAuthorAndYear.filter(
     (reference) =>
       reference.title != null &&
@@ -1319,8 +1341,7 @@ export function matchReferenceByMetadata(
     return {
       reference,
       method:
-        normalizeBibliographyTitle(reference.title!) ===
-        normalizeBibliographyTitle(seed.title)
+        normalizeBibliographyTitle(reference.title!) === seedTitle
           ? "author_year_exact_title"
           : "author_year_title_overlap",
     };
@@ -1340,7 +1361,23 @@ export function matchReferenceByMetadata(
         seedSurnameSet.has(normalizeSurname(surname)),
       ).length >= sharedAuthorsNeeded,
   );
-  return byVolume.length === 1
-    ? { reference: byVolume[0]!, method: "author_year_volume" }
+  if (byVolume.length === 1) {
+    return { reference: byVolume[0]!, method: "author_year_volume" };
+  }
+  if (byVolume.length > 1) return undefined;
+
+  const byAdjacentYear = sameFirstAuthor.filter(
+    (reference) =>
+      reference.year != null &&
+      Math.abs(reference.year - seedYear) === 1 &&
+      reference.volume === seed.volume &&
+      reference.title != null &&
+      normalizeBibliographyTitle(reference.title) === seedTitle,
+  );
+  return byAdjacentYear.length === 1
+    ? {
+        reference: byAdjacentYear[0]!,
+        method: "author_adjacent_year_exact_title_volume",
+      }
     : undefined;
 }

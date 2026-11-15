@@ -1,6 +1,7 @@
 import { rethrowTraceError } from "../telemetry/trace.js";
 import { tracedFetch } from "../telemetry/http.js";
 import { z } from "zod";
+import { isAttachmentUrl } from "./attachment-url.js";
 
 import type Database from "better-sqlite3";
 
@@ -383,7 +384,8 @@ function extractLandingPageLinks(
 
   return {
     xmlUrls: [...xmlUrls],
-    pdfUrls: [...pdfUrls],
+    // Supplementary/peer-review attachments are not fallback article texts.
+    pdfUrls: [...pdfUrls].filter((url) => !isAttachmentUrl(url)),
   };
 }
 
@@ -811,6 +813,20 @@ async function executePdfCandidate(
   }
 
   const fetched = response.data;
+  if (isAttachmentUrl(fetched.finalUrl)) {
+    pushAttempt(state, {
+      candidateKind: candidate.candidateKind,
+      method: candidate.method,
+      locatorKind: candidate.locatorKind,
+      locatorValue: candidate.locatorValue,
+      url: fetched.finalUrl,
+      probeClassification: "attachment_url",
+      success: false,
+      failureReason:
+        "Redirect returned a supplementary or peer-review attachment",
+    });
+    return { kind: "continue" };
+  }
   if (fetched.status >= 400) {
     const reason = `HTTP ${String(fetched.status)} from ${url}`;
     pushAttempt(state, {
@@ -887,7 +903,7 @@ async function executePdfCandidate(
       method: "direct_pdf_grobid",
       locatorKind:
         mapCandidateToSelectedLocatorKind(candidate) ?? "direct_pdf_url",
-      selectedUrl: url,
+      selectedUrl: fetched.finalUrl,
     },
   };
 }
@@ -1141,6 +1157,20 @@ async function executeCandidateQueue(
 ): Promise<AcquisitionSuccessPayload | undefined> {
   while (state.candidates.length > 0) {
     const candidate = state.candidates.shift()!;
+    if (candidate.url && isAttachmentUrl(candidate.url)) {
+      pushAttempt(state, {
+        candidateKind: candidate.candidateKind,
+        method: candidate.method,
+        locatorKind: candidate.locatorKind,
+        locatorValue: candidate.locatorValue,
+        url: candidate.url,
+        probeClassification: "attachment_url",
+        success: false,
+        failureReason:
+          "Supplementary or peer-review attachment is not article full text",
+      });
+      continue;
+    }
     let candidateResult: AcquisitionCandidateResult;
 
     if (candidate.candidateKind === "biorxiv_xml") {

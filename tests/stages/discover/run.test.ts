@@ -1407,3 +1407,105 @@ describe("sampling frame and type groups", () => {
     expect(isInSamplingFrame("unavailable")).toBe(false);
   });
 });
+
+it("reattaches before grouping and Prepare while retaining extraction provenance", async () => {
+  const context = "Earlier (1). Bands were reported (1,2,3).";
+  const support = "Bands were reported (1,2,3).";
+  const base = buildFixtureAdapters();
+  const result = await runDiscover(fixtureOptions(), {
+    ...base,
+    harvestMentions: async (input) => {
+      const harvest = (await base.harvestMentions(input)) as ReturnType<
+        typeof successfulHarvest
+      >;
+      const template = harvest.mentions[0];
+      if (!template) return harvest;
+      return {
+        ...harvest,
+        mentions: ["1", "1,2,3"].map((marker, i) => {
+          const start = context.indexOf(marker);
+          return {
+            ...template,
+            mentionIndex: i,
+            citationGroupOrdinal: i,
+            rawContext: context,
+            citationMarker: marker,
+            charOffsetStart: 100 + start,
+            charOffsetEnd: 100 + start + marker.length,
+            markerSpan: {
+              charOffsetStart: start,
+              charOffsetEnd: start + marker.length,
+            },
+            isBundledCitation: i === 1,
+            bundleSize: i === 1 ? 3 : 1,
+            bundleRefIds: i === 1 ? ["seed-ref", "r2", "r3"] : ["seed-ref"],
+          };
+        }),
+      };
+    },
+    extractAttributedClaims: ({ mention }) =>
+      Promise.resolve({
+        status: "completed",
+        reason: "Synthetic extraction",
+        claims: [
+          {
+            text: "Bands were reported",
+            supportSpanText: support,
+            confidence: "high",
+          },
+        ],
+        execution: extractionModelExecution(mention.mentionId, "fixture-model"),
+      }),
+  });
+  const discover = buildDiscoverArtifact({
+    result,
+    runId: "reattachment-test",
+    createdAt: "2026-11-14T12:00:00Z",
+  });
+  const changes = result.decisions.filter(
+    (d) => d.decisionType === "discover_citation_reattachment",
+  );
+  expect(changes.length).toBeGreaterThan(0);
+  for (const claim of result.payload.attributedClaimRecords) {
+    const attached = result.payload.citationMentions.find(
+      (m) => m.mentionId === claim.mentionId,
+    )!;
+    expect(attached.bundleSize).toBe(3);
+    const extraction = result.payload.claimExtractionObservations.find(
+      (e) => e.extractionId === claim.extractionId,
+    )!;
+    expect(extraction.claimRecordIds).toContain(claim.claimRecordId);
+    if (extraction.mentionId !== attached.mentionId)
+      expect(changes.some((d) => d.recordId === claim.claimRecordId)).toBe(
+        true,
+      );
+  }
+  const { runScope, buildScopeArtifact } =
+    await import("../../../src/stages/scope/run.js");
+  const { resolvePreparedRecords } =
+    await import("../../../src/contract/artifacts/index.js");
+  const { runPrepare } = await import("../../../src/stages/prepare/run.js");
+  const { scopeAdapters, prepareAdapters } =
+    await import("../chain.fixture.js");
+  const scope = buildScopeArtifact({
+    result: await runScope(discover, scopeAdapters("grounded"), {
+      recordedAt: "2026-11-14T12:01:00Z",
+      discoverArtifactUri: "fixture://discover",
+    }),
+    runId: discover.runId,
+    createdAt: "2026-11-14T12:02:00Z",
+  });
+  const prepare = await runPrepare(
+    scope,
+    discover,
+    prepareAdapters("default"),
+    { recordedAt: "2026-11-14T12:03:00Z", scopeArtifactUri: "fixture://scope" },
+  );
+  expect(prepare.payload.records.length).toBeGreaterThan(0);
+  for (const record of resolvePreparedRecords(prepare.payload)) {
+    expect(record.citationOccurrence.bundleSize).toBe(3);
+    expect(record.classification.status).not.toBe("failed");
+    if (record.classification.status !== "failed")
+      expect(record.classification.modifiers.isBundled).toBe(true);
+  }
+});

@@ -21,7 +21,7 @@ Exact caching is request equality, not semantic equivalence. Different model set
 
 ## Paper materialization cache
 
-The acquisition layer reuses raw and parsed paper materialization when valid. `--force-refresh` requests new materialization. Evidence still retrieves only over the immutable Scope seed-text blocks referenced by its input artifact; a cache does not permit substituted text.
+The acquisition layer reuses raw and parsed paper materialization when valid. Known supplementary and peer-review attachment URLs are excluded from landing-page PDF links, direct candidates and PDF redirects. Cache reads also reject a stored selected URL or successful acquisition attempt that identifies an attachment; a failed attachment attempt does not disqualify a subsequently acquired article. This URL check does not establish document identity for unmarked attachment URLs. `--force-refresh` requests new materialization. Evidence still retrieves only over the immutable Scope seed-text blocks referenced by its input artifact; a cache does not permit substituted text.
 
 ## Provider prompt caching
 

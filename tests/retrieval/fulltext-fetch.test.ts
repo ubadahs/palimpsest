@@ -534,3 +534,110 @@ describe("GROBID concurrency bound", () => {
     ).toBe(4);
   });
 });
+
+it("does not use publisher supplementary or review PDFs as the article", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ records: [] }))),
+  );
+  const fetchUrl = vi.fn((url: string) =>
+    Promise.resolve({
+      ok: true as const,
+      data: {
+        finalUrl: url,
+        status: 200,
+        contentType: "text/html",
+        body: Buffer.from(
+          `<html><a href="https://publisher.test/esm/article/MediaObjects/article_MOESM2_ESM.pdf">Peer review</a><a href="https://publisher.test/supplementary.pdf">Supplement</a></html>`,
+        ),
+      },
+    }),
+  );
+  const processPdfWithGrobid = vi.fn(() =>
+    Promise.resolve({
+      ok: true as const,
+      data: "<TEI/>",
+    }),
+  );
+  const result = await acquireFullText(
+    makePaper({
+      doi: undefined,
+      pmcid: undefined,
+      fullTextHints: {
+        providerAvailability: "available",
+        locations: [
+          {
+            url: "https://publisher.test/article",
+            kind: "landing_page",
+            host: "publisher",
+          },
+        ],
+      },
+    }),
+    "https://api.biorxiv.org",
+    {
+      fetchUrl,
+      processPdfWithGrobid,
+      email: undefined,
+      institutionalProxyUrl: undefined,
+    },
+  );
+  expect(result.ok).toBe(false);
+  expect(processPdfWithGrobid).not.toHaveBeenCalled();
+  expect(fetchUrl.mock.calls.every(([url]) => !url.endsWith(".pdf"))).toBe(
+    true,
+  );
+});
+
+it("rejects direct attachment candidates and redirected attachments before parsing", async () => {
+  const attachment = "https://publisher.test/esm/paper_MOESM2_ESM.pdf";
+  const redirect = "https://publisher.test/download.pdf";
+  const article = "https://publisher.test/article.pdf";
+  const fetchUrl = vi.fn((url: string) =>
+    Promise.resolve({
+      ok: true as const,
+      data: {
+        finalUrl: url === redirect ? attachment : url,
+        status: 200,
+        contentType: "application/pdf",
+        body: Buffer.from("%PDF-1.7 fixture"),
+      },
+    }),
+  );
+  const processPdfWithGrobid = vi.fn(() =>
+    Promise.resolve({
+      ok: true as const,
+      data: "<TEI/>",
+    }),
+  );
+  const result = await acquireFullText(
+    makePaper({
+      fullTextHints: {
+        providerAvailability: "available",
+        locations: [attachment, redirect, article].map((url) => ({
+          url,
+          kind: "pdf",
+          host: "publisher",
+        })),
+      },
+    }),
+    "https://api.biorxiv.org",
+    {
+      fetchUrl,
+      processPdfWithGrobid,
+      email: undefined,
+      institutionalProxyUrl: undefined,
+    },
+  );
+  expect(result.ok).toBe(true);
+  expect(fetchUrl.mock.calls.map((c) => c[0])).toEqual([redirect, article]);
+  expect(processPdfWithGrobid).toHaveBeenCalledTimes(1);
+  if (result.ok) {
+    expect(result.data.acquisition.selectedUrl).toBe(article);
+    expect(
+      result.data.acquisition.attempts.filter(
+        (a) => a.probeClassification === "attachment_url",
+      ),
+    ).toHaveLength(2);
+  }
+});

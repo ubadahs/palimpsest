@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type Database from "better-sqlite3";
+import { cachedAttachmentUrls } from "../retrieval/attachment-url.js";
 
 import type { CachePolicy } from "../domain/classification.js";
 import type { ParsedPaperParserKind } from "../domain/parsing.js";
@@ -40,6 +41,15 @@ export function getCachedPaper(
     .get(paperId) as Record<string, unknown> | undefined;
 
   if (!row) return undefined;
+  // Old caches can predate the acquisition filter. Leave the row intact for
+  // audit, but never serve an attachment as article full text.
+  if (
+    cachedAttachmentUrls(
+      row["acquisition_provenance_json"] as string | undefined,
+    ).length > 0
+  ) {
+    return undefined;
+  }
 
   return {
     paperId: row["paper_id"] as string,

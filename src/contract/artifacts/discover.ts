@@ -433,6 +433,7 @@ export function buildCitationGroupKey(
 
 export type AttributedClaimRecordIdentityInputs = {
   seedId: string;
+  /** Original extraction occurrence; corrected attachment does not change the source record ID. */
   mentionId: string;
   /** Deterministic ordinal only among records with the same normalized text. */
   duplicateOrdinal: number;

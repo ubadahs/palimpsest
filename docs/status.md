@@ -30,7 +30,8 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 - Harvests probed papers `fetchConcurrency` at a time.
 - Emits one seed occurrence per exact citation group, carrying the parser's own `locationQuality`.
 - Records each citing paper's access channel and bibliography match method.
-- Exact-verifies claim support spans into offset-bound `supportSpan` fields.
+- Exact-verifies claim support spans into offset-bound `supportSpan` fields, and reattaches claims to a unique exact marker within their span before clustering. Original extraction lineage and explicit reattachment decisions are retained; downstream bundle metadata follows the corrected occurrence.
+- Rejects known attachment URLs during acquisition and cache reuse. JATS bibliography identifiers also read `ext-link` targets when `pub-id` is absent.
 - Clusters paraphrased claims across citers into one candidate per seed finding.
 - Annotates candidates and selects an adaptive 15–25 family portfolio under a prepared-record budget.
 - Grounding is deferred.

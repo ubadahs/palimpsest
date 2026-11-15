@@ -55,6 +55,8 @@ export type ParsedPaperReference = z.infer<typeof parsedPaperReferenceSchema>;
  * How a citing paper's bibliography entry was taken to be the seed. Physics
  * and astronomy references often carry no title, so an arXiv identifier, or
  * first author + year + volume with shared co-authors, stands in for one.
+ * The last method covers a reference dated one year off the seed (online
+ * versus issue year) whose first author, exact title and volume all agree.
  */
 export const bibliographyMatchMethodSchema = z.enum([
   "doi",
@@ -62,6 +64,7 @@ export const bibliographyMatchMethodSchema = z.enum([
   "author_year_exact_title",
   "author_year_title_overlap",
   "author_year_volume",
+  "author_adjacent_year_exact_title_volume",
 ]);
 export type BibliographyMatchMethod = z.infer<
   typeof bibliographyMatchMethodSchema

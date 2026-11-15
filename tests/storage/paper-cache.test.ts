@@ -99,6 +99,39 @@ describe("paper cache integration", () => {
     rmSync(tempDirectory, { recursive: true, force: true });
   });
 
+  it("bypasses an old attachment cache and reacquires the article", async () => {
+    const database = openDatabase(join(tempDirectory, "attachment.sqlite"));
+    runMigrations(database);
+    const paper = makePaper();
+    upsertRawPaper(database, {
+      paperId: paper.id,
+      rawFullText: "<TEI>Peer review attachment</TEI>",
+      fullTextFormat: "grobid_tei_xml",
+      contentHash: "wrong-document",
+      acquisitionProvenanceJson: JSON.stringify({
+        selectedUrl: "https://publisher.org/paper_MOESM2_ESM.pdf",
+        attempts: [],
+      }),
+    });
+    const counters = { fetchPdf: 0, processPdfWithGrobid: 0 };
+    try {
+      const result = await fetchFullText(
+        paper,
+        "https://api.biorxiv.org",
+        makeAdapters(RAW_TEI, counters),
+        { db: database, cachePolicy: "prefer_cache" },
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.content).toBe(RAW_TEI);
+        expect(result.data.acquisition.materializationSource).toBe("network");
+      }
+      expect(counters.processPdfWithGrobid).toBe(1);
+    } finally {
+      database.close();
+    }
+  });
+
   it("reuses cached raw full text on subsequent fetches", async () => {
     const database = openDatabase(join(tempDirectory, "cache.sqlite"));
     runMigrations(database);

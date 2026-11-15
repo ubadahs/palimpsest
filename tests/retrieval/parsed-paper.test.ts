@@ -234,6 +234,87 @@ describe("parseParsedPaperDocument", () => {
     ).toBeUndefined();
   });
 
+  describe("a reference dated one year off the seed", () => {
+    // Online in 2019, in an issue in 2020: citing papers use either year.
+    const seed = {
+      title: "Layered sorting of Velar interneurons",
+      publicationYear: 2019,
+      authors: ["Ines Tamsin", "Oto Brandl"],
+      volume: "41",
+    };
+    const reference = {
+      refId: "r1",
+      title: "Layered sorting of Velar interneurons.",
+      authorSurnames: ["Tamsin", "Brandl"],
+      year: 2020,
+      volume: "41",
+    };
+
+    it("matches when first author, exact title and volume agree", () => {
+      expect(matchReferenceByMetadata([reference], seed)).toMatchObject({
+        reference: { refId: "r1" },
+        method: "author_adjacent_year_exact_title_volume",
+      });
+      expect(
+        matchReferenceByMetadata([{ ...reference, year: 2018 }], seed)?.method,
+      ).toBe("author_adjacent_year_exact_title_volume");
+    });
+
+    it("keeps a same-titled preprint or other version apart", () => {
+      // A preprint entry has no volume; another venue has a different one.
+      expect(
+        matchReferenceByMetadata([{ ...reference, volume: undefined }], seed),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata([{ ...reference, volume: "7" }], seed),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata([reference], { ...seed, volume: undefined }),
+      ).toBeUndefined();
+    });
+
+    it("rejects a looser title, a wider gap, another author, or two candidates", () => {
+      expect(
+        matchReferenceByMetadata(
+          [
+            {
+              ...reference,
+              title: "Layered sorting of Velar interneurons: a study",
+            },
+          ],
+          seed,
+        ),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata([{ ...reference, year: 2021 }], seed),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata(
+          [{ ...reference, authorSurnames: ["Brandl", "Tamsin"] }],
+          seed,
+        ),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata(
+          [reference, { ...reference, refId: "r2" }],
+          seed,
+        ),
+      ).toBeUndefined();
+    });
+
+    it("prefers a same-year entry over an adjacent-year one", () => {
+      expect(
+        matchReferenceByMetadata(
+          [reference, { ...reference, refId: "r2", year: 2019 }],
+          seed,
+        ),
+      ).toMatchObject({
+        reference: { refId: "r2" },
+        method: "author_year_exact_title",
+      });
+    });
+  });
+
   describe("references that give no title", () => {
     const seed = {
       title: "Forecasting Norel lamination from sparse sections",
@@ -441,4 +522,23 @@ describe("parseParsedPaperDocument", () => {
       result.data.mentions[2]!.markerSpan!.charOffsetStart,
     );
   });
+});
+
+it("reads JATS reference identifiers from empty external links", () => {
+  const xml = `<article xmlns:xlink="http://www.w3.org/1999/xlink"><body><p>A result<xref ref-type="bibr" rid="r1">1</xref>.</p></body><back><ref-list><ref id="r1"><label>1</label><mixed-citation><named-content>Example citation</named-content><ext-link ext-link-type="doi" xlink:href="10.1000/example"/><ext-link ext-link-type="pmcid" xlink:href="PMC123"/></mixed-citation></ref></ref-list></back></article>`;
+  const result = parseParsedPaperDocument(xml, "jats_xml");
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.data.references[0]).toMatchObject({
+    doi: "10.1000/example",
+    pmcid: "PMC123",
+  });
+  expect(
+    matchReferenceByMetadata(result.data.references, {
+      doi: "10.1000/example",
+      title: "Example",
+      authors: [],
+      publicationYear: 2020,
+    }),
+  ).toMatchObject({ method: "doi", reference: { refId: "r1" } });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveClaimCitation } from "./citation-attachment.js";
 
 import { uniqueSortedArtifactReferences } from "../../contract/artifacts/primitives.js";
 import { createBoundaryParser } from "../../shared/boundary.js";
@@ -885,7 +886,32 @@ export async function runDiscover(
       rawContext: mention.rawContext,
       provenanceArtifacts,
     });
-    attributedClaimRecords.push(...records);
+    for (const record of records) {
+      const attached = resolveClaimCitation(record, mention, citationMentions);
+      // IDs identify the source extraction, not its corrected association.
+      // The extraction observation retains the original mention and response.
+      attributedClaimRecords.push({ ...record, mentionId: attached.mentionId });
+      if (attached.mentionId !== mention.mentionId) {
+        decisions.push(
+          createAppendOnlyDecision({
+            recordId: record.claimRecordId,
+            decisionType: "discover_citation_reattachment",
+            outcome: attached.mentionId,
+            reason: `Moved from ${mention.mentionId} to the unique exact citation marker within the verified support span; original extraction ${extractionId} retained`,
+            recordedAt: options.recordedAt,
+            actor: {
+              kind: "deterministic",
+              identifier: "claim-citation-attachment-v1",
+            },
+            evidenceArtifacts: uniqueSortedArtifactReferences([
+              ...provenanceArtifacts,
+              ...mention.observationProvenance.artifacts,
+              ...attached.observationProvenance.artifacts,
+            ]),
+          }),
+        );
+      }
+    }
     claimExtractionObservations.push({
       extractionId,
       seedId,
