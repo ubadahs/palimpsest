@@ -26,6 +26,7 @@ npm run dev -- doctor  # check config and services
 npm run dev -- db:migrate  # apply pending SQLite migrations
 npm run dev -- db:gc [--days 90] [--dry-run]  # delete aged analysis-run + LLM-cache DB rows and expired batch request rows (not artifact dirs)
 npm run dev -- runs:gc [--run-id <uuid>] [--dry-run]  # delete superseded run artifacts + unreferenced provenance
+npm run dev -- runs:keep --run-id <uuid> [--reason <text>] [--release]  # exempt a run from cleanup
 npm run dev -- trace --root data/runs/<runId> --calls  # offline audit of persisted operations and model usage
 npm run dev -- pipeline --input dois.json     # DOI-first e2e: discover → scope → prepare → evidence → adjudicate → report
 npm run dev -- pipeline --input dois.json --seed-pdf paper.pdf  # e2e with local PDF for the seed paper (bypasses OA lookup)

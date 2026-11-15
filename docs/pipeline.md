@@ -395,3 +395,5 @@ It changes only the transport under the provider (`src/integrations/batch-transp
 - When a later run or resume sends the identical request, it waits on that batch, or takes a result already stored, instead of paying again. A resume whose settings changed sends different requests, which are new.
 - Rows are deleted once their result reaches a caller. Rows older than 29 days (the API's results retention) are resubmitted.
 - The one gap is a crash between the API accepting a batch and the database recording it.
+
+Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. Experimental chain and seed-inventory matching runners are retained privately with their source snapshots, results and provenance, and are not public CLI commands.

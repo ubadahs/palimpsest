@@ -12,6 +12,7 @@ import type Database from "better-sqlite3";
 import { stageDefinitions, type StageDefinition } from "../contract/stages.js";
 import { listAnalysisRuns, listRunStages } from "../storage/analysis-runs.js";
 import { artifactStemFromPrimaryPath } from "../contract/selectors.js";
+import { isRunKept } from "./run-keep.js";
 
 type OrphanedRunArtifacts = {
   runId: string;
@@ -46,11 +47,12 @@ export function findOrphanedRunArtifacts(
 ): RunArtifactGcResult {
   // A live run is still writing provenance the current attempt has not yet
   // referenced from any artifact, so collecting it would delete the run's own
-  // inputs out from under it.
+  // inputs out from under it. A kept run is left whole.
   const runs = listAnalysisRuns(database).filter(
     (run) =>
       run.status !== "running" &&
       run.status !== "queued" &&
+      !isRunKept(run.runRoot) &&
       (options.runId == null || run.id === options.runId),
   );
   const orphaned: OrphanedRunArtifacts[] = [];

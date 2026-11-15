@@ -15,6 +15,7 @@ import {
   deleteOrphanedRunArtifacts,
   findOrphanedRunArtifacts,
 } from "../../src/pipeline/run-artifact-gc.js";
+import { keepRun, releaseRun } from "../../src/pipeline/run-keep.js";
 import {
   createAnalysisRun,
   setRunStatus,
@@ -95,6 +96,11 @@ describe("run artifact garbage collection", () => {
       updateStageStatus(database, "run-1", "discover", "succeeded", {
         primaryArtifactPath: join(discoverDir, `${currentStem}_discover.json`),
       });
+
+      // A kept run is left whole until it is released.
+      keepRun(runRoot, "a chain link reads its first attempt");
+      expect(findOrphanedRunArtifacts(database).fileCount).toBe(0);
+      releaseRun(runRoot);
 
       const result = findOrphanedRunArtifacts(database);
       expect(result.fileCount).toBe(3);

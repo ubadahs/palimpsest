@@ -1,11 +1,18 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { keepRun, releaseRun } from "../../src/pipeline/run-keep.js";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { parseDatabaseGcArgs } from "../../src/cli/commands/db-gc.js";
-import { purgeOldRuns } from "../../src/storage/analysis-runs.js";
+import {
+  parseDatabaseGcArgs,
+  collectibleRunIds,
+} from "../../src/cli/commands/db-gc.js";
+import {
+  deleteAnalysisRuns,
+  listAgedRuns,
+} from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
 import {
   countExpiredBatchRequests,
@@ -78,7 +85,17 @@ describe("db:gc", () => {
         )
         .run();
 
-      expect(purgeOldRuns(database, 90)).toBe(1);
+      mkdirSync(join(tempDirectory, "old"));
+      keepRun(join(tempDirectory, "old"), "retained inputs");
+      expect(collectibleRunIds(database, 90)).toEqual([]);
+      expect(
+        deleteAnalysisRuns(database, collectibleRunIds(database, 90)),
+      ).toBe(0);
+      releaseRun(join(tempDirectory, "old"));
+      expect(collectibleRunIds(database, 90)).toEqual(["old-run"]);
+      const aged = listAgedRuns(database, 90).map((run) => run.id);
+      expect(aged).toEqual(["old-run"]);
+      expect(deleteAnalysisRuns(database, aged)).toBe(1);
       expect(evictStaleLLMCache(database, 90)).toBe(1);
       expect(
         database

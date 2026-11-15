@@ -3,6 +3,7 @@ import { runDatabaseMigrateCommand } from "./commands/db-migrate.js";
 import { runDoctorCommand } from "./commands/doctor.js";
 import { runPipelineCommand } from "./commands/pipeline.js";
 import { runRunsGcCommand } from "./commands/runs-gc.js";
+import { runRunsKeepCommand } from "./commands/runs-keep.js";
 import { runEvalCommand } from "./commands/eval.js";
 import { runTraceCommand } from "./commands/trace.js";
 import {
@@ -18,6 +19,7 @@ Available commands:
   db:migrate    Apply pending SQLite migrations
   db:gc         Delete aged analysis-run and LLM-cache rows (not artifact dirs)
   runs:gc       Delete superseded run artifacts and unreferenced provenance blobs
+  runs:keep     Keep a run from cleanup, or release it
   pipeline      Run the six stages: discover → scope → prepare → evidence → adjudicate → report
   eval          Build datasets, validate, run/resume experiments, and report results
   trace         Audit saved operations, model usage and incomplete attempts offline
@@ -55,6 +57,11 @@ async function main(): Promise<void> {
 
   if (command === "runs:gc") {
     runRunsGcCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "runs:keep") {
+    runRunsKeepCommand(process.argv.slice(3));
     return;
   }
 

@@ -1,7 +1,14 @@
 import { createAppConfig } from "../../config/app-config.js";
 import { loadEnvironment } from "../../config/env.js";
-import { purgeOldRuns } from "../../storage/analysis-runs.js";
-import { openDatabase } from "../../storage/database.js";
+import { isRunKept } from "../../pipeline/run-keep.js";
+import {
+  deleteAnalysisRuns,
+  listAgedRuns,
+} from "../../storage/analysis-runs.js";
+import {
+  openDatabase,
+  type DatabaseConnection,
+} from "../../storage/database.js";
 import {
   BATCH_RESULTS_RETENTION_DAYS,
   countExpiredBatchRequests,
@@ -80,10 +87,19 @@ under data/runs/.
 Options:
   --days <n>   Retention window in days (default 90). Deletes succeeded,
                failed, and interrupted runs whose updated_at is older than
-               this window, plus llm_result_cache rows older than the window
+               this window (never a run kept with runs:keep), plus llm_result_cache rows older than the window
                (by last_hit_at, or created_at if never hit). Batch request
                rows always use the ${String(BATCH_RESULTS_RETENTION_DAYS)}-day results retention instead.
   --dry-run    Report how many rows would be deleted without deleting.`);
+}
+
+export function collectibleRunIds(
+  database: DatabaseConnection,
+  days: number,
+): string[] {
+  return listAgedRuns(database, days)
+    .filter((run) => !isRunKept(run.runRoot))
+    .map((run) => run.id);
 }
 
 export function runDatabaseGcCommand(argv: string[]): void {
@@ -100,16 +116,9 @@ export function runDatabaseGcCommand(argv: string[]): void {
   try {
     runMigrations(database);
 
+    const agedRunIds = collectibleRunIds(database, options.days);
     if (options.dryRun) {
-      const runCount = (
-        database
-          .prepare(
-            `SELECT COUNT(*) AS n FROM analysis_runs
-             WHERE status IN ('succeeded', 'failed', 'interrupted')
-               AND updated_at < datetime('now', ? || ' days')`,
-          )
-          .get(`-${String(options.days)}`) as { n: number }
-      ).n;
+      const runCount = agedRunIds.length;
       const cacheCount = (
         database
           .prepare(
@@ -125,7 +134,7 @@ export function runDatabaseGcCommand(argv: string[]): void {
       return;
     }
 
-    const deletedRuns = purgeOldRuns(database, options.days);
+    const deletedRuns = deleteAnalysisRuns(database, agedRunIds);
     const evictedCache = evictStaleLLMCache(database, options.days);
     const prunedBatch = pruneExpiredBatchRequests(database);
     console.info(

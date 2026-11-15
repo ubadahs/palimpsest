@@ -221,3 +221,5 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
 - LLM purposes are limited to `attributed-claim-extraction`, `claim-clustering`, `seed-grounding`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.
+
+Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. Experimental chain and seed-inventory matching runners are retained privately with their source snapshots, results and provenance, and are not public CLI commands.

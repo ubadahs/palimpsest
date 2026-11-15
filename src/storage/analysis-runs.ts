@@ -415,20 +415,28 @@ export function markRunInterrupted(
   })();
 }
 
-/**
- * Delete completed/failed/interrupted runs older than `daysOld` days.
- * Cascade deletes associated stage rows. Returns the number of deleted runs.
- */
-export function purgeOldRuns(
+/** Completed, failed and interrupted runs last updated over `daysOld` days ago. */
+export function listAgedRuns(
   database: Database.Database,
   daysOld: number = 90,
-): number {
-  const result = database
+): AnalysisRun[] {
+  const rows = database
     .prepare(
-      `DELETE FROM analysis_runs
+      `SELECT * FROM analysis_runs
        WHERE status IN ('succeeded', 'failed', 'interrupted')
          AND updated_at < datetime('now', ? || ' days')`,
     )
-    .run(`-${String(daysOld)}`);
-  return result.changes;
+    .all(`-${String(daysOld)}`) as RunRow[];
+  return rows.map(toRun);
+}
+
+/** Delete runs by id; their stage rows go by cascade. Returns how many went. */
+export function deleteAnalysisRuns(
+  database: Database.Database,
+  runIds: readonly string[],
+): number {
+  const remove = database.prepare("DELETE FROM analysis_runs WHERE id = ?");
+  return database.transaction(() =>
+    runIds.reduce((count, id) => count + remove.run(id).changes, 0),
+  )();
 }
