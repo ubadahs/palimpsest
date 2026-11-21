@@ -7,7 +7,7 @@
 
 /** Common abbreviations whose internal periods must not end a sentence. */
 const ABBREVIATION_RE =
-  /\b(?:et\s+al|e\.g|i\.e|vs|cf|fig|figs|eq|eqs|no|nos|dr|mr|mrs|ms|prof|approx|ca|ed|eds|vol|vols|pp)\./gi;
+  /\b(?:et\s+al|e\.g|i\.e|vs|cf|fig|figs|eq|eqs|no|nos|dr|mr|mrs|ms|prof|approx|ca|ed|eds|vol|vols|pp)\.|\brefs?\.(?=\s*[([]?\d)/gi;
 
 /** A citation as Discover recorded it, enough to find it in its paragraph. */
 export type CitingOccurrenceText = {

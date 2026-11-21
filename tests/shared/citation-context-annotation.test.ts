@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   annotateCitingContext,
   assessCitationScopeAnnotation,
+  sentenceAtOffset,
 } from "../../src/shared/citation-context-window.js";
 
 /** The occurrence whose marker is the `nth` appearance of `marker` in `rawContext`. */
@@ -31,6 +32,17 @@ function spanOf(rawContext: string, text: string) {
   const start = rawContext.indexOf(text);
   return { text, charOffsetStart: start, charOffsetEnd: start + text.length };
 }
+
+describe("sentenceAtOffset", () => {
+  it.each(["ref. 40", "refs. 30,40", "Refs. [30,40]"])(
+    "keeps the credited method with the marker in %s",
+    (citation) => {
+      const method = `We validated the units as in ${citation}.`;
+      const paragraph = `Cells were recorded. ${method} The sample was archived.`;
+      expect(sentenceAtOffset(paragraph, paragraph.indexOf("40"))).toBe(method);
+    },
+  );
+});
 
 describe("annotateCitingContext", () => {
   it("marks the support span's sentence when it holds this occurrence's marker", () => {
