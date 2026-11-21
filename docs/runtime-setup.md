@@ -40,6 +40,8 @@ docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
 
 `doctor` fails when GROBID is unreachable. JATS-backed inputs do not need GROBID once structured text is available.
 
+The benchmark and rationale are recorded in [Why Palimpsest uses GROBID for PDFs](./pdf-parsing-decision.md).
+
 ## Model access
 
 Anthropic is required for uncached model-backed work. Discover extracts and clusters attributed claims. Scope grounds families, inventories source findings and assesses eligible citation statements. Prepare classifies unclear roles, Evidence optionally reranks passages, and Adjudicate calls the model for eligible records. A zero-dollar `citation-history` traversal can inspect an existing report and saved evidence offline.

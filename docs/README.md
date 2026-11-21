@@ -29,6 +29,7 @@ If design documents disagree on scope, follow this order:
 
 - [adjudication-rubric.md](./adjudication-rubric.md) — uncalibrated F/D/E/U rubric and Report denominator rules
 - [caching.md](./caching.md) — paper and LLM exact-result cache behavior
+- [pdf-parsing-decision.md](./pdf-parsing-decision.md) — GROBID and PaddleOCR benchmark, decision, and criteria for revisiting it
 
 ## Lint And Tests
 

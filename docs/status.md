@@ -224,7 +224,7 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - All external boundaries are Zod-validated.
 - Artifacts are content-hashed, lineage-bound envelopes; one written by an earlier version of the code is not read.
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
-- PDF parsing uses GROBID after PDF validation. HTTP 500 and missing body text can trigger one traced retry using a text layer rebuilt with Poppler and Tesseract. If the PDF has embedded text, the retry can restore a damaged numeric suffix where the surrounding words and leading digits agree. Legible numbers and citation markers are preserved. Seed PDFs may be supplied with `--seed-pdf`.
+- PDF parsing uses GROBID after PDF validation. HTTP 500, invalid TEI, and missing body text can trigger one traced retry using a text layer rebuilt with Poppler and Tesseract. The PDF trace records body paragraph, bibliography, and resolved body marker counts, along with the retry trigger and selected attempt. If the PDF has embedded text, the retry can restore a damaged numeric suffix where the surrounding words and leading digits agree. Legible numbers and citation markers are preserved. Seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
 - The own-finding inventory has its own prompt version under `seed-grounding`. The shared statement matcher records `seed-claim-matching` for Scope and `chain-claim-matching` for history.
 

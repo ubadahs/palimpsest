@@ -13,26 +13,84 @@ import { rebuildPdfTextLayer, restoreOcrNumbers } from "./pdf-ocr.js";
 
 const GROBID_REQUEST_TIMEOUT_MS = 30_000;
 
-function inspectTeiBody(tei: string): "invalid" | "empty" | "present" {
-  if (!tei.trim()) return "invalid";
+type TeiInspection = {
+  status: "tei";
+  bodyParagraphs: number;
+  bibliographyEntries: number;
+  resolvedBodyMarkers: number;
+};
+
+type GrobidInspection =
+  | TeiInspection
+  | { status: "invalid_tei" }
+  | { status: "http_error"; httpStatus: number }
+  | { status: "request_error" };
+
+type GrobidAttempt = { result: Result<string>; inspection: GrobidInspection };
+
+function inspectTei(tei: string): TeiInspection | { status: "invalid_tei" } {
+  if (!tei.trim()) return { status: "invalid_tei" };
   try {
     const document = new DOMParser().parseFromString(tei, "text/xml");
-    if (document.documentElement?.localName !== "TEI") return "invalid";
+    if (document.documentElement?.localName !== "TEI")
+      return { status: "invalid_tei" };
     const body = document.getElementsByTagName("body").item(0);
-    return Array.from(body?.getElementsByTagName("p") ?? []).some((paragraph) =>
-      paragraph.textContent?.trim(),
-    )
-      ? "present"
-      : "empty";
+    const paragraphs = Array.from(body?.getElementsByTagName("p") ?? []).filter(
+      (paragraph) => paragraph.textContent?.trim(),
+    );
+    const bibliography = document.getElementsByTagName("listBibl").item(0);
+    const entries = Array.from(
+      bibliography?.getElementsByTagName("biblStruct") ?? [],
+    );
+    const ids = new Set(
+      entries
+        .map(
+          (entry) =>
+            entry.getAttribute("xml:id") ??
+            entry.getAttribute("id") ??
+            entry.getAttribute("n"),
+        )
+        .filter(Boolean),
+    );
+    const resolvedBodyMarkers = Array.from(
+      body?.getElementsByTagName("ref") ?? [],
+    ).filter(
+      (ref) =>
+        ref.getAttribute("type")?.toLowerCase() === "bibr" &&
+        ref.textContent?.trim() &&
+        ref
+          .getAttribute("target")
+          ?.split(/\s+/)
+          .some((target) => ids.has(target.replace(/^#/, ""))),
+    ).length;
+    return {
+      status: "tei",
+      bodyParagraphs: paragraphs.length,
+      bibliographyEntries: entries.length,
+      resolvedBodyMarkers,
+    };
   } catch {
-    return "invalid";
+    return { status: "invalid_tei" };
+  }
+}
+
+function repairTrigger(inspection: GrobidInspection) {
+  switch (inspection.status) {
+    case "invalid_tei":
+      return "invalid_tei";
+    case "tei":
+      return inspection.bodyParagraphs === 0 ? "empty_body" : undefined;
+    case "http_error":
+      return inspection.httpStatus === 500 ? "http_500" : undefined;
+    case "request_error":
+      return undefined;
   }
 }
 
 async function submitPdfToGrobid(
   buffer: Buffer,
   grobidBaseUrl: string,
-): Promise<{ result: Result<string>; retryWithOcr: boolean }> {
+): Promise<GrobidAttempt> {
   try {
     const formData = new FormData();
     const pdfBytes = Uint8Array.from(buffer).buffer;
@@ -63,18 +121,18 @@ async function submitPdfToGrobid(
           ok: false,
           error: `GROBID HTTP ${String(resp.status)} from ${normalizedBaseUrl}`,
         },
-        retryWithOcr: resp.status === 500,
+        inspection: { status: "http_error", httpStatus: resp.status },
       };
     }
 
     const tei = await resp.text();
-    const body = inspectTeiBody(tei);
+    const inspection = inspectTei(tei);
     return {
       result:
-        body === "invalid"
+        inspection.status === "invalid_tei"
           ? { ok: false, error: "Invalid TEI response from GROBID" }
           : { ok: true, data: tei },
-      retryWithOcr: body !== "present",
+      inspection,
     };
   } catch (err) {
     rethrowTraceError(err);
@@ -83,7 +141,7 @@ async function submitPdfToGrobid(
         ok: false,
         error: `GROBID parse error: ${err instanceof Error ? err.message : String(err)}`,
       },
-      retryWithOcr: false,
+      inspection: { status: "request_error" },
     };
   }
 }
@@ -92,26 +150,45 @@ export async function parsePdfWithGrobid(
   buffer: Buffer,
   grobidBaseUrl: string,
 ): Promise<Result<string>> {
+  const originalSha256 = createHash("sha256").update(buffer).digest("hex");
   const first = await submitPdfToGrobid(buffer, grobidBaseUrl);
-  if (!first.retryWithOcr) return first.result;
+  const trigger = repairTrigger(first.inspection);
+  function recordSelection(
+    selected: "initial" | "ocr",
+    result: Result<string>,
+    repaired?: GrobidInspection,
+  ): Result<string> {
+    traceCheckpoint("grobid_parse", {
+      originalSha256,
+      initial: first.inspection,
+      ...(trigger ? { ocrTrigger: trigger } : {}),
+      ...(repaired ? { repaired } : {}),
+      selected,
+      ok: result.ok,
+    });
+    return result;
+  }
+  if (!trigger) return recordSelection("initial", first.result);
 
   return traceOperation(
     "tool",
     "pdf_ocr",
-    { originalSha256: createHash("sha256").update(buffer).digest("hex") },
+    { originalSha256, trigger, engine: "tesseract" },
     async () => {
       const searchable = await rebuildPdfTextLayer(buffer);
       if (!searchable.ok) {
         traceCheckpoint("ocr_unavailable", { reason: searchable.error });
-        return first.result;
+        return recordSelection("initial", first.result);
       }
       traceCheckpoint("searchable_pdf", {
         payload: currentTraceSession().bytes(searchable.data.pdf),
       });
       const retry = await submitPdfToGrobid(searchable.data.pdf, grobidBaseUrl);
-      if (!retry.result.ok || retry.retryWithOcr) {
+      if (!retry.result.ok || repairTrigger(retry.inspection)) {
         // A valid first response can carry an abstract even if it has no body.
-        return first.result.ok ? first.result : retry.result;
+        return first.result.ok
+          ? recordSelection("initial", first.result, retry.inspection)
+          : recordSelection("ocr", retry.result, retry.inspection);
       }
       const { tei, replacements } = restoreOcrNumbers(
         retry.result.data,
@@ -125,7 +202,7 @@ export async function parsePdfWithGrobid(
           replacements,
         });
       }
-      return { ok: true, data: tei };
+      return recordSelection("ocr", { ok: true, data: tei }, retry.inspection);
     },
   );
 }
