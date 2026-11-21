@@ -11,9 +11,9 @@ export const PROMPT_VERSIONS = {
   /** A family claim grounded in the seed text (Scope). */
   grounding: "2026-11-18-v4",
   /** The cited paper's own findings, verified against exact source quotes. */
-  seedInventory: "2026-11-19-v2",
+  seedInventory: "2026-11-20-v4",
   /** Relationships of exact citation statements to the grounded inventory. */
-  seedStatementMatching: "2026-11-18-v1",
+  seedStatementMatching: "2026-11-20-v2",
   /** Version-bound route and direct content comparison at the later citation. */
   historyAssessment: "2026-11-19-v6",
   /** Citation role for occurrences the regex pass leaves unclear (Prepare). */

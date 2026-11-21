@@ -919,9 +919,12 @@ describe("Scope", () => {
         status: "completed",
         rawOutput: seed.doi.endsWith("seed-a")
           ? {
-              reason: "The paper establishes an effect in its own results.",
-              findings: [
+              inventoryReason:
+                "The paper establishes an effect in its own results.",
+              takeaways: [
                 {
+                  id: "primary",
+                  qualifiers: ["primary outcome"],
                   statement:
                     "The experiment demonstrated a measurable effect on the primary outcome.",
                   ownershipReason:
@@ -934,7 +937,40 @@ describe("Scope", () => {
                     },
                   ],
                 },
+              ],
+              results: [
                 {
+                  id: "linked-result",
+                  qualifiers: ["primary outcome"],
+                  supports: ["primary"],
+                  statement: "The primary outcome showed a measurable effect.",
+                  ownershipReason: "The authors report the measured outcome.",
+                  supportSpans: [
+                    {
+                      blockId: "body-1",
+                      verbatimQuote:
+                        "a measurable effect in the primary outcome.",
+                    },
+                  ],
+                },
+                {
+                  id: "bad-qualifier",
+                  qualifiers: ["an invented restriction"],
+                  supports: ["primary"],
+                  statement: "The effect applied under a specific restriction.",
+                  ownershipReason: "The authors report the measured outcome.",
+                  supportSpans: [
+                    {
+                      blockId: "body-1",
+                      verbatimQuote:
+                        "a measurable effect in the primary outcome.",
+                    },
+                  ],
+                },
+                {
+                  id: "bad-result",
+                  qualifiers: [],
+                  supports: ["primary"],
                   statement: "A result with an unsupported detail.",
                   ownershipReason: "The quoted figures supply the detail.",
                   supportSpans: [
@@ -947,7 +983,11 @@ describe("Scope", () => {
                 },
               ],
             }
-          : { reason: "This editorial only cites other work.", findings: [] },
+          : {
+              inventoryReason: "This editorial only cites other work.",
+              takeaways: [],
+              results: [],
+            },
         execution: {
           ...scopeModelExecution(seed.seedId),
           promptId: "scope-seed-inventory",
@@ -1002,21 +1042,33 @@ describe("Scope", () => {
     expect(inventoried).toEqual(
       discover.payload.seeds.map(({ seedId }) => seedId).sort(),
     );
+    const retained = payload.seedInventories.find(
+      (row) => row.status === "completed",
+    )!.findings;
+    const takeaway = retained.find((f) => f.hierarchy.kind === "takeaway")!;
+    expect(retained).toHaveLength(2);
+    expect(
+      retained.find((f) => f.hierarchy.kind === "result")!.hierarchy,
+    ).toEqual({
+      kind: "result",
+      qualifiers: ["primary outcome"],
+      supports: [takeaway.findingId],
+    });
+    expect(takeaway.hierarchy).toEqual({
+      kind: "takeaway",
+      qualifiers: ["primary outcome"],
+    });
+    expect(takeaway.evidenceSpans).toEqual([
+      expect.objectContaining({
+        text: "a measurable effect in the primary outcome.",
+        verificationStatus: "verified_exact",
+      }),
+    ]);
     expect(payload.seedInventories).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           status: "completed",
-          rejectedFindingCount: 1,
-          findings: [
-            expect.objectContaining({
-              evidenceSpans: [
-                expect.objectContaining({
-                  text: "a measurable effect in the primary outcome.",
-                  verificationStatus: "verified_exact",
-                }),
-              ],
-            }),
-          ],
+          rejectedFindingCount: 2,
         }),
         expect.objectContaining({
           status: "no_grounded_findings",

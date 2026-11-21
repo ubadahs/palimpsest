@@ -229,9 +229,13 @@ function historyFixtureAdapters(
         Promise.resolve({
           status: "completed",
           rawOutput: {
-            reason: "Matches the Results text.",
-            findings: [
+            takeaways: [],
+            inventoryReason: "Matches the Results text.",
+            results: [
               {
+                id: "result",
+                qualifiers: [],
+                supports: [],
                 statement: sourceText,
                 ownershipReason: "The field trial measured the moisture.",
                 supportSpans: [

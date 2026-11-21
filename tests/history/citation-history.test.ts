@@ -143,9 +143,13 @@ function fixtureScope(relationship: "partial" | "full"): ScopeAdapters {
       Promise.resolve({
         status: "completed",
         rawOutput: {
-          reason: "Grounded a result in the Results section.",
-          findings: [
+          takeaways: [],
+          inventoryReason: "Grounded a result in the Results section.",
+          results: [
             {
+              id: "result",
+              qualifiers: [],
+              supports: [],
               statement: "Depletion leads to ridge loss and pocket formation.",
               ownershipReason:
                 "The paper reports this effect from its experiment.",

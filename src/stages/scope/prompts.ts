@@ -3,9 +3,8 @@
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import type {
   ScopeCitationStatement,
-  ScopeSeedFinding,
+  ScopeInventoryFinding,
 } from "../../contract/artifacts/scope-statements.js";
-import { MAX_SEED_FINDINGS } from "./statements.js";
 
 export const GROUNDING_PROMPT_ID = "scope-grounding" as const;
 export const GROUNDING_PROMPT_VERSION = PROMPT_VERSIONS.grounding;
@@ -86,28 +85,45 @@ Rules:
 export function buildScopeInventoryPrompt(input: SeedTextInput) {
   return {
     prefix: buildSeedTextPrefix(input),
-    suffix: `Build a compact inventory of the cited paper's own central findings. Use only the paper above and work independently of how anybody else cites it.
+    suffix: `Build a two-level inventory of the cited paper's own findings. Use only the paper above and work independently of how anybody else cites it.
 
-- Select up to ${MAX_SEED_FINDINGS} key findings. Give each a single, specific statement with the relevant population, model, intervention or method, measurement, outcome, direction, and uncertainty where applicable. Keep distinct experiments, conditions, and outcomes separate when combining them would obscure their scope.
+Takeaways: state the 2–4 central claims a reader would carry away from the paper, at the scope the authors claim them. Each must rest on the paper's own results rather than assertion in the abstract or discussion. Keep the authors' hedges as part of the claim.
+
+Results: list every distinct result that supports a takeaway or that another paper could plausibly cite on its own. Aim for completeness. Give each a single, specific statement with the relevant population, model, intervention or method, measurement, outcome, direction, and uncertainty where applicable. Keep distinct experiments, conditions, and outcomes separate when combining them would obscure their scope. Link each result to the takeaways it supports. A result may stand alone.
+
+For every takeaway and result, list its qualifiers: the restrictions a citing paper could drop or change, such as population or model, setting, measurement method, sample size, and how strongly the authors state the claim. Copy each qualifier as an exact contiguous quote within one of that item's support spans.
+
+Keep each qualifier at the level supported by its context. A sample size stated for images or panels in a figure caption belongs to that displayed result. Use the experiment's own reported sample size for the study or experiment.
+
 - Include empirical or theoretical results, methods established or evaluated by the authors, and estimates or comparisons the authors derive from stated premises. A worked estimate may be an original contribution even in an introduction, editorial, or review, even if its inputs cite other sources, and even without new measurements. Trace which part the authors calculated or inferred and which inputs they credited elsewhere. An unexplained number, a description of prior work, general background, opinion, and a proposal for future work do not qualify.
-- For each proposed finding, explain why the text shows the cited paper established it. Evidence may come from more than one block. For a derived quantity, quote its value or comparison together with the passage giving its derivation or inputs. Preserve the stated scope and precision. Distinguish distinct citation markers within a paragraph and attach each to the proposition it supports.
-- When the paper has no independently established findings or the available text does not give exact support, return an empty findings array and explain why. Never complete missing evidence from general knowledge.
+- For each takeaway and result, explain why the text shows the cited paper established it. Evidence may come from more than one block. For a derived quantity, quote its value or comparison together with the passage giving its derivation or inputs. Preserve the stated scope and precision. Distinguish distinct citation markers within a paragraph and attach each to the proposition it supports.
+- When the paper has no independently established findings or the available text does not give exact support, return empty takeaways and results arrays and explain why. Never complete missing evidence from general knowledge.
 - PDF conversion can flatten raised digits into a single number. Use a stated computation or an unambiguous local context to interpret such notation. Leave ambiguous quantities unresolved. Copy evidence exactly as supplied, including any flattened notation.
 
-Return JSON with a short inventory reason and findings. Each finding has statement, ownershipReason, and supportSpans. Each support span has the blockId and its exact verbatimQuote.`,
+Return JSON with a short inventoryReason, takeaways, and results. Every takeaway and result has a unique id, statement, qualifiers (exact quotes), ownershipReason, and supportSpans. Each result also has supports (takeaway IDs, or an empty array). Each support span has the blockId and its exact verbatimQuote.`,
   };
 }
 
+const inventoryMatchingRules = `Compare with the central takeaways first. Open the detailed results when the author credits a quantitative result or a specific experiment, including an assay-specific attribution. Follow the recorded links where relevant and consider standalone results too. Check every applicable quoted qualifier, including the measurement method. A paraphrase preserves the scientific reading even when it omits detail. Treat a changed or omitted qualifier as material only when the wording credits the paper with a result whose meaning, scope, or evidential strength changes. Identify the exact wording and the difference in what a reader would understand.`;
+
 export function buildScopeStatementMatchingPrompt(input: {
-  findings: ScopeSeedFinding[];
+  findings: ScopeInventoryFinding[];
   statements: ScopeCitationStatement[];
 }) {
+  const entries = input.findings.map(
+    ({ findingId, statement, evidenceSpans, hierarchy }) => ({
+      findingId,
+      statement,
+      qualifiers: hierarchy.qualifiers,
+      evidence: evidenceSpans.map(({ text }) => text),
+      ...(hierarchy.kind === "result" ? { supports: hierarchy.supports } : {}),
+    }),
+  );
   const findingJson = JSON.stringify(
-    input.findings.map((finding) => ({
-      findingId: finding.findingId,
-      statement: finding.statement,
-      evidence: finding.evidenceSpans.map(({ text }) => text),
-    })),
+    {
+      takeaways: entries.filter((entry) => !("supports" in entry)),
+      results: entries.filter((entry) => "supports" in entry),
+    },
     null,
     2,
   );
@@ -126,7 +142,7 @@ export function buildScopeStatementMatchingPrompt(input: {
   return {
     prefix: `Relate each citing paper's local, exact wording to specific grounded findings of the paper it cites. Compare only the supplied inventory, which may omit other findings from the paper. The exact wording is authoritative. The extracted claim only identifies which proposition to consider when the wording contains several. Assess only that proposition. A shared reference group gives the cited paper credit as a group member without assigning the claim uniquely to it.
 
-Compare experimentally and logically important qualifiers such as source, species or population, model, intervention, comparator, site, scale, dose or age, endpoint, direction, and quantifier. Use the exact evidence for each finding. Shared topic, method, model, or output is insufficient by itself, especially where two papers performed separate studies.
+${inventoryMatchingRules} Use the exact evidence for each finding. Shared topic, method, model, or output is insufficient by itself, especially where two papers performed separate studies.
 
 Classify each relationship:
 - full: The citing wording carries the specific finding with its material scope intact. Paraphrase is allowed.

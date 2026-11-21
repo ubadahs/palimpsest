@@ -48,7 +48,11 @@ export function MarkedCitationContext({
   );
 }
 
-export function FindingEvidence({ finding }: { finding: Finding }) {
+export function FindingEvidence({
+  finding,
+}: {
+  finding: Pick<Finding, "statement" | "evidenceSpans">;
+}) {
   return (
     <div className="space-y-2">
       <p className="text-sm font-medium">{finding.statement}</p>

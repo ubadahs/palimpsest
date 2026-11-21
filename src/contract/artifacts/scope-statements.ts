@@ -32,15 +32,33 @@ export type ScopeVerifiedEvidenceSpan = z.infer<
   typeof scopeVerifiedEvidenceSpanSchema
 >;
 
+const findingHierarchySchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("takeaway"),
+    qualifiers: z.array(z.string().min(1)),
+  }),
+  z.strictObject({
+    kind: z.literal("result"),
+    qualifiers: z.array(z.string().min(1)),
+    supports: z.array(stableIdentifierSchema),
+  }),
+]);
+
 export const scopeSeedFindingSchema = z
   .object({
     findingId: stableIdentifierSchema,
     statement: z.string().min(1),
     ownershipReason: z.string().min(1),
+    hierarchy: findingHierarchySchema.optional(),
     evidenceSpans: z.array(scopeVerifiedEvidenceSpanSchema).min(1),
   })
   .strict();
 export type ScopeSeedFinding = z.infer<typeof scopeSeedFindingSchema>;
+
+export const scopeInventoryFindingSchema = scopeSeedFindingSchema.extend({
+  hierarchy: findingHierarchySchema,
+});
+export type ScopeInventoryFinding = z.infer<typeof scopeInventoryFindingSchema>;
 
 export const scopeSeedInventorySchema = z
   .object({
@@ -58,13 +76,38 @@ export const scopeSeedInventorySchema = z
       "not_assessed",
     ]),
     seedTextArtifact: artifactReferenceSchema.optional(),
-    findings: z.array(scopeSeedFindingSchema),
+    findings: z.array(scopeInventoryFindingSchema),
     rejectedFindingCount: z.number().int().nonnegative(),
     reason: z.string().min(1),
     modelExecution: modelExecutionSchema.optional(),
   })
   .strict()
   .superRefine((inventory, context) => {
+    const takeaways = new Set(
+      inventory.findings
+        .filter((finding) => finding.hierarchy.kind === "takeaway")
+        .map((finding) => finding.findingId),
+    );
+    for (const [index, finding] of inventory.findings.entries()) {
+      const { hierarchy, evidenceSpans } = finding;
+      if (
+        hierarchy.qualifiers.some(
+          (quote) =>
+            !quote.trim() ||
+            !evidenceSpans.some((span) => span.text.includes(quote)),
+        ) ||
+        (hierarchy.kind === "result" &&
+          (new Set(hierarchy.supports).size !== hierarchy.supports.length ||
+            hierarchy.supports.some((id) => !takeaways.has(id))))
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["findings", index, "hierarchy"],
+          message:
+            "Finding qualifiers must quote their evidence and result links must name inventory takeaways",
+        });
+      }
+    }
     if (
       (inventory.status === "completed") !== inventory.findings.length > 0 ||
       (inventory.findings.length > 0 && !inventory.seedTextArtifact)

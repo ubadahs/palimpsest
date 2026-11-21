@@ -5,7 +5,7 @@ import {
   retainedWordingIsExact,
   scopeStatementAssessmentSchema,
   type ScopeCitationStatement,
-  type ScopeSeedFinding,
+  type ScopeInventoryFinding,
   type ScopeSeedInventory,
   type ScopeStatementAssessment,
   type ScopeStatementAssessmentBatch,
@@ -32,7 +32,6 @@ import {
   throwIfFatal,
 } from "./model-result.js";
 
-export const MAX_SEED_FINDINGS = 12;
 const STATEMENT_BATCH_SIZE = 12;
 
 export const groundingSupportSpanOutputSchema = z
@@ -42,25 +41,20 @@ export const groundingSupportSpanOutputSchema = z
   })
   .strict();
 
-export const scopeInventoryOutputSchema = z
-  .object({
-    reason: z.string().min(1),
-    findings: z
-      .array(
-        z
-          .object({
-            statement: z.string().min(1),
-            ownershipReason: z.string().min(1),
-            supportSpans: z
-              .array(groundingSupportSpanOutputSchema)
-              .min(1)
-              .max(4),
-          })
-          .strict(),
-      )
-      .max(MAX_SEED_FINDINGS),
-  })
-  .strict();
+const proposedFinding = z.strictObject({
+  id: z.string().min(1),
+  statement: z.string().min(1),
+  qualifiers: z.array(z.string().min(1)),
+  ownershipReason: z.string().min(1),
+  supportSpans: z.array(groundingSupportSpanOutputSchema).min(1),
+});
+export const scopeInventoryOutputSchema = z.strictObject({
+  inventoryReason: z.string().min(1),
+  takeaways: z.array(proposedFinding).max(4),
+  results: z.array(
+    proposedFinding.extend({ supports: z.array(z.string().min(1)) }),
+  ),
+});
 
 export const scopeStatementMatchingOutputSchema = z
   .object({
@@ -90,7 +84,7 @@ export type ScopeStatementAdapters = {
     seedText: MaterializedSeed;
   }) => Promise<unknown>;
   matchStatements?: (input: {
-    findings: ScopeSeedFinding[];
+    findings: ScopeInventoryFinding[];
     statements: ScopeCitationStatement[];
   }) => Promise<unknown>;
 };
@@ -155,11 +149,34 @@ export async function inspectSeedInventory(
       reason: "The seed inventory response was malformed.",
     };
   }
+  const { takeaways, results, inventoryReason } = parsed.data;
+  const ids = [...takeaways, ...results].map(({ id }) => id);
+  const takeawayIds = new Set(takeaways.map(({ id }) => id));
+  if (
+    new Set(ids).size !== ids.length ||
+    results.some(({ supports }) => supports.some((id) => !takeawayIds.has(id)))
+  ) {
+    return {
+      ...execution,
+      status: "invalid_output",
+      reason: "The seed inventory has duplicate IDs or invalid takeaway links.",
+    };
+  }
   const verify = createSeedQuoteVerifier(materialization);
-  const findings = new Map<string, ScopeSeedFinding>();
+  const findings = new Map<string, ScopeInventoryFinding>();
+  const verifiedTakeaways = new Map<string, string>();
   let rejectedFindingCount = 0;
-  for (const { statement, ownershipReason, supportSpans } of parsed.data
-    .findings) {
+  for (const {
+    id,
+    statement,
+    qualifiers,
+    ownershipReason,
+    supportSpans,
+    supports,
+  } of [
+    ...takeaways.map((entry) => ({ ...entry, supports: undefined })),
+    ...results,
+  ]) {
     const evidenceByPosition = new Map<string, ScopeVerifiedEvidenceSpan>();
     let allVerified = true;
     for (const proposal of supportSpans) {
@@ -172,7 +189,16 @@ export async function inspectSeedInventory(
       else allVerified = false;
     }
     // Every proposed span must verify. A finding may rely on the missing span.
-    if (!allVerified) {
+    if (
+      !allVerified ||
+      qualifiers.some(
+        (quote) =>
+          !quote.trim() ||
+          ![...evidenceByPosition.values()].some(({ text }) =>
+            text.includes(quote),
+          ),
+      )
+    ) {
       rejectedFindingCount++;
       continue;
     }
@@ -185,6 +211,7 @@ export async function inspectSeedInventory(
       seedId: seed.seedId,
       sourceTextHash: materialization.seedTextArtifact.contentHash,
       statement: statement.trim(),
+      kind: supports ? "result" : "takeaway",
       spans: evidenceSpans.map(
         ({ blockId, charOffsetStart, charOffsetEnd }) => ({
           blockId,
@@ -193,12 +220,41 @@ export async function inspectSeedInventory(
         }),
       ),
     });
-    findings.set(findingId, {
-      findingId,
-      statement,
-      ownershipReason,
-      evidenceSpans,
-    });
+    const hierarchy: ScopeInventoryFinding["hierarchy"] = supports
+      ? {
+          kind: "result",
+          qualifiers: sortedUnique(qualifiers),
+          supports: sortedUnique(
+            supports.flatMap((id) => {
+              const linked = verifiedTakeaways.get(id);
+              return linked ? [linked] : [];
+            }),
+          ),
+        }
+      : { kind: "takeaway", qualifiers: sortedUnique(qualifiers) };
+    if (hierarchy.kind === "takeaway") verifiedTakeaways.set(id, findingId);
+    const prior = findings.get(findingId);
+    if (prior) {
+      const merged = sortedUnique([
+        ...prior.hierarchy.qualifiers,
+        ...hierarchy.qualifiers,
+      ]);
+      if (prior.hierarchy.kind === "result" && hierarchy.kind === "result") {
+        prior.hierarchy.supports = sortedUnique([
+          ...prior.hierarchy.supports,
+          ...hierarchy.supports,
+        ]);
+      }
+      prior.hierarchy.qualifiers = merged;
+    } else {
+      findings.set(findingId, {
+        findingId,
+        statement,
+        ownershipReason,
+        evidenceSpans,
+        hierarchy,
+      });
+    }
   }
   return {
     ...execution,
@@ -214,8 +270,8 @@ export async function inspectSeedInventory(
           : "no_grounded_findings",
     reason:
       rejectedFindingCount > 0
-        ? `Rejected ${rejectedFindingCount} proposed finding(s) whose evidence did not verify. ${parsed.data.reason}`
-        : parsed.data.reason,
+        ? `Rejected ${rejectedFindingCount} proposed finding(s) whose evidence did not verify. ${inventoryReason}`
+        : inventoryReason,
   };
 }
 

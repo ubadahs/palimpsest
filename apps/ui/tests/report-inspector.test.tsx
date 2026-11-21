@@ -638,6 +638,11 @@ describe("report inspector", () => {
               findingId: "finding_1",
               statement: "The trial found the effect in one group.",
               ownershipReason: "Reports a trial result.",
+              hierarchy: {
+                kind: "result",
+                qualifiers: ["in one group"],
+                supports: [],
+              },
               evidenceSpans: [
                 {
                   blockId: "results",

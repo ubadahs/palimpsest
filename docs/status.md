@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-11-19
+**Last updated:** 2026-11-20
 
 This document records shipped behavior. The runnable production workflow is the six-stage pipeline:
 
@@ -43,7 +43,7 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 - Freezes exact family and occurrence membership.
 - Materializes seed text once per seed.
 - Records verified grounding without excluding a family.
-- Inventories up to 12 findings from the seed's own work, verifies the supporting text and records its source version. Every extracted citing claim gets a statement, including those outside the fidelity portfolio. Eligible statements get a separate assessment of what they retain or change.
+- Inventories central takeaways and detailed results from the seed's own work. It verifies supporting text and quoted qualifiers, links detailed results to takeaways, and records the source version. Every extracted citing claim gets a statement, including those outside the fidelity portfolio. Eligible statements get a separate assessment of what they retain or change.
 
 ### `prepare`
 
