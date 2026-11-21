@@ -20,6 +20,7 @@ import {
   resolveSentPromptCacheControl,
   type LLMCallRecord,
   type LLMClient,
+  type LLMPurpose,
 } from "../integrations/llm-client.js";
 import type * as openalex from "../integrations/openalex.js";
 import type { resolvePaperByDoi } from "../integrations/paper-resolver.js";
@@ -60,13 +61,7 @@ export function modelExecutionTelemetry(record: LLMCallRecord): {
 }
 
 export function llmRequestProvenanceFields(params: {
-  purpose:
-    | "attributed-claim-extraction"
-    | "claim-clustering"
-    | "citation-role-classification"
-    | "seed-grounding"
-    | "evidence-rerank"
-    | "adjudication";
+  purpose: LLMPurpose;
   model: string;
   /** The part of the prompt other requests share, when there is one. */
   sharedPrefix?: string | undefined;
@@ -147,6 +142,7 @@ export function mapFullTextAcquisitionFailure(failure: {
       return { reasonCode: "unavailable", reason: failure.error };
     case "rate_limited":
       return { reasonCode: "rate_limited", reason: failure.error };
+    case "incomplete_content":
     case "invalid_content":
       return { reasonCode: "invalid_response", reason: failure.error };
     case "authentication":

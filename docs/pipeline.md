@@ -92,9 +92,9 @@ Discover establishes a lossless, declared observation boundary around the seed's
    - Budget left once the whole frame is probed goes to works outside it, abstract-only first. They add records but no weight.
    - Each neighborhood records its `probeStrata`: per stratum, the enumerated, frame, probed, and probed-frame counts and the inclusion probability π = probed frame works / frame works (null for a stratum with no frame works). Report weights by π.
 3. **Harvest the probed papers.** Papers are fetched, parsed, and harvested `discover.fetchConcurrency` at a time. Results are appended in neighborhood order, so the artifact is byte-identical at any value and a resume ignores the setting.
-   - Full text comes from every location the provider lists, each tagged as a PDF or landing page and as the publisher's version or a repository copy. bioRxiv and PMC XML go first, then the publisher's version of record (landing page, then PDF), then repository copies such as arXiv preprints, then the institutional proxy for publisher locations. Publishers often serve a bot challenge where a PDF should be, which the repository copy gets past.
+   - Known bioRxiv and PMC routes run first. The fetcher then tries the publisher's landing page and PDF, followed by repository copies. A landing page can return a PDF directly or send the fetcher through one same-origin HTML refresh. If those routes fail, Europe PMC can supply free PDF links for an exact PubMed ID and DOI match. The configured institutional proxy is the final fallback for publisher locations.
    - A paper that still fails reports the attempt that got furthest: a PDF that arrived and then failed to parse outranks a challenge page tried after it.
-   - The seed is found in the citing bibliography by DOI, then arXiv identifier, then first author and year with either a title or, for a reference that gives none as physics references often do, the same volume and at least two shared co-authors. Each author-and-year step takes only a single candidate. The method is recorded as `bibliographyMatch.method`.
+   - Bibliography matching tries DOI and arXiv identifiers first. With first author and year in agreement, it tries an exact title, then journal, volume, and first page, then title overlap. A title-less entry can fall back to volume and shared author surnames. An adjacent-year match requires the exact title and volume. Each metadata match must identify a single candidate. An explicit conflicting DOI rules out an author-based match. The method is recorded as `bibliographyMatch.method`.
 4. **Extract occurrences and claims.**
    - Seed occurrences are one per citation group whose exact `targetRefIds` include the seed. Sibling references stay bundle metadata only.
    - Extraction is told the seed's resolved author-year label and any bundle it shares, and is instructed to extract only from the sentence carrying the seed's marker.
@@ -155,10 +155,12 @@ Scope fixes what the rest of the pipeline evaluates and gathers the seed-side te
 - Freezes each selected family's exact source-claim and citation-occurrence membership.
 - Materializes immutable seed text once per seed. Each seed-text block records a coarse `sectionRole` (abstract, introduction, methods, results, discussion, figure, table, other) and the number of in-text citations the seed itself makes in that block. Later stages use these to tell the seed's own findings from its summary of prior work.
 - Grounds each family: a model finds seed-text spans that state the family's finding, with exact-verified quotes. These are the grounding pins.
+- Independently inventories up to 12 findings the seed's authors established. The model sees the source text without the citers' claims. Each accepted finding names its source version and exact supporting passages. A seed with missing text, an unsuccessful extraction, or no grounded findings has an explicit outcome.
+- Preserves one statement for every extracted claim, including occurrences outside the selected family portfolio. For verifiable credit it compares the citation's local wording against the seed inventory in batches of up to 12 statements. The assessment gives the matched finding IDs, what the citer retained or changed, and one of `full`, `partial`, `scope_changed`, `distinct`, or `uncertain`. Operationally unassessed statements retain the reason.
 
 Grounding is an annotation: `not_found`, unavailable text, or a provider failure does not silently remove a frozen family.
 
-**Writes.** The Scope artifact: frozen families, seed-text materializations, and grounding results.
+**Writes.** The Scope artifact includes frozen families, seed-text materializations, family grounding, `seedInventories`, `citationStatements`, and the model executions associated with their assessment batches.
 
 **Fails and gates.** Scope accounts for every candidate, so nothing drops silently.
 
@@ -262,6 +264,7 @@ Grounding is an annotation: `not_found`, unavailable text, or a provider failure
 **Writes.** The JSON, in the order of its scientific content:
 
 - **`familyMutations`**: one entry per scoped family, carrying the seed finding, its verified grounding spans, and every citing restatement in publication order with verdict, mutation kinds, and the adjudicator's citing and source statements.
+- **`statementReview`** carries Scope's source findings, statements and assessment provenance. Each record trace identifies its occurrence-local statements. A deferred family can still have statements in this collection. Statement relationships have their own vocabulary and do not enter the fidelity-rate denominator.
 - **Funnel counts, rates, and per-record traces** (`recordTraces`). The funnel covers:
   - unique citing-paper and citation-group coverage;
   - verified versus missing claim support spans;
@@ -290,6 +293,28 @@ Grounding is an annotation: `not_found`, unavailable text, or a provider failure
 
 **Options.** None.
 
+## Tracing a finding through two citations
+
+```bash
+npm run dev -- pipeline --input dois.json --history --max-cost 5
+npm run dev -- citation-history --run-id <run-id> --max-cost 2 --max-parents 3 --max-citers 10
+npm run dev -- citation-history --report <report.json> --statement <statement-id> --reuse-report <middle-report.json> --max-cost 0
+```
+
+The first command starts from a DOI and funds both hops from the same estimated spending allowance. The standalone command starts from a verified Report. By default it follows up to five first-hop statements and examines up to twenty downstream citing works across the selected middle papers. The default selection favors DOI-resolved papers and spreads the available slots across findings and middle papers with a stable tie-break. Each remaining middle paper receives a share of the remaining citer budget. Unused slots roll forward. History enumerates fresh citing-work metadata up to the Discover neighborhood limit and spreads each paper’s examination slots over the observed publication years. Undated works fill any remaining slots. Verified reused reports supply their own enumerated metadata and preserve their original probe outcomes. Eligible statements include partial and scope-changing restatements. For a particular branch, pass its statement ID from the Report. Access failures, limits, ambiguous readings and empty neighborhoods stay visible.
+
+Let S be the original paper, A a paper that cites S, and B a paper that cites A. Scope inventories S’s findings with exact quotes. At each B citation, Discover extracts the specific finding, argument, method, or result B uses from A. The extraction sees the marked B paragraph and A’s identity. The history artifact stores each downstream use once, records which bibliography entry identified A, and links the use to the selected first-hop statements. Separate clauses with different citations retain separate attribution.
+
+History assesses each combination of a downstream use, a selected A statement, and one grounded S finding. It compares B’s wording directly with S and records retained wording and changes. It also records the route through A. B may restate what A credited to S or use a contribution that A documents as developing, testing, or applying S’s finding. Uptake requires exact evidence in A for the connection to S and for A’s contribution, including a separately credited premise when it explains a synthesis. Other routes cover A’s independent work, an unrelated use, and an unresolved route. B’s direct co-citation of S is recorded independently. A separate immediate-source F/D/E/U judgment evaluates how faithfully B represents A, with exact quotes from A supporting the verdict.
+
+The model receives the marked passages, paper identities, S’s grounded finding and the matching version of A’s text. Up to eight cases share a request and an A-text prompt prefix. If A’s text is unavailable, mismatched, or exceeds 400,000 text characters, a verified B use can still be compared with S. The route stays unresolved and immediate fidelity stays unassessed. Model-reported evidence is checked against the supplied text. Invalid common evidence, unavailable credit, provider failures, and budget deferrals have explicit outcomes.
+
+If a direct-restatement answer cites exact wording outside the verified passage credited to S, History records the rejection and can reconsider that route once within the same spend limit. The new route must use the original downstream quote and pass the same evidence checks. The earlier fidelity verdict and comparison with S are retained, with provenance for both model calls when a second call receives a response.
+
+The statement Markdown and the **Statements** and **Citation history** tabs use recorded publication years to present papers chronologically, with unknown years last.
+
+History reuses compatible verified reports on A, including their downstream extraction provenance, or acquires A’s neighborhood within the configured limits. A zero-dollar history uses saved reports and exact cached model replies. The history directory preserves referenced source and model artifacts before publication, including the acquired text behind downstream citation markers. New results are content-addressed under `data/runs/<run-id>/history/<report-artifact-id>/citation-history-v3/<history-artifact-id>/history.json`. Inspect a result in the Report's **Citation history** tab or audit its model calls with `trace --root data/runs/<run-id>/history/<report-artifact-id> --calls`. A standalone history tracks charges across all its Report’s attempts. The combined pipeline allowance also counts the run’s stage charges and the histories of superseded Reports. Unresolved charges restrict further model work to exact cache hits. With `--batch`, the six pipeline stages can batch requests. The bounded history uses direct requests. Both the seed inventory and the traversal cover a bounded sample. Their accuracy across new seeds still requires independent evaluation.
+
 ## Cross-cutting behavior
 
 ### Model calls
@@ -301,11 +326,11 @@ Grounding is an annotation: `not_found`, unavailable text, or a provider failure
 
 ### Concurrency
 
-- **Model calls.** `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, clustering, role-classification, grounding, rerank, or adjudication requests are in flight within a stage.
+- **Model calls.** `modelConcurrency` (default 6, `--model-concurrency <n>`) bounds how many extraction, clustering, role-classification, inventory, grounding, statement-matching, rerank, or adjudication requests are in flight within a stage.
 - **Determinism.** Results are appended in input order, so an artifact is byte-identical at any concurrency and the setting never enters identity.
-- **Prompt-cache writes.** Scope sends the seed text as a cached prompt prefix, so its first grounding call per seed runs alone and the rest fan out once the cache is written. Identical rerank requests issued at the same time share one call.
+- **Prompt-cache writes.** Scope inventory and grounding share a seed-text prompt prefix. Scope sends the first family grounding per seed and the first statement batch for an inventory before parallelizing the rest. Identical rerank requests issued at the same time share one call.
 - **Fetching.** Discover's citing-paper fetching and GROBID parsing have their own bound, `discover.fetchConcurrency` (default 6), one global limit across providers. The full-text fetcher has no per-provider spacing, and the HTTP client backs off on 429s.
-- **GROBID.** PDFs reach GROBID at most `GROBID_CONCURRENCY` at a time (default 2). It is an environment setting, not run config, because a local container timed out parsing with six fetched side by side. A PDF waiting for a GROBID slot has not started its 30-second request timeout.
+- **GROBID.** PDFs reach GROBID at most `GROBID_CONCURRENCY` at a time (default 2). Waiting for a slot is outside the 30-second request timeout. On HTTP 500 or a response without TEI body text, the adapter can rebuild the PDF text layer with `pdftoppm` and `tesseract` and try once more. When `pdftotext` finds embedded text, the retry can restore an OCR-damaged numeric suffix only where the surrounding words and the entire leading digit sequence agree. The journal records the rebuilt PDF and embedded text used for restoration.
 - **Fatal provider errors** stop new dispatch, so one costs at most `modelConcurrency` calls (or `fetchConcurrency` fetches).
 
 ### Durable operation traces
@@ -396,4 +421,4 @@ It changes only the transport under the provider (`src/integrations/batch-transp
 - Rows are deleted once their result reaches a caller. Rows older than 29 days (the API's results retention) are resubmitted.
 - The one gap is a crash between the API accepting a batch and the database recording it.
 
-Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. Experimental chain and seed-inventory matching runners are retained privately with their source snapshots, results and provenance, and are not public CLI commands.
+Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. Collection preserves the Reports, exact stage ancestors, and provenance used by saved citation histories, including reused intermediate reports.

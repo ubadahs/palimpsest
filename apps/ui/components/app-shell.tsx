@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </p>
             ) : null}
           </div>
-          <nav className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
+          <nav className="flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
             <Link
               href="/"
               className={cn(
@@ -60,6 +60,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               )}
             >
               Evaluations
+            </Link>
+            <Link
+              href="/two-hop-review"
+              className={cn(
+                "rounded-full border px-4 py-2 transition",
+                pathname === "/two-hop-review"
+                  ? "border-[var(--border-strong)] bg-[var(--panel-muted)] text-[var(--text)]"
+                  : "border-[var(--border)] hover:bg-[var(--panel-muted)] hover:text-[var(--text)]",
+              )}
+            >
+              Two-hop review
             </Link>
             <Link
               href="/runs/new"

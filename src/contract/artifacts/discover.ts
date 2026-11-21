@@ -4,7 +4,10 @@
  */
 import { z } from "zod";
 
-import { paperTypeSchema } from "../../domain/common.js";
+import {
+  fullTextAccessChannelSchema,
+  paperTypeSchema,
+} from "../../domain/common.js";
 import {
   bibliographyMatchMethodSchema,
   contextMarkerSpanSchema,
@@ -90,6 +93,13 @@ export const citationSourceLocatorSchema = z
   })
   .strict();
 export type CitationSourceLocator = z.infer<typeof citationSourceLocatorSchema>;
+
+export const nearbyCitationSchema = z
+  .object({
+    citationMarker: z.string().min(1),
+    markerSpan: contextMarkerSpanSchema,
+  })
+  .strict();
 
 export type CitationOccurrenceIdentityInputs = {
   seedId: string;
@@ -332,7 +342,7 @@ export const discoverCitingPaperRecordSchema = z
      */
     acquisition: z
       .object({
-        accessChannel: z.enum(["open_access", "institutional_proxy"]),
+        accessChannel: fullTextAccessChannelSchema,
         fullTextFormat: z.string().min(1).optional(),
         selectedUrl: z.string().min(1).optional(),
       })
@@ -394,6 +404,8 @@ export const discoverCitationOccurrenceSchema = z
     rawContext: z.string(),
     /** Where `citationMarker` sits in `rawContext`; absent unless `exact_dom`. */
     markerSpan: contextMarkerSpanSchema.optional(),
+    /** Other exact in-text markers in this paragraph, independent of the queried seed. */
+    nearbyCitations: z.array(nearbyCitationSchema).optional(),
     sectionTitle: z.string().optional(),
     seedRefLabel: z.string().optional(),
     isBundledCitation: z.boolean(),
@@ -405,6 +417,7 @@ export const discoverCitationOccurrenceSchema = z
         sourceType: z.string().min(1),
         parser: z.string().min(1),
         parserVersion: z.string().min(1).optional(),
+        sourceTextHash: sha256DigestSchema.optional(),
         artifacts: z.array(artifactReferenceSchema).min(1),
       })
       .strict(),

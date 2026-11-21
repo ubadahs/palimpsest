@@ -308,6 +308,232 @@ describe("fetchFullText acquisition policy", () => {
     expect(grobid).toHaveBeenCalledWith(PDF_MAGIC);
   });
 
+  it("parses a PDF returned directly by a landing-page request", async () => {
+    const pageUrl = "https://publisher.example.org/article/1";
+    const pdfUrl = "https://publisher.example.org/article/1/full.pdf";
+    const body = Buffer.from("%PDF-1.4 article");
+    const grobid = vi.fn(() =>
+      Promise.resolve({ ok: true as const, data: "<tei />" }),
+    );
+    const fetchUrl = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          finalUrl: pdfUrl,
+          status: 200,
+          contentType: "application/pdf",
+          body,
+        },
+      }),
+    );
+
+    const result = await fetchFullText(
+      makePaper({
+        doi: undefined,
+        fullTextHints: {
+          providerAvailability: "available",
+          locations: [
+            { url: pageUrl, kind: "landing_page", host: "publisher" },
+          ],
+        },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: grobid,
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+    expect(fetchUrl).toHaveBeenCalledTimes(1);
+    expect(grobid).toHaveBeenCalledExactlyOnceWith(body);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        acquisition: {
+          selectedUrl: pdfUrl,
+          selectedMethod: "direct_pdf_grobid",
+        },
+      },
+    });
+  });
+
+  it("follows a publisher's HTML refresh before looking for article metadata", async () => {
+    const doiUrl = "https://doi.org/10.1000/example";
+    const redirectUrl =
+      "https://links.example.org/select?article=1&key=example";
+    const articleUrl = "https://journals.example.org/articles/1";
+    const xmlUrl = `${articleUrl}/full.xml`;
+    const fetchUrl = vi.fn((url: string) => {
+      if (url === xmlUrl)
+        return Promise.resolve({
+          ok: true as const,
+          data: makeXmlResponse(url),
+        });
+      const viaDoi = url === doiUrl;
+      const html = viaDoi
+        ? `<html><head><meta content="2; url='/select?article=1&amp;key=example'" HTTP-EQUIV="REFRESH"></head></html>`
+        : `<html><head><meta name="citation_xml_url" content="${xmlUrl}"></head></html>`;
+      return Promise.resolve({
+        ok: true as const,
+        data: {
+          finalUrl: viaDoi
+            ? "https://links.example.org/doi/example"
+            : articleUrl,
+          status: 200,
+          contentType: "text/html",
+          body: Buffer.from(html),
+        },
+      });
+    });
+    const result = await fetchFullText(
+      makePaper({
+        doi: undefined,
+        fullTextHints: {
+          providerAvailability: "unavailable",
+          locations: [{ url: doiUrl, kind: "landing_page", host: "publisher" }],
+        },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: () =>
+          Promise.resolve({ ok: false as const, error: "unused" }),
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+      doiUrl,
+      redirectUrl,
+      xmlUrl,
+    ]);
+    expect(result.data.acquisition.attempts[0]).toMatchObject({
+      url: doiUrl,
+      probeClassification: "html_meta_refresh",
+      success: true,
+    });
+    expect(result.data.acquisition.selectedUrl).toBe(xmlUrl);
+  });
+
+  it("uses a free PDF in the exact Europe PMC record after publisher metadata fails", async () => {
+    const publisherUrl = "https://journals.example.org/articles/1";
+    const pdfUrl = `${publisherUrl}/full.pdf`;
+    const pdf = Buffer.from("%PDF-1.4 example");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL) => {
+        const url = new URL(input);
+        if (url.pathname.includes("/idconv/")) {
+          return Promise.resolve(
+            Response.json({ records: [{ errmsg: "No PMCID found" }] }),
+          );
+        }
+        expect(url.hostname).toBe("www.ebi.ac.uk");
+        expect(url.searchParams.get("query")).toBe("EXT_ID:1234 AND SRC:MED");
+        const link = {
+          availabilityCode: "F",
+          documentStyle: "pdf",
+          url: pdfUrl,
+        };
+        return Promise.resolve(
+          Response.json({
+            resultList: {
+              result: [
+                {
+                  id: "1234",
+                  source: "MED",
+                  doi: "10.1234/other",
+                  fullTextUrlList: {
+                    fullTextUrl: [
+                      { ...link, url: "https://wrong.example.org/full.pdf" },
+                    ],
+                  },
+                },
+                {
+                  id: "1234",
+                  source: "MED",
+                  doi: "10.1234/EXAMPLE",
+                  fullTextUrlList: {
+                    fullTextUrl: [
+                      {
+                        ...link,
+                        availabilityCode: "S",
+                        url: "https://closed.example.org/full.pdf",
+                      },
+                      link,
+                      link,
+                    ],
+                  },
+                },
+              ],
+            },
+          }),
+        );
+      }),
+    );
+    const fetchUrl = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data:
+          url === pdfUrl
+            ? {
+                finalUrl: url,
+                status: 200,
+                contentType: "application/pdf",
+                body: pdf,
+              }
+            : {
+                finalUrl: url,
+                status: 403,
+                contentType: "text/html",
+                body: Buffer.from("Forbidden"),
+              },
+      }),
+    );
+    const grobid = vi.fn(() =>
+      Promise.resolve({ ok: true as const, data: "<tei />" }),
+    );
+
+    const result = await fetchFullText(
+      makePaper({
+        pmid: "1234",
+        fullTextHints: {
+          providerAvailability: "unavailable",
+          locations: [
+            { url: publisherUrl, kind: "landing_page", host: "publisher" },
+          ],
+        },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: grobid,
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+      publisherUrl,
+      pdfUrl,
+    ]);
+    expect(grobid).toHaveBeenCalledWith(pdf);
+    expect(result.data.acquisition.attempts).toContainEqual(
+      expect.objectContaining({
+        candidateKind: "europe_pmc_pdf_lookup",
+        locatorValue: "1234",
+        success: true,
+      }),
+    );
+    expect(result.data.acquisition.selectedUrl).toBe(pdfUrl);
+  });
+
   it("falls back to a repository copy after the publisher's version", async () => {
     const PDF_MAGIC = Buffer.from("%PDF-1.4 preprint");
     const publisherPage = "https://publisher.example.org/article/10.0000/x";
@@ -497,7 +723,10 @@ describe("GROBID concurrency bound", () => {
       maxInFlight = Math.max(maxInFlight, inFlight);
       await new Promise((resolve) => setTimeout(resolve, 10));
       inFlight -= 1;
-      return new Response("<TEI/>", { status: 200 });
+      return new Response(
+        "<TEI><text><body><p>Paper body.</p></body></text></TEI>",
+        { status: 200 },
+      );
     });
     vi.stubGlobal("fetch", fetchStub);
     try {

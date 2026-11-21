@@ -1,6 +1,7 @@
 /** Discover's prompts: claim extraction per mention, and claim clustering per seed. */
 
 import { z } from "zod";
+import { highlightCitationMarker } from "../../shared/claim-support-span.js";
 import { PROMPT_VERSIONS } from "../../config/prompt-versions.js";
 import { type DiscoverCitationOccurrence } from "../../contract/artifacts/index.js";
 
@@ -19,18 +20,29 @@ export function buildSingleMentionExtractionPrompt(input: {
   mention: DiscoverCitationOccurrence;
 }): string {
   const seedLabel = input.mention.seedRefLabel
-    ? `\nSeed reference as it appears in this paper: ${input.mention.seedRefLabel}`
+    ? `\nReference as printed: ${input.mention.seedRefLabel}`
     : "";
   const bundleNote = input.mention.isBundledCitation
-    ? `\nThis marker is shared with ${String(input.mention.bundleSize)} references. Attribute to the seed only what the sentence credits to the seed; a bundle-mate's finding is not the seed's.`
+    ? `\nThis group contains ${String(input.mention.bundleSize)} references. Preserve shared credit and any uncertainty about which paper supplied the finding.`
     : "";
+  const position = input.mention.markerSpan;
+  const markedContext =
+    position &&
+    input.mention.rawContext.slice(
+      position.charOffsetStart,
+      position.charOffsetEnd,
+    ) === input.mention.citationMarker
+      ? input.mention.rawContext.slice(0, position.charOffsetStart) +
+        highlightCitationMarker(input.mention.citationMarker) +
+        input.mention.rawContext.slice(position.charOffsetEnd)
+      : input.mention.rawContext;
   return `You are a scientific attribution extraction agent for a metascience project that audits citation fidelity.
 
 ## Task
 
-Extract every distinct empirical claim that the citing paper attributes to the seed paper in this single mention. Only the sentence(s) that carry the seed's citation marker count; neighbouring sentences that cite other work are out of scope even if they appear in the context. Return zero claims when there is no in-scope attribution; do not merge distinct claims.
+What does the citing paper use the cited paper for at this particular citation? Extract each substantive, locally credited finding, argument, derivation, or use of a method or result. Preserve who did what. For an application or extension, distinguish the cited contribution from the citing authors' new work. Use the surrounding text to resolve references such as “this approach”. A bare citation, topical similarity, or a claim attached only to a different reference supplies no attributed statement.
 
-## Seed paper
+## Cited paper
 
 Title: ${input.seedTitle}
 DOI: ${input.seedDoi ?? "unknown"}
@@ -43,8 +55,8 @@ Title: ${input.citingTitle}
 
 Section: ${input.mention.sectionTitle ?? "unknown"}
 Citation marker: ${input.mention.citationMarker}${seedLabel}${bundleNote}
-Context:
-> ${input.mention.rawContext}
+Context (the target occurrence is marked with ▶ and ◀ when its position is known):
+> ${markedContext}
 
 ## Response format
 
@@ -52,14 +64,14 @@ Respond with JSON (no markdown fences):
 {
   "claims": [
     {
-      "text": "Self-contained statement of what the citing paper claims the seed paper showed",
+      "text": "Self-contained account of the specific claim or contribution credited here",
       "supportSpanText": "Verbatim span from the mention context",
       "confidence": "high"
     }
   ],
   "reason": "Brief extraction or exclusion reason"
 }
-Each claim must preserve its own source text, support span, and confidence. The supportSpanText must be copied verbatim from the sentence that carries the seed's marker. Confidence is required: "high" when the sentence plainly credits the seed with the claim, "medium" when the attribution is implied, "low" when the mention is a bare acknowledgment or the claim is uncertain. If no empirical claim is attributed to the seed, return an empty claims array.
+For each statement, copy the smallest contiguous clause that states the use and identifies its citation into supportSpanText. Omit the added ▶ and ◀ symbols. Preserve the actual citation group when it belongs to that clause. End the span before an adjacent, separately cited clause, even in the same sentence. A larger paragraph may clarify a pronoun without being part of the support span. Use high, medium, or low confidence according to how explicitly the passage gives credit. Return an empty claims array when no substantive use is attributable here.
 
 Prompt template lineage: ${EXTRACTION_PROMPT_ID}@${EXTRACTION_PROMPT_VERSION}`;
 }

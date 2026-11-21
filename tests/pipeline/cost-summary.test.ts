@@ -11,6 +11,10 @@ import {
   summarizeLedgerByStage,
 } from "../../src/pipeline/cost-summary.js";
 import type { LLMRunLedger } from "../../src/integrations/llm-client.js";
+import {
+  budgetAfterOtherHistories,
+  remainingBudget,
+} from "../../src/history/budget.js";
 
 type Call = LLMRunLedger["calls"][number];
 
@@ -118,6 +122,29 @@ describe("run cost tracker", () => {
     }
   });
 
+  it("charges previous history attempts once when a pipeline resumes or replaces its Report", () => {
+    const root = mkdtempSync(join(tmpdir(), "history-budget-"));
+    roots.push(root);
+    const oldReport = "artifact_" + "a".repeat(64);
+    const current = "artifact_" + "b".repeat(64);
+    const record = (owner: string, usd: number) =>
+      createRunCostTracker(owner).collector.recordCall(
+        call({ estimatedCostUsd: usd }),
+      );
+    record(root, 1);
+    record(join(root, "history", oldReport), 0.75);
+    record(join(root, "history", current), 0.5);
+    // Before running stages both history owners count. At handoff, the current
+    // history enforces its own cumulative cap and subtracts its $0.50 itself.
+    expect(budgetAfterOtherHistories(root, 3)).toBe(1.75);
+    const remaining = remainingBudget(3, rebuildRunCostSummary(root));
+    expect(budgetAfterOtherHistories(root, remaining, current)).toBe(1.25);
+    createRunCostTracker(join(root, "history", oldReport)).collector.recordCall(
+      call({ billingStatus: "unknown", estimatedCostUsd: 0 }),
+    );
+    expect(budgetAfterOtherHistories(root, remaining, current)).toBe(0);
+  });
+
   function runRoot(): string {
     const root = mkdtempSync(join(tmpdir(), "palimpsest-cost-"));
     roots.push(root);
@@ -192,6 +219,8 @@ describe("run cost tracker", () => {
     });
     expect(readPersistedCalls(root)).toHaveLength(1);
     expect(createRunCostTracker(root).spentUsd()).toBe(0);
+    expect(tracker.spentUsd(2)).toBe(2);
+    expect(createRunCostTracker(root).spentUsd(2)).toBe(2);
   });
 
   it("does not silently mix summary-only historical costs with audited calls", () => {

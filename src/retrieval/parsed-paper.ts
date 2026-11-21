@@ -19,7 +19,10 @@ import type {
   ParsedPaperDocument,
   ParsedPaperReference,
 } from "../domain/parsing.js";
-import { parsedPaperDocumentSchema } from "../domain/parsing.js";
+import {
+  CITATION_OBSERVATION_PARSERS,
+  parsedPaperDocumentSchema,
+} from "../domain/parsing.js";
 import { parseArxivId } from "../shared/arxiv.js";
 import {
   acquireFullText,
@@ -34,7 +37,7 @@ import {
   upsertParsedData,
 } from "../storage/paper-cache.js";
 
-export const PARSED_PAPER_PARSER_VERSION = "structured-v5";
+export const PARSED_PAPER_PARSER_VERSION = "structured-v7";
 
 type ParsedPaperMaterialized = {
   fullText: FullTextContent;
@@ -273,6 +276,7 @@ function contextMarkerSpan(
 }
 
 function bundleMetadataForGroup(
+  rawContext: string,
   groups: readonly ParagraphCitationGroup[],
   groupIndex: number,
 ): Pick<
@@ -290,14 +294,21 @@ function bundleMetadataForGroup(
     };
   }
 
-  const clusterRadius = 80;
-  const clustered: ParagraphCitationGroup[] = [];
-  for (const group of groups) {
-    if (group.locationQuality === "missing") continue;
-    if (Math.abs(group.localStart - target.localStart) <= clusterRadius) {
-      clustered.push(group);
-    }
-  }
+  // XML can wrap each member separately. Only punctuation joining adjacent
+  // markers belongs to their group, regardless of the length of an author list.
+  const joined = (
+    left: ParagraphCitationGroup,
+    right: ParagraphCitationGroup,
+  ) =>
+    left.locationQuality === "exact_dom" &&
+    right.locationQuality === "exact_dom" &&
+    /^[\s,;–—-]*$/u.test(rawContext.slice(left.localEnd, right.localStart));
+  let first = groupIndex;
+  let last = groupIndex;
+  while (first > 0 && joined(groups[first - 1]!, groups[first]!)) first--;
+  while (last + 1 < groups.length && joined(groups[last]!, groups[last + 1]!))
+    last++;
+  const clustered = groups.slice(first, last + 1);
   const bundleRefIds: string[] = [];
   for (const group of clustered) {
     for (const refId of group.targetRefIds) {
@@ -318,25 +329,9 @@ function bundleMetadataForGroup(
     isBundledCitation: true,
     bundleSize: bundleRefIds.length,
     bundleRefIds,
-    bundlePattern: "parenthetical_group",
-  };
-}
-
-function refineBundlePattern(
-  rawContext: string,
-  target: ParagraphCitationGroup,
-  bundle: Pick<
-    ParsedCitationMention,
-    "isBundledCitation" | "bundleSize" | "bundleRefIds" | "bundlePattern"
-  >,
-): typeof bundle {
-  if (!bundle.isBundledCitation) return bundle;
-  const windowStart = Math.max(0, target.localStart - 80);
-  const windowEnd = Math.min(rawContext.length, target.localEnd + 80);
-  const window = rawContext.slice(windowStart, windowEnd);
-  return {
-    ...bundle,
-    bundlePattern: window.includes(";")
+    bundlePattern: rawContext
+      .slice(groups[first]!.localStart, groups[last]!.localEnd)
+      .includes(";")
       ? "semicolon_separated"
       : "parenthetical_group",
   };
@@ -485,6 +480,8 @@ function parseJatsReferences(doc: Document): ParsedPaperReference[] {
         ...getElementsByTagName(refEl, "ext-link"),
       ]),
       volume: nonEmptyText(volumeEl),
+      journal: nonEmptyText(getFirstElement(refEl, "source")),
+      firstPage: nonEmptyText(getFirstElement(refEl, "fpage")),
       year: parseYear(yearEl ? getTextContent(yearEl) : undefined),
       title: nonEmptyText(titleEl),
       label: labelEl ? getTextContent(labelEl) : undefined,
@@ -541,11 +538,7 @@ function parseJatsMentions(
 
     for (let groupOrdinal = 0; groupOrdinal < groups.length; groupOrdinal++) {
       const group = groups[groupOrdinal]!;
-      const bundle = refineBundlePattern(
-        rawContext,
-        group,
-        bundleMetadataForGroup(groups, groupOrdinal),
-      );
+      const bundle = bundleMetadataForGroup(rawContext, groups, groupOrdinal);
       const absoluteStart =
         block && group.locationQuality === "exact_dom"
           ? block.charOffsetStart + group.localStart
@@ -576,7 +569,7 @@ function parseJatsMentions(
           citationGroupOrdinal: groupOrdinal,
           bundle,
           sourceType: "jats_xml",
-          parser: "jats-normalized",
+          parser: CITATION_OBSERVATION_PARSERS.jats,
         }),
       );
       mentionIndex++;
@@ -746,6 +739,16 @@ function parseGrobidReferences(doc: Document): ParsedPaperReference[] {
       "biblScope",
       (el) => el.getAttribute("unit") === "volume",
     );
+    const journalEl = findFirstMatchingElement(
+      bibl,
+      "title",
+      (el) => el.getAttribute("level") === "j",
+    );
+    const pageEl = findFirstMatchingElement(
+      bibl,
+      "biblScope",
+      (el) => el.getAttribute("unit") === "page",
+    );
     const dateEl = getFirstElement(bibl, "date");
     const surnames = getElementsByTagName(bibl, "surname").map(getTextContent);
 
@@ -760,6 +763,8 @@ function parseGrobidReferences(doc: Document): ParsedPaperReference[] {
         ...getElementsByTagName(bibl, "ptr"),
       ]),
       volume: nonEmptyText(volumeEl),
+      journal: nonEmptyText(journalEl),
+      firstPage: pageEl?.getAttribute("from") || nonEmptyText(pageEl),
       year: parseYear(
         dateEl?.getAttribute("when") ?? getTextContent(dateEl ?? bibl),
       ),
@@ -832,11 +837,7 @@ function parseGrobidMentions(
 
     for (let groupOrdinal = 0; groupOrdinal < groups.length; groupOrdinal++) {
       const group = groups[groupOrdinal]!;
-      const bundle = refineBundlePattern(
-        rawContext,
-        group,
-        bundleMetadataForGroup(groups, groupOrdinal),
-      );
+      const bundle = bundleMetadataForGroup(rawContext, groups, groupOrdinal);
       const absoluteStart =
         block && group.locationQuality === "exact_dom"
           ? block.charOffsetStart + group.localStart
@@ -867,7 +868,7 @@ function parseGrobidMentions(
           citationGroupOrdinal: groupOrdinal,
           bundle,
           sourceType: "grobid_tei",
-          parser: "grobid-tei",
+          parser: CITATION_OBSERVATION_PARSERS.grobid_tei,
         }),
       );
       mentionIndex++;
@@ -1049,12 +1050,43 @@ export async function materializeParsedPaper(
   biorxivBaseUrl: string,
   adapters: FullTextFetchAdapters,
   cache?: ParsedPaperCacheOptions,
+  purpose: "seed_text" | "citation_harvest" = "seed_text",
 ): Promise<ParsedPaperMaterializeResult> {
+  let inspectedDocument: ParsedPaperDocument | undefined;
   const fullTextResult = await acquireFullText(
     paper,
     biorxivBaseUrl,
     adapters,
     cache,
+    purpose === "citation_harvest"
+      ? ({ content, format }) => {
+          const parsed = parseParsedPaperDocument(content, format);
+          if (!parsed.ok) {
+            return {
+              probeClassification: "invalid_xml",
+              failureReason: parsed.error,
+            };
+          }
+          const hasBody = parsed.data.blocks.some(
+            (block) => block.blockKind === "body_paragraph",
+          );
+          const hasReferences = parsed.data.references.length > 0;
+          if (!hasBody || !hasReferences) {
+            const missing =
+              !hasBody && !hasReferences
+                ? "body paragraphs and bibliography"
+                : hasBody
+                  ? "bibliography"
+                  : "body paragraphs";
+            return {
+              probeClassification: "incomplete_full_text",
+              failureReason: `Article source missing ${missing}`,
+            };
+          }
+          inspectedDocument = parsed.data;
+          return undefined;
+        }
+      : undefined,
   );
   if (!fullTextResult.ok) {
     return {
@@ -1090,10 +1122,12 @@ export async function materializeParsedPaper(
     }
   }
 
-  const parsedResult = parseParsedPaperDocument(
-    fullTextResult.data.content,
-    fullTextResult.data.format,
-  );
+  const parsedResult = inspectedDocument
+    ? { ok: true as const, data: inspectedDocument }
+    : parseParsedPaperDocument(
+        fullTextResult.data.content,
+        fullTextResult.data.format,
+      );
   if (!parsedResult.ok) {
     return {
       ok: false,
@@ -1278,15 +1312,33 @@ function normalizeDoi(doi: string): string {
   return doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase();
 }
 
+function journalTitlesMatch(reference: string, journal: string): boolean {
+  const words = (value: string) =>
+    normalizeBibliographyTitle(value)
+      .split(" ")
+      .filter((word) => word && !TITLE_STOPWORDS.has(word));
+  const referenceWords = words(reference);
+  const journalWords = words(journal);
+  return (
+    referenceWords.length > 0 &&
+    referenceWords.length === journalWords.length &&
+    referenceWords.every((word, index) => {
+      const other = journalWords[index]!;
+      return word.startsWith(other) || other.startsWith(word);
+    })
+  );
+}
+
 /** Co-authors a title-less reference must share with the seed. */
 const VOLUME_MATCH_SHARED_AUTHORS = 2;
 
 /**
  * Match a seed paper against a citing bibliography, in order: DOI, arXiv
- * identifier, then first author + year with either a title (exact, or 80% of
- * the seed's title tokens) or, for a reference that gives no title as physics
- * references often do, the same volume and at least two shared co-authors.
- * Each author + year step accepts only a single candidate.
+ * identifier, then first author + year with a matching title or complete
+ * journal coordinates. For a reference with no title, volume and shared
+ * co-authors also provide a weaker fallback.
+ * Each author + year step accepts only a single candidate. An explicit DOI
+ * for another work rules out matching that entry by metadata.
  *
  * A paper published online one year and in an issue the next is cited under
  * either year, so the last step accepts a year one off when first author,
@@ -1297,7 +1349,14 @@ export function matchReferenceByMetadata(
   references: readonly ParsedPaperReference[],
   seed: Pick<
     ResolvedPaper,
-    "doi" | "arxivId" | "title" | "authors" | "publicationYear" | "volume"
+    | "doi"
+    | "arxivId"
+    | "title"
+    | "authors"
+    | "publicationYear"
+    | "volume"
+    | "journal"
+    | "firstPage"
   >,
 ): BibliographyMatch | undefined {
   const seedDoi = seed.doi ? normalizeDoi(seed.doi) : undefined;
@@ -1323,7 +1382,9 @@ export function matchReferenceByMetadata(
   const sameFirstAuthor = references.filter((reference) => {
     const referenceFirst = reference.authorSurnames[0];
     return (
-      referenceFirst != null && normalizeSurname(referenceFirst) === firstAuthor
+      referenceFirst != null &&
+      normalizeSurname(referenceFirst) === firstAuthor &&
+      (!seedDoi || !reference.doi || normalizeDoi(reference.doi) === seedDoi)
     );
   });
   const sameFirstAuthorAndYear = sameFirstAuthor.filter(
@@ -1336,16 +1397,33 @@ export function matchReferenceByMetadata(
       reference.title != null &&
       titleTokenOverlapRatio(seed.title, reference.title) >= 0.8,
   );
-  if (byTitle.length === 1) {
-    const reference = byTitle[0]!;
-    return {
-      reference,
-      method:
-        normalizeBibliographyTitle(reference.title!) === seedTitle
-          ? "author_year_exact_title"
-          : "author_year_title_overlap",
-    };
+  const titleMatch = byTitle.length === 1 ? byTitle[0] : undefined;
+  if (
+    titleMatch?.title &&
+    normalizeBibliographyTitle(titleMatch.title) === seedTitle
+  ) {
+    return { reference: titleMatch, method: "author_year_exact_title" };
   }
+  const { journal, volume, firstPage } = seed;
+  if (journal && volume && firstPage) {
+    const byJournalCoordinates = sameFirstAuthorAndYear.filter(
+      (reference) =>
+        reference.volume === volume &&
+        reference.firstPage === firstPage &&
+        reference.journal &&
+        journalTitlesMatch(reference.journal, journal),
+    );
+    if (byJournalCoordinates.length === 1) {
+      return {
+        reference: byJournalCoordinates[0]!,
+        method: "author_year_journal_volume_first_page",
+      };
+    }
+    if (byJournalCoordinates.length > 1) return undefined;
+  }
+
+  if (titleMatch)
+    return { reference: titleMatch, method: "author_year_title_overlap" };
   if (byTitle.length > 1 || seed.volume == null) return undefined;
 
   const seedSurnameSet = new Set(seedSurnames);
@@ -1357,6 +1435,12 @@ export function matchReferenceByMetadata(
     (reference) =>
       reference.title == null &&
       reference.volume === seed.volume &&
+      (!firstPage ||
+        !reference.firstPage ||
+        reference.firstPage === firstPage) &&
+      (!journal ||
+        !reference.journal ||
+        journalTitlesMatch(reference.journal, journal)) &&
       reference.authorSurnames.filter((surname) =>
         seedSurnameSet.has(normalizeSurname(surname)),
       ).length >= sharedAuthorsNeeded,

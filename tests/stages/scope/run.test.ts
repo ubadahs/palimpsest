@@ -37,6 +37,7 @@ import {
   writeArtifact,
 } from "../../../src/contract/selectors.js";
 import { expectRejected } from "../../rejection.fixture.js";
+import { buildScopeCitationStatements } from "../../../src/stages/scope/statements.js";
 import {
   artifactReference,
   discoverOptions,
@@ -133,32 +134,43 @@ function successfulHarvest(
       reason: "All fixture occurrences harvested",
       provenanceArtifacts: [artifactReference("mention-harvest", paperId)],
     },
-    mentions: mentions.map((mention) => ({
-      mentionIndex: mention.mentionIndex,
-      refId: "seed-ref",
-      targetRefIds: ["seed-ref"],
-      charOffsetStart: mention.mentionIndex * 100,
-      charOffsetEnd: mention.mentionIndex * 100 + mention.context.length,
-      citationMarker: mention.bundled ? "[2–4]" : "[3]",
-      rawContext: mention.context,
-      sectionTitle: "Discussion",
-      seedRefLabel: "Seed et al., 2020",
-      isBundledCitation: mention.bundled ?? false,
-      bundleSize: mention.bundled ? 3 : 1,
-      bundleRefIds: mention.bundled
-        ? ["other-2", "seed-ref", "other-4"]
-        : ["seed-ref"],
-      bundlePattern: mention.bundled ? "numeric_range" : "single",
-      sourceType: "jats_xml",
-      parser: "fixture-jats-parser",
-      parserVersion: "v1",
-      provenanceArtifacts: [
-        artifactReference(
-          "citation-occurrence-source",
-          `${paperId}-${String(mention.mentionIndex)}`,
-        ),
-      ],
-    })),
+    bibliographyMatch: { method: "doi" as const, refId: "seed-ref" },
+    mentions: mentions.map((mention) => {
+      const citationMarker = mention.bundled ? "[2–4]" : "[3]";
+      const markerStart = mention.context.indexOf(citationMarker);
+      return {
+        mentionIndex: mention.mentionIndex,
+        refId: "seed-ref",
+        targetRefIds: ["seed-ref"],
+        charOffsetStart: mention.mentionIndex * 100,
+        charOffsetEnd: mention.mentionIndex * 100 + mention.context.length,
+        citationMarker,
+        locationQuality: "exact_dom" as const,
+        markerSpan: {
+          charOffsetStart: markerStart,
+          charOffsetEnd: markerStart + citationMarker.length,
+        },
+        rawContext: mention.context,
+        sectionTitle: "Discussion",
+        seedRefLabel: "Seed et al., 2020",
+        isBundledCitation: mention.bundled ?? false,
+        bundleSize: mention.bundled ? 3 : 1,
+        bundleRefIds: mention.bundled
+          ? ["other-2", "seed-ref", "other-4"]
+          : ["seed-ref"],
+        bundlePattern: mention.bundled ? "numeric_range" : "single",
+        sourceType: "jats_xml",
+        parser: "fixture-jats-parser",
+        parserVersion: "v1",
+        sourceTextHash: canonicalSha256({ paperId }),
+        provenanceArtifacts: [
+          artifactReference(
+            "citation-occurrence-source",
+            `${paperId}-${String(mention.mentionIndex)}`,
+          ),
+        ],
+      };
+    }),
   };
 }
 
@@ -894,6 +906,234 @@ describe("Scope", () => {
     expect(
       result.payload.families.flatMap((family) => family.candidateIds),
     ).not.toContain(deferredScope[0]!.candidateId);
+  });
+
+  it("inventories seeds independently and assesses deferred claims using exact wording", async () => {
+    const discover = await discoverFixture();
+    const adapters = scopeAdapters({}, new Map());
+    const inventoried: string[] = [];
+    const matched: string[] = [];
+    adapters.inventorySeed = ({ seed }) => {
+      inventoried.push(seed.seedId);
+      return Promise.resolve({
+        status: "completed",
+        rawOutput: seed.doi.endsWith("seed-a")
+          ? {
+              reason: "The paper establishes an effect in its own results.",
+              findings: [
+                {
+                  statement:
+                    "The experiment demonstrated a measurable effect on the primary outcome.",
+                  ownershipReason:
+                    "The Results section reports the authors' outcome.",
+                  supportSpans: [
+                    {
+                      blockId: "body-1",
+                      verbatimQuote:
+                        "a measurable effect in the primary outcome.",
+                    },
+                  ],
+                },
+                {
+                  statement: "A result with an unsupported detail.",
+                  ownershipReason: "The quoted figures supply the detail.",
+                  supportSpans: [
+                    {
+                      blockId: "body-1",
+                      verbatimQuote: "a fabricated numeric result",
+                    },
+                    { blockId: "body-1", verbatimQuote: "primary outcome" },
+                  ],
+                },
+              ],
+            }
+          : { reason: "This editorial only cites other work.", findings: [] },
+        execution: {
+          ...scopeModelExecution(seed.seedId),
+          promptId: "scope-seed-inventory",
+        },
+      });
+    };
+    adapters.matchStatements = ({ findings, statements }) => {
+      matched.push(...statements.map(({ statementId }) => statementId));
+      const assessments = statements.flatMap(
+        ({ statementId, credit, textSpan }) => {
+          if (credit === "shared_reference_group") {
+            return [
+              {
+                statementId,
+                relationship: "partial",
+                findingIds: [findings[0]!.findingId],
+                retained: ["measurable effect"],
+                changes: ["omits primary outcome"],
+                reason:
+                  "The effect is mentioned without naming the measured outcome.",
+              },
+            ];
+          }
+          if (textSpan?.text === "distinct outcome") {
+            return [
+              {
+                statementId,
+                relationship: "distinct",
+                findingIds: [],
+                retained: [],
+                changes: [],
+                reason: "The citing proposition concerns another outcome.",
+              },
+            ];
+          }
+          return [];
+        },
+      );
+      return Promise.resolve({
+        status: "completed",
+        rawOutput: { assessments },
+        execution: {
+          ...scopeModelExecution("match"),
+          promptId: "scope-statement-matching",
+        },
+      });
+    };
+
+    const { payload, provenanceInputs } = await runScope(discover, adapters, {
+      recordedAt: "2026-07-16T12:10:00.000Z",
+    });
+    expect(inventoried).toEqual(
+      discover.payload.seeds.map(({ seedId }) => seedId).sort(),
+    );
+    expect(payload.seedInventories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "completed",
+          rejectedFindingCount: 1,
+          findings: [
+            expect.objectContaining({
+              evidenceSpans: [
+                expect.objectContaining({
+                  text: "a measurable effect in the primary outcome.",
+                  verificationStatus: "verified_exact",
+                }),
+              ],
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          status: "no_grounded_findings",
+          findings: [],
+        }),
+      ]),
+    );
+    expect(payload.citationStatements).toHaveLength(
+      discover.payload.attributedClaimRecords.length,
+    );
+    expect(matched).toHaveLength(3);
+    expect(payload.statementAssessments).toHaveLength(1);
+    const bundled = payload.citationStatements.find(
+      ({ credit }) => credit === "shared_reference_group",
+    );
+    expect(bundled).toMatchObject({
+      sourceVersion: {
+        sourceTextHash: canonicalSha256({ paperId: "paper-a1" }),
+      },
+      textSpan: { text: "measurable effect" },
+      assessment: {
+        status: "assessed",
+        relationship: "partial",
+        retained: ["measurable effect"],
+      },
+    });
+    expect(
+      payload.citationStatements.find(
+        ({ textSpan }) => textSpan?.text === "distinct outcome",
+      )?.assessment.relationship,
+    ).toBe("distinct");
+    for (const status of ["invalid_output", "no_grounded_findings"]) {
+      expect(
+        payload.citationStatements.find(
+          ({ assessment }) => assessment.status === status,
+        )?.assessment.relationship,
+      ).toBe("unassessed");
+    }
+    expect(provenanceInputs.prompts.map(({ promptId }) => promptId)).toEqual(
+      expect.arrayContaining([
+        "scope-seed-inventory",
+        "scope-statement-matching",
+      ]),
+    );
+  });
+
+  it("ties credit to the claimed clause and exact reference group", async () => {
+    const discover = await discoverFixture();
+    const { citationMentions, citingPapers, attributedClaimRecords } =
+      discover.payload;
+    const claim = attributedClaimRecords[0]!;
+    const mention = citationMentions.find(
+      ({ mentionId }) => mentionId === claim.mentionId,
+    )!;
+    const paper = citingPapers.find(
+      ({ citingPaperRecordId }) =>
+        citingPaperRecordId === mention.citingPaperRecordId,
+    )!;
+    const rawContext =
+      "Neurons are GABAergic (Sabbagh, 2020) and receive direct retinal inputs (Hattar, 2003).";
+    const offsets = (text: string) => ({
+      charOffsetStart: rawContext.indexOf(text),
+      charOffsetEnd: rawContext.indexOf(text) + text.length,
+    });
+    const citationMarker = "(Sabbagh, 2020)";
+    const local = {
+      ...mention,
+      rawContext,
+      citationMarker,
+      markerSpan: offsets(citationMarker),
+      nearbyCitations: [
+        {
+          citationMarker: "(Hattar, 2003)",
+          markerSpan: offsets("(Hattar, 2003)"),
+        },
+      ],
+      isBundledCitation: false,
+      bundleSize: 1,
+      bundleRefIds: [],
+    };
+    const checkCredit = (
+      text: string,
+      sourceMention = local,
+      sourcePaper = paper,
+    ) =>
+      buildScopeCitationStatements({
+        attributedClaimRecords: [
+          {
+            ...claim,
+            supportSpan: {
+              text,
+              ...offsets(text),
+              verificationStatus: "verified_exact",
+            },
+          },
+        ],
+        citationMentions: [sourceMention],
+        citingPapers: [sourcePaper],
+      })[0]?.credit;
+    expect(checkCredit("Neurons are GABAergic")).toBe("single_reference");
+    expect(checkCredit("receive direct retinal inputs")).toBe("unverified");
+    expect(checkCredit(citationMarker)).toBe("unverified");
+    expect(
+      checkCredit("Neurons are GABAergic", {
+        ...local,
+        citationMarker: "(Other, 2020)",
+      }),
+    ).toBe("unverified");
+    expect(
+      checkCredit("Neurons are GABAergic", local, {
+        ...paper,
+        bibliographyMatch: {
+          method: "author_year_title_overlap",
+          refId: "seed-ref",
+        },
+      }),
+    ).toBe("unverified");
   });
 
   it("fails the stage on fatal provider failures", async () => {

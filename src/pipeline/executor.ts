@@ -84,7 +84,11 @@ import {
   resolveStageDirectory,
   writeStageManifest,
 } from "./stage-paths.js";
-import { createRunCostTracker } from "./cost-summary.js";
+import { createRunCostTracker, rebuildRunCostSummary } from "./cost-summary.js";
+import {
+  budgetAfterOtherHistories,
+  hasUnresolvedSpend,
+} from "../history/budget.js";
 import { RunTracker } from "./run-tracker.js";
 import {
   deriveStageSummary,
@@ -161,6 +165,8 @@ export type RunPipelineParams = {
    * CLI-owned connection should set this; injected/shared DBs must not.
    */
   ownsDatabase?: boolean;
+  /** Combined pipeline and citation-history cap across this run's attempts. */
+  includeHistorySpend?: boolean;
   /** Dependency-injected adapters for tests; production builds them. */
   adapters?: PipelineAdapters;
   llmClient?: LLMClient;
@@ -636,7 +642,7 @@ function earliestScientificConfigConflict(
   return undefined;
 }
 
-function readDoisFromFile(inputPath: string): string[] {
+export function readDoisFromFile(inputPath: string): string[] {
   const raw: unknown = JSON.parse(readFileSync(inputPath, "utf8"));
   const parsed = doiInputSchema.parse(raw);
   return parsed.dois;
@@ -1019,6 +1025,12 @@ export async function runPipeline(
     }
 
     const costs = createRunCostTracker(run.runRoot);
+    let maxUsd = args.maxCostUsd;
+    if (params.includeHistorySpend && maxUsd !== undefined) {
+      maxUsd = hasUnresolvedSpend(rebuildRunCostSummary(run.runRoot))
+        ? 0
+        : budgetAfterOtherHistories(run.runRoot, maxUsd);
+    }
     const llmClient =
       params.llmClient ??
       createLLMClient({
@@ -1028,11 +1040,15 @@ export async function runPipeline(
         // Without this the exact-result cache still serves stale completions
         // on a --force-refresh run while provenance claims it was bypassed.
         forceRefresh: runConfig.forceRefresh,
-        ...(args.maxCostUsd != null
+        ...(maxUsd != null
           ? {
               spendLimit: {
-                maxUsd: args.maxCostUsd,
-                spentUsd: costs.spentUsd,
+                maxUsd,
+                spentUsd: () =>
+                  costs.spentUsd(
+                    params.includeHistorySpend ? maxUsd : undefined,
+                  ),
+                reserveDirectRequests: Boolean(params.includeHistorySpend),
               },
             }
           : {}),

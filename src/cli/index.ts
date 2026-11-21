@@ -6,6 +6,7 @@ import { runRunsGcCommand } from "./commands/runs-gc.js";
 import { runRunsKeepCommand } from "./commands/runs-keep.js";
 import { runEvalCommand } from "./commands/eval.js";
 import { runTraceCommand } from "./commands/trace.js";
+import { runCitationHistoryCommand } from "./commands/citation-history.js";
 import {
   runAuthorReviewExportCommand,
   runAuthorReviewImportCommand,
@@ -23,6 +24,7 @@ Available commands:
   pipeline      Run the six stages: discover → scope → prepare → evidence → adjudicate → report
   eval          Build datasets, validate, run/resume experiments, and report results
   trace         Audit saved operations, model usage and incomplete attempts offline
+  citation-history      Trace specific credited statements through two citation hops
   author-review:export  Write a short HTML review for the seed paper's author
   author-review:import  Read the author's saved answers back in
 `);
@@ -77,6 +79,11 @@ async function main(): Promise<void> {
 
   if (command === "trace") {
     runTraceCommand(process.argv.slice(3));
+    return;
+  }
+
+  if (command === "citation-history") {
+    await runCitationHistoryCommand(process.argv.slice(3));
     return;
   }
 

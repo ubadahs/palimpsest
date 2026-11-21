@@ -34,6 +34,54 @@ export type ProvenanceStore = {
   pathFor(reference: ArtifactReference): string;
 };
 
+/** Materialize the verified provenance referenced by a derived artifact before
+ * publishing it. Each version-bound blob is copied once, including references
+ * embedded in normalized requests and other provenance bodies. */
+export function preserveReferencedProvenance(
+  value: unknown,
+  destination: ProvenanceStore,
+  sources: readonly ProvenanceStore[],
+): void {
+  const visited = new Set<string>();
+  function visit(node: unknown): void {
+    if (node === null || typeof node !== "object") return;
+    if (
+      "artifactId" in node &&
+      typeof node.artifactId === "string" &&
+      node.artifactId.startsWith("prov_") &&
+      "role" in node &&
+      "contentHash" in node
+    ) {
+      const ref = artifactReferenceSchema.parse(node);
+      if (
+        buildStableId("prov", {
+          role: ref.role,
+          contentHash: ref.contentHash,
+        }) !== ref.artifactId
+      )
+        throw new Error(`Invalid provenance identity ${ref.artifactId}`);
+      if (visited.has(ref.artifactId)) return;
+      visited.add(ref.artifactId);
+      const owner = [destination, ...sources].find((store) =>
+        existsSync(store.pathFor(ref)),
+      );
+      if (!owner)
+        throw new Error(`Missing referenced provenance ${ref.artifactId}`);
+      const { body } = owner.load(ref);
+      if (owner !== destination)
+        destination.persist({
+          role: ref.role,
+          body,
+          ...(ref.stage ? { stage: ref.stage } : {}),
+        });
+      visit(body);
+      return;
+    }
+    for (const child of Object.values(node)) visit(child);
+  }
+  visit(value);
+}
+
 export function createProvenanceStore(runRoot: string): ProvenanceStore {
   const rootDirectory = resolve(runRoot, "provenance");
   mkdirSync(rootDirectory, { recursive: true });

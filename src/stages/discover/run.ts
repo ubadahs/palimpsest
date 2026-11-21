@@ -13,7 +13,10 @@ import {
   candidateSelectionPolicySchema,
   selectCandidates,
 } from "./candidate-selection.js";
-import { paperTypeSchema } from "../../domain/common.js";
+import {
+  fullTextAccessChannelSchema,
+  paperTypeSchema,
+} from "../../domain/common.js";
 import {
   bibliographyMatchMethodSchema,
   contextMarkerSpanSchema,
@@ -32,6 +35,7 @@ import {
   createStageArtifact,
   discoverArtifactPayloadSchema,
   discoverArtifactSchema,
+  nearbyCitationSchema,
   currentArtifactSchemaVersion,
   currentArtifactVersion,
   sha256DigestSchema,
@@ -74,6 +78,7 @@ const discoverFailureCodeSchema = z.union([
     "rate_limited",
     "transport",
     "invalid_response",
+    "incomplete_content",
     "extraction_failed",
   ]),
 ]);
@@ -146,7 +151,7 @@ const resolvedPaperInputSchema = z
   })
   .strict();
 
-const seedResolutionResultSchema = z.discriminatedUnion("status", [
+export const seedResolutionResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("resolved"),
@@ -185,7 +190,7 @@ const citingPaperInputSchema = z
   })
   .strict();
 
-const neighborhoodResultSchema = z.discriminatedUnion("status", [
+export const neighborhoodResultSchema = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("completed"),
@@ -223,6 +228,7 @@ const harvestedMentionInputSchema = z
     charOffsetStart: z.number().int().nonnegative().optional(),
     charOffsetEnd: z.number().int().nonnegative().optional(),
     markerSpan: contextMarkerSpanSchema.optional(),
+    nearbyCitations: z.array(nearbyCitationSchema).optional(),
     sourceLocator: citationSourceLocatorSchema.optional(),
     citationGroupOrdinal: z.number().int().nonnegative().optional(),
     locationQuality: z.enum(["exact_dom", "approximate", "missing"]).optional(),
@@ -237,6 +243,7 @@ const harvestedMentionInputSchema = z
     sourceType: z.string().min(1),
     parser: z.string().min(1),
     parserVersion: z.string().min(1).optional(),
+    sourceTextHash: sha256DigestSchema.optional(),
     provenanceArtifacts: z.array(artifactReferenceSchema).min(1),
   })
   .strict()
@@ -321,7 +328,7 @@ export const mentionHarvestResultSchema = z
     /** How the text was obtained; absent when materialization did not succeed. */
     acquisition: z
       .object({
-        accessChannel: z.enum(["open_access", "institutional_proxy"]),
+        accessChannel: fullTextAccessChannelSchema,
         fullTextFormat: z.string().min(1).optional(),
         selectedUrl: z.string().min(1).optional(),
       })
@@ -884,6 +891,7 @@ export async function runDiscover(
       mentionId: mention.mentionId,
       extractionId,
       rawContext: mention.rawContext,
+      highlightedCitation: mention,
       provenanceArtifacts,
     });
     for (const record of records) {
@@ -1055,18 +1063,23 @@ export function buildDiscoverArtifact(input: {
   return discoverArtifactSchema.parse(artifact);
 }
 
-function buildAttributedClaimRecords(input: {
+export function buildAttributedClaimRecords(input: {
   claims: z.infer<typeof extractedClaimInputSchema>[];
   seedId: string;
   mentionId: string;
   extractionId: string;
   rawContext: string;
+  highlightedCitation?: Pick<
+    DiscoverCitationOccurrence,
+    "citationMarker" | "markerSpan"
+  >;
   provenanceArtifacts: ArtifactReference[];
 }): DiscoverAttributedClaimRecord[] {
   const indexedClaims = input.claims.map((claim, sourceClaimIndex) => {
     const supportSpan = verifyClaimSupportSpan(
       input.rawContext,
       claim.supportSpanText,
+      input.highlightedCitation,
     );
     return {
       claim,
@@ -1228,7 +1241,7 @@ function buildClaimCandidates(
     );
 }
 
-function createCitationOccurrence(input: {
+export function createCitationOccurrence(input: {
   seedId: string;
   citedPaperId: string;
   citingPaperRecordId: string;
@@ -1270,6 +1283,9 @@ function createCitationOccurrence(input: {
     ...(input.mention.markerSpan
       ? { markerSpan: input.mention.markerSpan }
       : {}),
+    ...(input.mention.nearbyCitations
+      ? { nearbyCitations: input.mention.nearbyCitations }
+      : {}),
     ...(input.mention.sectionTitle
       ? { sectionTitle: input.mention.sectionTitle }
       : {}),
@@ -1285,6 +1301,9 @@ function createCitationOccurrence(input: {
       parser: input.mention.parser,
       ...(input.mention.parserVersion
         ? { parserVersion: input.mention.parserVersion }
+        : {}),
+      ...(input.mention.sourceTextHash
+        ? { sourceTextHash: input.mention.sourceTextHash }
         : {}),
       artifacts: input.mention.provenanceArtifacts,
     },

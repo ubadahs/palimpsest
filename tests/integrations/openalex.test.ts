@@ -240,6 +240,69 @@ describe("resolveWorkByDoi", () => {
 });
 
 describe("getCitingWorks", () => {
+  it("keeps valid neighbors in provider order and records why individual rows were lost", async () => {
+    const work = (i: number) => ({ id: `W${i}`, display_name: `Paper ${i}` });
+    const rows: unknown[] = Array.from({ length: 200 }, (_, i) => work(i));
+    rows[37] = { ...work(37), display_name: "Expected intermediate paper" };
+    rows[195] = { ...work(195), display_name: null };
+    rows[196] = null;
+    // A valid copy on the next page must survive a malformed first appearance.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ meta: { count: 202 }, results: rows }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          meta: { count: 202 },
+          results: [work(195), work(201)],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getCitingWorks("Wseed", "https://api.test", 202);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.data.providerReportedTotal).toBe(202);
+    expect(result.data.coverage).toBe("truncated");
+    expect(result.data.papers).toHaveLength(200);
+    expect(result.data.papers[37]?.title).toBe("Expected intermediate paper");
+    expect(result.data.papers.slice(-2).map(({ id }) => id)).toEqual([
+      "W195",
+      "W201",
+    ]);
+    expect(result.data.pages[0]).toMatchObject({
+      returnedCount: 200,
+      keptCount: 198,
+      rejectedWorks: [
+        {
+          resultIndex: 195,
+          providerRecordId: "W195",
+          issues: [{ field: "display_name" }],
+        },
+        {
+          resultIndex: 196,
+          issues: [{ field: "(record)" }],
+        },
+      ],
+    });
+    for (const row of result.data.pages[0]!.rejectedWorks!) {
+      expect(row.issues[0]!.reason.length).toBeGreaterThan(0);
+    }
+    expect(result.data.pages[1]).toMatchObject({
+      returnedCount: 2,
+      keptCount: 2,
+    });
+  });
+
+  it("fails the query when the page envelope itself is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ meta: {}, results: [] })),
+    );
+    expect((await getCitingWorks("Wseed", "https://api.test")).ok).toBe(false);
+  });
+
   it("returns resolved papers from citing-works response", async () => {
     const fixture = loadFixture("citing-works-response.json");
     const fetchMock = vi.fn().mockResolvedValue(Response.json(fixture));

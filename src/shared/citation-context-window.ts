@@ -259,6 +259,15 @@ function findMarkerPosition(text: string, marker: string): number {
 
 type SentenceSpan = { text: string; start: number; end: number };
 
+export function sentenceAtOffset(
+  text: string,
+  offset: number,
+): string | undefined {
+  return splitSentences(text)
+    .find(({ start, end }) => start <= offset && offset < end)
+    ?.text.trim();
+}
+
 /**
  * Split on terminal punctuation, protecting abbreviation periods (et al., Fig.,
  * etc.) so author–year citations stay inside their sentence.

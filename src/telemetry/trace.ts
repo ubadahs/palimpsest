@@ -17,7 +17,7 @@ const blobSchema = z.object({
   bytes: z.number().int().nonnegative(),
   file: z.string().regex(/^blobs\/[a-f0-9]{64}$/),
 });
-export const traceEventSchema = z.object({
+const traceEventSchema = z.object({
   version: z.literal(1),
   eventId: z.string(),
   sessionId: z.string(),

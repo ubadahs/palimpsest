@@ -1,16 +1,24 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MutationFamilyView,
   ReportInspectorRecordRow,
   StageInspectorPayload,
 } from "palimpsest/contract";
+import type { CitationHistoryArtifact } from "palimpsest/history";
 
 import { ReportInspector } from "../components/report-inspector";
 import { formatRateValue } from "../lib/report-format";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
@@ -460,6 +468,12 @@ function buildPayload(): StageInspectorPayload<"report"> {
       ],
       weightedRates: [],
       familyMutations: [],
+      statementReview: {
+        seedInventories: [],
+        citationStatements: [],
+        statementAssessments: [],
+      },
+      statementFidelity: {},
       decisionSummaries: [
         {
           stage: "adjudicate",
@@ -602,6 +616,460 @@ describe("report inspector", () => {
       screen.getByText("Calmic neurons receive direct dorsal contact."),
     ).toBeTruthy();
     expect(screen.getByText(/Chronological citing restatements/i)).toBeTruthy();
+  });
+
+  it("shows the exact shared citation marker, cited finding, and separate fidelity result", () => {
+    const payload = buildPayload();
+    const context =
+      "Earlier discussion [6]. The effect extended to both groups [6].";
+    const claim = "The effect extended to both groups [6].";
+    payload.summary.statementReview = {
+      seedInventories: [
+        {
+          seedId: "seed_1",
+          seedDoi: "10.1/source",
+          seedTitle: "One-group trial",
+          seedPublicationYear: 2019,
+          status: "completed",
+          rejectedFindingCount: 0,
+          reason: "Verified in Results.",
+          findings: [
+            {
+              findingId: "finding_1",
+              statement: "The trial found the effect in one group.",
+              ownershipReason: "Reports a trial result.",
+              evidenceSpans: [
+                {
+                  blockId: "results",
+                  blockKind: "body_paragraph",
+                  sectionTitle: "Results",
+                  text: "We observed the effect in one group.",
+                  charOffsetStart: 0,
+                  charOffsetEnd: 36,
+                  verificationStatus: "verified_exact",
+                  sourceArtifact: {
+                    artifactId: "source",
+                    contentHash: "test",
+                    role: "seed-text",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      citationStatements: [
+        {
+          statementId: "statement_1",
+          seedId: "seed_1",
+          citingPaperId: "paper_1",
+          citingPaperRecordId: "citing_1",
+          citingTitle: "Later two-group report",
+          citingPublicationYear: 2023,
+          occurrenceId: "mention_1",
+          claimRecordId: "claim_1",
+          extractedClaimText: "The effect extended to both groups.",
+          citationContext: context,
+          citationMarker: "[6]",
+          markerSpan: {
+            charOffsetStart: context.lastIndexOf("[6]"),
+            charOffsetEnd: context.lastIndexOf("[6]") + 3,
+          },
+          textSpan: {
+            text: claim,
+            charOffsetStart: context.indexOf(claim),
+            charOffsetEnd: context.length,
+            verificationStatus: "verified_exact",
+          },
+          locationQuality: "exact_dom",
+          targetRefIds: ["ref_6", "ref_7"],
+          bundleRefIds: ["ref_6", "ref_7"],
+          credit: "shared_reference_group",
+          sourceVersion: { parser: "grobid", sourceType: "pdf", artifacts: [] },
+          assessment: {
+            status: "assessed",
+            relationship: "scope_changed",
+            findingIds: ["finding_1"],
+            retained: ["The effect"],
+            changes: ["One group became both groups."],
+            reason: "The later paper broadened the groups.",
+            batchId: "batch_1",
+          },
+        },
+      ],
+      statementAssessments: [],
+    };
+    payload.summary.statementReview.citationStatements.unshift({
+      ...payload.summary.statementReview.citationStatements[0]!,
+      statementId: "statement_undated",
+      citingTitle: "Undated field note",
+      citingPublicationYear: undefined,
+      extractedClaimText: "The note discussed a separate result.",
+      markerSpan: undefined,
+      textSpan: undefined,
+      credit: "unverified",
+      assessment: {
+        status: "exact_attribution_unverified",
+        relationship: "unassessed",
+        findingIds: [],
+        retained: [],
+        changes: [],
+        reason: "The citation marker was unavailable.",
+      },
+    });
+    payload.summary.statementFidelity = {
+      statement_1: [
+        {
+          recordId: "record_1",
+          adjudication: {
+            status: "adjudicated",
+            adjudicationResultId: "result_1",
+            verdict: "D",
+            mutationKinds: [],
+            direction: "shifted",
+            evidenceSufficiency: "sufficient",
+          },
+        },
+      ],
+    };
+    const { container } = render(
+      <ReportInspector
+        defaultTab="statements"
+        payload={payload}
+        runId="run-report-ui"
+      />,
+    );
+    const row = screen
+      .getByText("The effect extended to both groups.")
+      .closest("details")!;
+    row.setAttribute("open", "");
+    expect(
+      screen
+        .getAllByText(/Later two-group report|Undated field note/)
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Later two-group report (2023)",
+      "Undated field note (year unknown)",
+    ]);
+    expect(within(row).getByText("Shared citation credit")).toBeTruthy();
+    expect(within(row).getByText("Later two-group report (2023)")).toBeTruthy();
+    expect(within(row).getByText("One-group trial (2019)")).toBeTruthy();
+    expect(within(row).getByText("One group became both groups.")).toBeTruthy();
+    expect(
+      within(row).getByText("“We observed the effect in one group.”"),
+    ).toBeTruthy();
+    expect(container.querySelectorAll("mark")).toHaveLength(1);
+    expect(container.querySelector("mark")?.previousSibling?.textContent).toBe(
+      "Earlier discussion [6]. The effect extended to both groups ",
+    );
+    expect(within(row).getByText("Current fidelity")).toBeTruthy();
+    expect(within(row).getByText("D")).toBeTruthy();
+  });
+
+  it("reads history only on its tab and pins the request to this report", async () => {
+    const fetchHistory = vi.fn().mockResolvedValue(new Response("[]"));
+    vi.stubGlobal("fetch", fetchHistory);
+    const payload = buildPayload();
+    const { unmount } = render(
+      <ReportInspector payload={payload} runId="run-report-ui" />,
+    );
+    expect(fetchHistory).not.toHaveBeenCalled();
+    unmount();
+    render(
+      <ReportInspector
+        defaultTab="history"
+        payload={payload}
+        runId="run-report-ui"
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "No citation history has been saved for this report.",
+      ),
+    ).toBeTruthy();
+    expect(fetchHistory).toHaveBeenCalledWith(
+      `/api/runs/run-report-ui/history?report=${payload.rawArtifact.artifactId}`,
+      expect.anything(),
+    );
+  });
+
+  it("shows bounded history, direct citation status, and unavailable coverage", async () => {
+    const payload = buildPayload();
+    const original = {
+      paperId: "original",
+      title: "Original trial",
+      publicationYear: 2009,
+    };
+    const middle = {
+      paperId: "middle",
+      title: "Intermediate study",
+      publicationYear: 2013,
+    };
+    const later = {
+      paperId: "later",
+      title: "Later review",
+      publicationYear: 2020,
+    };
+    const unavailable = { paperId: "closed", title: "Closed paper" };
+    const sourceVersion = {
+      sourceType: "tei",
+      parser: "tei",
+      artifacts: [],
+    };
+    const modelResponse = {
+      artifactId: "prov_comparison_response",
+      contentHash: "response-hash",
+      role: "citation-history-assessment-response",
+    };
+    const parseArtifact = {
+      artifactId: "prov_citing_parse",
+      contentHash: "parse-hash",
+      role: "citing-paper-parse",
+    };
+    const history: CitationHistoryArtifact = {
+      schemaVersion: "citation-history-v3",
+      artifactId: "artifact_saved_history",
+      contentHash: "history-hash",
+      payload: {
+        report: {
+          runId: "run-report-ui",
+          artifactId: payload.rawArtifact.artifactId,
+          contentHash: payload.rawArtifact.contentHash,
+        },
+        limits: { maxHops: 2, maxParents: 1, maxCiters: 2, maxCostUsd: 1 },
+        selection: {
+          candidateCount: 2,
+          eligibleCount: 1,
+          selectedCount: 1,
+          explicitStatementIds: [],
+        },
+        paths: [
+          {
+            statementId: "statement_1",
+            original,
+            middle,
+            firstHop: {
+              occurrenceId: "occurrence_1",
+              claimRecordId: "claim_1",
+              relationship: "partial",
+              sourceVersion,
+              credit: "shared_reference_group",
+              context: "The original observed an effect [1].",
+              citationMarker: "[1]",
+              findingIds: ["finding_1"],
+              findings: [
+                {
+                  findingId: "finding_1",
+                  statement: "The original found an average effect.",
+                  ownershipReason: "Its own study.",
+                  evidenceSpans: [],
+                },
+              ],
+              retained: ["An effect"],
+              changes: [],
+              reason: "The statement used part of the original finding.",
+              provenanceArtifacts: [],
+            },
+            laterHops: [
+              {
+                useId: "use_2",
+                status: "assessed",
+                reason: "Assessed against the selected finding.",
+                assessments: [
+                  {
+                    status: "assessed",
+                    caseId: "case_2",
+                    findingId: "finding_1",
+                    downstreamQuote: "own subgroup effect",
+                    parentTextVersionId: "prov_middle",
+                    parentEvidenceStatus: "available",
+                    immediateFidelity: {
+                      status: "assessed",
+                      verdict: "F",
+                      reason: "The later paper preserves the subgroup result.",
+                      evidence: [
+                        {
+                          blockId: "results",
+                          start: 0,
+                          end: 15,
+                          text: "Subgroup effect",
+                        },
+                      ],
+                    },
+                    route: {
+                      kind: "independent_contribution",
+                      contribution: [
+                        {
+                          blockId: "results",
+                          start: 0,
+                          end: 15,
+                          text: "Subgroup effect",
+                        },
+                      ],
+                    },
+                    comparison: {
+                      status: "distinct",
+                      retained: [],
+                      changes: [],
+                      reason: "The original examined a different outcome.",
+                    },
+                    reason:
+                      "The intermediate study reported a result from its own analysis.",
+                    provenanceArtifacts: [modelResponse],
+                  },
+                ],
+                directCitation: {
+                  status: "elsewhere",
+                  referenceIds: ["ref_1"],
+                  provenanceArtifacts: [],
+                },
+                provenanceArtifacts: [],
+              },
+            ],
+          },
+        ],
+        citationUses: [
+          {
+            useId: "use_2",
+            middlePaperId: "middle",
+            citing: later,
+            occurrenceId: "occurrence_2",
+            mentionIndex: 0,
+            targetRefIds: ["ref_2"],
+            observationProvenance: sourceVersion,
+            context:
+              "The intermediate study reported its own subgroup effect [5].",
+            citationMarker: "[5]",
+            credit: "single_reference",
+            provenanceArtifacts: [parseArtifact],
+          },
+        ],
+        neighborhoods: [
+          {
+            middle,
+            status: "citer_budget_exhausted",
+            coverage: "truncated",
+            providerReportedTotal: 3,
+            allocatedCiterLimit: 2,
+            omittedCount: 1,
+            reason: "Citer limit reached.",
+            middleSource: {
+              status: "available",
+              reason:
+                "Verified against the same version of the intermediate paper.",
+              provenanceArtifacts: [],
+            },
+            citers: [
+              {
+                paper: unavailable,
+                status: "access_unavailable",
+                reason: "Full text could not be retrieved.",
+                provenanceArtifacts: [],
+              },
+              {
+                paper: later,
+                status: "assessed",
+                reason: "Examined.",
+                provenanceArtifacts: [],
+              },
+            ],
+            provenanceArtifacts: [],
+          },
+        ],
+      },
+    };
+    const secondPath = structuredClone(history.payload.paths[0]!);
+    secondPath.statementId = "statement_2";
+    secondPath.laterHops[0]!.assessments = [];
+    secondPath.laterHops[0]!.status = "unassessed";
+    secondPath.laterHops[0]!.reason =
+      "The comparison exceeded the spend limit.";
+    secondPath.laterHops[0]!.directCitation.status = "unknown";
+    history.payload.paths.push(secondPath);
+    history.payload.selection.selectedCount = 2;
+    history.payload.selection.eligibleCount = 2;
+    history.payload.limits.maxParents = 2;
+    const fetchHistory = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              artifactId: history.artifactId,
+              pathCount: 1,
+              neighborhoodCount: 1,
+            },
+          ]),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify(history)));
+    vi.stubGlobal("fetch", fetchHistory);
+    render(
+      <ReportInspector
+        defaultTab="history"
+        payload={payload}
+        runId="run-report-ui"
+      />,
+    );
+
+    const download = await screen.findByRole("link", {
+      name: "Download history JSON",
+    });
+    expect(download.getAttribute("href")).toContain(
+      `&artifact=${history.artifactId}&download=1`,
+    );
+    expect(
+      screen.getByText("Original cited elsewhere in the paper"),
+    ).toBeTruthy();
+    expect(screen.getByText(/Intermediate paper’s own finding/)).toBeTruthy();
+    expect(screen.getByText("Fidelity to the intermediate paper")).toBeTruthy();
+    expect(
+      screen.getByText(/The later paper preserves the subgroup result/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Comparison with the original finding"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("The original examined a different outcome."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Contribution of the intermediate paper"),
+    ).toBeTruthy();
+    expect(screen.getByText("prov_comparison_response")).toBeTruthy();
+    expect(screen.getByText("prov_citing_parse")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("link", { name: "Later review (2020)" })
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["#use_2", "#use_2"]);
+    expect(
+      screen.getAllByText(
+        "The intermediate study reported its own subgroup effect [5].",
+      ),
+    ).toHaveLength(1);
+    expect(screen.getByText(/coverage truncated/)).toBeTruthy();
+    expect(
+      screen.getAllByText(
+        /Original trial \(2009\) → Intermediate study \(2013\)/,
+      ),
+    ).toHaveLength(2);
+    expect(
+      screen.getByText("The comparison exceeded the spend limit."),
+    ).toBeTruthy();
+    const coverage = screen.getByText(/coverage truncated/).closest("details")!;
+    const citingWorks = within(coverage).getAllByText(
+      /Later review|Closed paper/,
+    );
+    expect(citingWorks.map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining("Later review (2020)"),
+      expect.stringContaining("Closed paper (year unknown)"),
+    ]);
+    expect(screen.getByText("Single cited reference")).toBeTruthy();
+    expect(
+      screen.getByText(/same version of the intermediate paper/),
+    ).toBeTruthy();
+    expect(screen.getByText(/2 slots allocated/)).toBeTruthy();
+    expect(screen.getByText(/access unavailable/)).toBeTruthy();
   });
 
   it("honors deep-link query params for families tab", () => {

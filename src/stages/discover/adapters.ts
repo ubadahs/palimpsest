@@ -2,6 +2,8 @@
 
 import { type ArtifactReference } from "../../contract/artifacts/index.js";
 import type { ResolvedPaper } from "../../domain/common.js";
+import type { ParsedCitationMention } from "../../domain/parsing.js";
+import type { ParsedPaperDocument } from "../../domain/parsing.js";
 import {
   resolveThinkingEffort,
   type LLMCallRecord,
@@ -17,6 +19,7 @@ import {
   matchReferenceByMetadata,
   materializeParsedPaper,
 } from "../../retrieval/parsed-paper.js";
+import { sha256Text } from "../../shared/stable-identity.js";
 import {
   createAdapterSession,
   createFullTextAdapters,
@@ -126,6 +129,7 @@ function persistCitingNeighborhoodPages(input: {
         pageIndex: page.pageIndex,
         returnedCount: page.returnedCount,
         keptCount: page.keptCount,
+        ...(page.rejectedWorks ? { rejectedWorks: page.rejectedWorks } : {}),
         responseTotalCount: page.responseTotalCount,
       },
       stage: "discover",
@@ -203,6 +207,11 @@ function buildAuthorYearLabel(ref: {
 
 export function buildDiscoverAdapters(
   deps: ProductionAdapterDeps,
+  onParsedCitingPaper?: (input: {
+    paperId: string;
+    document: ParsedPaperDocument;
+    artifact: ArtifactReference;
+  }) => void,
 ): DiscoverAdapters {
   const session = deps.session ?? createAdapterSession();
   const store = deps.provenanceStore;
@@ -498,6 +507,7 @@ export function buildDiscoverAdapters(
         deps.config.providerBaseUrls.bioRxiv,
         fullText,
         deps.paperCache,
+        "citation_harvest",
       );
 
       if (!materializeResult.ok) {
@@ -524,7 +534,10 @@ export function buildDiscoverAdapters(
               mapped.reasonCode === "unavailable"
                 ? ("unavailable" as const)
                 : ("failed" as const),
-            reasonCode: mapped.reasonCode,
+            reasonCode:
+              materializeResult.failureCode === "incomplete_content"
+                ? ("incomplete_content" as const)
+                : mapped.reasonCode,
             reason: mapped.reason,
             provenanceArtifacts,
           },
@@ -540,6 +553,9 @@ export function buildDiscoverAdapters(
       // The one blob a citing paper earns: which bytes were parsed, from
       // where, and with what. Every occurrence harvested from this paper
       // points at it, so the ledger stays traceable without a file per mention.
+      const sourceTextHash = sha256Text(
+        materializeResult.data.fullText.content,
+      );
       const parseArtifact = store.persist({
         role: "citing-paper-parse",
         body: {
@@ -547,12 +563,20 @@ export function buildDiscoverAdapters(
           acquisition: materializeResult.data.acquisition,
           parserKind: materializeResult.data.parsedDocument.parserKind,
           parserVersion: materializeResult.data.parsedDocument.parserVersion,
+          sourceTextHash,
+          fullTextFormat: materializeResult.data.fullText.format,
+          sourceText: materializeResult.data.fullText.content,
           blockCount: materializeResult.data.parsedDocument.blocks.length,
           mentionCount: materializeResult.data.parsedDocument.mentions.length,
         },
         stage: "discover",
       });
       const materializationArtifacts = [parseArtifact];
+      onParsedCitingPaper?.({
+        paperId: citing.id,
+        document: materializeResult.data.parsedDocument,
+        artifact: parseArtifact,
+      });
       const acquisition = {
         accessChannel:
           materializeResult.data.acquisition.accessChannel ?? "open_access",
@@ -615,6 +639,26 @@ export function buildDiscoverAdapters(
       }
 
       const seedRefLabel = buildAuthorYearLabel(seedRef);
+      const markersByBlock = new Map<
+        string,
+        Array<{
+          citationMarker: string;
+          markerSpan: NonNullable<ParsedCitationMention["markerSpan"]>;
+        }>
+      >();
+      for (const { blockId, markerSpan, citationMarker } of materializeResult
+        .data.parsedDocument.mentions) {
+        if (
+          blockId === undefined ||
+          markerSpan === undefined ||
+          !citationMarker
+        )
+          continue;
+        const marker = { citationMarker, markerSpan };
+        const entries = markersByBlock.get(blockId);
+        if (entries) entries.push(marker);
+        else markersByBlock.set(blockId, [marker]);
+      }
 
       return {
         materialization: {
@@ -643,6 +687,17 @@ export function buildDiscoverAdapters(
               }
             : {}),
           ...(mention.markerSpan ? { markerSpan: mention.markerSpan } : {}),
+          ...(mention.blockId !== undefined
+            ? {
+                nearbyCitations: (
+                  markersByBlock.get(mention.blockId) ?? []
+                ).filter(
+                  (neighbor) =>
+                    neighbor.markerSpan.charOffsetStart !==
+                    mention.markerSpan?.charOffsetStart,
+                ),
+              }
+            : {}),
           ...(mention.sourceLocator
             ? { sourceLocator: mention.sourceLocator }
             : {}),
@@ -661,6 +716,7 @@ export function buildDiscoverAdapters(
           sourceType: mention.sourceType,
           parser: mention.parser,
           parserVersion: materializeResult.data.parsedDocument.parserVersion,
+          sourceTextHash,
           provenanceArtifacts: [parseArtifact],
         })),
       };
@@ -751,7 +807,7 @@ export function buildDiscoverAdapters(
         reason:
           result.object.reason ??
           (result.object.claims.length === 0
-            ? "Mention contains no in-scope empirical attribution."
+            ? "No substantive use is attributed at this citation."
             : `Extracted ${String(result.object.claims.length)} attributed claim(s).`),
         claims: result.object.claims.map((claim) => ({
           text: claim.text.trim(),

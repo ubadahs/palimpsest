@@ -5,11 +5,17 @@
  */
 export const PROMPT_VERSIONS = {
   /** Attributed claim extraction from a citing-paper mention (Discover). */
-  extraction: "2026-09-02-v4",
+  extraction: "2026-11-18-v5",
   /** Paraphrased claims clustered across citers, per seed (Discover). */
   clustering: "2026-09-02-v2",
   /** A family claim grounded in the seed text (Scope). */
-  grounding: "2026-11-12-v3",
+  grounding: "2026-11-18-v4",
+  /** The cited paper's own findings, verified against exact source quotes. */
+  seedInventory: "2026-11-19-v2",
+  /** Relationships of exact citation statements to the grounded inventory. */
+  seedStatementMatching: "2026-11-18-v1",
+  /** Version-bound route and direct content comparison at the later citation. */
+  historyAssessment: "2026-11-19-v6",
   /** Citation role for occurrences the regex pass leaves unclear (Prepare). */
   roleClassification: "2026-09-23-v2",
   /** Relevance reranking of BM25 candidates (Evidence). */

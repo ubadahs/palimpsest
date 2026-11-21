@@ -59,6 +59,26 @@ describe("Report", () => {
     expect(result.payload.recordTraces).toHaveLength(
       chain.prepare.payload.records.length,
     );
+    expect(result.payload.statementReview).toEqual({
+      seedInventories: chain.scope.payload.seedInventories,
+      citationStatements: chain.scope.payload.citationStatements,
+      statementAssessments: chain.scope.payload.statementAssessments,
+    });
+    for (const trace of result.payload.recordTraces) {
+      expect(trace.citationStatementIds.length).toBeGreaterThan(0);
+      for (const id of trace.citationStatementIds) {
+        expect(
+          result.payload.statementReview.citationStatements.find(
+            (row) => row.statementId === id,
+          )?.occurrenceId,
+        ).toBe(trace.citationOccurrenceId);
+      }
+    }
+    const malformed = structuredClone(result.payload);
+    malformed.recordTraces[0]!.citationStatementIds = ["absent-statement"];
+    expect(reportArtifactPayloadSchema.safeParse(malformed).success).toBe(
+      false,
+    );
     expect(result.payload.funnel.adjudicate.adjudicated.count).toBeGreaterThan(
       0,
     );
@@ -1286,6 +1306,10 @@ describe("Report", () => {
       }
     }
     expect(markdown).toContain(result.payload.interpretationWarning);
+    expect(markdown).toContain("Citation statements and cited-paper findings");
+    expect(markdown).toContain("Credited statement");
+    expect(markdown).toContain("Relationship unassessed");
+    expect(markdown).toContain("Current fidelity · F");
     expect(markdown).toContain(
       "Low-information and manual-review counts are overlapping",
     );

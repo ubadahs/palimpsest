@@ -1,6 +1,6 @@
 # Implementation status
 
-**Last updated:** 2026-11-14
+**Last updated:** 2026-11-19
 
 This document records shipped behavior. The runnable production workflow is the six-stage pipeline:
 
@@ -25,12 +25,13 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 
 ### `discover`
 
-- Enumerates the whole citing neighborhood (metadata only, safety cap 10,000).
+- Enumerates the whole citing neighborhood (metadata only, safety cap 10,000). A malformed OpenAlex work is excluded individually. Page provenance records its row position, available ID and validation errors, and coverage uses the provider's original total.
 - Stratifies the probe set over the whole neighborhood and records each stratum's inclusion probability.
 - Harvests probed papers `fetchConcurrency` at a time.
-- Emits one seed occurrence per exact citation group, carrying the parser's own `locationQuality`.
+- Emits one seed occurrence per exact citation group, carrying the parser's own `locationQuality`. JATS and GROBID bundle metadata joins adjacent reference markers across citation separators and stops at intervening prose.
 - Records each citing paper's access channel and bibliography match method.
 - Exact-verifies claim support spans into offset-bound `supportSpan` fields, and reattaches claims to a unique exact marker within their span before clustering. Original extraction lineage and explicit reattachment decisions are retained; downstream bundle metadata follows the corrected occurrence.
+- At both citation hops, a quote that echoes the prompt's marker highlighting can be recovered when removing that exact pair yields a unique literal passage at the highlighted source position. The stored offsets and text come from the paper.
 - Rejects known attachment URLs during acquisition and cache reuse. JATS bibliography identifiers also read `ext-link` targets when `pub-id` is absent.
 - Clusters paraphrased claims across citers into one candidate per seed finding.
 - Annotates candidates and selects an adaptive 15–25 family portfolio under a prepared-record budget.
@@ -42,6 +43,7 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 - Freezes exact family and occurrence membership.
 - Materializes seed text once per seed.
 - Records verified grounding without excluding a family.
+- Inventories up to 12 findings from the seed's own work, verifies the supporting text and records its source version. Every extracted citing claim gets a statement, including those outside the fidelity portfolio. Eligible statements get a separate assessment of what they retain or change.
 
 ### `prepare`
 
@@ -191,11 +193,14 @@ A comparison of three models on one seed used all three:
 - The Report counts whole-paper verdicts, those quoting a passage Evidence did not select, and those where a quote failed verification.
 - The client and price table now know `claude-fable-5-2`, `claude-opus-5-5`, `claude-sonnet-5-5`, and `claude-haiku-5-5`.
 - The run-config defaults now name the current models: `claude-haiku-5-5` for extraction, role classification and reranking, and `claude-sonnet-5-5` for clustering, grounding and adjudication at `high` effort.
-- No run has used them, or whole-paper adjudication, yet, so cost and behaviour of the current defaults are unmeasured.
 
 ## Scientific status
 
 Adjudicate is **uncalibrated**. Successful execution does not validate its judgments, establish accuracy, or support trust claims. Blinded human calibration and separate evaluation reporting remain required.
+
+The DOI-first pipeline supports single-hop statement tracking and an optional second hop through `pipeline --history --max-cost <usd>`. The standalone `citation-history` command starts with a verified Report. History extracts each use of the intermediate paper independently of the original finding. It assesses the documented route, the downstream wording against the original, and citation fidelity against the immediate source. The model sees exact marker positions and bibliography entries for the first-hop paragraph, so an intermediate author’s synthesis can be traced to separately credited premises. Results retain exact evidence, co-citation, access and budget outcomes, and model provenance.
+
+The current citation-history implementation recovered both registered paths in two consecutive fresh runs of a fixed two-hop benchmark. Sensitivity across unfamiliar seeds and broader citation neighborhoods remains unmeasured.
 
 Scope, Prepare, Evidence, and Adjudicate retain complete record accounting: every record a stage receives has an outcome.
 
@@ -209,7 +214,7 @@ The SQLite column `analysis_run_stages.family_index` is part of an immutable mig
 
 `apps/ui` is a local-only launcher and inspector for the pipeline. It creates DOI-first runs, launches `pipeline --run-id <uuid>`, presents the six logical stages, and reads typed inspector payloads. It is not a hosted product.
 
-The Report stage explorer joins Prepare/Evidence/Adjudicate onto the report spine for Overview, Families (mutation view), Records, Review, and Audit trail browsing. It surfaces the uncalibrated interpretation warning and keeps F/D/E/U rates on the adjudicated-record denominator; it does not present completed runs as calibrated faithfulness evidence.
+The Report explorer has Overview, Families, Statements, Citation history, Records, Review, and Audit trail views. Statements show the source finding beside the exact citing wording and citation credit. Citation history opens verified sidecars bound to the active Report. The explorer shows the uncalibrated interpretation warning and uses adjudicated records as the fidelity-rate denominator.
 
 Human review is a post-report sidecar, not a seventh stage. Reviews append under `data/runs/<runId>/review/<reportArtifactId>/events.json`, bound to the current Report artifact ID/content hash, and never overwrite machine artifacts. The Review tab exports JSON/CSV calibration datasets from that lineage.
 
@@ -218,8 +223,8 @@ Human review is a post-report sidecar, not a seventh stage. Reviews append under
 - All external boundaries are Zod-validated.
 - Artifacts are content-hashed, lineage-bound envelopes; one written by an earlier version of the code is not read.
 - Resume reloads and verifies every succeeded ancestor; missing, invalid, tampered, or mismatched artifacts fail rather than silently recompute.
-- PDF parsing uses GROBID after PDF validation; seed PDFs may be supplied with `--seed-pdf`.
+- PDF parsing uses GROBID after PDF validation. HTTP 500 and missing body text can trigger one traced retry using a text layer rebuilt with Poppler and Tesseract. If the PDF has embedded text, the retry can restore a damaged numeric suffix where the surrounding words and leading digits agree. Legible numbers and citation markers are preserved. Seed PDFs may be supplied with `--seed-pdf`.
 - Report rates distinguish adjudicated `F`/`D`/`E`/`U` outcomes from operational non-verdicts.
-- LLM purposes are limited to `attributed-claim-extraction`, `claim-clustering`, `seed-grounding`, `evidence-rerank`, `citation-role-classification`, and `adjudication`.
+- The own-finding inventory has its own prompt version under `seed-grounding`. The shared statement matcher records `seed-claim-matching` for Scope and `chain-claim-matching` for history.
 
-Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. Experimental chain and seed-inventory matching runners are retained privately with their source snapshots, results and provenance, and are not public CLI commands.
+Run retention: `runs:keep --run-id <uuid> [--reason <text>]` exempts a run from both `runs:gc` and `db:gc`; `--release` removes that exemption. History-bound Reports, their input artifacts and their referenced provenance survive collection of superseded stage attempts.

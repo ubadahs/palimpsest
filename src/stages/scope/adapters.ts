@@ -1,38 +1,45 @@
 /** Scope's production adapter: seed text and grounding. */
 
 import { inferSectionRoles } from "../../domain/section-patterns.js";
-import { resolveThinkingEffort } from "../../integrations/llm-client.js";
 import { resolvePaperByDoi } from "../../integrations/paper-resolver.js";
-import {
-  contentAddressedExternalExecution,
-  contentAddressedModelExecution,
-} from "../../pipeline/provenance-store.js";
+import { contentAddressedExternalExecution } from "../../pipeline/provenance-store.js";
 import {
   materializeLocalPdf,
   materializeParsedPaper,
   PARSED_PAPER_PARSER_VERSION,
 } from "../../retrieval/parsed-paper.js";
+import { sha256Text } from "../../shared/stable-identity.js";
 import {
   createAdapterSession,
   createFullTextAdapters,
-  llmRequestProvenanceFields,
   mapFullTextAcquisitionFailure,
-  mapLlmFailureCode,
-  modelExecutionTelemetry,
   type ProductionAdapterDeps,
 } from "../production.js";
+import { createScopeModelRunner } from "./model-call.js";
 import {
   buildScopeGroundingPrompt,
+  buildScopeInventoryPrompt,
+  buildScopeStatementMatchingPrompt,
   GROUNDING_PROMPT_ID,
   GROUNDING_PROMPT_VERSION,
+  INVENTORY_PROMPT_ID,
+  INVENTORY_PROMPT_VERSION,
+  MATCHING_PROMPT_ID,
+  MATCHING_PROMPT_VERSION,
 } from "./prompts.js";
 import { scopeGroundingOutputSchema, type ScopeAdapters } from "./run.js";
+import {
+  scopeInventoryOutputSchema,
+  scopeStatementMatchingOutputSchema,
+} from "./statements.js";
 
-export function buildScopeAdapters(deps: ProductionAdapterDeps): ScopeAdapters {
+export function buildScopeAdapters(deps: ProductionAdapterDeps) {
   const session = deps.session ?? createAdapterSession();
   const store = deps.provenanceStore;
   const fullText = deps.fullTextAdapters ?? createFullTextAdapters(deps.config);
   const seedPdfPath = deps.runConfig.scope.seedPdfPath;
+
+  const runScopeModel = createScopeModelRunner(deps);
 
   return {
     materializeSeed: async ({ seed }) => {
@@ -188,11 +195,15 @@ export function buildScopeAdapters(deps: ProductionAdapterDeps): ScopeAdapters {
         };
       }
 
+      const sourceTextHash = sha256Text(
+        materializeResult.data.fullText.content,
+      );
       const seedTextArtifact = store.persist({
         role: "immutable-seed-text",
         body: {
           seedId: seed.seedId,
           blocks: doc.blocks,
+          sourceTextHash,
           parserKind: doc.parserKind,
           parserVersion: doc.parserVersion,
         },
@@ -257,97 +268,59 @@ export function buildScopeAdapters(deps: ProductionAdapterDeps): ScopeAdapters {
       };
     },
 
-    groundFamily: async ({ seed, family, seedText }) => {
-      const promptParts = buildScopeGroundingPrompt({
-        claim: family.claim,
-        seedTitle:
-          seed.resolution.status === "resolved"
-            ? seed.resolution.paper.title
-            : seed.doi,
-        blocks: seedText.blocks,
-      });
-      const prompt = `${promptParts.prefix}${promptParts.suffix}`;
-      const model = deps.runConfig.scope.groundingModel;
-      const effort = resolveThinkingEffort({
-        enabled: deps.runConfig.scope.groundingThinking,
-      });
-      const requestBody = {
-        familyId: family.familyId,
-        promptText: prompt,
-        llm: llmRequestProvenanceFields({
-          purpose: "seed-grounding",
-          model,
-          sharedPrefix: promptParts.prefix,
-          batching: deps.llmClient.batching,
-          promptVersion: GROUNDING_PROMPT_VERSION,
-          effort,
-          forceRefresh: deps.forceRefresh === true,
-        }),
-      };
-      // Only the provider call is guarded: a failure after it is a programmer
-      // error, and swallowing one here would report it as a provider outage.
-      let result;
-      try {
-        result = await deps.llmClient.generateObject({
-          purpose: "seed-grounding",
-          model,
-          promptPrefix: promptParts.prefix,
-          promptSuffix: promptParts.suffix,
-          schema: scopeGroundingOutputSchema,
-          context: { stageKey: "scope" },
-          effort,
-          exactCache: { keyVersion: GROUNDING_PROMPT_VERSION },
-        });
-      } catch (error) {
-        const mapped = mapLlmFailureCode(error);
-        return {
-          status: "failed" as const,
-          reasonCode: mapped.reasonCode,
-          reason: mapped.reason,
-          execution: contentAddressedModelExecution({
-            provider: "anthropic",
-            model,
-            promptId: GROUNDING_PROMPT_ID,
-            promptVersion: GROUNDING_PROMPT_VERSION,
-            promptText: prompt,
-            requestBody,
-            responseBody: {
-              role: "normalized-scope-grounding-failure",
-              error: mapped.reason,
-              ...(mapped.responseText != null
-                ? { modelText: mapped.responseText }
-                : {}),
-            },
-            store,
-            requestRole: "normalized-scope-grounding-request",
-            responseRole: "normalized-scope-grounding-failure",
-            stage: "scope",
-          }),
-        };
-      }
-
-      const execution = contentAddressedModelExecution({
-        provider: "anthropic",
-        model: result.record.model,
-        ...modelExecutionTelemetry(result.record),
+    groundFamily: ({ seed, family, seedText }) =>
+      runScopeModel({
+        purpose: "seed-grounding",
         promptId: GROUNDING_PROMPT_ID,
         promptVersion: GROUNDING_PROMPT_VERSION,
-        promptText: prompt,
-        requestBody,
-        responseBody: {
-          role: "normalized-scope-grounding-response",
-          object: result.object,
+        promptParts: buildScopeGroundingPrompt({
+          claim: family.claim,
+          seedTitle:
+            seed.resolution.status === "resolved"
+              ? seed.resolution.paper.title
+              : seed.doi,
+          blocks: seedText.blocks,
+        }),
+        schema: scopeGroundingOutputSchema,
+        identity: { familyId: family.familyId },
+        role: "normalized-scope-grounding",
+      }),
+
+    inventorySeed: ({ seed, seedText }) =>
+      runScopeModel({
+        purpose: "seed-grounding",
+        promptId: INVENTORY_PROMPT_ID,
+        promptVersion: INVENTORY_PROMPT_VERSION,
+        promptParts: buildScopeInventoryPrompt({
+          seedTitle:
+            seed.resolution.status === "resolved"
+              ? seed.resolution.paper.title
+              : seed.doi,
+          blocks: seedText.blocks,
+        }),
+        schema: scopeInventoryOutputSchema,
+        identity: {
+          seedId: seed.seedId,
+          seedTextArtifact: seedText.seedTextArtifact,
         },
-        store,
-        requestRole: "normalized-scope-grounding-request",
-        responseRole: "normalized-scope-grounding-response",
-        stage: "scope",
-      });
-      return {
-        status: "completed" as const,
-        rawOutput: result.object,
-        execution,
-      };
-    },
-  };
+        role: "normalized-scope-seed-inventory",
+      }),
+
+    matchStatements: ({ findings, statements }) =>
+      runScopeModel({
+        purpose: "seed-claim-matching",
+        promptId: MATCHING_PROMPT_ID,
+        promptVersion: MATCHING_PROMPT_VERSION,
+        promptParts: buildScopeStatementMatchingPrompt({
+          findings,
+          statements,
+        }),
+        schema: scopeStatementMatchingOutputSchema,
+        identity: {
+          findingIds: findings.map((finding) => finding.findingId),
+          statementIds: statements.map((statement) => statement.statementId),
+        },
+        role: "normalized-scope-statement-matching",
+      }),
+  } satisfies ScopeAdapters;
 }

@@ -24,6 +24,11 @@ import {
   type ArtifactReference,
 } from "./primitives.js";
 import { stageKeySchema } from "../stages.js";
+import {
+  scopeCitationStatementSchema,
+  scopeSeedInventorySchema,
+  scopeStatementAssessmentBatchSchema,
+} from "./scope-statements.js";
 
 /**
  * Report contract (isolated stage module). Shared envelope
@@ -61,7 +66,7 @@ export type ReportInterpretationStatus = z.infer<
 export const REPORT_INTERPRETATION_WARNING =
   "F/D/E/U labels are uncalibrated research outputs and have not been validated against blinded human labels. Do not treat verdict rates as calibrated faithfulness rates.";
 export const REPORT_PUBLICATION_REASON =
-  "Report publishes deterministic funnel accounting only; it does not manufacture scientific fidelity decisions.";
+  "Report publishes upstream statement assessments and fidelity verdicts alongside deterministic funnel accounting.";
 
 export function buildReportDecisionRecordId(runId: string): string {
   return buildStableId("report", {
@@ -528,6 +533,7 @@ export const reportRecordTraceSchema = z
     recordId: stableIdentifierSchema,
     familyId: stableIdentifierSchema,
     citationOccurrenceId: stableIdentifierSchema,
+    citationStatementIds: z.array(stableIdentifierSchema).min(1),
     prepareArtifact: reportPrepareArtifactReferenceSchema,
     evidenceArtifact: reportEvidenceArtifactReferenceSchema,
     adjudicateArtifact: reportAdjudicateArtifactReferenceSchema,
@@ -658,7 +664,7 @@ const reportFamilyGroundingSpanSchema = z
   .strict();
 
 /**
- * A seed finding and every citing restatement of it, chronologically. The
+ * A tracked family claim and its citing records, chronologically. The
  * hashable form of what the UI Families tab displays.
  */
 const reportFamilyMutationSchema = z
@@ -703,8 +709,15 @@ export const reportArtifactPayloadSchema = z
     rates: z.array(reportRateSchema),
     /** F/D/E/U rates weighted by inverse probe inclusion probability. */
     weightedRates: z.array(reportWeightedRateSchema),
-    /** The scientific content: each family and its restatements in order. */
+    /** Each tracked claim family and its citing records in order. */
     familyMutations: z.array(reportFamilyMutationSchema),
+    statementReview: z
+      .object({
+        seedInventories: z.array(scopeSeedInventorySchema),
+        citationStatements: z.array(scopeCitationStatementSchema),
+        statementAssessments: z.array(scopeStatementAssessmentBatchSchema),
+      })
+      .strict(),
     recordTraces: z.array(reportRecordTraceSchema),
     decisionSummaries: z.array(reportDecisionSummarySchema),
     /** Per-candidate selection scores, so the portfolio can be second-guessed. */
@@ -754,6 +767,30 @@ function validateReportPayload(
       message:
         "Report must emit exactly one per-record trace for every Prepare/Evidence/Adjudicate record",
     });
+  }
+
+  const statementsById = new Map(
+    payload.statementReview.citationStatements.map((statement) => [
+      statement.statementId,
+      statement,
+    ]),
+  );
+  for (const [index, trace] of payload.recordTraces.entries()) {
+    if (
+      new Set(trace.citationStatementIds).size !==
+        trace.citationStatementIds.length ||
+      trace.citationStatementIds.some(
+        (id) =>
+          statementsById.get(id)?.occurrenceId !== trace.citationOccurrenceId,
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["recordTraces", index, "citationStatementIds"],
+        message:
+          "Report fidelity can link only to local statements from the traced citation occurrence",
+      });
+    }
   }
 
   const adjudicated = payload.funnel.adjudicate.adjudicated.count;

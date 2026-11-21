@@ -315,7 +315,69 @@ describe("parseParsedPaperDocument", () => {
     });
   });
 
-  describe("references that give no title", () => {
+  describe("bibliographic coordinates and title-less references", () => {
+    it("does not replace an explicit conflicting DOI with a metadata match", () => {
+      const seed = {
+        doi: "10.1234/original",
+        title: "A historical census of retained specimens",
+        publicationYear: 1985,
+        authors: ["Mira Hale"],
+        journal: "Journal of Collection Science",
+        volume: "12",
+        firstPage: "41",
+      };
+      const other = {
+        refId: "ref1",
+        doi: "10.1234/reprint",
+        authorSurnames: ["Hale"],
+        year: 1985,
+        journal: "J. Coll. Sci",
+        volume: "12",
+        firstPage: "41",
+      };
+      expect(matchReferenceByMetadata([other], seed)).toBeUndefined();
+      expect(
+        matchReferenceByMetadata([{ ...other, title: seed.title }], seed),
+      ).toBeUndefined();
+    });
+
+    it("uses journal coordinates to disambiguate works from the same author and year", () => {
+      const seed = {
+        title: "Forecasting Norel lamination from sparse sections",
+        publicationYear: 2018,
+        authors: ["Rin Halvorsen"],
+        journal: "The Journal of Theoretical Ecology",
+        volume: "97",
+        firstPage: "142",
+      };
+      const matching = {
+        refId: "r1",
+        authorSurnames: ["Halvorsen"],
+        year: 2018,
+        volume: "97",
+        journal: "J. Theor. Ecol.",
+        firstPage: "142",
+      };
+      const other = { ...matching, refId: "r2", firstPage: "141" };
+      expect(matchReferenceByMetadata([other, matching], seed)).toMatchObject({
+        reference: { refId: "r1" },
+        method: "author_year_journal_volume_first_page",
+      });
+      expect(matchReferenceByMetadata([other], seed)).toBeUndefined();
+      expect(
+        matchReferenceByMetadata(
+          [matching, { ...matching, refId: "r3" }],
+          seed,
+        ),
+      ).toBeUndefined();
+      expect(
+        matchReferenceByMetadata([matching], {
+          ...seed,
+          journal: "Ecology Letters",
+        }),
+      ).toBeUndefined();
+    });
+
     const seed = {
       title: "Forecasting Norel lamination from sparse sections",
       publicationYear: 2018,
@@ -446,6 +508,9 @@ describe("parseParsedPaperDocument", () => {
     expect(seedGroups[0]?.bundleRefIds).toEqual(
       expect.arrayContaining(["r1", "r2", "seed"]),
     );
+    expect(seedGroups[0]?.bundlePattern).toBe("semicolon_separated");
+    expect(seedGroups[1]?.bundleRefIds).toEqual([]);
+    expect(seedGroups[1]?.bundlePattern).toBe("single");
     expect(seedGroups[0]?.sourceLocator?.kind).toBe("block_id");
     expect(seedGroups[0]?.sourceLocator?.value).toMatch(/#cg-\d+/);
     expect(seedGroups[0]?.locationQuality).toBe("exact_dom");
@@ -455,6 +520,35 @@ describe("parseParsedPaperDocument", () => {
     expect(seedGroups[1]?.charOffsetStart).toBeGreaterThan(
       seedGroups[0]!.charOffsetEnd!,
     );
+  });
+
+  it("keeps every member of a long printed group and stops at the next clause", () => {
+    const ref = (id: string, label: string) =>
+      `<xref ref-type="bibr" rid="${id}">${label}</xref>`;
+    const xml = `<article><body><p>Input was measured in mice (${ref("a", "Avery, Bennett, Campbell and Dawson, 2001")}; ${ref("b", "Edwards, Francis, Garcia and Hill, 2002")}; ${ref("c", "Ito, 2003")}) and in primates (${ref("d", "Jones, 2004")}).</p></body></article>`;
+    const result = parseParsedPaperDocument(xml, "jats_xml");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.mentions.map((m) => m.bundleRefIds)).toEqual([
+      ["a", "b", "c"],
+      ["a", "b", "c"],
+      ["a", "b", "c"],
+      [],
+    ]);
+  });
+
+  it("keeps fragmented GROBID numbers together and excludes a nearby sentence", () => {
+    const tei = `<TEI><text><body><div><p>These observations were made previously <ref type="bibr" target="#a">(11,</ref><ref type="bibr" target="#b">33,</ref><ref type="bibr" target="#c">34)</ref>. Another finding <ref type="bibr" target="#c">(34,</ref><ref type="bibr" target="#d">35)</ref> concerns a separate population.</p></div></body></text></TEI>`;
+    const result = parseParsedPaperDocument(tei, "grobid_tei_xml");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.mentions.map((m) => m.bundleRefIds)).toEqual([
+      ["a", "b", "c"],
+      ["a", "b", "c"],
+      ["a", "b", "c"],
+      ["c", "d"],
+      ["c", "d"],
+    ]);
   });
 
   it("records missing location quality when DOM offsets cannot be recovered", () => {

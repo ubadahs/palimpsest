@@ -39,17 +39,25 @@ export type FullTextHints = {
 export type FullTextAcquisitionMethod =
   | "biorxiv_xml"
   | "pmc_xml"
+  | "pmc_html_projection"
   | "landing_page_xml"
   | "direct_pdf_grobid";
 
 export type FullTextAcquisitionSelectedLocatorKind =
   | "pmcid_metadata"
   | "pmcid_derived_url"
+  | "pmc_article_url"
   | "doi_input"
   | "doi_resolved"
   | "direct_pdf_url"
   | "meta_pdf_url"
   | "meta_xml_url";
+
+export const fullTextAccessChannelSchema = z.enum([
+  "open_access",
+  "institutional_proxy",
+  "local_pdf",
+]);
 
 export type FullTextAcquisition = {
   materializationSource: "network" | "raw_cache" | "parsed_cache";
@@ -72,11 +80,7 @@ export type FullTextAcquisition = {
   selectedUrl?: string | undefined;
   fullTextFormat?: "jats_xml" | "grobid_tei_xml" | undefined;
   failureReason?: string | undefined;
-  accessChannel?:
-    | "open_access"
-    | "institutional_proxy"
-    | "local_pdf"
-    | undefined;
+  accessChannel?: z.infer<typeof fullTextAccessChannelSchema> | undefined;
   [key: string]: unknown;
 };
 
@@ -89,6 +93,8 @@ export type ResolvedPaper = {
   arxivId?: string | undefined;
   /** Journal volume, which physics-style references give in place of a title. */
   volume?: string | undefined;
+  journal?: string | undefined;
+  firstPage?: string | undefined;
   title: string;
   authors: string[];
   source: "openalex" | "semantic_scholar" | "manual";

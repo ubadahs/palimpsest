@@ -56,6 +56,7 @@ import {
   canonicalSha256,
 } from "../../src/shared/stable-identity.js";
 import { expectRejected } from "../rejection.fixture.js";
+import { buildScopeCitationStatements } from "../../src/stages/scope/statements.js";
 
 const deterministicExecution: ExecutionMetadata = {
   kind: "deterministic",
@@ -377,6 +378,8 @@ function buildAllStageArtifacts() {
     },
     evidenceArtifacts: [discoverReference],
   });
+  if (discover.stage !== "discover")
+    throw new Error("Expected Discover artifact");
   const scope = createStageArtifact({
     ...baseEnvelope(),
     stage: "scope",
@@ -410,6 +413,19 @@ function buildAllStageArtifacts() {
           },
         },
       ],
+      seedInventories: [
+        {
+          seedId,
+          seedDoi: "10.1234/seed",
+          seedTitle: "Seed paper",
+          status: "seed_text_unavailable",
+          findings: [],
+          rejectedFindingCount: 0,
+          reason: "Fixture intentionally omits seed full text.",
+        },
+      ],
+      citationStatements: buildScopeCitationStatements(discover.payload),
+      statementAssessments: [],
       families: [
         {
           familyId,
@@ -438,9 +454,7 @@ function buildAllStageArtifacts() {
     role: "scope-input" as const,
     stage: "scope" as const,
   };
-  if (discover.stage !== "discover" || scope.stage !== "scope") {
-    throw new Error("Expected Discover and Scope artifacts");
-  }
+  if (scope.stage !== "scope") throw new Error("Expected Scope artifact");
   const family = scope.payload.families[0]!;
   const citationOccurrence = discover.payload.citationMentions[0]!;
   const prepareRecordId = buildCitationInstanceRecordId({
@@ -1251,6 +1265,11 @@ function buildAllStageArtifacts() {
         }),
       ),
       familyMutations: [],
+      statementReview: {
+        seedInventories: [],
+        citationStatements: [],
+        statementAssessments: [],
+      },
       recordTraces: [],
       decisionSummaries: [],
       selectionAudit: [],

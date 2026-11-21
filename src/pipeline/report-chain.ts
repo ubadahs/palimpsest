@@ -28,15 +28,14 @@ function loadAncestor<K extends AncestorStage>(
   );
   if (!folder)
     throw new Error(`Missing ${stage} stage directory in ${runRoot}`);
-  const matches = readdirSync(join(runRoot, folder.name)).filter(
-    (name) =>
-      name.endsWith(`_${stage}.json`) && name.includes(reference.artifactId),
-  );
-  if (matches.length !== 1)
-    throw new Error(
-      `Expected one ${stage} artifact matching ${reference.artifactId}`,
-    );
-  const artifact = loadArtifact(stage, join(runRoot, folder.name, matches[0]!));
+  const matches = readdirSync(join(runRoot, folder.name))
+    .filter((name) => name.endsWith(`${reference.artifactId}_${stage}.json`))
+    .sort();
+  // Replaying a deterministic stage can write the same identity in two attempts.
+  const name = matches.at(-1);
+  if (!name)
+    throw new Error(`Missing ${stage} artifact ${reference.artifactId}`);
+  const artifact = loadArtifact(stage, join(runRoot, folder.name, name));
   if (
     artifact.artifactId !== reference.artifactId ||
     artifact.contentHash !== reference.contentHash

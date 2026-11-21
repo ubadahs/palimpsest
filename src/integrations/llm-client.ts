@@ -556,7 +556,7 @@ export function createLLMTelemetryCollector(): LLMTelemetryCollector {
   };
 }
 
-const SHARED_SEED_TEXT_POLICY: PromptCachePolicy = {
+const SHARED_PREFIX_POLICY: PromptCachePolicy = {
   minPromptChars: 4_000,
   cacheControl: { type: "ephemeral", ttl: "5m" },
 };
@@ -564,16 +564,16 @@ const SHARED_SEED_TEXT_POLICY: PromptCachePolicy = {
 /**
  * Provider prompt caching is prefix-based and charges a write premium on every
  * cached request, so it pays only where many requests share a large prefix.
- * Seed grounding and whole-paper adjudication do: the seed text is the same
- * for every family and every record of a seed. A request that names no prefix
- * is unique and is never cached.
+ * Grounding and whole-paper adjudication share source text. Statements at
+ * either hop share the inventory against which their local wording is read.
  */
 const DEFAULT_PROMPT_CACHE_POLICIES: Partial<
   Record<LLMPurpose, PromptCachePolicy>
 > = {
-  "seed-grounding": SHARED_SEED_TEXT_POLICY,
-  "seed-claim-matching": SHARED_SEED_TEXT_POLICY,
-  adjudication: SHARED_SEED_TEXT_POLICY,
+  "seed-grounding": SHARED_PREFIX_POLICY,
+  "seed-claim-matching": SHARED_PREFIX_POLICY,
+  "chain-claim-matching": SHARED_PREFIX_POLICY,
+  adjudication: SHARED_PREFIX_POLICY,
 };
 
 /** Cache control for a prefix shared across requests, if its purpose has a policy. */

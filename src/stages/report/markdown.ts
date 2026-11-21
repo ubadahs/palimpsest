@@ -8,6 +8,16 @@ import {
   type ReportRecordTrace,
   type ReportWeightedRate,
 } from "../../contract/artifacts/index.js";
+import {
+  compareSeedInventoryDates,
+  compareStatementDates,
+  indexReportStatementFidelity,
+  splitCitationMarker,
+  statementCreditLabel,
+  statementFidelityLabel,
+  statementRelationshipLabel,
+  titleWithPublicationYear,
+} from "../../contract/statement-display.js";
 
 /**
  * Runs with at most this many records list every restatement and trace every
@@ -46,11 +56,13 @@ export function renderReportMarkdown(
   );
   lines.push("");
 
+  appendStatementReview(lines, payload);
+
   const detailed = payload.recordTraces.length <= MARKDOWN_RECORD_DETAIL_LIMIT;
   lines.push("## Claim families and their restatements");
   lines.push("");
   lines.push(
-    "Each family is one seed finding. Restatements are listed in citing-paper order (year, then title). Verdicts are uncalibrated.",
+    "Each family groups statements assigned to the same tracked claim. Restatements are listed in citing-paper order (year, then title). Verdicts are uncalibrated.",
   );
   lines.push("");
   if (!detailed) {
@@ -510,6 +522,126 @@ export function renderReportMarkdown(
   lines.push("");
 
   return `${lines.join("\n")}`;
+}
+
+function appendStatementReview(
+  lines: string[],
+  payload: ReportArtifactPayload,
+): void {
+  const { seedInventories, citationStatements } = payload.statementReview;
+  const detailed = citationStatements.length <= MARKDOWN_RECORD_DETAIL_LIMIT;
+  lines.push("## Citation statements and cited-paper findings", "");
+  if (seedInventories.length === 0)
+    lines.push("No cited-paper inventories were recorded.", "");
+  for (const inventory of seedInventories.toSorted(compareSeedInventoryDates)) {
+    lines.push(
+      `### Cited paper · ${escapeMarkdown(titleWithPublicationYear(inventory.seedTitle, inventory.seedPublicationYear))}`,
+      "",
+      `Inventory ${inventory.status.replaceAll("_", " ")} · ${String(inventory.findings.length)} verified findings.`,
+    );
+    if (inventory.reason) lines.push(escapeMarkdown(inventory.reason));
+    if (detailed) {
+      for (const finding of inventory.findings) {
+        lines.push(
+          `- ${escapeMarkdown(finding.statement)} \`${finding.findingId}\``,
+        );
+        for (const span of finding.evidenceSpans) {
+          const section = span.sectionTitle
+            ? ` (${escapeMarkdown(span.sectionTitle)})`
+            : "";
+          lines.push(
+            `  - Exact quote${section} · “${escapeMarkdown(span.text)}”`,
+          );
+        }
+      }
+    }
+    lines.push("");
+  }
+
+  if (citationStatements.length === 0) {
+    lines.push(
+      "No citation statements were extracted from the works examined by Discover.",
+      "",
+    );
+    return;
+  }
+  if (!detailed) {
+    lines.push(
+      `See \`statementReview\` of the report JSON for all ${String(citationStatements.length)} citation statements, their exact context, and source findings. Use \`recordTraces[].citationStatementIds\` to find any current fidelity verdicts.`,
+      "",
+    );
+    return;
+  }
+
+  const fidelity = indexReportStatementFidelity(payload.recordTraces);
+  const inventoriesBySeedId = new Map(
+    seedInventories.map((inventory) => [inventory.seedId, inventory]),
+  );
+  const findings = new Map(
+    seedInventories.flatMap((inventory) =>
+      inventory.findings.map(
+        (finding) => [finding.findingId, finding] as const,
+      ),
+    ),
+  );
+  for (const statement of citationStatements.toSorted(compareStatementDates)) {
+    const assessment = statement.assessment;
+    const marker = splitCitationMarker(
+      statement.citationContext,
+      statement.markerSpan,
+    );
+    const context = marker
+      ? `${escapeMarkdown(marker.before)}**${escapeMarkdown(marker.marker)}**${escapeMarkdown(marker.after)}`
+      : escapeMarkdown(statement.citationContext);
+    const inventory = inventoriesBySeedId.get(statement.seedId);
+    lines.push(
+      `### ${escapeMarkdown(titleWithPublicationYear(statement.citingTitle, statement.citingPublicationYear))}`,
+      "",
+      `- Credited statement · ${escapeMarkdown(statement.extractedClaimText)}`,
+      `- Citation context · ${context}`,
+      `- ${statementCreditLabel(statement.credit)}`,
+    );
+    if (inventory)
+      lines.push(
+        `- Cited paper · ${escapeMarkdown(titleWithPublicationYear(inventory.seedTitle, inventory.seedPublicationYear))} (\`${inventory.seedDoi}\`)`,
+      );
+    if (statement.textSpan) {
+      lines.push(
+        `- Exact citing support · “${escapeMarkdown(statement.textSpan.text)}”`,
+      );
+    } else {
+      lines.push("- Exact citing support unavailable.");
+    }
+    lines.push(
+      `- ${statementRelationshipLabel(assessment.relationship)} · ${escapeMarkdown(assessment.reason)}`,
+    );
+    for (const id of assessment.findingIds) {
+      const finding = findings.get(id);
+      if (finding)
+        lines.push(
+          `  - Cited-paper finding · ${escapeMarkdown(finding.statement)} \`${id}\``,
+          ...finding.evidenceSpans.map(
+            (span) =>
+              `    - Exact cited-paper quote · “${escapeMarkdown(span.text)}”`,
+          ),
+        );
+    }
+    for (const wording of assessment.retained) {
+      lines.push(`  - Retained · ${escapeMarkdown(wording)}`);
+    }
+    for (const change of assessment.changes) {
+      lines.push(`  - Changed · ${escapeMarkdown(change)}`);
+    }
+    const outcomes = fidelity[statement.statementId] ?? [];
+    lines.push(
+      `- Current fidelity · ${outcomes.length === 0 ? "Unexamined" : outcomes.map(statementFidelityLabel).join(" / ")}`,
+    );
+    lines.push(`- Statement ID · \`${statement.statementId}\``, "");
+  }
+}
+
+function escapeMarkdown(text: string): string {
+  return text.replaceAll(/\r?\n/g, " ").replaceAll(/[\\`*_{}[\]<>|]/g, "\\$&");
 }
 
 function appendRestatement(

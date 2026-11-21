@@ -8,7 +8,6 @@ import {
 } from "../../shared/order.js";
 import { normalizeWhitespace } from "../../contract/artifacts/checks.js";
 import { pMap } from "../../shared/concurrency.js";
-import { createBoundaryParser } from "../../shared/boundary.js";
 
 import {
   buildScopedFamilyId,
@@ -19,8 +18,6 @@ import {
   currentArtifactVersion,
   scopeArtifactPayloadSchema,
   scopeArtifactSchema,
-  scopeFailureCodeSchema,
-  scopeFatalFailureCodeSchema,
   scopeNonfatalFailureCodeSchema,
   scopeSeedMaterializationSchema,
   type AppendOnlyDecision,
@@ -37,11 +34,23 @@ import {
   type ScopeSeedMaterialization,
   type ScopeVerifiedEvidenceSpan,
 } from "../../contract/artifacts/index.js";
-import {
-  modelExecutionSchema,
-  type ModelExecution,
-} from "../../contract/model-execution.js";
+import type { ModelExecution } from "../../contract/model-execution.js";
 import { canonicalSerialize } from "../../shared/stable-identity.js";
+import {
+  parseScopeBoundary as parseBoundary,
+  scopeModelResultSchema,
+  ScopeBoundaryError,
+  throwIfFatal,
+} from "./model-result.js";
+import {
+  assessCitationStatements,
+  buildScopeCitationStatements,
+  groundingSupportSpanOutputSchema,
+  inspectSeedInventory,
+  type ScopeStatementAdapters,
+} from "./statements.js";
+
+export { ScopeBoundaryError, ScopeFatalError } from "./model-result.js";
 
 const scopeOptionsSchema = z
   .object({
@@ -54,13 +63,6 @@ const scopeOptionsSchema = z
 export type ScopeOptions = z.infer<typeof scopeOptionsSchema>;
 
 const scopeSeedMaterializationResultSchema = scopeSeedMaterializationSchema;
-
-const groundingSupportSpanOutputSchema = z
-  .object({
-    verbatimQuote: z.string().min(1),
-    blockId: z.string().min(1),
-  })
-  .strict();
 
 export const scopeGroundingOutputSchema = z.discriminatedUnion("status", [
   z
@@ -88,36 +90,6 @@ export const scopeGroundingOutputSchema = z.discriminatedUnion("status", [
 ]);
 export type ScopeGroundingOutput = z.infer<typeof scopeGroundingOutputSchema>;
 
-const scopeGroundingResultSchema = z
-  .discriminatedUnion("status", [
-    z
-      .object({
-        status: z.literal("completed"),
-        rawOutput: z.unknown(),
-        execution: modelExecutionSchema,
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("failed"),
-        reasonCode: scopeFailureCodeSchema,
-        reason: z.string().min(1),
-        execution: modelExecutionSchema,
-      })
-      .strict(),
-  ])
-  .superRefine((result, context) => {
-    if (
-      result.status === "completed" &&
-      !Object.prototype.hasOwnProperty.call(result, "rawOutput")
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["rawOutput"],
-        message: "Completed grounding requires the exact parsed model output",
-      });
-    }
-  });
 type ScopeFamilyInput = {
   familyId: string;
   seedId: string;
@@ -128,7 +100,7 @@ type ScopeFamilyInput = {
   includedCitationOccurrenceIds: string[];
 };
 
-export type ScopeAdapters = {
+export type ScopeAdapters = ScopeStatementAdapters & {
   materializeSeed: (input: { seed: DiscoverSeed }) => Promise<unknown>;
   groundFamily: (input: {
     seed: DiscoverSeed;
@@ -148,21 +120,6 @@ export type ScopeResult = {
   decisions: AppendOnlyDecision[];
   provenanceInputs: ScopeProvenanceInputs;
 };
-
-export class ScopeBoundaryError extends Error {
-  override readonly name = "ScopeBoundaryError";
-}
-
-export class ScopeFatalError extends Error {
-  override readonly name = "ScopeFatalError";
-
-  constructor(
-    readonly failureCode: z.infer<typeof scopeFatalFailureCodeSchema>,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 
 type FamilyConstruction = ScopeFamilyInput & {
   candidates: DiscoverClaimCandidate[];
@@ -209,19 +166,13 @@ export async function runScope(
   const models: ArtifactProvenance["models"] = [];
   const responseArtifacts: ArtifactReference[] = [];
   const materializationsBySeedId = new Map<string, ScopeSeedMaterialization>();
-  const selectedSeedIds = [
-    ...new Set(familyConstructions.map((construction) => construction.seedId)),
-  ].sort(compareCodeUnits);
+  const seeds = [...discoverArtifact.payload.seeds].sort((left, right) =>
+    compareCodeUnits(left.seedId, right.seedId),
+  );
+  const seedsById = new Map(seeds.map((seed) => [seed.seedId, seed]));
 
-  for (const seedId of selectedSeedIds) {
-    const seed = discoverArtifact.payload.seeds.find(
-      (entry) => entry.seedId === seedId,
-    );
-    if (!seed) {
-      throw new ScopeBoundaryError(
-        `Selected Scope family references an unknown Discover seed: ${seedId}`,
-      );
-    }
+  for (const seed of seeds) {
+    const { seedId } = seed;
     const materialization = parseBoundary(
       scopeSeedMaterializationResultSchema,
       await adapters.materializeSeed({ seed }),
@@ -235,6 +186,32 @@ export async function runScope(
     throwIfFatal(materialization);
     materializationsBySeedId.set(seedId, materialization);
     responseArtifacts.push(...executionResponseArtifacts(materialization));
+  }
+
+  const concurrency = options.concurrency ?? 1;
+  const seedInventories = await pMap(
+    seeds,
+    async (seed) => {
+      const materialization = materializationsBySeedId.get(seed.seedId);
+      if (!materialization)
+        throw new Error("Scope lost a seed materialization");
+      return inspectSeedInventory(
+        seed,
+        materialization,
+        adapters.inventorySeed,
+      );
+    },
+    { concurrency },
+  );
+  for (const inventory of seedInventories) {
+    if (inventory.modelExecution) {
+      recordModelExecution(
+        inventory.modelExecution,
+        prompts,
+        models,
+        responseArtifacts,
+      );
+    }
   }
 
   // The seed text is a provider-cached prompt prefix. The first grounding
@@ -264,9 +241,7 @@ export async function runScope(
     family: ScopeArtifactPayload["families"][number];
     execution: ModelExecution | undefined;
   }> {
-    const seed = discoverArtifact.payload.seeds.find(
-      (entry) => entry.seedId === construction.seedId,
-    );
+    const seed = seedsById.get(construction.seedId);
     const materialization = materializationsBySeedId.get(construction.seedId);
     if (!seed || !materialization) {
       throw new Error(
@@ -289,7 +264,7 @@ export async function runScope(
       };
     } else {
       const groundingResult = parseBoundary(
-        scopeGroundingResultSchema,
+        scopeModelResultSchema,
         await groundWithPrimedSeed(construction.seedId, () =>
           adapters.groundFamily({
             seed,
@@ -350,7 +325,7 @@ export async function runScope(
   }
 
   const grounded = await pMap(familyConstructions, groundConstruction, {
-    concurrency: options.concurrency ?? 1,
+    concurrency,
   });
   const families: ScopeArtifactPayload["families"] = [];
   for (const { family, execution } of grounded) {
@@ -360,12 +335,47 @@ export async function runScope(
     }
   }
 
+  const statementsBySeed = new Map<
+    string,
+    ScopeArtifactPayload["citationStatements"]
+  >();
+  for (const statement of buildScopeCitationStatements(
+    discoverArtifact.payload,
+  )) {
+    const group = statementsBySeed.get(statement.seedId);
+    if (group) group.push(statement);
+    else statementsBySeed.set(statement.seedId, [statement]);
+  }
+  const citationStatements: ScopeArtifactPayload["citationStatements"] = [];
+  const statementAssessments: ScopeArtifactPayload["statementAssessments"] = [];
+  for (const inventory of seedInventories) {
+    const { statements, batches } = await assessCitationStatements({
+      inventory,
+      statements: statementsBySeed.get(inventory.seedId) ?? [],
+      matchStatements: adapters.matchStatements,
+      concurrency,
+    });
+    citationStatements.push(...statements);
+    statementAssessments.push(...batches);
+    for (const batch of batches) {
+      recordModelExecution(
+        batch.modelExecution,
+        prompts,
+        models,
+        responseArtifacts,
+      );
+    }
+  }
+
   const payload = scopeArtifactPayloadSchema.parse({
     discoverArtifact: discoverReference,
     candidateDecisions,
     seedMaterializations: [...materializationsBySeedId.values()].sort(
       (left, right) => compareCodeUnits(left.seedId, right.seedId),
     ),
+    seedInventories,
+    citationStatements,
+    statementAssessments,
     families: families.sort((left, right) =>
       compareCodeUnits(left.familyId, right.familyId),
     ),
@@ -703,16 +713,6 @@ function executionResponseArtifacts(
     : [];
 }
 
-function throwIfFatal(input: {
-  reasonCode?: z.infer<typeof scopeFailureCodeSchema> | undefined;
-  reason?: string | undefined;
-}): void {
-  const parsed = scopeFatalFailureCodeSchema.safeParse(input.reasonCode);
-  if (parsed.success) {
-    throw new ScopeFatalError(parsed.data, input.reason ?? parsed.data);
-  }
-}
-
 function buildDiscoverReference(
   discoverArtifact: DiscoverArtifact,
   uri: string | undefined,
@@ -734,5 +734,3 @@ function scopeArtifactSchemaForBuild(value: unknown): ScopeArtifact {
     `Invalid Scope artifact at ${issue?.path.join(".") || "<root>"}: ${issue?.message ?? parsed.error.message}`,
   );
 }
-
-const parseBoundary = createBoundaryParser(ScopeBoundaryError);

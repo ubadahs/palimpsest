@@ -23,7 +23,8 @@ import type {
 export type RunCostTracker = {
   trace: TraceSession;
   collector: LLMTelemetryCollector;
-  spentUsd: () => number;
+  /** Known subtotal, or the caller's conservative charge if any usage is unknown. */
+  spentUsd: (whenUnknown?: number) => number;
   write: (ledger: LLMRunLedger) => {
     run: RunCostSummary;
     attempt: RunCostSummary;
@@ -79,8 +80,15 @@ export function createRunCostTracker(runRoot: string): RunCostTracker {
       },
       getLedger: telemetry.getLedger,
     },
-    spentUsd: () =>
-      [...calls.values()].reduce((sum, call) => sum + call.estimatedCostUsd, 0),
+    spentUsd(whenUnknown) {
+      let total = 0;
+      for (const call of calls.values()) {
+        if (whenUnknown !== undefined && call.billingStatus === "unknown")
+          return whenUnknown;
+        total += call.estimatedCostUsd;
+      }
+      return total;
+    },
     write,
   };
 }

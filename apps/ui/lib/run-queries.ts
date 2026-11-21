@@ -15,6 +15,7 @@ import {
   isGenericStageErrorMessage,
   listStageArtifacts,
   listStageArtifactsForStem,
+  loadArtifact,
   progressLogPrefix,
   type AnalysisRunStage,
   type LogicalStageGroup,
@@ -630,6 +631,31 @@ export function getArtifactContent(
     content: readFileSync(pointer.path, "utf8"),
     path: pointer.path,
   };
+}
+
+export function getCompletedReportForHistory(
+  runId: string,
+  artifactId: string,
+) {
+  const database = getDatabase();
+  const run = getAnalysisRun(database, runId);
+  const stage = getRunStage(database, runId, "report");
+  if (run?.status !== "succeeded" || stage?.status !== "succeeded") {
+    throw new Error("Citation history requires a completed run with a report.");
+  }
+  const path =
+    stage.primaryArtifactPath ??
+    resolveArtifactSetForRow(runId, stage).primaryArtifactPath;
+  if (!path)
+    throw new Error("The completed report artifact could not be found.");
+
+  const report = loadArtifact("report", path);
+  if (report.runId !== runId || report.artifactId !== artifactId) {
+    throw new Error(
+      "The current report changed. Reopen the run to view its citation history.",
+    );
+  }
+  return report;
 }
 
 /** Rebuild from the same durable journal used by the CLI; never trust a stale projection. */

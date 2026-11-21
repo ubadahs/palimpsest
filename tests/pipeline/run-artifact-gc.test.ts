@@ -11,6 +11,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { analysisRunConfigSchema } from "../../src/contract/run-types.js";
+import { getStageDefinition } from "../../src/contract/stages.js";
+import { retainHistorySource } from "../../src/pipeline/history-retention.js";
+import { loadReportChain } from "../../src/pipeline/report-chain.js";
+import { createProvenanceStore } from "../../src/pipeline/provenance-store.js";
+import { seedResolutionResultSchema } from "../../src/stages/discover/run.js";
+import { buildReportArtifact, runReport } from "../../src/stages/report/run.js";
 import {
   deleteOrphanedRunArtifacts,
   findOrphanedRunArtifacts,
@@ -23,6 +29,8 @@ import {
 } from "../../src/storage/analysis-runs.js";
 import { openDatabase } from "../../src/storage/database.js";
 import { runMigrations } from "../../src/storage/migration-service.js";
+import { buildChain } from "../stages/full-chain.fixture.js";
+import { discoverAdapters } from "../stages/chain.fixture.js";
 
 const tempRoots: string[] = [];
 
@@ -204,6 +212,101 @@ describe("run artifact garbage collection", () => {
       expect(result.runs[0]!.stageFiles).toEqual([
         join(reportDir, `${unreviewedStem}_report.json`),
       ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("keeps the complete superseded chain and provenance a history in another run reused", async () => {
+    const root = mkdtempSync(join(tmpdir(), "runs-gc-history-"));
+    tempRoots.push(root);
+    const database = openDatabase(join(root, "gc.sqlite"));
+    try {
+      runMigrations(database);
+      const store = createProvenanceStore(root);
+      const kept = store.persist({
+        role: "seed-resolution",
+        body: { doi: "10.1234/seed" },
+      });
+      const adapters = discoverAdapters();
+      const chain = await buildChain({
+        discover: {
+          ...adapters,
+          async resolveSeed(input) {
+            const resolved = seedResolutionResultSchema.parse(
+              await adapters.resolveSeed(input),
+            );
+            return {
+              ...resolved,
+              execution: { ...resolved.execution, responseArtifact: kept },
+            };
+          },
+        },
+      });
+      const recordedAt = "2026-11-18T01:00:00Z";
+      const report = buildReportArtifact({
+        result: runReport(
+          chain.discover,
+          chain.scope,
+          chain.prepare,
+          chain.evidence,
+          chain.adjudicate,
+          { recordedAt },
+        ),
+        runId: chain.discover.runId,
+        createdAt: recordedAt,
+      });
+      createAnalysisRun(database, {
+        id: report.runId,
+        seedDoi: "10.1234/seed",
+        seedDois: ["10.1234/seed"],
+        targetStage: "report",
+        runRoot: root,
+        config: analysisRunConfigSchema.parse({}),
+      });
+      setRunStatus(database, report.runId, "succeeded");
+      for (const artifact of [
+        chain.discover,
+        chain.scope,
+        chain.prepare,
+        chain.evidence,
+        chain.adjudicate,
+        report,
+      ]) {
+        const directory = join(
+          root,
+          getStageDefinition(artifact.stage).directoryName,
+        );
+        mkdirSync(directory);
+        writeFileSync(
+          join(directory, `date_${artifact.artifactId}_${artifact.stage}.json`),
+          JSON.stringify(artifact),
+        );
+      }
+      const reportDir = join(root, getStageDefinition("report").directoryName);
+      const scopeReplay = join(
+        root,
+        getStageDefinition("scope").directoryName,
+        `replayed_${chain.scope.artifactId}_scope.json`,
+      );
+      writeFileSync(scopeReplay, JSON.stringify(chain.scope));
+      const discard = join(reportDir, "date_unreferenced_report.json");
+      writeFileSync(discard, "{}");
+      retainHistorySource(root, report, {
+        runId: "another-run",
+        artifactId: `artifact_${"d".repeat(64)}`,
+        contentHash: "d".repeat(64),
+      });
+      const plan = findOrphanedRunArtifacts(database, { runId: report.runId });
+      expect(plan.runs[0]?.stageFiles).toEqual([discard]);
+      expect(plan.runs[0]?.provenanceFiles).toEqual([]);
+      deleteOrphanedRunArtifacts(plan);
+      const loaded = loadReportChain(
+        join(reportDir, `date_${report.artifactId}_report.json`),
+      );
+      expect(loaded.chain.report.artifactId).toBe(report.artifactId);
+      expect(loaded.chain.scope.artifactId).toBe(chain.scope.artifactId);
+      expect(store.load(kept).body).toEqual({ doi: "10.1234/seed" });
     } finally {
       database.close();
     }

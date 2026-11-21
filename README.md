@@ -17,6 +17,8 @@ A run has six stages:
 5. **Adjudicate** asks a model for a verdict on each record that is eligible for one. The model reads the whole seed paper and must quote the passages its verdict rests on; every quote is checked against the paper's text.
 6. **Report** reconciles every count across the stages and writes the results.
 
+To trace a specific idea, Scope also reads the seed on its own and records findings with exact supporting quotes. It compares each extracted citing statement with those findings and records what the later authors carried, omitted, or changed. With `--history`, Palimpsest follows selected statements into the next generation of citing papers. A path shows the wording at both citations, what each paper credited, and any evidence that the last paper also cited the original.
+
 Each verdict is one of:
 
 | Verdict | Meaning                                                                                                                                    |
@@ -102,9 +104,15 @@ npm run dev -- pipeline --input dois.json --batch
 
 # Analyze every citing paper and every claim family instead of sampling
 npm run dev -- pipeline --input dois.json --census --max-cost 40
+
+# Follow findings through two citations, with one estimated model budget
+npm run dev -- pipeline --input dois.json --history --max-cost 5 --max-parents 3 --max-citers 10
+
+# Use saved reports and exact cached replies to inspect a completed run offline
+npm run dev -- citation-history --run-id <run-id> --max-cost 0
 ```
 
-By default, Claude Haiku 5.5 extracts claims, classifies citations, and reranks passages; Claude Sonnet 5.5 groups claims, locates them in the seed, and adjudicates. Every model and option can be changed in the run config ([docs/pipeline.md](docs/pipeline.md)).
+By default, Claude Haiku 5.5 extracts claims, classifies citations, and reranks passages; Claude Sonnet 5.5 groups claims, grounds them in the seed, inventories source findings, matches citation statements, assesses two-hop histories and adjudicates. Every model and option can be changed in the run config ([docs/pipeline.md](docs/pipeline.md)).
 
 ## Evaluation
 

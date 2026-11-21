@@ -152,6 +152,7 @@ export function runReport(
     prepareArtifact,
     evidenceArtifact,
     adjudicateArtifact,
+    citationStatements: scopeArtifact.payload.citationStatements,
     lineage,
   });
   const selectionAudit = buildSelectionAudit(discoverArtifact);
@@ -181,6 +182,11 @@ export function runReport(
     rates,
     weightedRates,
     familyMutations,
+    statementReview: {
+      seedInventories: scopeArtifact.payload.seedInventories,
+      citationStatements: scopeArtifact.payload.citationStatements,
+      statementAssessments: scopeArtifact.payload.statementAssessments,
+    },
     recordTraces,
     decisionSummaries,
     selectionAudit,
@@ -261,7 +267,7 @@ export function buildReportArtifact(input: {
     provenance,
     execution: {
       kind: "deterministic",
-      implementation: input.implementation ?? "report-v3",
+      implementation: input.implementation ?? "report-v4",
       replayableFromInputs: true,
     },
     decisions: input.result.decisions,
@@ -1562,8 +1568,15 @@ function buildRecordTraces(input: {
   prepareArtifact: PrepareArtifact;
   evidenceArtifact: EvidenceArtifact;
   adjudicateArtifact: AdjudicateArtifact;
+  citationStatements: ScopeArtifact["payload"]["citationStatements"];
   lineage: ReportLineage;
 }): ReportRecordTrace[] {
+  const statementsByClaimId = new Map(
+    input.citationStatements.map((statement) => [
+      statement.claimRecordId,
+      statement.statementId,
+    ]),
+  );
   const evidenceById = new Map(
     input.evidenceArtifact.payload.records.map((record) => [
       record.recordId,
@@ -1637,6 +1650,17 @@ function buildRecordTraces(input: {
       recordId: prepareRecord.recordId,
       familyId: prepareRecord.familyId,
       citationOccurrenceId: prepareRecord.citationOccurrenceId,
+      citationStatementIds: prepareRecord.occurrenceSourceClaimRecordIds.map(
+        (claimId) => {
+          const statementId = statementsByClaimId.get(claimId);
+          if (!statementId) {
+            throw new ReportBoundaryError(
+              `Prepare claim has no Scope citation statement: ${claimId}`,
+            );
+          }
+          return statementId;
+        },
+      ),
       prepareArtifact: input.lineage.prepareArtifact,
       evidenceArtifact: input.lineage.evidenceArtifact,
       adjudicateArtifact: input.lineage.adjudicateArtifact,

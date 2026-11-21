@@ -7,8 +7,15 @@ import {
 } from "../../contract/run-types.js";
 import { compareStageKeys, stageKeyValues } from "../../contract/stages.js";
 import type { StageKey } from "../../contract/stages.js";
+import { loadArtifact } from "../../contract/selectors.js";
+import {
+  budgetAfterOtherHistories,
+  remainingBudget,
+} from "../../history/budget.js";
 import type { PipelineCliOverrides } from "../../pipeline/executor.js";
+import { rebuildRunCostSummary } from "../../pipeline/cost-summary.js";
 import { openDatabase } from "../../storage/database.js";
+import { getRunStage } from "../../storage/analysis-runs.js";
 
 const knownStages = new Set<string>(stageKeyValues);
 
@@ -71,7 +78,11 @@ function readStage(argv: string[], index: number, flag: string): StageKey {
   return value as StageKey;
 }
 
-export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
+type PipelineCommandArgs = PipelineCliOverrides & {
+  history?: { maxParents?: number; maxCiters?: number };
+};
+
+export function parsePipelineArgs(argv: string[]): PipelineCommandArgs {
   let input: string | undefined;
   let runId: string | undefined;
   let seedPdfPath: string | undefined;
@@ -103,6 +114,9 @@ export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
   let rerunFromStage: StageKey | undefined;
   let maxCostUsd: number | undefined;
   let batch: boolean | undefined;
+  let history = false;
+  let maxParents: number | undefined;
+  let maxCiters: number | undefined;
 
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index]!;
@@ -260,6 +274,17 @@ export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
       case "--batch":
         batch = true;
         break;
+      case "--history":
+        history = true;
+        break;
+      case "--max-parents":
+        maxParents = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
+      case "--max-citers":
+        maxCiters = readPositiveInteger(argv, index, flag);
+        index++;
+        break;
       default:
         fail(
           `Unknown pipeline flag: ${flag}. Run "pipeline --help" for options.`,
@@ -296,6 +321,16 @@ export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
   }
   if (input && rerunFromStage) {
     fail("--rerun-from is only valid with --run-id.");
+  }
+  if (!history && (maxParents !== undefined || maxCiters !== undefined)) {
+    fail("--max-parents and --max-citers apply to --history.");
+  }
+  if (history) {
+    if (maxCostUsd === undefined)
+      fail("--history requires a total --max-cost in USD.");
+    if (stopAfterStage && stopAfterStage !== "report")
+      fail("--history needs the completed report. Use --stop-after report.");
+    stopAfterStage = "report";
   }
   if (
     rerunFromStage &&
@@ -339,6 +374,14 @@ export function parsePipelineArgs(argv: string[]): PipelineCliOverrides {
     rerunFromStage,
     maxCostUsd,
     batch,
+    ...(history
+      ? {
+          history: {
+            ...(maxParents !== undefined ? { maxParents } : {}),
+            ...(maxCiters !== undefined ? { maxCiters } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -388,6 +431,10 @@ Options:
   --rerun-from <stage>              Rerun a stage and downstream stages
   --max-cost <usd>                  Stop sending model requests once the run's estimated
                                     spend reaches this; resume with a higher value to go on
+  --history                         Trace credited statements one more hop after report.
+                                    Requires --max-cost covering both hops
+  --max-parents <n>                 Cap the first-hop statements to follow
+  --max-citers <n>                  Cap downstream citing works examined across parents
   --batch                           Send model requests through the Message Batches API at
                                     half price; stages wait minutes to hours for results`);
 }
@@ -398,17 +445,49 @@ export async function runPipelineCommand(argv: string[]): Promise<void> {
     return;
   }
 
-  const args = parsePipelineArgs(argv);
+  const { history, ...args } = parsePipelineArgs(argv);
   const environment = loadEnvironment();
   const config = createAppConfig(environment);
 
   const database = openDatabase(config.databasePath);
-  const { runPipeline } = await import("../../pipeline/executor.js");
-  await runPipeline({
-    args,
-    config,
-    apiKey: config.anthropicApiKey,
-    database,
-    ownsDatabase: true,
-  });
+  try {
+    const { runPipeline } = await import("../../pipeline/executor.js");
+    const result = await runPipeline({
+      args,
+      config,
+      apiKey: config.anthropicApiKey,
+      database,
+      ownsDatabase: true,
+      includeHistorySpend: Boolean(history),
+    });
+    if (!history || args.maxCostUsd === undefined) return;
+    const reportPath = getRunStage(
+      database,
+      result.runId,
+      "report",
+    )?.primaryArtifactPath;
+    if (!reportPath)
+      throw new Error("The completed run has no registered Report artifact.");
+    const report = loadArtifact("report", reportPath);
+    const remaining = budgetAfterOtherHistories(
+      result.runRoot,
+      remainingBudget(args.maxCostUsd, rebuildRunCostSummary(result.runRoot)),
+      report.artifactId,
+    );
+    const { runCitationHistoryCommand } = await import("./citation-history.js");
+    await runCitationHistoryCommand([
+      "--report",
+      reportPath,
+      "--max-cost",
+      String(remaining),
+      ...(history.maxParents !== undefined
+        ? ["--max-parents", String(history.maxParents)]
+        : []),
+      ...(history.maxCiters !== undefined
+        ? ["--max-citers", String(history.maxCiters)]
+        : []),
+    ]);
+  } finally {
+    database.close();
+  }
 }

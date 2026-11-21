@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuditTrail } from "@/components/report/audit-trail";
+import { CitationHistory } from "@/components/report/citation-history";
+import { CitationStatements } from "@/components/report/citation-statements";
 import { FamiliesBrowser } from "@/components/report/families-browser";
 import { FunnelOverview } from "@/components/report/funnel-overview";
 import { RateCard } from "@/components/report/metrics";
@@ -16,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const REPORT_TABS: ReportTab[] = [
   "overview",
+  "statements",
+  "history",
   "families",
   "records",
   "review",
@@ -146,6 +150,11 @@ export function ReportInspector({
         <div className="overflow-x-auto pb-1">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="statements">
+              Statements (
+              {String(summary.statementReview.citationStatements.length)})
+            </TabsTrigger>
+            <TabsTrigger value="history">Citation history</TabsTrigger>
             <TabsTrigger value="families">
               Families ({String(summary.families.length)})
             </TabsTrigger>
@@ -169,6 +178,23 @@ export function ReportInspector({
             ))}
           </div>
           <FunnelOverview funnel={summary.funnel} rates={summary.rates} />
+        </TabsContent>
+
+        <TabsContent value="statements">
+          <CitationStatements
+            fidelity={summary.statementFidelity}
+            review={summary.statementReview}
+          />
+        </TabsContent>
+
+        <TabsContent value="history">
+          {tab === "history" && (
+            <CitationHistory
+              runId={runId}
+              reportArtifactId={payload.rawArtifact.artifactId}
+              key={payload.rawArtifact.artifactId}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="families">

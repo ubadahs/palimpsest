@@ -42,7 +42,7 @@ docker run --rm -p 8070:8070 lfoppiano/grobid:0.8.1
 
 ## Model access
 
-Anthropic is required only when a run reaches a model-backed operation. Discover can extract attributed claims, Scope can ground claims, Evidence reranks unless `evidence.rerankEnabled` is false, and Adjudicate calls the model only for eligible records. Fully gated Adjudicate runs can complete without model calls.
+Anthropic is required for uncached model-backed work. Discover extracts and clusters attributed claims. Scope grounds families, inventories source findings and assesses eligible citation statements. Prepare classifies unclear roles, Evidence optionally reranks passages, and Adjudicate calls the model for eligible records. A zero-dollar `citation-history` traversal can inspect an existing report and saved evidence offline.
 
 Run:
 

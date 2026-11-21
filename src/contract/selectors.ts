@@ -32,6 +32,7 @@ import type {
   StageArtifactMap,
   StageInspectorPayload,
 } from "./inspector-payloads.js";
+import { indexReportStatementFidelity } from "./statement-display.js";
 import { getStageDefinition, type StageKey } from "./stages.js";
 import type {
   AnalysisStageSummary,
@@ -1010,6 +1011,10 @@ function buildReportInspectorPayload(
       rates: artifact.payload.rates,
       weightedRates: artifact.payload.weightedRates,
       decisionSummaries: artifact.payload.decisionSummaries,
+      statementReview: artifact.payload.statementReview,
+      statementFidelity: indexReportStatementFidelity(
+        artifact.payload.recordTraces,
+      ),
       records,
       families,
     },

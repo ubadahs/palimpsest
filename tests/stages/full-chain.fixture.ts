@@ -13,6 +13,7 @@ import {
 import {
   buildDiscoverArtifact,
   runDiscover,
+  type DiscoverAdapters,
 } from "../../src/stages/discover/run.js";
 import {
   buildEvidenceArtifact,
@@ -23,7 +24,11 @@ import {
   buildPrepareArtifact,
   runPrepare,
 } from "../../src/stages/prepare/run.js";
-import { buildScopeArtifact, runScope } from "../../src/stages/scope/run.js";
+import {
+  buildScopeArtifact,
+  runScope,
+  type ScopeAdapters,
+} from "../../src/stages/scope/run.js";
 import {
   discoverAdapters,
   discoverOptions,
@@ -50,15 +55,19 @@ export async function buildChain(
     runId?: string;
     /** An older citing paper and three neighbors; see `neighborhoodPapers`. */
     neighbors?: Neighbors;
+    seedDoi?: string;
+    discover?: DiscoverAdapters;
+    scope?: ScopeAdapters;
   } = {},
 ) {
   const runId = options.runId ?? "run-report-fixture";
   const discoverResult = await runDiscover(
     discoverOptions({
+      ...(options.seedDoi ? { dois: [options.seedDoi] } : {}),
       probeBudget: options.neighbors === "readable" ? 2 : 10,
       recordedAt: "2026-07-17T10:00:00.000Z",
     }),
-    discoverAdapters({ neighbors: options.neighbors }),
+    options.discover ?? discoverAdapters({ neighbors: options.neighbors }),
   );
   const discover = buildDiscoverArtifact({
     result: discoverResult,
@@ -67,7 +76,7 @@ export async function buildChain(
   });
   const scopeResult = await runScope(
     discover,
-    scopeAdapters(options.grounding ?? "grounded"),
+    options.scope ?? scopeAdapters(options.grounding ?? "grounded"),
     {
       recordedAt: "2026-07-17T10:10:00.000Z",
       discoverArtifactUri: "fixture://discover/discover.json",

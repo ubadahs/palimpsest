@@ -12,6 +12,20 @@ const parsedPaperParserKindValues = ["jats", "grobid_tei"] as const;
 const parsedPaperParserKindSchema = z.enum(parsedPaperParserKindValues);
 export type ParsedPaperParserKind = z.infer<typeof parsedPaperParserKindSchema>;
 
+export const CITATION_OBSERVATION_PARSERS = {
+  jats: "jats-normalized",
+  grobid_tei: "grobid-tei",
+} as const satisfies Record<ParsedPaperParserKind, string>;
+
+export function citationObservationParserMatches(
+  parser: string,
+  parserKind: string,
+): boolean {
+  if (parser === parserKind) return true;
+  const kind = parsedPaperParserKindSchema.safeParse(parserKind);
+  return kind.success && CITATION_OBSERVATION_PARSERS[kind.data] === parser;
+}
+
 const parsedBlockKindValues = [
   "abstract",
   "body_paragraph",
@@ -47,6 +61,8 @@ const parsedPaperReferenceSchema = z
     /** arXiv identifier without version, as `parseArxivId` returns it. */
     arxivId: undefinedable(z.string()),
     volume: undefinedable(z.string()),
+    journal: undefinedable(z.string()),
+    firstPage: undefinedable(z.string()),
   })
   .passthrough();
 export type ParsedPaperReference = z.infer<typeof parsedPaperReferenceSchema>;
@@ -63,6 +79,7 @@ export const bibliographyMatchMethodSchema = z.enum([
   "arxiv_id",
   "author_year_exact_title",
   "author_year_title_overlap",
+  "author_year_journal_volume_first_page",
   "author_year_volume",
   "author_adjacent_year_exact_title_volume",
 ]);

@@ -1,9 +1,7 @@
-import { rethrowTraceError } from "../telemetry/trace.js";
-import { tracedFetch } from "../telemetry/http.js";
-import { z } from "zod";
-import { isAttachmentUrl } from "./attachment-url.js";
-
+import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
+import { Window } from "happy-dom";
+import { z } from "zod";
 
 import type { CachePolicy } from "../domain/classification.js";
 import type {
@@ -15,16 +13,19 @@ import type {
   Result,
 } from "../domain/common.js";
 import type { FullTextFormat } from "../domain/parsing.js";
-import {
-  fetchJson,
-  type FetchJsonOptions,
-} from "../integrations/http-client.js";
+import { findEuropePmcFreePdfUrls } from "../integrations/europe-pmc.js";
+import { fetchJson } from "../integrations/http-client.js";
 import { createConcurrencyLimiter } from "../shared/concurrency.js";
+import { sha256Text } from "../shared/stable-identity.js";
 import {
   computeContentHash,
   getCachedPaper,
   upsertRawPaper,
 } from "../storage/paper-cache.js";
+import { tracedFetch } from "../telemetry/http.js";
+import { rethrowTraceError } from "../telemetry/trace.js";
+import { isAttachmentUrl } from "./attachment-url.js";
+import { parsePdfWithGrobid } from "./grobid.js";
 
 export type FullTextContent = {
   content: string;
@@ -60,6 +61,7 @@ export type FullTextAcquisitionFailureCode =
   | "authentication"
   | "authorization"
   | "rate_limited"
+  | "incomplete_content"
   | "invalid_content"
   | "transport";
 
@@ -98,10 +100,12 @@ export function classifyAcquisitionAttemptFailure(input: {
     probe === "html_instead_of_pdf" ||
     probe === "invalid_pdf_payload" ||
     probe === "empty_xml" ||
-    probe === "invalid_xml"
+    probe === "invalid_xml" ||
+    probe === "invalid_pmc_html"
   ) {
     return "invalid_content";
   }
+  if (probe === "incomplete_full_text") return "incomplete_content";
   if (probe === "network_error") {
     return "transport";
   }
@@ -131,6 +135,7 @@ type AcquisitionCandidate = {
   candidateKind:
     | "biorxiv_xml"
     | "pmc_xml"
+    | "pmc_html"
     | "direct_pdf"
     | "landing_page_discovery"
     | "landing_page_xml"
@@ -141,6 +146,7 @@ type AcquisitionCandidate = {
   url?: string;
   doi?: string;
   pmcid?: string;
+  followedMetaRefresh?: boolean;
   priority: number;
 };
 
@@ -149,6 +155,8 @@ type AcquisitionExecutionState = {
   nextAttemptIndex: number;
   candidates: AcquisitionCandidate[];
   seenCandidateKeys: Set<string>;
+  paperDoi: string | undefined;
+  tryPmcHtml: boolean;
 };
 
 type AcquisitionSuccessPayload = {
@@ -178,6 +186,10 @@ type AcquisitionAttemptInput = {
   contentType?: string | undefined;
   success: boolean;
   failureReason?: string | undefined;
+  contentHash?: string | undefined;
+  rawHtmlSha256?: string | undefined;
+  derivedXmlSha256?: string | undefined;
+  projectionVersion?: string | undefined;
 };
 
 // --- bioRxiv: resolve DOI -> jatsxml URL via API, then fetch ---
@@ -324,11 +336,65 @@ function enqueueCandidate(
   state.candidates.sort((left, right) => left.priority - right.priority);
 }
 
-function resolveMaybeUrl(url: string, baseUrl: string): string | undefined {
+function resolveHttpUrl(url: string, baseUrl: string): URL | undefined {
   try {
-    return new URL(url, baseUrl).toString();
+    const resolved = new URL(url, baseUrl);
+    if (
+      (resolved.protocol === "https:" || resolved.protocol === "http:") &&
+      !resolved.username &&
+      !resolved.password
+    )
+      return resolved;
   } catch {
     return undefined;
+  }
+  return undefined;
+}
+
+function readSameOriginMetaRefreshUrl(
+  html: string,
+  pageUrl: string,
+): string | undefined {
+  if (!/\bhttp-equiv\b/i.test(html)) {
+    return undefined;
+  }
+
+  const window = new Window({
+    settings: {
+      disableJavaScriptEvaluation: true,
+      disableJavaScriptFileLoading: true,
+      disableCSSFileLoading: true,
+      disableIframePageLoading: true,
+    },
+  });
+  try {
+    const document = new window.DOMParser().parseFromString(html, "text/html");
+    const refresh = [
+      ...document.head.querySelectorAll("meta[http-equiv]"),
+    ].find(
+      (meta) =>
+        meta.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh",
+    );
+    const content = refresh?.getAttribute("content");
+    const target = content?.match(
+      /^\s*\d+(?:\.\d+)?\s*;\s*url\s*=\s*(.+?)\s*$/i,
+    )?.[1];
+    if (!target) return undefined;
+    const next = resolveHttpUrl(
+      target.replace(/^(['"])(.*)\1$/, "$2"),
+      pageUrl,
+    );
+    if (!next) return undefined;
+
+    const page = new URL(pageUrl);
+    next.hash = "";
+    page.hash = "";
+    if (next.origin !== page.origin || next.href === page.href) {
+      return undefined;
+    }
+    return next.href;
+  } finally {
+    window.close();
   }
 }
 
@@ -375,9 +441,9 @@ function extractLandingPageLinks(
       if (!raw) {
         continue;
       }
-      const resolved = resolveMaybeUrl(raw, pageUrl);
+      const resolved = resolveHttpUrl(raw, pageUrl);
       if (resolved) {
-        target.add(resolved);
+        target.add(resolved.href);
       }
     }
   }
@@ -432,12 +498,15 @@ function locationCandidate(
 function buildInitialCandidates(
   paper: ResolvedPaper,
   biorxivBaseUrl: string,
+  tryPmcHtml: boolean,
 ): AcquisitionExecutionState {
   const state: AcquisitionExecutionState = {
     attempts: [],
     nextAttemptIndex: 0,
     candidates: [],
     seenCandidateKeys: new Set(),
+    paperDoi: paper.doi,
+    tryPmcHtml,
   };
   const requestedDoi =
     paper.resolutionProvenance?.requestedIdentifierType === "doi"
@@ -710,6 +779,20 @@ async function executePmcCandidate(
     pmcid = resolved.data;
   }
 
+  if (state.tryPmcHtml && state.paperDoi && /^PMC\d+$/i.test(pmcid)) {
+    const normalizedPmcid = pmcid.toUpperCase();
+    enqueueCandidate(state, {
+      candidateKind: "pmc_html",
+      method: "pmc_html_projection",
+      locatorKind: "pmc_article_url",
+      locatorValue: normalizedPmcid,
+      pmcid: normalizedPmcid,
+      doi: state.paperDoi,
+      url: `https://pmc.ncbi.nlm.nih.gov/articles/${normalizedPmcid}/`,
+      priority: 55,
+    });
+  }
+
   const efetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=${pmcid}&rettype=xml`;
   const xmlResponse = await fetchUrlForXml(efetchUrl, adapters);
   if (!xmlResponse.ok) {
@@ -789,6 +872,96 @@ async function executePmcCandidate(
   };
 }
 
+async function executePmcHtmlCandidate(
+  candidate: AcquisitionCandidate,
+  adapters: FullTextFetchAdapters,
+  state: AcquisitionExecutionState,
+): Promise<AcquisitionCandidateResult> {
+  const { url, doi, pmcid } = candidate;
+  if (!url || !doi || !pmcid) throw new Error("Incomplete PMC HTML candidate");
+  const attempt = {
+    candidateKind: candidate.candidateKind,
+    method: "pmc_html_projection" as const,
+    locatorKind: candidate.locatorKind,
+    locatorValue: candidate.locatorValue,
+    url,
+  };
+  const response = await adapters.fetchUrl(url, { accept: "text/html" });
+  if (!response.ok) {
+    pushAttempt(state, {
+      ...attempt,
+      probeClassification: "network_error",
+      success: false,
+      failureReason: response.error,
+    });
+    return { kind: "continue" };
+  }
+
+  const { status, contentType, body, finalUrl } = response.data;
+  const fetched = { ...attempt, httpStatus: status, contentType };
+  if (status >= 400) {
+    pushAttempt(state, {
+      ...fetched,
+      probeClassification: "http_error",
+      success: false,
+      failureReason: `HTTP ${String(status)} from ${url}`,
+    });
+    return { kind: "continue" };
+  }
+
+  const { projectPmcArticleHtml, PMC_HTML_PROJECTION_VERSION } =
+    await import("./pmc-html.js");
+  const rawHtmlSha256 = createHash("sha256").update(body).digest("hex");
+  const projection = {
+    rawHtmlSha256,
+    projectionVersion: PMC_HTML_PROJECTION_VERSION,
+  };
+  if (
+    (finalUrl !== url && finalUrl !== url.slice(0, -1)) ||
+    !looksLikeHtml(body, contentType)
+  ) {
+    pushAttempt(state, {
+      ...fetched,
+      ...projection,
+      probeClassification: "invalid_pmc_html",
+      success: false,
+      failureReason:
+        "PMC HTML response was not the requested official article page",
+    });
+    return { kind: "continue" };
+  }
+
+  const projected = projectPmcArticleHtml(decodeBody(body), doi);
+  if (!projected.ok) {
+    pushAttempt(state, {
+      ...fetched,
+      ...projection,
+      probeClassification: "invalid_pmc_html",
+      success: false,
+      failureReason: projected.error,
+    });
+    return { kind: "continue" };
+  }
+
+  pushAttempt(state, {
+    ...fetched,
+    ...projection,
+    derivedXmlSha256: sha256Text(projected.data),
+    probeClassification: "pmc_html_projected",
+    success: true,
+  });
+  return {
+    kind: "selected",
+    payload: {
+      content: projected.data,
+      format: "jats_xml",
+      method: "pmc_html_projection",
+      locatorKind: "pmc_article_url",
+      selectedUrl: finalUrl,
+    },
+  };
+}
+
 async function executePdfCandidate(
   candidate: AcquisitionCandidate,
   adapters: FullTextFetchAdapters,
@@ -812,7 +985,16 @@ async function executePdfCandidate(
     return { kind: "continue" };
   }
 
-  const fetched = response.data;
+  return parsePdfResponse(candidate, adapters, state, response.data);
+}
+
+async function parsePdfResponse(
+  candidate: AcquisitionCandidate,
+  adapters: FullTextFetchAdapters,
+  state: AcquisitionExecutionState,
+  fetched: FullTextFetchResponse,
+): Promise<AcquisitionCandidateResult> {
+  const url = candidate.url ?? candidate.locatorValue;
   if (isAttachmentUrl(fetched.finalUrl)) {
     pushAttempt(state, {
       candidateKind: candidate.candidateKind,
@@ -932,6 +1114,14 @@ async function executeLandingPageDiscoveryCandidate(
   }
 
   const fetched = response.data;
+  if (isPdfBuffer(fetched.body)) {
+    return parsePdfResponse(
+      { ...candidate, method: "direct_pdf_grobid" },
+      adapters,
+      state,
+      fetched,
+    );
+  }
   if (fetched.status >= 400) {
     const reason = `HTTP ${String(fetched.status)} from ${url}`;
     pushAttempt(state, {
@@ -968,21 +1158,37 @@ async function executeLandingPageDiscoveryCandidate(
   const html = decodeBody(fetched.body);
   const probeClassification = classifyHtmlDocument(html);
   const discovered = extractLandingPageLinks(html, fetched.finalUrl);
+  const foundLinks =
+    discovered.xmlUrls.length > 0 || discovered.pdfUrls.length > 0;
+  // Some DOI landing pages use a browser refresh before issuing their HTTP redirect.
+  const refreshUrl =
+    !foundLinks &&
+    !candidate.followedMetaRefresh &&
+    probeClassification === "html_landing_page"
+      ? readSameOriginMetaRefreshUrl(html, fetched.finalUrl)
+      : undefined;
   pushAttempt(state, {
     candidateKind: candidate.candidateKind,
     locatorKind: candidate.locatorKind,
     locatorValue: candidate.locatorValue,
     url,
-    probeClassification,
+    probeClassification: refreshUrl ? "html_meta_refresh" : probeClassification,
     httpStatus: fetched.status,
     contentType: fetched.contentType,
-    success: discovered.xmlUrls.length > 0 || discovered.pdfUrls.length > 0,
+    success: foundLinks || Boolean(refreshUrl),
     failureReason:
-      discovered.xmlUrls.length === 0 && discovered.pdfUrls.length === 0
-        ? "No XML/PDF links found in landing page metadata"
-        : undefined,
+      foundLinks || refreshUrl
+        ? undefined
+        : "No XML/PDF links found in landing page metadata",
   });
 
+  if (refreshUrl) {
+    enqueueCandidate(state, {
+      ...candidate,
+      url: refreshUrl,
+      followedMetaRefresh: true,
+    });
+  }
   for (const xmlUrl of discovered.xmlUrls) {
     enqueueCandidate(state, {
       candidateKind: "landing_page_xml",
@@ -1002,10 +1208,6 @@ async function executeLandingPageDiscoveryCandidate(
       url: pdfUrl,
       priority: 80,
     });
-  }
-
-  if (discovered.xmlUrls.length === 0 && discovered.pdfUrls.length === 0) {
-    return { kind: "continue" };
   }
 
   return { kind: "continue" };
@@ -1151,9 +1353,17 @@ function buildProxyCandidates(
   return candidates;
 }
 
+type FullTextInspection = (content: FullTextContent) =>
+  | {
+      probeClassification: "incomplete_full_text" | "invalid_xml";
+      failureReason: string;
+    }
+  | undefined;
+
 async function executeCandidateQueue(
   state: AcquisitionExecutionState,
   adapters: FullTextFetchAdapters,
+  inspect: FullTextInspection | undefined,
 ): Promise<AcquisitionSuccessPayload | undefined> {
   while (state.candidates.length > 0) {
     const candidate = state.candidates.shift()!;
@@ -1181,6 +1391,12 @@ async function executeCandidateQueue(
       );
     } else if (candidate.candidateKind === "pmc_xml") {
       candidateResult = await executePmcCandidate(candidate, adapters, state);
+    } else if (candidate.candidateKind === "pmc_html") {
+      candidateResult = await executePmcHtmlCandidate(
+        candidate,
+        adapters,
+        state,
+      );
     } else if (
       candidate.candidateKind === "direct_pdf" ||
       candidate.candidateKind === "landing_page_pdf"
@@ -1200,9 +1416,49 @@ async function executeCandidateQueue(
       );
     }
 
-    if (candidateResult.kind === "selected") return candidateResult.payload;
+    if (candidateResult.kind === "selected") {
+      const rejected = inspect?.(candidateResult.payload);
+      if (!rejected) return candidateResult.payload;
+      const attempt = state.attempts.at(-1)!;
+      Object.assign(attempt, rejected, {
+        success: false,
+        contentHash: computeContentHash(candidateResult.payload.content),
+      });
+    }
   }
   return undefined;
+}
+
+async function enqueueEuropePmcPdfCandidates(
+  paper: ResolvedPaper,
+  state: AcquisitionExecutionState,
+): Promise<void> {
+  if (!paper.pmid || !/^\d+$/.test(paper.pmid) || !paper.doi) return;
+
+  const { searchUrl, result } = await findEuropePmcFreePdfUrls(
+    paper.pmid,
+    paper.doi,
+  );
+  const urls = result.ok ? result.data : [];
+  pushAttempt(state, {
+    candidateKind: "europe_pmc_pdf_lookup",
+    locatorKind: "pmid_metadata",
+    locatorValue: paper.pmid,
+    url: searchUrl,
+    probeClassification: result.ok ? "metadata" : "lookup_error",
+    success: urls.length > 0,
+    failureReason: result.ok ? undefined : result.error,
+  });
+  for (const url of urls) {
+    enqueueCandidate(state, {
+      candidateKind: "direct_pdf",
+      method: "direct_pdf_grobid",
+      locatorKind: "direct_pdf_url",
+      locatorValue: url,
+      url,
+      priority: 100,
+    });
+  }
 }
 
 /**
@@ -1214,14 +1470,22 @@ function mostInformativeFailure(
   attempts: FullTextAcquisition["attempts"],
 ): FullTextAcquisition["attempts"][number] | undefined {
   const failures = attempts.filter(
-    (attempt) => !attempt.success && attempt.failureReason,
+    (attempt) =>
+      !attempt.success &&
+      attempt.failureReason &&
+      attempt.probeClassification !== "lookup_error",
   );
   return (
     failures.find(
+      (attempt) => attempt.probeClassification === "incomplete_full_text",
+    ) ??
+    failures.find(
       (attempt) =>
+        attempt.probeClassification === "invalid_xml" ||
         attempt.probeClassification === "pdf" ||
         attempt.probeClassification === "xml",
-    ) ?? failures.at(-1)
+    ) ??
+    failures.at(-1)
   );
 }
 
@@ -1229,8 +1493,11 @@ async function acquireFullTextFromNetwork(
   paper: ResolvedPaper,
   biorxivBaseUrl: string,
   adapters: FullTextFetchAdapters,
+  inspect: FullTextInspection | undefined,
+  rejectedCache: AcquisitionAttemptInput | undefined,
 ): Promise<FullTextAcquisitionResult> {
-  const state = buildInitialCandidates(paper, biorxivBaseUrl);
+  const state = buildInitialCandidates(paper, biorxivBaseUrl, Boolean(inspect));
+  if (rejectedCache) pushAttempt(state, rejectedCache);
   const succeeded = (
     payload: AcquisitionSuccessPayload,
     accessChannel: "open_access" | "institutional_proxy",
@@ -1254,8 +1521,12 @@ async function acquireFullTextFromNetwork(
     },
   });
 
-  const openAccess = await executeCandidateQueue(state, adapters);
+  const openAccess = await executeCandidateQueue(state, adapters, inspect);
   if (openAccess) return succeeded(openAccess, "open_access");
+
+  await enqueueEuropePmcPdfCandidates(paper, state);
+  const linkedPdf = await executeCandidateQueue(state, adapters, inspect);
+  if (linkedPdf) return succeeded(linkedPdf, "open_access");
 
   if (adapters.institutionalProxyUrl) {
     for (const candidate of buildProxyCandidates(
@@ -1264,7 +1535,7 @@ async function acquireFullTextFromNetwork(
     )) {
       enqueueCandidate(state, candidate);
     }
-    const proxied = await executeCandidateQueue(state, adapters);
+    const proxied = await executeCandidateQueue(state, adapters, inspect);
     if (proxied) return succeeded(proxied, "institutional_proxy");
   }
 
@@ -1290,7 +1561,9 @@ export async function acquireFullText(
   biorxivBaseUrl: string,
   adapters: FullTextFetchAdapters,
   cache?: CacheOptions,
+  inspect?: FullTextInspection,
 ): Promise<FullTextAcquisitionResult> {
+  let rejectedCache: AcquisitionAttemptInput | undefined;
   if (cache && cache.cachePolicy !== "force_refresh") {
     const cached = getCachedPaper(cache.db, paper.id, cache.cachePolicy);
     if (
@@ -1305,13 +1578,23 @@ export async function acquireFullText(
       // Missing or invalid provenance is treated as a cache miss so we do not
       // fabricate acquisition metadata for pre-provenance rows.
       if (acquisition) {
-        return {
-          ok: true,
-          data: {
-            content: cached.rawFullText,
-            format: cached.fullTextFormat,
-            acquisition,
-          },
+        const data = {
+          content: cached.rawFullText,
+          format: cached.fullTextFormat,
+          acquisition,
+        };
+        const rejected = inspect?.(data);
+        if (!rejected) return { ok: true, data };
+        rejectedCache = {
+          candidateKind: "raw_cache",
+          method: acquisition.selectedMethod,
+          locatorKind: acquisition.selectedLocatorKind ?? "paper_id",
+          locatorValue: acquisition.selectedUrl ?? paper.id,
+          url: acquisition.selectedUrl,
+          contentHash:
+            cached.contentHash ?? computeContentHash(cached.rawFullText),
+          ...rejected,
+          success: false,
         };
       }
     }
@@ -1321,6 +1604,8 @@ export async function acquireFullText(
     paper,
     biorxivBaseUrl,
     adapters,
+    inspect,
+    rejectedCache,
   );
 
   if (result.ok && cache) {
@@ -1351,7 +1636,7 @@ export async function fetchFullText(
 
 // --- Default adapter implementations using native fetch ---
 
-const FETCH_OPTIONS: FetchJsonOptions = { timeoutMs: 30_000, maxRetries: 2 };
+const FULL_TEXT_REQUEST_TIMEOUT_MS = 30_000;
 
 async function defaultFetchUrl(
   url: string,
@@ -1363,7 +1648,7 @@ async function defaultFetchUrl(
         Accept: options?.accept ?? "*/*",
         "User-Agent": "palimpsest/0.1",
       },
-      signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),
+      signal: AbortSignal.timeout(FULL_TEXT_REQUEST_TIMEOUT_MS),
     });
     const arrayBuf = await resp.arrayBuffer();
     return {
@@ -1380,51 +1665,6 @@ async function defaultFetchUrl(
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-async function defaultProcessPdfWithGrobid(
-  buffer: Buffer,
-  grobidBaseUrl: string,
-): Promise<Result<string>> {
-  try {
-    const formData = new FormData();
-    const pdfBytes = Uint8Array.from(buffer).buffer;
-    formData.append(
-      "input",
-      new Blob([pdfBytes], { type: "application/pdf" }),
-      "paper.pdf",
-    );
-    formData.append("consolidateHeader", "0");
-    formData.append("consolidateCitations", "0");
-
-    const normalizedBaseUrl = grobidBaseUrl.replace(/\/+$/, "");
-    const resp = await tracedFetch(
-      `${normalizedBaseUrl}/api/processFulltextDocument`,
-      {
-        method: "POST",
-        headers: {
-          "User-Agent": "palimpsest/0.1",
-        },
-        body: formData,
-        signal: AbortSignal.timeout(FETCH_OPTIONS.timeoutMs ?? 30_000),
-      },
-    );
-
-    if (!resp.ok) {
-      return {
-        ok: false,
-        error: `GROBID HTTP ${String(resp.status)} from ${normalizedBaseUrl}`,
-      };
-    }
-
-    return { ok: true, data: await resp.text() };
-  } catch (err) {
-    rethrowTraceError(err);
-    return {
-      ok: false,
-      error: `GROBID parse error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 }
@@ -1454,9 +1694,7 @@ export function createDefaultAdapters(
   return {
     fetchUrl: defaultFetchUrl,
     processPdfWithGrobid: (buffer) =>
-      limitGrobid(() =>
-        defaultProcessPdfWithGrobid(buffer, options.grobidBaseUrl),
-      ),
+      limitGrobid(() => parsePdfWithGrobid(buffer, options.grobidBaseUrl)),
     email: options.email,
     institutionalProxyUrl: options.institutionalProxyUrl,
   };

@@ -379,6 +379,16 @@ describe("Discover production wiring", () => {
     expect(
       new Set(bundledMentions.map((mention) => mention.mentionId)).size,
     ).toBe(2);
+    for (const mention of bundledMentions) {
+      expect(mention.observationProvenance.sourceTextHash).toMatch(
+        /^[a-f0-9]{64}$/,
+      );
+    }
+    expect(
+      bundledMentions
+        .find((mention) => mention.isBundledCitation)
+        ?.nearbyCitations?.map(({ citationMarker }) => citationMarker),
+    ).toEqual(["1", "2"]);
     expect(
       bundledMentions.some(
         (mention) =>

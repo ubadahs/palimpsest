@@ -13,6 +13,7 @@ import { stageDefinitions, type StageDefinition } from "../contract/stages.js";
 import { listAnalysisRuns, listRunStages } from "../storage/analysis-runs.js";
 import { artifactStemFromPrimaryPath } from "../contract/selectors.js";
 import { isRunKept } from "./run-keep.js";
+import { historyBoundStageIds } from "./history-retention.js";
 
 type OrphanedRunArtifacts = {
   runId: string;
@@ -78,6 +79,7 @@ export function findOrphanedRunArtifacts(
     // A saved human review is bound to the report artifact it was written
     // against; that report stays even when a later attempt superseded it.
     const reviewBoundArtifactIds = listReviewBoundArtifactIds(run.runRoot);
+    const historyBound = historyBoundStageIds(run.runRoot);
 
     const stageFiles: string[] = [];
     const liveArtifactPaths: string[] = [];
@@ -93,7 +95,12 @@ export function findOrphanedRunArtifacts(
           reviewBoundArtifactIds.some((artifactId) =>
             stem.includes(artifactId),
           );
-        if (liveStems.has(stem) || reviewBound) {
+        const stageId = stem.match(/artifact_[a-f0-9]{64}$/)?.[0];
+        if (
+          liveStems.has(stem) ||
+          reviewBound ||
+          (stageId && historyBound.has(stageId))
+        ) {
           if (entry.endsWith(definition.artifactGlobs.primarySuffix)) {
             liveArtifactPaths.push(path);
           }

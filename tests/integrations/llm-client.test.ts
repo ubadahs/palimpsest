@@ -42,8 +42,13 @@ const generateObjectMock = vi.mocked(generateObject);
 const anySchema = z.object({ ok: z.boolean() });
 
 describe("resolvePromptCacheControl", () => {
-  it("caches a large seed text shared by grounding or whole-paper adjudication", () => {
-    for (const purpose of ["seed-grounding", "adjudication"] as const) {
+  it("caches a large shared source or findings prefix at either hop", () => {
+    for (const purpose of [
+      "seed-grounding",
+      "adjudication",
+      "seed-claim-matching",
+      "chain-claim-matching",
+    ] as const) {
       expect(
         resolvePromptCacheControl({
           purpose,
@@ -948,7 +953,11 @@ it("reserves concurrent direct requests and releases reservations after failure"
   const client = createLLMClient({
     apiKey: "test-key",
     defaultModel: "claude-sonnet-5-5",
-    spendLimit: { maxUsd: 0.15, spentUsd: () => 0, reserveDirectRequests: true },
+    spendLimit: {
+      maxUsd: 0.15,
+      spentUsd: () => 0,
+      reserveDirectRequests: true,
+    },
   });
   const request = {
     schema: anySchema,

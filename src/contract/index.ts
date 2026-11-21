@@ -20,5 +20,6 @@ export * from "./stage-groups.js";
 export * from "./inspector-payloads.js";
 export * from "./human-review.js";
 export * from "./claim-unit.js";
+export * from "./statement-display.js";
 export * from "./stages.js";
 export * from "./workflow.js";

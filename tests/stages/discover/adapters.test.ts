@@ -10,7 +10,11 @@ import {
   openAlexNeighborhoodSeedId,
   selectSeedReferenceMentions,
 } from "../../../src/stages/discover/adapters.js";
-import { claimExtractionOutputSchema } from "../../../src/stages/discover/prompts.js";
+import {
+  buildSingleMentionExtractionPrompt,
+  claimExtractionOutputSchema,
+} from "../../../src/stages/discover/prompts.js";
+import { neighborhoodResultSchema } from "../../../src/stages/discover/run.js";
 import {
   appConfig,
   citingPaper,
@@ -41,6 +45,24 @@ function discoverAdapterFor(object: unknown) {
 }
 
 describe("Discover production adapter", () => {
+  it("points extraction at the selected occurrence of a repeated marker in a method-use clause", () => {
+    const rawContext =
+      "Earlier work described the site [1]. We used its sampling method [1], then applied a correction from Kim [2].";
+    const start = rawContext.lastIndexOf("[1]");
+    const prompt = buildSingleMentionExtractionPrompt({
+      seedTitle: seed.paper.title,
+      citingTitle: citingPaper.title,
+      mention: {
+        ...mention,
+        rawContext,
+        markerSpan: { charOffsetStart: start, charOffsetEnd: start + 3 },
+      },
+    });
+    expect(prompt).toContain(
+      "Earlier work described the site [1]. We used its sampling method ▶[1]◀, then applied a correction from Kim [2].",
+    );
+  });
+
   it("accepts only OpenAlex identities for OpenAlex neighborhoods", () => {
     expect(
       openAlexNeighborhoodSeedId({
@@ -63,6 +85,14 @@ describe("Discover production adapter", () => {
   });
 
   it("calls OpenAlex neighborhoods only for OpenAlex-resolved seeds", async () => {
+    const store = makeStore();
+    const rejectedWork = {
+      resultIndex: 1,
+      providerRecordId: "https://openalex.org/W789",
+      issues: [
+        { field: "display_name", reason: "Expected string, received null" },
+      ],
+    };
     const getCitingWorks = vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -84,20 +114,21 @@ describe("Discover production adapter", () => {
             requestUrl: "https://example.test/openalex/works?fixture",
             page: 1,
             perPage: 10,
-            returnedCount: 1,
+            returnedCount: 2,
             keptCount: 1,
-            responseTotalCount: 1,
+            rejectedWorks: [rejectedWork],
+            responseTotalCount: 2,
           },
         ],
-        providerReportedTotal: 1,
-        coverage: "complete",
+        providerReportedTotal: 2,
+        coverage: "truncated",
       },
     });
     const adapter = buildDiscoverAdapters({
       config: appConfig(),
       runConfig: analysisRunConfigSchema.parse({}),
       llmClient: llmClientReturning({}),
-      provenanceStore: makeStore(),
+      provenanceStore: store,
       fullTextAdapters: {
         fetchUrl: () => Promise.resolve({ ok: false, error: "not used" }),
         processPdfWithGrobid: () =>
@@ -122,8 +153,8 @@ describe("Discover production adapter", () => {
     });
     expect(openAlex).toMatchObject({
       status: "completed",
-      providerReportedTotal: 1,
-      coverage: "complete",
+      providerReportedTotal: 2,
+      coverage: "truncated",
       papers: [
         {
           paperType: "review",
@@ -131,18 +162,25 @@ describe("Discover production adapter", () => {
         },
       ],
     });
-    const openAlexPageArtifacts = (openAlex as { pageArtifacts: unknown[] })
-      .pageArtifacts;
+    const parsed = neighborhoodResultSchema.parse(openAlex);
+    if (parsed.status !== "completed") throw new Error(parsed.reason);
+    const openAlexPageArtifacts = parsed.pageArtifacts;
     expect(openAlexPageArtifacts).toHaveLength(2);
-    const openAlexPapers = (
-      openAlex as { papers: { provenanceArtifacts: unknown[] }[] }
-    ).papers;
+    const openAlexPapers = parsed.papers;
     // A returned paper's provenance is the provider page it came from, and
     // nothing else: its own fields are already on the Discover record.
     expect(openAlexPapers[0]?.provenanceArtifacts).toHaveLength(1);
     expect(openAlexPageArtifacts).toContainEqual(
       openAlexPapers[0]!.provenanceArtifacts[0],
     );
+    expect(
+      store.load(openAlexPapers[0]!.provenanceArtifacts[0]!).body,
+    ).toMatchObject({
+      returnedCount: 2,
+      keptCount: 1,
+      responseTotalCount: 2,
+      rejectedWorks: [rejectedWork],
+    });
     expect(getCitingWorks).toHaveBeenCalledWith(
       "https://openalex.org/W123",
       expect.any(String),

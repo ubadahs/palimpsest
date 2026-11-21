@@ -203,6 +203,11 @@ function buildFixtureAdapters(variant: FixtureVariant = {}): DiscoverAdapters {
           );
         case "paper-a2":
           return Promise.resolve({
+            acquisition: {
+              accessChannel: "local_pdf",
+              fullTextFormat: "grobid_tei_xml",
+              selectedUrl: "file:///papers/paper-a2.pdf",
+            },
             materialization: {
               status: "succeeded",
               reason: "Fixture full text materialized",
@@ -545,6 +550,10 @@ describe("Discover", () => {
       harvest: { status: "not_attempted", observedMentionCount: 0 },
     });
     expect(byPaperId.get("paper-a2")).toMatchObject({
+      acquisition: {
+        accessChannel: "local_pdf",
+        selectedUrl: "file:///papers/paper-a2.pdf",
+      },
       materialization: { status: "succeeded" },
       harvest: {
         status: "failed",

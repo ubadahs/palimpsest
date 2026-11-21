@@ -15,6 +15,13 @@ import {
 import { modelExecutionSchema } from "../model-execution.js";
 import { seedSectionRoleSchema } from "./seed-section-role.js";
 import {
+  scopeCitationStatementSchema,
+  scopeSeedInventorySchema,
+  scopeStatementAssessmentBatchSchema,
+  scopeVerifiedEvidenceSpanSchema,
+  type ScopeVerifiedEvidenceSpan,
+} from "./scope-statements.js";
+import {
   addDuplicateIdentifierIssue,
   addIssue,
   normalizeWhitespace,
@@ -206,22 +213,6 @@ export type ScopeSeedMaterialization = z.infer<
   typeof scopeSeedMaterializationSchema
 >;
 
-export const scopeVerifiedEvidenceSpanSchema = z
-  .object({
-    text: z.string().min(1),
-    blockId: z.string().min(1),
-    blockKind: parsedBlockKindSchema,
-    sectionTitle: z.string().min(1).optional(),
-    charOffsetStart: z.number().int().nonnegative(),
-    charOffsetEnd: z.number().int().positive(),
-    verificationStatus: z.literal("verified_exact"),
-    sourceArtifact: artifactReferenceSchema,
-  })
-  .strict();
-export type ScopeVerifiedEvidenceSpan = z.infer<
-  typeof scopeVerifiedEvidenceSpanSchema
->;
-
 const scopeQuoteVerificationSchema = z
   .object({
     status: z.enum(["verified_exact", "failed", "not_applicable"]),
@@ -340,6 +331,9 @@ export const scopeArtifactPayloadSchema = z
       .strict(),
     candidateDecisions: z.array(scopeCandidateDecisionSchema),
     seedMaterializations: z.array(scopeSeedMaterializationSchema),
+    seedInventories: z.array(scopeSeedInventorySchema),
+    citationStatements: z.array(scopeCitationStatementSchema),
+    statementAssessments: z.array(scopeStatementAssessmentBatchSchema),
     families: z.array(scopedFamilySchema),
   })
   .strict()
@@ -356,6 +350,7 @@ function validateScopePayload(
       materialization,
     ]),
   );
+  validateStatementLineage(payload, materializationsBySeedId, context);
   const decisionsByFamilyId = new Map<
     string,
     Extract<ScopeCandidateDecision, { disposition: "scoped" }>[]
@@ -412,23 +407,149 @@ function validateScopePayload(
 
     const materialization = materializationsBySeedId.get(family.seedId);
     if (materialization) {
-      validateFamilyEvidenceAgainstSeedText(family, materialization, context);
+      validateSpansAgainstSeedText(
+        family.grounding.evidenceSpans,
+        materialization,
+        ["families"],
+        context,
+      );
     }
   }
 }
 
-function validateFamilyEvidenceAgainstSeedText(
-  family: ScopedFamily,
+function validateStatementLineage(
+  payload: ScopeArtifactPayload,
+  materializationsBySeedId: Map<string, ScopeSeedMaterialization>,
+  context: z.RefinementCtx,
+): void {
+  addDuplicateIdentifierIssue(
+    payload.citationStatements.map((statement) => statement.statementId),
+    ["citationStatements"],
+    context,
+  );
+  addDuplicateIdentifierIssue(
+    payload.citationStatements.map((statement) => statement.claimRecordId),
+    ["citationStatements"],
+    context,
+  );
+  addDuplicateIdentifierIssue(
+    payload.statementAssessments.map((batch) => batch.batchId),
+    ["statementAssessments"],
+    context,
+  );
+  const findingIdsBySeedId = new Map<string, Set<string>>();
+  for (const inventory of payload.seedInventories) {
+    const materialization = materializationsBySeedId.get(inventory.seedId);
+    if (
+      !materialization ||
+      (materialization.status === "materialized"
+        ? inventory.seedTextArtifact?.artifactId !==
+            materialization.seedTextArtifact.artifactId ||
+          inventory.seedTextArtifact.contentHash !==
+            materialization.seedTextArtifact.contentHash
+        : inventory.seedTextArtifact !== undefined ||
+          inventory.status !== materialization.status)
+    ) {
+      addIssue(
+        context,
+        ["seedInventories"],
+        "An inventory must name its seed materialization",
+      );
+    }
+    findingIdsBySeedId.set(
+      inventory.seedId,
+      new Set(inventory.findings.map((finding) => finding.findingId)),
+    );
+    addDuplicateIdentifierIssue(
+      inventory.findings.map((finding) => finding.findingId),
+      ["seedInventories"],
+      context,
+    );
+    if (materialization) {
+      validateSpansAgainstSeedText(
+        inventory.findings.flatMap((finding) => finding.evidenceSpans),
+        materialization,
+        ["seedInventories"],
+        context,
+      );
+    }
+  }
+  if (
+    findingIdsBySeedId.size !== payload.seedInventories.length ||
+    findingIdsBySeedId.size !== materializationsBySeedId.size
+  ) {
+    addIssue(
+      context,
+      ["seedInventories"],
+      "Each seed materialization requires one inventory outcome",
+    );
+  }
+  const batches = new Map(
+    payload.statementAssessments.map((batch) => [batch.batchId, batch]),
+  );
+  const submitted = new Map<string, Set<string>>();
+  for (const batch of payload.statementAssessments) {
+    addDuplicateIdentifierIssue(
+      batch.statementIds,
+      ["statementAssessments"],
+      context,
+    );
+    submitted.set(batch.batchId, new Set(batch.statementIds));
+  }
+  for (const statement of payload.citationStatements) {
+    const findings = findingIdsBySeedId.get(statement.seedId);
+    if (
+      !findings ||
+      statement.assessment.findingIds.some((id) => !findings.has(id))
+    ) {
+      addIssue(
+        context,
+        ["citationStatements"],
+        "Statement assessment must name findings from its seed inventory",
+      );
+    }
+    const batchId = statement.assessment.batchId;
+    if (
+      batchId &&
+      (batches.get(batchId)?.seedId !== statement.seedId ||
+        !submitted.get(batchId)?.delete(statement.statementId))
+    ) {
+      addIssue(
+        context,
+        ["citationStatements"],
+        "Statement assessment must belong to its model batch",
+      );
+    }
+  }
+  if ([...submitted.values()].some((ids) => ids.size > 0)) {
+    addIssue(
+      context,
+      ["statementAssessments"],
+      "Model batches require an outcome for every statement",
+    );
+  }
+}
+
+function validateSpansAgainstSeedText(
+  spans: readonly ScopeVerifiedEvidenceSpan[],
   materialization: ScopeSeedMaterialization,
+  path: string[],
   context: z.RefinementCtx,
 ): void {
   if (materialization.status !== "materialized") return;
   const blocksById = new Map(
     materialization.blocks.map((block) => [block.blockId, block]),
   );
-  for (const span of family.grounding.evidenceSpans) {
+  for (const span of spans) {
     const block = blocksById.get(span.blockId);
-    if (!block) continue;
+    if (!block) {
+      addIssue(
+        context,
+        path,
+        `Seed-text evidence names missing block ${span.blockId}`,
+      );
+      continue;
+    }
     const relativeStart = span.charOffsetStart - block.charOffsetStart;
     const relativeEnd = span.charOffsetEnd - block.charOffsetStart;
     const exactText = block.text.slice(relativeStart, relativeEnd);
@@ -436,12 +557,16 @@ function validateFamilyEvidenceAgainstSeedText(
       relativeStart < 0 ||
       relativeEnd > block.text.length ||
       relativeEnd <= relativeStart ||
-      exactText !== span.text
+      exactText !== span.text ||
+      span.sourceArtifact.artifactId !==
+        materialization.seedTextArtifact.artifactId ||
+      span.sourceArtifact.contentHash !==
+        materialization.seedTextArtifact.contentHash
     ) {
       addIssue(
         context,
-        ["families"],
-        `Grounding evidence is not an exact span of seed-text block ${span.blockId}`,
+        path,
+        `Evidence is not an exact span of seed-text block ${span.blockId}`,
       );
     }
   }

@@ -13,6 +13,8 @@ export type RecordFilter =
 
 export type ReportTab =
   | "overview"
+  | "statements"
+  | "history"
   | "families"
   | "records"
   | "review"

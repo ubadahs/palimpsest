@@ -56,7 +56,10 @@ const openAlexWorkSchema = z
     primary_location: openAlexLocationSchema.optional(),
     locations: z.array(openAlexLocationSchema).nullable().optional(),
     biblio: z
-      .object({ volume: z.string().nullable().optional() })
+      .object({
+        volume: z.string().nullable().optional(),
+        first_page: z.string().nullable().optional(),
+      })
       .nullable()
       .optional(),
     type: z.string().nullable().optional(),
@@ -70,6 +73,19 @@ const openAlexWorksListSchema = z.object({
     count: z.number(),
   }),
   results: z.array(openAlexWorkSchema),
+});
+
+// Discover consumes each citing work independently. Validate the page envelope
+// even if a result fails the citing-paper contract.
+const citingPageSchema = z.object({
+  meta: z.object({ count: z.number().int().nonnegative() }),
+  results: z.array(z.unknown()),
+});
+const citingWorkSchema = openAlexWorkSchema.extend({
+  id: z.string().trim().min(1),
+  display_name: z.string().trim().min(1),
+  publication_year: z.number().int().nullable().optional(),
+  referenced_works_count: z.number().int().nonnegative().optional(),
 });
 
 type OpenAlexWork = z.infer<typeof openAlexWorkSchema>;
@@ -141,6 +157,8 @@ function toResolvedPaper(work: OpenAlexWork): ResolvedPaper {
     pmcid: work.ids?.pmcid ?? undefined,
     arxivId: findArxivId(work),
     volume: work.biblio?.volume ?? undefined,
+    journal: work.primary_location?.source?.display_name ?? undefined,
+    firstPage: work.biblio?.first_page ?? undefined,
     pmid:
       work.ids?.pmid?.replace(
         /^https?:\/\/pubmed\.ncbi\.nlm\.nih\.gov\//i,
@@ -397,6 +415,13 @@ export async function resolveWorkByMetadata(
   };
 }
 
+type RejectedOpenAlexWork = {
+  /** Zero-based position within the provider's raw results array. */
+  resultIndex: number;
+  providerRecordId?: string;
+  issues: Array<{ field: string; reason: string }>;
+};
+
 /** Wire-level page provenance for one paginated citing-works request. */
 export type OpenAlexCitingWorksPage = {
   pageIndex: number;
@@ -405,8 +430,9 @@ export type OpenAlexCitingWorksPage = {
   page: number;
   perPage: number;
   returnedCount: number;
-  /** Works on this page not already seen on an earlier one, in order. */
+  /** Valid unique works returned from this page under the observation cap. */
   keptCount: number;
+  rejectedWorks?: RejectedOpenAlexWork[];
   /** OpenAlex `meta.count`, echoed on every page of a given query. */
   responseTotalCount: number;
 };
@@ -471,13 +497,32 @@ export async function getCitingWorks(
       ),
       email,
     );
-    const result = await fetchJson(url, openAlexWorksListSchema);
+    const result = await fetchJson(url, citingPageSchema);
     if (!result.ok) return result;
 
     providerReportedTotal = result.data.meta.count;
     let keptCount = 0;
-    for (const work of result.data.results) {
-      if (seenIds.has(work.id)) continue;
+    const rejectedWorks: RejectedOpenAlexWork[] = [];
+    for (const [resultIndex, row] of result.data.results.entries()) {
+      const parsed = citingWorkSchema.safeParse(row);
+      if (!parsed.success) {
+        rejectedWorks.push({
+          resultIndex,
+          ...(row &&
+          typeof row === "object" &&
+          "id" in row &&
+          typeof row.id === "string"
+            ? { providerRecordId: row.id }
+            : {}),
+          issues: parsed.error.issues.map(({ path, message }) => ({
+            field: path.join(".") || "(record)",
+            reason: message,
+          })),
+        });
+        continue;
+      }
+      const work = parsed.data;
+      if (seenIds.has(work.id) || works.length >= cap) continue;
       seenIds.add(work.id);
       works.push(work);
       keptCount += 1;
@@ -489,6 +534,7 @@ export async function getCitingWorks(
       perPage,
       returnedCount: result.data.results.length,
       keptCount,
+      ...(rejectedWorks.length ? { rejectedWorks } : {}),
       responseTotalCount: providerReportedTotal,
     });
     page += 1;
@@ -501,7 +547,7 @@ export async function getCitingWorks(
     }
   }
 
-  const papers = works.slice(0, cap).map(toResolvedPaper);
+  const papers = works.map(toResolvedPaper);
   const coverage: "complete" | "truncated" =
     papers.length >= providerReportedTotal ? "complete" : "truncated";
 

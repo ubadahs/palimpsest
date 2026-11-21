@@ -92,4 +92,46 @@ describe("pipeline CLI arguments", () => {
         .discoverProbeBudget,
     ).toBe("all");
   });
+
+  it("finishes at Report before tracing from a fresh seed or a resumed run", () => {
+    for (const source of [
+      ["--input", "dois.json"],
+      ["--run-id", "abc"],
+    ]) {
+      const parsed = parsePipelineArgs([
+        ...source,
+        "--history",
+        "--max-cost",
+        "3.5",
+        "--max-parents",
+        "3",
+        "--max-citers",
+        "7",
+      ]);
+      expect(parsed.stopAfterStage).toBe("report");
+      expect(parsed.maxCostUsd).toBe(3.5);
+      expect(parsed.history).toEqual({ maxParents: 3, maxCiters: 7 });
+    }
+    expect(parsePipelineArgs(["--input", "dois.json"]).history).toBeUndefined();
+  });
+
+  it("rejects history requests without a budget, a completed report, or valid bounds", () => {
+    for (const [extra, reason] of [
+      [["--history"], /total --max-cost/],
+      [["--max-parents", "2"], /apply to --history/],
+      [["--max-citers", "5"], /apply to --history/],
+      [
+        ["--history", "--max-cost", "1", "--stop-after", "scope"],
+        /completed report/,
+      ],
+      [
+        ["--history", "--max-cost", "1", "--max-citers", "0"],
+        /positive integer/,
+      ],
+    ] as const) {
+      expect(() =>
+        parsePipelineArgs(["--input", "dois.json", ...extra]),
+      ).toThrow(reason);
+    }
+  });
 });

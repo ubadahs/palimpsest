@@ -13,6 +13,7 @@
     "./contract": "./src/contract/index.ts",
     "./contract/server": "./src/contract/server.ts",
     "./review": "./src/review/index.ts",
+    "./history": "./src/history/store.ts",
     "./evaluation": "./src/evaluation/types.ts",
     "./evaluation/server": "./src/evaluation/index.ts"
   },
@@ -64,6 +65,7 @@
     "ai": "^6.0.146",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.4.1",
+    "happy-dom": "^20.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -7,6 +7,7 @@ import type {
   ScopeArtifact,
 } from "./artifacts/index.js";
 import type { StageKey } from "./stages.js";
+import type { ReportStatementFidelity } from "./statement-display.js";
 
 export type StageArtifactMap = {
   discover: DiscoverArtifact;
@@ -166,6 +167,8 @@ export type ReportInspectorSummary = {
   rates: ReportArtifact["payload"]["rates"];
   weightedRates: ReportArtifact["payload"]["weightedRates"];
   decisionSummaries: ReportArtifact["payload"]["decisionSummaries"];
+  statementReview: ReportArtifact["payload"]["statementReview"];
+  statementFidelity: Record<string, ReportStatementFidelity[]>;
   records: ReportInspectorRecordRow[];
   families: MutationFamilyView[];
 };
