@@ -7,7 +7,7 @@ import type {
   ResolvedPaper,
   Result,
 } from "../domain/common.js";
-import { parseArxivId } from "../shared/arxiv.js";
+import { parseArxivDoi, parseArxivId } from "../shared/arxiv.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schemas for the OpenAlex Works API subset we use ---
@@ -31,6 +31,8 @@ const openAlexLocationSchema = z
     source: openAlexSourceSchema.optional(),
     pdf_url: z.string().nullable().optional(),
     landing_page_url: z.string().nullable().optional(),
+    version: z.string().nullable().optional(),
+    doi: z.string().nullable().optional(),
   })
   .nullable();
 
@@ -110,13 +112,27 @@ function toFullTextLocations(work: OpenAlexWork): FullTextLocation[] {
     if (!location) continue;
     const host =
       location.source?.type === "repository" ? "repository" : "publisher";
+    const version =
+      location.version === "publishedVersion"
+        ? "published"
+        : location.version === "acceptedVersion"
+          ? "accepted"
+          : location.version === "submittedVersion"
+            ? "submitted"
+            : undefined;
     for (const [url, kind] of [
       [location.pdf_url, "pdf"],
       [location.landing_page_url, "landing_page"],
     ] as const) {
       if (!url || seenUrls.has(url)) continue;
       seenUrls.add(url);
-      locations.push({ url, kind, host });
+      locations.push({
+        url,
+        kind,
+        host,
+        ...(version ? { version } : {}),
+        ...(location.doi ? { doi: stripDoiPrefix(location.doi) } : {}),
+      });
     }
   }
   return locations;
@@ -136,7 +152,11 @@ function inferFullTextHints(work: OpenAlexWork): FullTextHints {
 function findArxivId(work: OpenAlexWork): string | undefined {
   for (const text of [
     work.doi,
+    work.primary_location?.doi,
+    work.primary_location?.landing_page_url,
+    work.primary_location?.pdf_url,
     ...(work.locations ?? []).flatMap((location) => [
+      location?.doi,
       location?.landing_page_url,
       location?.pdf_url,
     ]),
@@ -284,7 +304,9 @@ export async function resolveWorkByDoi(
   baseUrl: string,
   email?: string,
 ): Promise<Result<ResolvedPaper>> {
-  const encodedDoi = encodeURIComponent(`https://doi.org/${doi}`);
+  const arxiv = parseArxivDoi(doi);
+  const lookupDoi = arxiv ? `10.48550/arXiv.${arxiv.id}` : doi;
+  const encodedDoi = encodeURIComponent(`https://doi.org/${lookupDoi}`);
   const url = appendEmail(
     appendSelect(`${baseUrl}/works/${encodedDoi}`),
     email,

@@ -31,6 +31,7 @@ import {
   type FullTextContent,
   type FullTextFetchAdapters,
 } from "./fulltext-fetch.js";
+import { fullTextCacheKey } from "./fulltext-policy.js";
 import {
   computeContentHash,
   getParsedPaper,
@@ -1052,41 +1053,65 @@ export async function materializeParsedPaper(
   cache?: ParsedPaperCacheOptions,
   purpose: "seed_text" | "citation_harvest" = "seed_text",
 ): Promise<ParsedPaperMaterializeResult> {
-  let inspectedDocument: ParsedPaperDocument | undefined;
+  const cacheKey = fullTextCacheKey(paper);
+  let inspected:
+    | {
+        document: ParsedPaperDocument;
+        contentHash: string;
+        parsedCacheHit: boolean;
+      }
+    | undefined;
   const fullTextResult = await acquireFullText(
     paper,
     biorxivBaseUrl,
     adapters,
     cache,
-    purpose === "citation_harvest"
-      ? ({ content, format }) => {
-          const parsed = parseParsedPaperDocument(content, format);
-          if (!parsed.ok) {
-            return {
-              probeClassification: "invalid_xml",
-              failureReason: parsed.error,
-            };
-          }
-          const hasBody = parsed.data.blocks.some(
-            (block) => block.blockKind === "body_paragraph",
-          );
-          const hasReferences = parsed.data.references.length > 0;
-          if (!hasBody || !hasReferences) {
-            const missing =
-              !hasBody && !hasReferences
-                ? "body paragraphs and bibliography"
-                : hasBody
-                  ? "bibliography"
-                  : "body paragraphs";
-            return {
-              probeClassification: "incomplete_full_text",
-              failureReason: `Article source missing ${missing}`,
-            };
-          }
-          inspectedDocument = parsed.data;
-          return undefined;
+    ({ content, format }) => {
+      const contentHash = computeContentHash(content);
+      const cached =
+        cache && cache.cachePolicy !== "force_refresh"
+          ? getParsedPaper(
+              cache.db,
+              cacheKey,
+              PARSED_PAPER_PARSER_VERSION,
+              contentHash,
+            )
+          : undefined;
+      const decoded = decodeCachedParsedPaper(cached, format);
+      const parsed = decoded.ok
+        ? decoded
+        : parseParsedPaperDocument(content, format);
+      if (!parsed.ok) {
+        return {
+          probeClassification: "invalid_xml",
+          failureReason: parsed.error,
+        };
+      }
+      if (purpose === "citation_harvest") {
+        const hasBody = parsed.data.blocks.some(
+          (block) => block.blockKind === "body_paragraph",
+        );
+        const hasReferences = parsed.data.references.length > 0;
+        if (!hasBody || !hasReferences) {
+          const missing =
+            !hasBody && !hasReferences
+              ? "body paragraphs and bibliography"
+              : hasBody
+                ? "bibliography"
+                : "body paragraphs";
+          return {
+            probeClassification: "incomplete_full_text",
+            failureReason: `Article source missing ${missing}`,
+          };
         }
-      : undefined,
+      }
+      inspected = {
+        document: parsed.data,
+        contentHash,
+        parsedCacheHit: decoded.ok,
+      };
+      return undefined;
+    },
   );
   if (!fullTextResult.ok) {
     return {
@@ -1097,56 +1122,19 @@ export async function materializeParsedPaper(
     };
   }
 
-  const contentHash = computeContentHash(fullTextResult.data.content);
-  if (cache && cache.cachePolicy !== "force_refresh") {
-    const cached = getParsedPaper(
-      cache.db,
-      paper.id,
-      PARSED_PAPER_PARSER_VERSION,
-      contentHash,
-    );
-    const decoded = decodeCachedParsedPaper(cached, fullTextResult.data.format);
-    if (decoded.ok) {
-      const acquisition = {
-        ...fullTextResult.data.acquisition,
-        materializationSource: "parsed_cache" as const,
-      };
-      return {
-        ok: true,
-        data: {
-          fullText: fullTextResult.data,
-          acquisition,
-          parsedDocument: decoded.data,
-        },
-      };
-    }
-  }
-
-  const parsedResult = inspectedDocument
-    ? { ok: true as const, data: inspectedDocument }
-    : parseParsedPaperDocument(
-        fullTextResult.data.content,
-        fullTextResult.data.format,
-      );
-  if (!parsedResult.ok) {
-    return {
-      ok: false,
-      error: parsedResult.error,
-      failureCode: "invalid_content",
-      acquisition: fullTextResult.data.acquisition,
-    };
-  }
-
-  if (cache) {
+  if (!inspected)
+    throw new Error("Full-text acquisition skipped document inspection");
+  const { document, contentHash, parsedCacheHit } = inspected;
+  if (cache && !parsedCacheHit) {
     try {
       upsertParsedData(cache.db, {
-        paperId: paper.id,
+        paperId: cacheKey,
         parserVersion: PARSED_PAPER_PARSER_VERSION,
-        parserKind: parsedResult.data.parserKind,
+        parserKind: document.parserKind,
         contentHash,
-        refsJson: JSON.stringify(parsedResult.data.references),
-        chunksJson: JSON.stringify(parsedResult.data.blocks),
-        mentionsJson: JSON.stringify(parsedResult.data.mentions),
+        refsJson: JSON.stringify(document.references),
+        chunksJson: JSON.stringify(document.blocks),
+        mentionsJson: JSON.stringify(document.mentions),
         parsedAt: new Date().toISOString(),
       });
     } catch {
@@ -1158,8 +1146,13 @@ export async function materializeParsedPaper(
     ok: true,
     data: {
       fullText: fullTextResult.data,
-      acquisition: fullTextResult.data.acquisition,
-      parsedDocument: parsedResult.data,
+      acquisition: parsedCacheHit
+        ? {
+            ...fullTextResult.data.acquisition,
+            materializationSource: "parsed_cache",
+          }
+        : fullTextResult.data.acquisition,
+      parsedDocument: document,
     },
   };
 }

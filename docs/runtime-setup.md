@@ -18,7 +18,7 @@ Fresh runs are DOI-first. The public CLI exposes `doctor`, `db:migrate`, `db:gc`
 | `ANTHROPIC_API_KEY` | Stage-dependent | Needed for model-backed extraction, grounding, evidence reranking (on by default), and eligible-record adjudication. |
 | `OPENALEX_EMAIL` | No | Useful for OpenAlex requests. |
 | `SEMANTIC_SCHOLAR_API_KEY` | No | Optional metadata/fallback resolution. |
-| `INSTITUTIONAL_PROXY_URL` | No | Library proxy prefix (for example `https://libproxy.example.edu/login?url=`). Tried for landing-page and PDF URLs only after every open-access candidate fails. |
+| `INSTITUTIONAL_PROXY_URL` | No | Library proxy prefix (for example `https://libproxy.example.edu/login?url=`). After public routes fail, the fetcher retries publisher URLs and the DOI landing page. Explicit arXiv revisions use a matching arXiv URL. |
 | `OPENALEX_BASE_URL`, `SEMANTIC_SCHOLAR_BASE_URL`, `BIORXIV_BASE_URL` | No | Override a provider's base URL, mainly for tests and mirrors. |
 | `NODE_ENV` | No | `development` by default; `test` relaxes nothing in the pipeline. |
 

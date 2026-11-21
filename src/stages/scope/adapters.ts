@@ -77,11 +77,7 @@ export function buildScopeAdapters(deps: ProductionAdapterDeps) {
       if (seedPdfPath) {
         materializeResult = await materializeLocalPdf(seedPdfPath, fullText);
       } else {
-        let resolved =
-          session.resolvedSeedsByDoi.get(seed.doi.toLowerCase()) ??
-          [...session.resolvedSeedsByDoi.values()].find(
-            (paper) => paper.id === seedResolution.paper.paperId,
-          );
+        let resolved = session.resolvedSeedsByDoi.get(seed.doi.toLowerCase());
         if (!resolved) {
           const resolution = await resolvePaperByDoi(seed.doi, {
             openAlexBaseUrl: deps.config.providerBaseUrls.openAlex,

@@ -6,7 +6,7 @@ import type {
   ResolvedPaper,
   Result,
 } from "../domain/common.js";
-import { parseArxivId } from "../shared/arxiv.js";
+import { parseArxivDoi, parseBareArxivIdentifier } from "../shared/arxiv.js";
 import { fetchJson } from "./http-client.js";
 
 // --- Zod schema for the Semantic Scholar Paper endpoint subset ---
@@ -76,14 +76,18 @@ function mapS2Type(types: string[] | null | undefined): string | undefined {
 }
 
 function toResolvedPaper(paper: S2Paper): ResolvedPaper {
+  const arxiv = paper.externalIds?.ArXiv
+    ? parseBareArxivIdentifier(paper.externalIds.ArXiv)
+    : undefined;
   return {
     id: paper.paperId,
     doi: paper.externalIds?.DOI ?? undefined,
     pmcid: paper.externalIds?.PubMedCentral ?? undefined,
     pmid: paper.externalIds?.PubMed ?? undefined,
-    arxivId: paper.externalIds?.ArXiv
-      ? parseArxivId(`arXiv:${paper.externalIds.ArXiv}`)
-      : undefined,
+    arxivId: arxiv?.id,
+    ...(arxiv && arxiv.identifier !== arxiv.id
+      ? { arxivVersionedId: arxiv.identifier }
+      : {}),
     volume: paper.journal?.volume ?? undefined,
     title: paper.title ?? "Untitled",
     authors: (paper.authors ?? []).map((a) => a.name),
@@ -170,7 +174,9 @@ export async function resolvePaperByDoi(
   baseUrl: string,
   apiKey?: string,
 ): Promise<Result<ResolvedPaper>> {
-  const url = `${baseUrl}/paper/DOI:${doi}?fields=${S2_FIELDS}`;
+  const arxiv = parseArxivDoi(doi);
+  const identifier = arxiv ? `ARXIV:${arxiv.id}` : `DOI:${doi}`;
+  const url = `${baseUrl}/paper/${identifier}?fields=${S2_FIELDS}`;
   const result = apiKey
     ? await fetchJson(url, s2PaperSchema, { headers: { "x-api-key": apiKey } })
     : await fetchJson(url, s2PaperSchema);

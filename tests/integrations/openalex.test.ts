@@ -16,6 +16,31 @@ function loadFixture(name: string): unknown {
 }
 
 describe("resolveWorkByDoi", () => {
+  it("resolves metadata by the work DOI and retains the requested arXiv revision", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        id: "https://openalex.org/W997",
+        doi: "https://doi.org/10.1000/journal-with-preprint",
+        display_name: "Journal Article With Preprint",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const doi = "10.48550/arXiv.2101.00001v2";
+      const result = await resolveWorkByDoi(doi, "https://api.test");
+      const url = new URL(String(fetchMock.mock.calls[0]![0]));
+      expect(decodeURIComponent(url.pathname)).toBe(
+        "/works/https://doi.org/10.48550/arXiv.2101.00001",
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        data: { resolutionProvenance: { requestedIdentifier: doi } },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("asks OpenAlex only for the fields it reads", async () => {
     const fetchMock = vi
       .fn()
@@ -137,6 +162,7 @@ describe("resolveWorkByDoi", () => {
             landing_page_url: "https://publisher.example.org/article/10.0000/x",
             pdf_url: null,
             source: { display_name: "JCAP", type: "journal" },
+            version: "publishedVersion",
           },
           locations: [
             {
@@ -150,6 +176,8 @@ describe("resolveWorkByDoi", () => {
               landing_page_url: "https://arxiv.org/abs/2101.00001",
               pdf_url: "https://arxiv.org/pdf/2101.00001v2",
               source: { display_name: "arXiv", type: "repository" },
+              version: "submittedVersion",
+              doi: "https://doi.org/10.48550/arXiv.2101.00001",
             },
             {
               is_oa: false,
@@ -174,16 +202,21 @@ describe("resolveWorkByDoi", () => {
         url: "https://publisher.example.org/article/10.0000/x",
         kind: "landing_page",
         host: "publisher",
+        version: "published",
       },
       {
         url: "https://arxiv.org/pdf/2101.00001v2",
         kind: "pdf",
         host: "repository",
+        version: "submitted",
+        doi: "10.48550/arXiv.2101.00001",
       },
       {
         url: "https://arxiv.org/abs/2101.00001",
         kind: "landing_page",
         host: "repository",
+        version: "submitted",
+        doi: "10.48550/arXiv.2101.00001",
       },
     ]);
     expect(result.data.arxivId).toBe("2101.00001");

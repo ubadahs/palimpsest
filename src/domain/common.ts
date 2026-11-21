@@ -17,16 +17,30 @@ export type PaperResolutionProvenance = {
   [key: string]: unknown;
 };
 
+type FullTextVersion = "published" | "accepted" | "submitted" | "unknown";
+
+/** How the version of a candidate copy was identified. */
+export type FullTextVersionEvidence =
+  | { version: "unknown" }
+  | {
+      version: Exclude<FullTextVersion, "unknown">;
+      source: "openalex_location";
+      doi?: string;
+    }
+  | {
+      version: "submitted";
+      source: "arxiv_identifier" | "biorxiv_doi";
+      identifier: string;
+    };
+
 /** One place a provider says a work's text can be fetched from. */
 export type FullTextLocation = {
   url: string;
   /** A direct PDF link, or a page that may link to the text. */
   kind: "pdf" | "landing_page";
-  /**
-   * The publisher's version of record, or a repository copy such as an arXiv
-   * preprint. Acquisition tries the version of record first.
-   */
   host: "publisher" | "repository";
+  version?: Exclude<FullTextVersion, "unknown">;
+  doi?: string;
 };
 
 export type FullTextHints = {
@@ -50,6 +64,7 @@ export type FullTextAcquisitionSelectedLocatorKind =
   | "doi_input"
   | "doi_resolved"
   | "direct_pdf_url"
+  | "arxiv_identifier"
   | "meta_pdf_url"
   | "meta_xml_url";
 
@@ -71,6 +86,7 @@ export type FullTextAcquisition = {
     probeClassification: string;
     httpStatus?: number | undefined;
     contentType?: string | undefined;
+    version?: FullTextVersionEvidence | undefined;
     success: boolean;
     failureReason?: string | undefined;
     [key: string]: unknown;
@@ -78,6 +94,7 @@ export type FullTextAcquisition = {
   selectedMethod?: FullTextAcquisitionMethod | undefined;
   selectedLocatorKind?: FullTextAcquisitionSelectedLocatorKind | undefined;
   selectedUrl?: string | undefined;
+  selectedVersion?: FullTextVersionEvidence | undefined;
   fullTextFormat?: "jats_xml" | "grobid_tei_xml" | undefined;
   failureReason?: string | undefined;
   accessChannel?: z.infer<typeof fullTextAccessChannelSchema> | undefined;
@@ -91,6 +108,8 @@ export type ResolvedPaper = {
   pmid?: string | undefined;
   /** arXiv identifier without version, e.g. `2101.12345`. */
   arxivId?: string | undefined;
+  /** An explicitly versioned arXiv identifier from provider metadata, if available. */
+  arxivVersionedId?: string | undefined;
   /** Journal volume, which physics-style references give in place of a title. */
   volume?: string | undefined;
   journal?: string | undefined;

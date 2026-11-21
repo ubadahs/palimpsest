@@ -5,11 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  createDefaultAdapters,
   acquireFullText,
+  createDefaultAdapters,
   classifyAcquisitionAttemptFailure,
   classifyHttpAcquisitionFailure,
-  fetchFullText,
   type FullTextFetchResponse,
 } from "../../src/retrieval/fulltext-fetch.js";
 import { createAppConfig } from "../../src/config/app-config.js";
@@ -45,8 +44,18 @@ function makeXmlResponse(url: string): FullTextFetchResponse {
   };
 }
 
+function makePdfResponse(url: string): FullTextFetchResponse {
+  return {
+    finalUrl: url,
+    status: 200,
+    contentType: "application/pdf",
+    body: Buffer.from("%PDF-1.7"),
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("typed full-text acquisition failures", () => {
@@ -76,8 +85,9 @@ describe("typed full-text acquisition failures", () => {
         },
       }),
     );
-    const result = await fetchFullText(
+    const result = await acquireFullText(
       makePaper({
+        doi: undefined,
         fullTextHints: {
           providerAvailability: "available",
           locations: [
@@ -105,7 +115,223 @@ describe("typed full-text acquisition failures", () => {
   });
 });
 
-describe("fetchFullText acquisition policy", () => {
+describe("acquireFullText acquisition policy", () => {
+  it("tries the published version, then XML for the accepted version before the preprint", async () => {
+    const publishedPdf = "https://publisher.example/published.pdf";
+    const acceptedLanding = "https://repo.example/paper";
+    const acceptedXml = "https://repo.example/accepted.xml";
+    const fetchUrl = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data:
+          url === acceptedLanding
+            ? {
+                finalUrl: url,
+                status: 200,
+                contentType: "text/html",
+                body: Buffer.from(
+                  `<html><meta name="citation_xml_url" content="${acceptedXml}"></html>`,
+                ),
+              }
+            : url === acceptedXml
+              ? makeXmlResponse(url)
+              : makePdfResponse(url),
+      }),
+    );
+    const result = await acquireFullText(
+      makePaper({
+        doi: undefined,
+        fullTextHints: {
+          providerAvailability: "available",
+          locations: [
+            {
+              url: "https://arxiv.org/pdf/2101.00001",
+              kind: "pdf",
+              host: "repository",
+            },
+            {
+              url: "https://repo.example/accepted.pdf",
+              kind: "pdf",
+              host: "repository",
+              version: "accepted",
+            },
+            {
+              url: acceptedLanding,
+              kind: "landing_page",
+              host: "repository",
+              version: "accepted",
+            },
+            {
+              url: publishedPdf,
+              kind: "pdf",
+              host: "repository",
+              version: "published",
+            },
+          ],
+        },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: () =>
+          Promise.resolve({ ok: true, data: "<tei />" }),
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+      undefined,
+      ({ format }) =>
+        format === "grobid_tei_xml"
+          ? {
+              probeClassification: "incomplete_full_text",
+              failureReason: "Missing bibliography",
+            }
+          : undefined,
+    );
+    expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+      publishedPdf,
+      acceptedLanding,
+      acceptedXml,
+    ]);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        acquisition: {
+          selectedUrl: acceptedXml,
+          selectedVersion: { version: "accepted", source: "openalex_location" },
+          attempts: [
+            {
+              probeClassification: "incomplete_full_text",
+              version: { version: "published" },
+            },
+            { url: acceptedLanding },
+            { success: true, version: { version: "accepted" } },
+          ],
+        },
+      },
+    });
+  });
+
+  it("builds an arXiv PDF URL directly from a known identifier", async () => {
+    const fetchUrl = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data: makePdfResponse(url),
+      }),
+    );
+    const result = await acquireFullText(
+      makePaper({
+        doi: undefined,
+        arxivId: "astro-ph/9904188",
+        fullTextHints: { providerAvailability: "unavailable", locations: [] },
+      }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl,
+        processPdfWithGrobid: () =>
+          Promise.resolve({ ok: true, data: "<tei />" }),
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+    expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+      "https://arxiv.org/pdf/astro-ph/9904188",
+    ]);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        acquisition: {
+          selectedLocatorKind: "arxiv_identifier",
+          selectedVersion: {
+            version: "submitted",
+            source: "arxiv_identifier",
+            identifier: "astro-ph/9904188",
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps explicitly requested arXiv revisions separate in cache", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "palimpsest-arxiv-cache-"));
+    const db = openDatabase(join(directory, "paper-cache.sqlite"));
+    try {
+      runMigrations(db);
+      const fetchUrl = vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true as const,
+          data: makePdfResponse(url),
+        }),
+      );
+      const request = (revision: string) =>
+        acquireFullText(
+          makePaper({
+            resolutionProvenance: {
+              method: "doi",
+              confidence: "exact",
+              requestedIdentifierType: "doi",
+              requestedIdentifier: `10.48550/arXiv.2101.00001${revision}`,
+            },
+          }),
+          "https://api.biorxiv.org",
+          {
+            fetchUrl,
+            processPdfWithGrobid: () =>
+              Promise.resolve({ ok: true, data: "<tei />" }),
+            email: undefined,
+            institutionalProxyUrl: undefined,
+          },
+          { db, cachePolicy: "prefer_cache" },
+        );
+      for (const revision of ["v1", "v2", "v1"]) {
+        const result = await request(revision);
+        expect(result).toMatchObject({
+          ok: true,
+          data: {
+            acquisition: {
+              selectedVersion: { identifier: `2101.00001${revision}` },
+            },
+          },
+        });
+      }
+      expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
+        "https://arxiv.org/pdf/2101.00001v1",
+        "https://arxiv.org/pdf/2101.00001v2",
+      ]);
+    } finally {
+      db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an arXiv redirect to a different revision before PDF parsing", async () => {
+    const processPdfWithGrobid = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: "<tei />",
+      }),
+    );
+    const result = await acquireFullText(
+      makePaper({ doi: "10.48550/arXiv.2101.00001v1" }),
+      "https://api.biorxiv.org",
+      {
+        fetchUrl: () =>
+          Promise.resolve({
+            ok: true,
+            data: makePdfResponse("https://arxiv.org/pdf/2101.00001v2"),
+          }),
+        processPdfWithGrobid,
+        email: undefined,
+        institutionalProxyUrl: undefined,
+      },
+    );
+    expect(processPdfWithGrobid).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      failureCode: "invalid_content",
+      acquisition: { attempts: [{ probeClassification: "version_mismatch" }] },
+    });
+  });
+
   it("prefers PMC XML via the original DOI input over the resolver DOI", async () => {
     vi.stubGlobal(
       "fetch",
@@ -141,7 +367,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
@@ -185,7 +411,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
@@ -222,7 +448,7 @@ describe("fetchFullText acquisition policy", () => {
       }),
     );
 
-    const result = await fetchFullText(
+    const result = await acquireFullText(
       makePaper({ doi: undefined }),
       "https://api.biorxiv.org",
       {
@@ -276,7 +502,7 @@ describe("fetchFullText acquisition policy", () => {
     });
 
     const paper = makePaper({
-      doi: "10.0000/nature00000",
+      doi: undefined,
       fullTextHints: {
         providerAvailability: "available",
         locations: [
@@ -294,7 +520,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
@@ -327,7 +553,7 @@ describe("fetchFullText acquisition policy", () => {
       }),
     );
 
-    const result = await fetchFullText(
+    const result = await acquireFullText(
       makePaper({
         doi: undefined,
         fullTextHints: {
@@ -386,7 +612,7 @@ describe("fetchFullText acquisition policy", () => {
         },
       });
     });
-    const result = await fetchFullText(
+    const result = await acquireFullText(
       makePaper({
         doi: undefined,
         fullTextHints: {
@@ -498,7 +724,7 @@ describe("fetchFullText acquisition policy", () => {
       Promise.resolve({ ok: true as const, data: "<tei />" }),
     );
 
-    const result = await fetchFullText(
+    const result = await acquireFullText(
       makePaper({
         pmid: "1234",
         fullTextHints: {
@@ -534,7 +760,7 @@ describe("fetchFullText acquisition policy", () => {
     expect(result.data.acquisition.selectedUrl).toBe(pdfUrl);
   });
 
-  it("falls back to a repository copy after the publisher's version", async () => {
+  it("tries an unlabeled publisher copy before a known arXiv preprint", async () => {
     const PDF_MAGIC = Buffer.from("%PDF-1.4 preprint");
     const publisherPage = "https://publisher.example.org/article/10.0000/x";
     const preprintUrl = "https://arxiv.org/pdf/2101.00001";
@@ -564,8 +790,6 @@ describe("fetchFullText acquisition policy", () => {
       doi: undefined,
       fullTextHints: {
         providerAvailability: "available",
-        // Provider order lists the preprint first; the version of record
-        // is still tried before it.
         locations: [
           { url: preprintUrl, kind: "pdf", host: "repository" },
           { url: publisherPage, kind: "landing_page", host: "publisher" },
@@ -573,7 +797,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
@@ -583,6 +807,14 @@ describe("fetchFullText acquisition policy", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.acquisition.selectedUrl).toBe(preprintUrl);
+    expect(result.data.acquisition.attempts[0]?.version).toEqual({
+      version: "unknown",
+    });
+    expect(result.data.acquisition.selectedVersion).toEqual({
+      version: "submitted",
+      source: "arxiv_identifier",
+      identifier: "2101.00001",
+    });
     expect(fetchUrl.mock.calls.map(([url]) => url)).toEqual([
       publisherPage,
       preprintUrl,
@@ -623,7 +855,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: () =>
         Promise.resolve({
@@ -657,7 +889,7 @@ describe("fetchFullText acquisition policy", () => {
       },
     });
 
-    const result = await fetchFullText(paper, "https://api.biorxiv.org", {
+    const result = await acquireFullText(paper, "https://api.biorxiv.org", {
       fetchUrl,
       processPdfWithGrobid: grobid,
       email: undefined,
@@ -765,10 +997,6 @@ describe("GROBID concurrency bound", () => {
 });
 
 it("does not use publisher supplementary or review PDFs as the article", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(() => Promise.resolve(Response.json({ records: [] }))),
-  );
   const fetchUrl = vi.fn((url: string) =>
     Promise.resolve({
       ok: true as const,
@@ -841,6 +1069,7 @@ it("rejects direct attachment candidates and redirected attachments before parsi
   );
   const result = await acquireFullText(
     makePaper({
+      doi: undefined,
       fullTextHints: {
         providerAvailability: "available",
         locations: [attachment, redirect, article].map((url) => ({

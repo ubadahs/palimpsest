@@ -9,7 +9,7 @@ import {
   PARSED_PAPER_PARSER_VERSION,
 } from "../../src/retrieval/parsed-paper.js";
 import {
-  fetchFullText,
+  acquireFullText,
   type FullTextFetchAdapters,
 } from "../../src/retrieval/fulltext-fetch.js";
 import { openDatabase } from "../../src/storage/database.js";
@@ -21,10 +21,7 @@ import {
 } from "../../src/storage/paper-cache.js";
 import { makePaper as makeBasePaper } from "../paper.fixture.js";
 
-const makePaper = () =>
-  makeBasePaper({
-    resolutionProvenance: { method: "doi", confidence: "exact" },
-  });
+const makePaper = () => makeBasePaper({ doi: undefined });
 
 const RAW_TEI = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI>
@@ -115,7 +112,7 @@ describe("paper cache integration", () => {
     });
     const counters = { fetchPdf: 0, processPdfWithGrobid: 0 };
     try {
-      const result = await fetchFullText(
+      const result = await acquireFullText(
         paper,
         "https://api.biorxiv.org",
         makeAdapters(RAW_TEI, counters),
@@ -141,7 +138,7 @@ describe("paper cache integration", () => {
     const adapters = makeAdapters(RAW_TEI, counters);
 
     try {
-      const first = await fetchFullText(
+      const first = await acquireFullText(
         paper,
         "https://api.biorxiv.org",
         adapters,
@@ -150,7 +147,7 @@ describe("paper cache integration", () => {
           cachePolicy: "prefer_cache",
         },
       );
-      const second = await fetchFullText(
+      const second = await acquireFullText(
         paper,
         "https://api.biorxiv.org",
         adapters,
@@ -332,7 +329,7 @@ describe("paper cache integration", () => {
     const counters = { fetchPdf: 0, processPdfWithGrobid: 0 };
 
     try {
-      const result = await fetchFullText(
+      const result = await acquireFullText(
         paper,
         "https://api.biorxiv.org",
         makeAdapters(UPDATED_RAW_TEI, counters),

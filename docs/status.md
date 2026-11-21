@@ -30,6 +30,7 @@ What each stage ships today. [pipeline.md](./pipeline.md) has the full stage con
 - Harvests probed papers `fetchConcurrency` at a time.
 - Emits one seed occurrence per exact citation group, carrying the parser's own `locationQuality`. JATS and GROBID bundle metadata joins adjacent reference markers across citation separators and stops at intervening prose.
 - Records each citing paper's access channel and bibliography match method.
+- Ranks full-text candidates by version and format. Acquisition provenance records the selected URL and the evidence for its version. Known arXiv identifiers supply direct PDF candidates, with separate cache entries for explicit revisions.
 - Exact-verifies claim support spans into offset-bound `supportSpan` fields, and reattaches claims to a unique exact marker within their span before clustering. Original extraction lineage and explicit reattachment decisions are retained; downstream bundle metadata follows the corrected occurrence.
 - At both citation hops, a quote that echoes the prompt's marker highlighting can be recovered when removing that exact pair yields a unique literal passage at the highlighted source position. The stored offsets and text come from the paper.
 - Rejects known attachment URLs during acquisition and cache reuse. JATS bibliography identifiers also read `ext-link` targets when `pub-id` is absent.
