@@ -35,6 +35,12 @@ Critical policy:
 - `D` verdicts name one to three categorical `mutationKinds` and a `direction`; `F`, `E`, and `U` carry none. These fields record which dimension of the source claim moved and are aggregated by Report as `mutationKindCounts` / `mutationDirectionCounts`; they are descriptive and do not route or reweight the verdict
 - blinded human calibration is required before trust claims
 
+## Citation use in citation history
+
+An edge in a claim history records the exact clause credited to the designated marker. It also has a fifth citation-use verdict, **B — faithful at the marker, used to support a broader claim**. B requires a faithful premise, a separate exact quote from the citing paragraph containing the authors’ broader conclusion, and an explanation of how they use the premise to reach it. The two spans have separate offsets. A directly attributed claim that materially changes the source receives D even if the authors go on to make a wider recommendation. Ambiguous credit can receive U.
+
+The record-level adjudication stage uses F/D/E/U. For marker-only fidelity, a history B counts as faithful. For a history of how a claim broadens, report B separately from D. On a second hop, whether the original finding actually traveled through that reference has its own evidence and route judgment.
+
 ## Report (Deterministic)
 
 Report (`runReport`) is a pure deterministic audit accounting stage over the complete artifact chain.

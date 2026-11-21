@@ -15,7 +15,7 @@ export const PROMPT_VERSIONS = {
   /** Relationships of exact citation statements to the grounded inventory. */
   seedStatementMatching: "2026-11-20-v2",
   /** Version-bound route and direct content comparison at the later citation. */
-  historyAssessment: "2026-11-19-v6",
+  historyAssessment: "2026-11-20-v8",
   /** Citation role for occurrences the regex pass leaves unclear (Prepare). */
   roleClassification: "2026-09-23-v2",
   /** Relevance reranking of BM25 candidates (Evidence). */

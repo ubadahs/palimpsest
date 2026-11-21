@@ -8,7 +8,12 @@ import type {
   ScopeCitationStatement,
   ScopeSeedFinding,
 } from "../contract/artifacts/scope-statements.js";
-import { fidelityVerdictSchema } from "../domain/taxonomy.js";
+import { hasExplanation, hasQuotedWording } from "../domain/grade-evidence.js";
+import {
+  citationUseVerdictSchema,
+  locateBroaderClaim,
+} from "../domain/citation-use.js";
+import { mutationKindSchema } from "../domain/taxonomy.js";
 import type { scopeModelResultSchema } from "../stages/scope/model-result.js";
 import type { FirstHopParagraphCitation } from "./parent-citation.js";
 import type { HistoryCitationUse, HistoryPaper } from "./store.js";
@@ -22,6 +27,9 @@ export type HistoryAssessmentInput = {
   original?: HistoryPaper | undefined;
   middle?: HistoryPaper | undefined;
   citing?: HistoryPaper | undefined;
+  originalBlocks?: readonly { blockId: string; text: string }[];
+  downstreamBlocks?: readonly { blockId: string; text: string }[];
+  downstreamReference?: unknown;
   parentTextVersionId?: string | undefined;
   parentSourceArtifact?: ArtifactReference | undefined;
   parentBlocks: readonly {
@@ -153,7 +161,9 @@ const verifiedRouteSchema = routeSchema(
 const modelImmediateFidelitySchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("assessed"),
-    verdict: fidelityVerdictSchema,
+    verdict: citationUseVerdictSchema,
+    broaderClaim: z.string().nullable().optional(),
+    mutationKinds: z.array(mutationKindSchema).optional(),
     reason: z.string(),
     evidence: z.array(quoteSchema),
   }),
@@ -162,7 +172,16 @@ const modelImmediateFidelitySchema = z.discriminatedUnion("status", [
 const immediateFidelitySchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("assessed"),
-    verdict: fidelityVerdictSchema,
+    verdict: citationUseVerdictSchema,
+    broaderClaim: z
+      .strictObject({
+        text: nonempty,
+        start: z.number().int().nonnegative(),
+        end: z.number().int().positive(),
+      })
+      .nullable()
+      .optional(),
+    mutationKinds: z.array(mutationKindSchema).optional(),
     reason: nonempty,
     evidence: z.array(verifiedQuoteSchema).min(1).max(4),
   }),
@@ -323,6 +342,7 @@ function verifyComparison(
   );
   if (
     parsed.success &&
+    hasExplanation(comparison.reason) &&
     (!carriesFinding || comparison.retained.length > 0) &&
     ((comparison.status !== "partial" &&
       comparison.status !== "scope_changed") ||
@@ -348,6 +368,7 @@ function verifyImmediateFidelity(
   input: HistoryAssessmentInput,
   fidelity: z.infer<typeof modelImmediateFidelitySchema>,
   evidenceStatus: ReturnType<typeof parentEvidenceStatus>,
+  downstreamQuote: string,
 ): z.infer<typeof immediateFidelitySchema> {
   if (evidenceStatus !== "available") {
     return {
@@ -358,14 +379,32 @@ function verifyImmediateFidelity(
   }
   if (fidelity.status === "assessed") {
     const evidence = verifyQuotes(input, fidelity.evidence);
-    if (evidence && fidelity.reason.trim()) return { ...fidelity, evidence };
+    const broaderClaim = locateBroaderClaim(
+      fidelity.verdict,
+      downstreamQuote,
+      fidelity.broaderClaim,
+      input.downstreamContext,
+    );
+    if (
+      evidence &&
+      broaderClaim !== undefined &&
+      hasQuotedWording(downstreamQuote, input.downstreamMarker) &&
+      input.downstreamText.indexOf(downstreamQuote) ===
+        input.downstreamText.lastIndexOf(downstreamQuote) &&
+      hasExplanation(fidelity.reason) &&
+      (fidelity.verdict !== "D" ||
+        (fidelity.mutationKinds?.length &&
+          hasQuotedWording(downstreamQuote, input.downstreamMarker) &&
+          evidence.some(({ text }) => hasQuotedWording(text))))
+    )
+      return { ...fidelity, broaderClaim, evidence };
   }
   return {
     status: "unassessed",
     reason:
-      fidelity.status === "unassessed" && fidelity.reason.trim()
+      fidelity.status === "unassessed" && hasExplanation(fidelity.reason)
         ? fidelity.reason
-        : "Fidelity assessment lacks an explanation or exact intermediate evidence.",
+        : "Fidelity assessment lacks a substantive explanation, required change dimension, or exact evidence.",
   };
 }
 
@@ -423,7 +462,8 @@ export function verifyHistoryAssessments(
         : undefined;
     const outsideCredit = routeCheck === "outside_credited_passage";
     const reason = row.reason.trim();
-    const verifiedRoute = !outsideCredit && reason ? routeCheck : undefined;
+    const verifiedRoute =
+      !outsideCredit && hasExplanation(reason) ? routeCheck : undefined;
     return {
       caseId: input.caseId,
       findingId: input.finding.findingId,
@@ -445,6 +485,7 @@ export function verifyHistoryAssessments(
         input,
         row.immediateFidelity,
         evidenceStatus,
+        row.downstreamQuote,
       ),
       parentEvidenceStatus: evidenceStatus,
       ...(evidenceStatus !== "unavailable" && input.parentTextVersionId

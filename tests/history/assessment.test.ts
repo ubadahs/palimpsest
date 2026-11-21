@@ -99,6 +99,47 @@ const modelRow = {
 };
 
 describe("citation history assessment verification", () => {
+  it("separately verifies a faithful premise and the later authors' wider use while preserving the route judgment", () => {
+    const broaderClaim = "The finding should guide all forest restoration.";
+    const context = input.downstreamContext + " " + broaderClaim;
+    const check = (quote: string | null) =>
+      verifyHistoryAssessments([{ ...input, downstreamContext: context }], {
+        assessments: [
+          {
+            ...modelRow,
+            immediateFidelity: {
+              ...modelRow.immediateFidelity,
+              verdict: "B",
+              broaderClaim: quote,
+              reason:
+                "The soil result is used to recommend action across forests.",
+            },
+          },
+        ],
+      })[0];
+    expect(check(broaderClaim)).toMatchObject({
+      route: { kind: "uptake" },
+      immediateFidelity: {
+        status: "assessed",
+        verdict: "B",
+        broaderClaim: {
+          text: broaderClaim,
+          start: context.indexOf(broaderClaim),
+          end: context.length,
+        },
+      },
+    });
+    for (const quote of [
+      null,
+      downstreamText,
+      "The authors never wrote this.",
+    ]) {
+      expect(check(quote)).toMatchObject({
+        route: { kind: "uptake" },
+        immediateFidelity: { status: "unassessed" },
+      });
+    }
+  });
   it("keeps an evidenced route when the immediate-source verdict quotes the wrong paper", () => {
     const [result] = verifyHistoryAssessments([input], {
       assessments: [
@@ -107,6 +148,7 @@ describe("citation history assessment verification", () => {
           immediateFidelity: {
             ...modelRow.immediateFidelity,
             verdict: "D",
+            mutationKinds: ["population_shifted"],
             evidence: [{ blockId: "a-result", text: downstreamText }],
           },
         },
@@ -117,6 +159,41 @@ describe("citation history assessment verification", () => {
       route: { kind: "uptake" },
       immediateFidelity: { status: "unassessed" },
       comparison: { status: "scope_changed" },
+    });
+  });
+
+  it("requires a named change, substantive rationale, and wording on each side for an immediate distortion", () => {
+    const grade = {
+      ...modelRow.immediateFidelity,
+      verdict: "D",
+      mutationKinds: ["scope_broadened"],
+      reason: "The later claim drops the restriction to coarser soil.",
+    };
+    const check = (change: object, downstreamQuote = downstreamText) =>
+      verifyHistoryAssessments([input], {
+        assessments: [
+          {
+            ...modelRow,
+            downstreamQuote,
+            immediateFidelity: { ...grade, ...change },
+          },
+        ],
+      })[0];
+    expect(check({})).toMatchObject({
+      immediateFidelity: { status: "assessed", verdict: "D" },
+    });
+    for (const change of [
+      { mutationKinds: [] },
+      { reason: "x" },
+      { evidence: [] },
+    ]) {
+      expect(check(change)).toMatchObject({
+        immediateFidelity: { status: "unassessed" },
+        route: { kind: "uptake" },
+      });
+    }
+    expect(check({}, input.downstreamMarker)).toMatchObject({
+      immediateFidelity: { status: "unassessed" },
     });
   });
 

@@ -1,5 +1,5 @@
 import { PROMPT_VERSIONS } from "../config/prompt-versions.js";
-import { verdictRubric } from "../domain/rubric.js";
+import { citationUseRubric } from "../domain/citation-use.js";
 import type { ProductionAdapterDeps } from "../stages/production.js";
 import { createScopeModelRunner } from "../stages/scope/model-call.js";
 import {
@@ -62,7 +62,10 @@ function buildHistoryPrompt(cases: readonly HistoryAssessmentInput[]) {
     prefix: `Assess the transfer of an individual scientific finding between three papers. S is the original paper, A is the intermediate paper, and B is the later paper. Use the supplied evidence and verified citation bindings. Shared vocabulary, chronology, or a bibliography entry without an in-text citation does not establish a route.
 
 Assess immediateFidelity for B's use of A. A is the cited paper for this judgment. Compare the same proposition within B's exact wording and A's full text. Name A's qualifier and quote B's corresponding wording or state that the wording has no qualifier. A can support the attribution with an estimate or synthesis of its own. Assess the quantity and the degree of certainty separately. When A gives an explicitly approximate numerical comparison and B states the corresponding point value as a fact without comparable qualification, choose D. An equivalent approximation in B can be F even if the two papers express the numbers differently. Judge the words as written. Do not add “about” or “estimated” while paraphrasing an unqualified claim. Supply exact quotes from A and use an unassessed result if the text is unavailable or does not support a defensible judgment.
-${verdictRubric()}
+${citationUseRubric}
+For immediate fidelity, downstreamQuote is the exact attributed span. On B, put the separate conclusion in immediateFidelity.broaderClaim, copied from downstreamContext, and explain how the credited clause supports it in reason. Supply null or omit broaderClaim for other verdicts. The route of the original finding is a separate judgment.
+
+For an immediate D, select at least one mutationKinds dimension, describe what the cited paper said and how the later wording changed it in reason, and supply exact wording from both papers in evidence and downstreamQuote.
 
 Then assess how B's wording uses A in relation to S. verifiedFirstHopAttribution identifies the work cited by the exact A marker and supplies the particular passage it credits to S. The paragraphCitations list supplies other exact markers in the same paragraph, the sentence each sits in, and its own matched bibliography entries. Assign each premise to the marker attached to that premise. A marker on one sentence does not give its source credit for separately cited premises elsewhere in the paragraph, even if S also discusses those premises. A shared_reference_group gives S credit as a group member without assigning the claim solely to S. B's exact wording and marker control what B attributes to A. A direct B citation to S does not by itself establish the route through A.
 
